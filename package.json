@@ -1,0 +1,25 @@
+{
+  "name": "napcat-qq-bot",
+  "version": "1.0.0",
+  "description": "NapCat QQ机器人 - AI回复 + B站内容解析",
+  "main": "src/bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dev": "nodemon src/bot.js",
+    "login": "node scripts/login.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "ws": "^8.14.2",
+    "puppeteer": "^21.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
