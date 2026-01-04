@@ -287,8 +287,8 @@ export default class ImageGenerator {
     }
     .dynamic-img {
       width: 100%;
-      height: 200px;
-      object-fit: cover;
+      height: auto;
+      object-fit: contain;
       border-radius: 8px;
     }
     .stats {
@@ -544,7 +544,7 @@ export default class ImageGenerator {
     <img class="cover" src="${data.cover}" />
     <div class="content">
       <div class="title">${data.title}</div>
-      ${data.rating ? `<div class="rating">⭐ ${data.rating}分</div>` : ''}
+      ${data.rating ? `<div class="rating">★ ${data.rating}分</div>` : ''}
       <div class="evaluate">${data.evaluate || '暂无简介'}</div>
       <div class="info-row">
         ${data.pubdate} · 共${data.episodes}集

@@ -47,7 +47,8 @@ export default class MessageHandler {
         console.log('Received mini app message:', JSON.stringify(msg.data, null, 2));
         try {
           const jsonData = JSON.parse(msg.data.data);
-          if (jsonData.meta?.detail_1?.qqdocurl?.includes('bilibili.com')) {
+          const qqdocurl = jsonData.meta?.detail_1?.qqdocurl;
+          if (qqdocurl && (qqdocurl.includes('bilibili.com') || qqdocurl.includes('b23.tv'))) {
             return {
               type: 'miniapp',
               data: this.urlParser.extractBiliUrlFromMiniApp(jsonData)

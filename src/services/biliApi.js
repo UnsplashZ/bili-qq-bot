@@ -117,7 +117,7 @@ export default class BiliApi {
   // 获取专栏信息
   async getArticleInfo(cvid) {
     try {
-      const response = await this.axios.get(config.bilibili.api.articleInfo, {
+      const response = await this.axios.get('https://api.bilibili.com/x/article/view', {
         params: { id: cvid }
       });
 
@@ -136,13 +136,13 @@ export default class BiliApi {
         author: userInfo.name,
         authorFace: userInfo.face,
         uid: data.mid,
-        banner: data.banner_url || data.image_urls[0],
+        banner: data.banner_url || (data.image_urls && data.image_urls[0]),
         summary: data.summary,
         pubdate: this.formatDate(data.publish_time),
-        view: this.formatNumber(data.stats.view),
-        like: this.formatNumber(data.stats.like),
-        favorite: this.formatNumber(data.stats.favorite),
-        reply: this.formatNumber(data.stats.reply)
+        view: this.formatNumber(data.stats?.view || 0),
+        like: this.formatNumber(data.stats?.like || 0),
+        favorite: this.formatNumber(data.stats?.favorite || 0),
+        reply: this.formatNumber(data.stats?.reply || 0)
       };
     } catch (error) {
       this.logger.error('获取专栏信息失败:', error);
@@ -171,7 +171,7 @@ export default class BiliApi {
         pubdate: data.publish?.pub_time_show || '',
         rating: data.rating?.score || 0,
         view: this.formatNumber(data.stat?.views || 0),
-        follow: this.formatNumber(data.stat?.followers || 0),
+        follow: this.formatNumber(data.stat?.favorites || data.stat?.followers || 0),
         danmaku: this.formatNumber(data.stat?.danmakus || 0),
         episodes: data.episodes?.length || 0
       };
