@@ -676,7 +676,7 @@ const htmlTemplate = `
       <span class="icon">play_arrow</span> 播放数: ${playCount}
       <span class="icon">chat</span> 弹幕数: ${danmakuCount}
       <!-- 评分图标，如果是自定义，确保Base64编码 -->
-      <img src="data:image/svg+xml;base64,${base64EncodedIcon}" alt="评分">
+      <span>评分: ${score}</span>
     </body>
   </html>
 `;
