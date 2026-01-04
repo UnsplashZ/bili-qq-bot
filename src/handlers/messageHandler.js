@@ -44,6 +44,7 @@ export default class MessageHandler {
     // 检查小程序 (QQ小程序的JSON格式)
     for (const msg of msgArray) {
       if (msg.type === 'json') {
+        console.log('Received mini app message:', JSON.stringify(msg.data, null, 2));
         try {
           const jsonData = JSON.parse(msg.data.data);
           if (jsonData.meta?.detail_1?.qqdocurl?.includes('bilibili.com')) {

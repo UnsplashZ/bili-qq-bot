@@ -66,7 +66,14 @@ export default class ImageGenerator {
         screenshotOptions.clip = { x: 0, y: 0, width: 800, height: await this.getContentHeight(page) };
       }
       
-      await page.screenshot(screenshotOptions);
+      if (type === 'dynamic') {
+        // 等待页面完全加载，包括图片
+        await page.waitForSelector('.bili-dyn-content__orig', { timeout: 10000 });
+        await page.waitForTimeout(2000); // 额外等待图片加载
+        await page.screenshot({ path: outputPath, fullPage: true });
+      } else {
+        await page.screenshot(screenshotOptions);
+      }
 
       await page.close();
 
@@ -569,3 +576,107 @@ export default class ImageGenerator {
     }
   }
 }
+
+const htmlTemplate = `
+  <html>
+    <head>
+      <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          padding: 20px;
+          font-family: "Microsoft YaHei", Arial, sans-serif;
+        }
+        .card {
+          background: white;
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+          max-width: 760px;
+        }
+        .cover {
+          width: 100%;
+          height: 380px;
+          object-fit: cover;
+          display: block;
+        }
+        .content {
+          padding: 24px;
+        }
+        .title {
+          font-size: 24px;
+          font-weight: bold;
+          color: #333;
+          margin-bottom: 16px;
+          line-height: 1.4;
+        }
+        .author-row {
+          display: flex;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+        .avatar {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          margin-right: 12px;
+        }
+        .author-info {
+          flex: 1;
+        }
+        .author-name {
+          font-size: 16px;
+          font-weight: bold;
+          color: #333;
+          margin-bottom: 4px;
+        }
+        .pubdate {
+          font-size: 13px;
+          color: #999;
+        }
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          padding: 20px 0;
+          border-top: 1px solid #eee;
+        }
+        .stat-item {
+          text-align: center;
+        }
+        .stat-label {
+          font-size: 13px;
+          color: #999;
+          margin-bottom: 6px;
+        }
+        .stat-value {
+          font-size: 20px;
+          font-weight: bold;
+          color: #00a1d6;
+        }
+        .duration {
+          position: absolute;
+          bottom: 12px;
+          right: 12px;
+          background: rgba(0,0,0,0.7);
+          color: white;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 14px;
+        }
+        .cover-wrapper {
+          position: relative;
+        }
+        .icon { font-family: 'Material Icons'; }
+      </style>
+    </head>
+    <body>
+      <!-- 使用Material Icons，例如播放图标 -->
+      <span class="icon">play_arrow</span> 播放数: ${playCount}
+      <span class="icon">chat</span> 弹幕数: ${danmakuCount}
+      <!-- 评分图标，如果是自定义，确保Base64编码 -->
+      <img src="data:image/svg+xml;base64,${base64EncodedIcon}" alt="评分">
+    </body>
+  </html>
+`;
