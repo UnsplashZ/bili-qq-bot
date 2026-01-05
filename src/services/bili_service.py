@@ -1,7 +1,8 @@
 import sys
 import json
 import asyncio
-from bilibili_api import video, bangumi, user, Credential, login
+from bilibili_api import video, bangumi, user, Credential
+import bilibili_api.login as login
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'cookies.json'

@@ -1,0 +1,29 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+venv/
+.venv/
+env/
+bin/
+lib/
+share/
+pyvenv.cfg
+*.pyc
+__pycache__/
+
+# Environment & Secrets
+.env
+cookies.json
+
+# Project Specific
+application.log
+subscriptions.json
+
+# OS
+.DS_Store
+Thumbs.db
