@@ -1,37 +1,37 @@
-# 依赖
+# Node.js
 node_modules/
-package-lock.json
-yarn.lock
-
-# 日志
-logs/
-*.log
-
-# 临时文件
-temp/
-*.png
-*.jpg
-*.jpeg
-
-# 配置文件(包含敏感信息)
-src/config.js
-
-# 编辑器
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# 环境变量
-.env
-.env.local
-
-# 调试
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+venv/
+.venv/
+env/
+bin/
+lib/
+share/
+pyvenv.cfg
+*.pyc
+__pycache__/
+
+# Environment & Secrets
+.env
+cookies.json
+
+# Project Specific
+application.log
+subscriptions.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp Files
+tmp/
+temp/
+*.tmp
+
+# Logs
+logs/

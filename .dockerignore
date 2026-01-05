@@ -1,0 +1,12 @@
+# 忽略 node_modules 和 本地环境
+node_modules
+venv
+.git
+.env
+logs/*.log
+temp/*
+test_*.py
+debug_*.py
+inspect_*.py
+__pycache__
+*.pyc
