@@ -46,8 +46,8 @@ COPY package.json package-lock.json ./
 
 # 设置 Puppeteer 环境变量，跳过 Chromium 下载（如果使用系统 Chrome）或者让它下载
 # 这里我们让 Puppeteer 自己下载 Chromium，因为上面的 apt 只是安装了运行库
-# 设置 npm 镜像源可选，为了速度可以使用淘宝源，这里使用默认
-RUN npm ci
+# 设置 npm 镜像源加速下载
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 
 # 4. 复制项目源代码
 COPY . .
