@@ -8,11 +8,10 @@ services:
     network_mode: "host" # 使用宿主机网络，解决连接 localhost:3001 的问题
     # 挂载卷：持久化重要数据
     volumes:
-      - ./cookies.json:/app/cookies.json  # 保持 B 站登录状态
+      - ./config:/app/config              # 配置目录 (.env, config.json)
+      - ./data:/app/data                  # 数据目录 (cookies.json, subscriptions.json)
       - ./logs:/app/logs                  # 查看日志
-      - ./temp:/app/temp                  # 临时图片（可选）
-      - ./.env:/app/.env                  # 环境变量配置
+      - /root/napcat-data/QQ:/root/napcat-data/QQ                  # QQ数据目录映射
     # 环境变量 (也可以直接读取 .env 文件)
     environment:
       - TZ=Asia/Shanghai                  # 设置时区为上海
-      - PUPPETEER_EXECUTABLE_PATH=        # 使用 Puppeteer 自带的 Chrome

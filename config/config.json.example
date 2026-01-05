@@ -1,0 +1,7 @@
+{
+  "aiContextLimit": 10,
+  "blacklistedQQs": [],
+  "enabledGroups": [],
+  "linkCacheTimeout": 300,
+  "subscriptionCheckInterval": 60
+}

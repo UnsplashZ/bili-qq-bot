@@ -17,12 +17,16 @@ pyvenv.cfg
 __pycache__/
 
 # Environment & Secrets
-.env
-cookies.json
+config/.env
+config/config.json
+data/cookies.json
+data/subscriptions.json
 
-# Project Specific
+# Project Logs
 application.log
-subscriptions.json
+
+# AI tools
+.claude/
 
 # OS
 .DS_Store
@@ -35,3 +39,10 @@ temp/
 
 # Logs
 logs/
+
+# Fonts
+fonts/*
+!fonts/.gitkeep
+
+# Test
+test*

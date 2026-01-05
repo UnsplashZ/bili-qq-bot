@@ -14,11 +14,17 @@ class BiliApi {
             const processArgs = [this.scriptPath, command, ...args];
             const pythonProcess = spawn(this.pythonPath, processArgs);
             
-            let dataString = '';
+            const chunks = [];
             let errorString = '';
 
+            // Set timeout for Python process (30 seconds)
+            const timeout = setTimeout(() => {
+                pythonProcess.kill();
+                reject(new Error(`Python script timed out for command: ${command}`));
+            }, 30000);
+
             pythonProcess.stdout.on('data', (data) => {
-                dataString += data.toString();
+                chunks.push(data);
             });
 
             pythonProcess.stderr.on('data', (data) => {
@@ -26,18 +32,30 @@ class BiliApi {
             });
 
             pythonProcess.on('close', (code) => {
+                clearTimeout(timeout);
                 if (code !== 0) {
+                    // Check if it was killed by timeout (signal usually SIGTERM or SIGKILL)
+                    if (code === null) {
+                         // Process killed, likely by timeout
+                         return; // Already rejected in timeout
+                    }
                     logger.error(`Python script exited with code ${code}: ${errorString}`);
                     reject(new Error(`Python script exited with code ${code}`));
                     return;
                 }
+                const dataString = Buffer.concat(chunks).toString();
                 try {
                     const json = JSON.parse(dataString);
                     resolve(json);
                 } catch (e) {
-                    logger.error('Failed to parse Python output:', dataString);
+                    logger.error('Failed to parse Python output:', dataString.substring(0, 500) + '...'); // Log partial output
                     reject(e);
                 }
+            });
+            
+            pythonProcess.on('error', (err) => {
+                clearTimeout(timeout);
+                reject(err);
             });
         });
     }
@@ -80,6 +98,18 @@ class BiliApi {
 
     async getOpusInfo(opusId) {
         return this.runCommand('opus', [opusId]);
+    }
+
+    async getUserInfo(uid) {
+        return this.runCommand('user_info', [uid]);
+    }
+
+    async getEpInfo(epId) {
+        return this.runCommand('ep', [epId]);
+    }
+
+    async getMediaInfo(mediaId) {
+        return this.runCommand('media', [mediaId]);
     }
 }
 
