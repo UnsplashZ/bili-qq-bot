@@ -1,562 +1,469 @@
-import puppeteer from 'puppeteer';
-import config from '../config.js';
-import Logger from '../utils/logger.js';
-import path from 'path';
-import fs from 'fs';
+const puppeteer = require('puppeteer');
+const logger = require('../utils/logger');
+const fs = require('fs');
+const path = require('path');
 
-export default class ImageGenerator {
-  constructor() {
-    this.logger = new Logger();
-    this.browser = null;
-  }
+// SVG Icons (Unified Style - Material Designish)
+const ICONS = {
+    view: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
+    like: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></svg>',
+    comment: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
+    fire: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>',
+    star: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+    share: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c0 .24-.04.47-.09.7l7.05 4.11c.54-.5 1.25-.81 2.04-.81 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3z"/></svg>'
+};
 
-  async initBrowser() {
-    if (!this.browser) {
-      this.browser = await puppeteer.launch(config.image.puppeteer);
+class ImageGenerator {
+    constructor() {
+        this.browser = null;
     }
-    return this.browser;
-  }
 
-  async generate(type, data) {
-    try {
-      const browser = await this.initBrowser();
-      const page = await browser.newPage();
-      
-      // 设置视口大小
-      await page.setViewport({ width: 800, height: 1200 });
+    async init() {
+        if (!this.browser) {
+            this.browser = await puppeteer.launch({
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                headless: "new"
+            });
+        }
+    }
 
-      // 根据类型生成不同的HTML
-      let html;
-      switch (type) {
-        case 'video':
-          html = this.generateVideoHTML(data);
-          break;
-        case 'dynamic':
-          html = this.generateDynamicHTML(data);
-          break;
-        case 'article':
-          html = this.generateArticleHTML(data);
-          break;
-        case 'bangumi':
-          html = this.generateBangumiHTML(data);
-          break;
-        default:
-          throw new Error(`未知类型: ${type}`);
-      }
+    async generatePreviewCard(data, type) {
+        await this.init();
+        const page = await this.browser.newPage();
+        
+        // Type Config (Label & Color)
+        const TYPE_CONFIG = {
+            video: { label: '视频', color: '#FB7299', icon: '📺' },
+            bangumi: { label: '番剧', color: '#00A1D6', icon: '🎬' },
+            article: { label: '专栏', color: '#FAA023', icon: '📰' },
+            live: { label: '直播', color: '#FF6699', icon: '📡' },
+            dynamic: { label: '动态', color: '#00B5E5', icon: '📱' }
+        };
+        const currentType = TYPE_CONFIG[type] || { label: 'Bilibili', color: '#FB7299', icon: '' };
 
-      await page.setContent(html);
-      
-      // 等待图片加载
-      await page.waitForTimeout(1000);
+        // Polished CSS with Background & Badge
+        const style = `
+            <style>
+                body { margin: 0; padding: 0; background: transparent; width: 520px; font-family: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", sans-serif; }
+                
+                .container {
+                    padding: 20px;
+                    background: linear-gradient(135deg, #fcefee 0%, #e6f7ff 100%);
+                    box-sizing: border-box;
+                    width: 100%;
+                    min-height: 200px;
+                    display: inline-block;
+                }
 
-      // 生成截图
-      const filename = `bili_${type}_${Date.now()}.png`;
-      const filepath = path.join(config.image.output.path, filename);
-      
-      await page.screenshot({
-        path: filepath,
-        fullPage: false,
-        clip: { x: 0, y: 0, width: 800, height: await this.getContentHeight(page) }
-      });
+                .card { 
+                    position: relative;
+                    background: #fff; 
+                    border-radius: 16px; 
+                    overflow: hidden; 
+                    box-shadow: 0 12px 40px rgba(0,0,0,0.1); 
+                    border: 1px solid rgba(255,255,255,0.8);
+                }
 
-      await page.close();
+                /* Type Badge (Moved Outside) */
+                .type-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-bottom: 12px;
+                    margin-left: 2px;
+                    
+                    background: ${currentType.color};
+                    color: white;
+                    padding: 6px 12px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: bold;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                }
 
-      this.logger.info(`生成图片成功: ${filename}`);
-      return filepath;
-    } catch (error) {
-      this.logger.error('生成图片失败:', error);
-      throw error;
-    }
-  }
+                .cover-container { position: relative; width: 100%; }
+                .cover { width: 100%; display: block; object-fit: cover; }
+                .cover.video { aspect-ratio: 16/9; }
+                .cover.bangumi { aspect-ratio: 16/9; }
+                .cover.live { aspect-ratio: 16/9; }
+                .cover.article { aspect-ratio: 21/9; }
+                
+                .content { padding: 20px; position: relative; }
+                
+                .header { display: flex; align-items: center; margin-bottom: 12px; }
+                .avatar { width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                .user-info { display: flex; flex-direction: column; }
+                .user-name { font-size: 15px; font-weight: 700; color: #333; }
+                .pub-time { font-size: 12px; color: #999; margin-top: 2px; }
+                
+                .title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #18191C; line-height: 1.4; letter-spacing: 0.5px; }
+                
+                .text-content { font-size: 15px; color: #444; line-height: 1.7; margin-top: 16px; margin-bottom: 12px; white-space: pre-wrap; word-wrap: break-word; text-align: justify; }
+                
+                .stats { display: flex; gap: 20px; font-size: 13px; color: #9499A0; align-items: center; margin-bottom: 4px; background: #F6F7F8; padding: 8px 12px; border-radius: 8px; width: fit-content; }
+                .stat-item { display: flex; align-items: center; gap: 5px; font-weight: 500; }
+                .stat-item svg { fill: #9499A0; }
+                
+                .images-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+                .images-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer; transition: transform 0.2s; }
+                
+                .single-image { margin-top: 12px; width: 100%; border-radius: 12px; display: block; height: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+                
+                .live-badge-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; vertical-align: middle; transform: translateY(-1px); }
+                .live-on { background: #FF6699; color: white; }
+                .live-off { background: #E7E7E7; color: #999; }
 
-  async getContentHeight(page) {
-    return await page.evaluate(() => {
-      return document.querySelector('.card').offsetHeight;
-    });
-  }
+                .video-tag { background: #F6F7F8; color: #666; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-right: 6px; vertical-align: middle; }
+            </style>
+        `;
 
-  // 生成视频卡片HTML
-  generateVideoHTML(data) {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 20px;
-      font-family: "Microsoft YaHei", Arial, sans-serif;
-    }
-    .card {
-      background: white;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-      max-width: 760px;
-    }
-    .cover {
-      width: 100%;
-      height: 380px;
-      object-fit: cover;
-      display: block;
-    }
-    .content {
-      padding: 24px;
-    }
-    .title {
-      font-size: 24px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 16px;
-      line-height: 1.4;
-    }
-    .author-row {
-      display: flex;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-    .avatar {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      margin-right: 12px;
-    }
-    .author-info {
-      flex: 1;
-    }
-    .author-name {
-      font-size: 16px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 4px;
-    }
-    .pubdate {
-      font-size: 13px;
-      color: #999;
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      padding: 20px 0;
-      border-top: 1px solid #eee;
-    }
-    .stat-item {
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 13px;
-      color: #999;
-      margin-bottom: 6px;
-    }
-    .stat-value {
-      font-size: 20px;
-      font-weight: bold;
-      color: #00a1d6;
-    }
-    .duration {
-      position: absolute;
-      bottom: 12px;
-      right: 12px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .cover-wrapper {
-      position: relative;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="cover-wrapper">
-      <img class="cover" src="${data.cover}" />
-      <div class="duration">${data.duration}</div>
-    </div>
-    <div class="content">
-      <div class="title">${data.title}</div>
-      <div class="author-row">
-        <img class="avatar" src="${data.authorFace}" />
-        <div class="author-info">
-          <div class="author-name">${data.author}</div>
-          <div class="pubdate">${data.pubdate}</div>
-        </div>
-      </div>
-      <div class="stats">
-        <div class="stat-item">
-          <div class="stat-label">播放</div>
-          <div class="stat-value">${data.view}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">点赞</div>
-          <div class="stat-value">${data.like}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">收藏</div>
-          <div class="stat-value">${data.favorite}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
+        let htmlContent = `<html><head>${style}</head><body>
+            <div class="container">
+                <div class="type-badge">
+                    <span>${currentType.icon}</span>
+                    <span>${currentType.label}</span>
+                </div>
+                <div class="card">
+        `;
 
-  // 继续查看第2部分获取其他HTML生成方法...
-// 生成动态卡片HTML
-  generateDynamicHTML(data) {
-    const imagesHTML = data.images.slice(0, 3).map(img => 
-      `<img class="dynamic-img" src="${img}" />`
-    ).join('');
+        // ---------------- VIDEO ----------------
+        if (type === 'video') {
+            const info = data.data;
+            htmlContent += `
+                <div class="cover-container">
+                    <img class="cover video" src="${info.pic}" />
+                </div>
+                <div class="content">
+                    <div class="header">
+                        <img class="avatar" src="${info.owner.face}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        <div class="user-info">
+                            <span class="user-name">${info.owner.name}</span>
+                            <span class="pub-time">${new Date(info.pubdate * 1000).toLocaleString()}</span>
+                        </div>
+                    </div>
+                    <div class="title">${info.title}</div>
+                    <div class="stats">
+                        <span class="stat-item">${ICONS.view} ${this.formatNumber(info.view?.count || info.stat?.view)}</span>
+                        <span class="stat-item">${ICONS.like} ${this.formatNumber(info.like || info.stat?.like)}</span>
+                        <span class="stat-item">${ICONS.comment} ${this.formatNumber(info.reply || info.stat?.reply)}</span>
+                    </div>
+                    <div class="text-content">${info.desc || ''}</div>
+                </div>
+            `;
+        } 
+        // ---------------- BANGUMI ----------------
+        else if (type === 'bangumi') {
+            const info = data.data;
+            htmlContent += `
+                <div class="cover-container">
+                    <img class="cover bangumi" src="${info.cover}" />
+                </div>
+                <div class="content">
+                    <div class="title">${info.title}</div>
+                    <div class="stats">
+                        <span class="stat-item">${ICONS.view} ${this.formatNumber(info.stat?.views)}</span>
+                        <span class="stat-item">${ICONS.heart} ${this.formatNumber(info.stat?.follow)} 追番</span>
+                        <span class="stat-item">${ICONS.star} ${info.rating?.score || 'N/A'}分</span>
+                        <span class="stat-item">${info.new_ep?.index_show || ''}</span>
+                    </div>
+                    <div class="text-content">${info.desc || ''}</div>
+                </div>
+            `;
+        } 
+        // ---------------- ARTICLE ----------------
+        else if (type === 'article') {
+            const info = data.data;
+            const cover = info.banner_url || (info.image_urls && info.image_urls.length > 0 ? info.image_urls[0] : '');
+            const pubDate = info.publish_time ? new Date(info.publish_time * 1000).toLocaleString() : '';
+            
+            htmlContent += `
+                ${cover ? `<div class="cover-container"><img class="cover article" src="${cover}" /></div>` : ''}
+                <div class="content">
+                    <div class="header">
+                        <div class="user-info">
+                            <span class="user-name">${info.author_name || 'Unknown'}</span>
+                            <span class="pub-time">${pubDate}</span>
+                        </div>
+                    </div>
+                    <div class="title">${info.title}</div>
+                    <div class="stats">
+                        <span class="stat-item">${ICONS.view} ${this.formatNumber(info.stats?.view)}</span>
+                        <span class="stat-item">${ICONS.like} ${this.formatNumber(info.stats?.like)}</span>
+                        <span class="stat-item">${ICONS.comment} ${this.formatNumber(info.stats?.reply)}</span>
+                    </div>
+                    <div class="text-content">${info.summary || ''}</div>
+                </div>
+            `;
+        } 
+        // ---------------- LIVE ----------------
+        else if (type === 'live') {
+            const info = data.data;
+            const roomInfo = info.room_info || {};
+            const anchorInfo = info.anchor_info || {};
+            const watched = info.watched_show || {};
+            
+            const isLive = roomInfo.live_status === 1;
+            const liveBadge = isLive 
+                ? `<span class="live-badge-status live-on">LIVE</span>` 
+                : `<span class="live-badge-status live-off">OFFLINE</span>`;
 
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-      padding: 20px;
-      font-family: "Microsoft YaHei", Arial, sans-serif;
-    }
-    .card {
-      background: white;
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-      max-width: 760px;
-    }
-    .author-row {
-      display: flex;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-    .avatar {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      margin-right: 14px;
-    }
-    .author-info {
-      flex: 1;
-    }
-    .author-name {
-      font-size: 18px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 6px;
-    }
-    .pubdate {
-      font-size: 14px;
-      color: #999;
-    }
-    .content {
-      font-size: 16px;
-      line-height: 1.6;
-      color: #333;
-      margin-bottom: 16px;
-      white-space: pre-wrap;
-    }
-    .images {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    .dynamic-img {
-      width: 100%;
-      height: 200px;
-      object-fit: cover;
-      border-radius: 8px;
-    }
-    .stats {
-      display: flex;
-      gap: 24px;
-      padding-top: 16px;
-      border-top: 1px solid #eee;
-    }
-    .stat-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 14px;
-      color: #666;
-    }
-    .stat-value {
-      font-weight: bold;
-      color: #00a1d6;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="author-row">
-      <img class="avatar" src="${data.authorFace}" />
-      <div class="author-info">
-        <div class="author-name">${data.author}</div>
-        <div class="pubdate">${data.pubTs}</div>
-      </div>
-    </div>
-    <div class="content">${data.content || '(无文字内容)'}</div>
-    ${imagesHTML ? `<div class="images">${imagesHTML}</div>` : ''}
-    <div class="stats">
-      <div class="stat-item">
-        <span>转发</span>
-        <span class="stat-value">${data.forwardCount}</span>
-      </div>
-      <div class="stat-item">
-        <span>点赞</span>
-        <span class="stat-value">${data.likeCount}</span>
-      </div>
-      <div class="stat-item">
-        <span>评论</span>
-        <span class="stat-value">${data.replyCount}</span>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
+            htmlContent += `
+                <div class="cover-container">
+                    <img class="cover live" src="${roomInfo.cover}" />
+                </div>
+                <div class="content">
+                    <div class="header">
+                        <img class="avatar" src="${anchorInfo.base_info?.face}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        <div class="user-info">
+                            <span class="user-name">${anchorInfo.base_info?.uname || 'Unknown'}</span>
+                            <span class="pub-time">直播间: ${roomInfo.room_id}</span>
+                        </div>
+                    </div>
+                    <div class="title">${roomInfo.title} ${liveBadge}</div>
+                    <div class="stats">
+                        <span class="stat-item">${ICONS.fire} ${watched.text_large || watched.num || 0}</span>
+                        <span class="stat-item">${ICONS.star} ${info.area_name || ''}</span>
+                    </div>
+                </div>
+            `;
+        } 
+        // ---------------- DYNAMIC / OPUS ----------------
+        else if (type === 'dynamic') {
+            // Updated structure access to match Python's full response
+            let modules = {};
+            let item = {};
+            
+            if (data.data.item) {
+                item = data.data.item;
+                modules = item.modules;
+            } else {
+                item = data.data;
+                modules = item.modules || {};
+            }
 
-  // 生成专栏卡片HTML
-  generateArticleHTML(data) {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-      padding: 20px;
-      font-family: "Microsoft YaHei", Arial, sans-serif;
-    }
-    .card {
-      background: white;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-      max-width: 760px;
-    }
-    .banner {
-      width: 100%;
-      height: 320px;
-      object-fit: cover;
-    }
-    .content {
-      padding: 24px;
-    }
-    .title {
-      font-size: 26px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 12px;
-      line-height: 1.4;
-    }
-    .summary {
-      font-size: 15px;
-      color: #666;
-      line-height: 1.6;
-      margin-bottom: 20px;
-    }
-    .author-row {
-      display: flex;
-      align-items: center;
-      padding: 16px 0;
-      border-top: 1px solid #eee;
-      border-bottom: 1px solid #eee;
-      margin-bottom: 16px;
-    }
-    .avatar {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      margin-right: 12px;
-    }
-    .author-info {
-      flex: 1;
-    }
-    .author-name {
-      font-size: 16px;
-      font-weight: bold;
-      color: #333;
-    }
-    .pubdate {
-      font-size: 13px;
-      color: #999;
-      margin-top: 4px;
-    }
-    .stats {
-      display: flex;
-      gap: 32px;
-    }
-    .stat-item {
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 13px;
-      color: #999;
-      margin-bottom: 6px;
-    }
-    .stat-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: #00a1d6;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <img class="banner" src="${data.banner}" />
-    <div class="content">
-      <div class="title">${data.title}</div>
-      <div class="summary">${data.summary}</div>
-      <div class="author-row">
-        <img class="avatar" src="${data.authorFace}" />
-        <div class="author-info">
-          <div class="author-name">${data.author}</div>
-          <div class="pubdate">${data.pubdate}</div>
-        </div>
-      </div>
-      <div class="stats">
-        <div class="stat-item">
-          <div class="stat-label">阅读</div>
-          <div class="stat-value">${data.view}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">点赞</div>
-          <div class="stat-value">${data.like}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">收藏</div>
-          <div class="stat-value">${data.favorite}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
+            const module_author = modules.module_author || {};
+            const module_dynamic = modules.module_dynamic || {};
+            const module_stat = modules.module_stat || {};
+            
+            const authorName = module_author.name || 'Unknown';
+            const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+            const pubTime = module_author.pub_time || '';
+            
+            let text = "";
+            let title = "";
 
-  // 生成番剧卡片HTML
-  generateBangumiHTML(data) {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-      padding: 20px;
-      font-family: "Microsoft YaHei", Arial, sans-serif;
-    }
-    .card {
-      background: white;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-      max-width: 760px;
-    }
-    .cover {
-      width: 100%;
-      height: 400px;
-      object-fit: cover;
-    }
-    .content {
-      padding: 24px;
-    }
-    .title {
-      font-size: 24px;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 16px;
-    }
-    .rating {
-      display: inline-block;
-      background: #ff6b6b;
-      color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 16px;
-      font-weight: bold;
-      margin-bottom: 16px;
-    }
-    .evaluate {
-      font-size: 15px;
-      color: #666;
-      line-height: 1.6;
-      margin-bottom: 16px;
-    }
-    .info-row {
-      font-size: 14px;
-      color: #999;
-      margin-bottom: 20px;
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-    }
-    .stat-item {
-      text-align: center;
-    }
-    .stat-label {
-      font-size: 13px;
-      color: #999;
-      margin-bottom: 6px;
-    }
-    .stat-value {
-      font-size: 20px;
-      font-weight: bold;
-      color: #00a1d6;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <img class="cover" src="${data.cover}" />
-    <div class="content">
-      <div class="title">${data.title}</div>
-      ${data.rating ? `<div class="rating">⭐ ${data.rating}分</div>` : ''}
-      <div class="evaluate">${data.evaluate || '暂无简介'}</div>
-      <div class="info-row">
-        ${data.pubdate} · 共${data.episodes}集
-      </div>
-      <div class="stats">
-        <div class="stat-item">
-          <div class="stat-label">播放</div>
-          <div class="stat-value">${data.view}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">追番</div>
-          <div class="stat-value">${data.follow}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">弹幕</div>
-          <div class="stat-value">${data.danmaku}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
-  }
+            if (module_dynamic.desc) {
+                text = module_dynamic.desc.text || "";
+            } else if (module_dynamic.major?.opus) {
+                 if (module_dynamic.major.opus.summary?.text) {
+                     text = module_dynamic.major.opus.summary.text;
+                 } else if (module_dynamic.major.opus.summary?.rich_text_nodes) {
+                     text = module_dynamic.major.opus.summary.rich_text_nodes.map(n => n.text).join('');
+                 } else {
+                     text = "";
+                 }
+                 title = module_dynamic.major.opus.title || "";
+            }
 
-  async close() {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+            let images = [];
+            let videoCard = null;
+
+            if (module_dynamic.major?.draw?.items) {
+                images = module_dynamic.major.draw.items.map(i => i.src);
+            } else if (module_dynamic.major?.opus?.pics) {
+                 images = module_dynamic.major.opus.pics.map(i => i.url);
+            } else if (module_dynamic.major?.archive) {
+                 // Video card embedded in dynamic
+                 videoCard = module_dynamic.major.archive;
+                 if(!text) text = videoCard.desc;
+            }
+
+            // Construct Image HTML
+            let mediaHtml = '';
+            if (images.length === 1) {
+                mediaHtml = `<img class="single-image" src="${images[0]}">`;
+            } else if (images.length > 1) {
+                mediaHtml = `
+                    <div class="images-grid">
+                        ${images.map(src => `<img src="${src}">`).join('')}
+                    </div>`;
+            } else if (videoCard) {
+                mediaHtml = `
+                    <div style="margin-top:12px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                        <img src="${videoCard.cover}" style="width:100%; aspect-ratio:16/9; object-fit:cover;">
+                        <div style="padding:10px; background:#f9f9f9;">
+                            <div style="font-weight:bold; font-size:14px;">${videoCard.title}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            htmlContent += `
+                <div class="content">
+                    <div class="header">
+                        <img class="avatar" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        <div class="user-info">
+                            <span class="user-name">${authorName}</span>
+                            <span class="pub-time">${pubTime}</span>
+                        </div>
+                    </div>
+                    ${title ? `<div class="title">${title}</div>` : ''}
+                    <div class="stats">
+                         <span class="stat-item">${ICONS.share} ${this.formatNumber(module_stat.forward?.count)}</span>
+                         <span class="stat-item">${ICONS.comment} ${this.formatNumber(module_stat.comment?.count)}</span>
+                         <span class="stat-item">${ICONS.like} ${this.formatNumber(module_stat.like?.count)}</span>
+                    </div>
+                    <div class="text-content">${text}</div>
+                    ${mediaHtml}
+                </div>
+            `;
+        }
+
+        htmlContent += `</div></div></body></html>`;
+
+        await page.setContent(htmlContent);
+        // Screenshot the CONTAINER to capture background
+        const container = await page.$('.container');
+        const buffer = await container.screenshot({ type: 'png' }); 
+        
+        await page.close();
+        
+        return buffer.toString('base64');
     }
-  }
+
+    async generateHelpCard() {
+        await this.init();
+        const page = await this.browser.newPage();
+        
+        const style = `
+            <style>
+                body { margin: 0; padding: 0; background: transparent; width: 500px; font-family: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", sans-serif; }
+                .container {
+                    padding: 20px;
+                    background: linear-gradient(135deg, #fcefee 0%, #e6f7ff 100%);
+                    box-sizing: border-box;
+                    width: 100%;
+                    display: inline-block;
+                }
+                .card { 
+                    background: #fff; 
+                    border-radius: 16px; 
+                    overflow: hidden; 
+                    box-shadow: 0 12px 40px rgba(0,0,0,0.1); 
+                    border: 1px solid rgba(255,255,255,0.8);
+                    padding: 24px;
+                }
+                .header {
+                    text-align: center;
+                    margin-bottom: 24px;
+                    border-bottom: 2px solid #f0f0f0;
+                    padding-bottom: 16px;
+                }
+                .title { font-size: 22px; font-weight: 800; color: #FB7299; margin-bottom: 6px; letter-spacing: 1px; }
+                .subtitle { font-size: 14px; color: #999; }
+                
+                .section { margin-bottom: 24px; }
+                .section-title { 
+                    font-size: 16px; font-weight: 700; color: #333; margin-bottom: 12px; 
+                    display: flex; align-items: center; gap: 8px;
+                }
+                .section-title::before {
+                    content: ''; display: block; width: 4px; height: 16px; background: #00A1D6; border-radius: 2px;
+                }
+                
+                .link-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                .link-item { 
+                    background: #F6F7F8; padding: 10px 12px; border-radius: 8px; 
+                    font-size: 13px; color: #555; display: flex; align-items: center; gap: 8px;
+                    transition: all 0.2s;
+                }
+                .icon { font-size: 16px; }
+
+                .cmd-list { display: flex; flex-direction: column; gap: 10px; }
+                .cmd-item {
+                    display: flex; justify-content: space-between; align-items: center;
+                    background: #fff; border: 1px solid #eee; padding: 12px 16px; border-radius: 10px;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+                }
+                .cmd-code { 
+                    font-family: 'Consolas', 'Monaco', monospace; font-weight: bold; color: #FB7299; background: #FFF0F6; 
+                    padding: 4px 10px; border-radius: 6px; font-size: 13px;
+                }
+                .cmd-desc { font-size: 13px; color: #666; }
+                
+                .footer { text-align: center; font-size: 12px; color: #bbb; margin-top: 10px; }
+            </style>
+        `;
+
+        const html = `<html><head>${style}</head><body>
+            <div class="container">
+                <div class="card">
+                    <div class="header">
+                        <div class="title">Bilibili Assistant</div>
+                        <div class="subtitle">全能 B 站链接解析 & 订阅助手</div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">支持解析</div>
+                        <div class="link-list">
+                            <div class="link-item"><span class="icon">📺</span> 视频 (BV/av)</div>
+                            <div class="link-item"><span class="icon">🎬</span> 番剧 (ss/ep)</div>
+                            <div class="link-item"><span class="icon">📰</span> 专栏文章 (cv)</div>
+                            <div class="link-item"><span class="icon">📡</span> 直播间 (live)</div>
+                            <div class="link-item"><span class="icon">📱</span> 动态 (dynamic)</div>
+                            <div class="link-item"><span class="icon">🖼️</span> Opus图文</div>
+                            <div class="link-item"><span class="icon">🔗</span> 短链 (b23.tv)</div>
+                            <div class="link-item"><span class="icon">📦</span> 小程序分享</div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">指令列表</div>
+                        <div class="cmd-list">
+                            <div class="cmd-item">
+                                <span class="cmd-code">/login</span>
+                                <span class="cmd-desc">获取登录二维码</span>
+                            </div>
+                            <div class="cmd-item">
+                                <span class="cmd-code">/check &lt;key&gt;</span>
+                                <span class="cmd-desc">验证登录状态</span>
+                            </div>
+                            <div class="cmd-item">
+                                <span class="cmd-code">/sub &lt;uid&gt; dynamic</span>
+                                <span class="cmd-desc">订阅UP主动态</span>
+                            </div>
+                            <div class="cmd-item">
+                                <span class="cmd-code">/sub &lt;uid&gt; live</span>
+                                <span class="cmd-desc">订阅UP主直播</span>
+                            </div>
+                            <div class="cmd-item">
+                                <span class="cmd-code">/help</span>
+                                <span class="cmd-desc">显示此菜单</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="footer">Powered by NapCat & Puppeteer</div>
+                </div>
+            </div>
+        </body></html>`;
+
+        await page.setContent(html);
+        const container = await page.$('.container');
+        const buffer = await container.screenshot({ type: 'png' });
+        await page.close();
+        return buffer.toString('base64');
+    }
+
+    formatNumber(num) {
+        if (!num) return '0';
+        if (num > 10000) {
+            return (num / 10000).toFixed(1) + '万';
+        }
+        return num.toString();
+    }
 }
+
+module.exports = new ImageGenerator();
