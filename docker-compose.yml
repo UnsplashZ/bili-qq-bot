@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  napcat-bot:
+    build: .
+    container_name: napcat-qq-bot
+    restart: always
+    # 挂载卷：持久化重要数据
+    volumes:
+      - ./cookies.json:/app/cookies.json  # 保持 B 站登录状态
+      - ./logs:/app/logs                  # 查看日志
+      - ./temp:/app/temp                  # 临时图片（可选）
+      - ./.env:/app/.env                  # 环境变量配置
+    # 环境变量 (也可以直接读取 .env 文件)
+    environment:
+      - TZ=Asia/Shanghai                  # 设置时区为上海
+      - PUPPETEER_EXECUTABLE_PATH=        # 使用 Puppeteer 自带的 Chrome
+    # 资源限制（防止 Chrome 吃光内存）
+    deploy:
+      resources:
+        limits:
+          memory: 1G
