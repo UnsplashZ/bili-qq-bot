@@ -27,3 +27,11 @@ subscriptions.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Temp Files
+tmp/
+temp/
+*.tmp
+
+# Logs
+logs/
