@@ -365,6 +365,11 @@ class SubscriptionService {
                     // 处理图片消息，将base64图片转换为文件路径
                     messageChain = message.map(item => {
                         if (item.type === 'image' && item.data.file && item.data.file.startsWith('base64://')) {
+                            // 如果配置了直接发送 Base64，则不做转换
+                            if (config.useBase64Send) {
+                                return item;
+                            }
+
                             const base64Data = item.data.file.substring(9); // 移除 'base64://' 前缀
                             const imagePath = this.saveImageAsFile(base64Data);
                             // 返回文件路径格式，让NapCat直接发送原图

@@ -29,6 +29,7 @@ const config = {
     pythonPath: process.env.PYTHON_PATH || 'venv/bin/python',
     biliScriptPath: './src/services/bili_service.py',
     adminQQ: process.env.ADMIN_QQ,
+    useBase64Send: process.env.USE_BASE64_SEND === 'true',
 
     // --- Dynamic Configuration (config.json) ---
     // AI Context Limit

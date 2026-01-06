@@ -20,8 +20,11 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. 安装 MiSans 字体
-COPY fonts/mi/ /usr/share/fonts/truetype/mi/
+# 3. 安装字体 (Noto CJK 默认安装，MiSans 可选)
+# 将 fonts 目录下的所有内容复制到字体目录
+# 如果 fonts/mi 存在，会被复制到 /usr/share/fonts/truetype/mi
+# 如果不存在，也不会报错
+COPY fonts/ /usr/share/fonts/truetype/
 RUN fc-cache -fv
 
 # 4. 设置 Python 虚拟环境 (为了匹配源码中的 venv/bin/python 路径)

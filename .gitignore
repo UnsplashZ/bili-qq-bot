@@ -41,7 +41,8 @@ temp/
 logs/
 
 # Fonts
-fonts/
+fonts/*
+!fonts/.gitkeep
 
 # Test
 test*
