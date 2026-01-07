@@ -50,7 +50,8 @@ class ImageGenerator {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         // 根据内容类型动态决定宽度
-        let baseWidth = 900;
+        let baseWidth = 1200;
+        let minWidth = 400;
 
         // 对于动态类型，分析内容决定宽度
         if (type === 'dynamic') {
@@ -60,7 +61,7 @@ class ImageGenerator {
             // 检查是否有图片或视频
             const hasImages = module_dynamic.major?.draw?.items?.length > 0 ||
                             module_dynamic.major?.opus?.pics?.length > 0;
-            const hasVideo = !!module_dynamic.major?.archive;
+            const hasVideo = !!module_dynamic.major?.archive || !!module_dynamic.major?.live_rcmd;
             const hasOrig = !!(data.data?.item?.orig || data.data?.orig);
 
             if (hasImages || hasVideo || hasOrig) {
@@ -84,6 +85,15 @@ class ImageGenerator {
             height: 1200,  // 增加高度以容纳更多内容
             deviceScaleFactor: 1.5  // 提高到2以获得视网膜屏清晰度
         });
+
+        // Theme: auto switch by Beijing time (21:00-06:00)
+        const shHour = parseInt(new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            hour: 'numeric',
+            hour12: false
+        }).format(new Date()), 10);
+        const isNight = (shHour >= 21 || shHour < 6);
+        const themeClass = isNight ? 'theme-dark' : 'theme-light';
 
         // Type Config (Label & Color)
         const TYPE_CONFIG = {
@@ -113,36 +123,285 @@ class ImageGenerator {
              }
         }
 
+        const isHex = (c) => typeof c === 'string' && /^#([0-9a-fA-F]{6})$/.test(c);
+        const clamp01 = (n) => Math.max(0, Math.min(1, n));
+        const hexToRgb = (hex) => {
+            const h = hex.replace('#', '');
+            return {
+                r: parseInt(h.slice(0, 2), 16),
+                g: parseInt(h.slice(2, 4), 16),
+                b: parseInt(h.slice(4, 6), 16)
+            };
+        };
+        const relLuminance = (hex) => {
+            const { r, g, b } = hexToRgb(hex);
+            const srgb = [r, g, b].map(v => v / 255);
+            const f = (c) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+            const [R, G, B] = srgb.map(f);
+            return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+        };
+        const pickTextColor = (bgHex) => {
+            if (!isHex(bgHex)) return isNight ? '#E8EAED' : '#1A1A1A';
+            const lum = relLuminance(bgHex);
+            return lum > 0.5 ? '#1A1A1A' : '#E8EAED';
+        };
+
+        const parseRichText = (nodes, rawText) => {
+            if (nodes && nodes.length > 0) {
+                return nodes.map(node => {
+                    const type = node.type;
+                    const text = node.text;
+                    if (type === 'RICH_TEXT_NODE_TYPE_EMOJI') {
+                        const icon = node.emoji ? node.emoji.icon_url : '';
+                        return icon ? `<img class="emoji" src="${icon}" alt="${text}" />` : text;
+                    } else if (type === 'RICH_TEXT_NODE_TYPE_AT') {
+                        return `<span class="at-user">${text}</span>`;
+                    } else if (type === 'RICH_TEXT_NODE_TYPE_TOPIC') {
+                        return `<span class="topic-tag">${text}</span>`;
+                    } else if (type === 'RICH_TEXT_NODE_TYPE_VOTE') {
+                        return `<span class="vote-inline">${text}</span>`;
+                    } else if (type === 'RICH_TEXT_NODE_TYPE_URL' || type === 'RICH_TEXT_NODE_TYPE_BV') {
+                        return `<span style="color: var(--color-secondary); text-decoration: none; cursor: pointer;">${text}</span>`;
+                    } else {
+                        // Escape HTML for text
+                        return text.replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;")
+                            .replace(/\n/g, '<br>');
+                    }
+                }).join('');
+            }
+            // Fallback for raw text
+            return (rawText || '').replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;")
+                .replace(/\n/g, '<br>');
+        };
+
+        const renderVoteCard = (vote) => {
+             if (!vote) return '';
+             const title = vote.desc || vote.title || '投票';
+             const items = vote.items || vote.options || [];
+             const totalFromApi = vote.join_num || vote.participant || vote.total || vote.total_num || 0;
+             const sumCnt = items.reduce((acc, i) => acc + (i.cnt || 0), 0);
+             const total = Math.max(totalFromApi, sumCnt); // Use the larger one to be safe
+
+             const choiceCnt = vote.choice_cnt || vote.choiceCount || (vote.multi_select ? 2 : 1) || 1;
+             const hasVoteImages = items.some(item => item.image);
+             
+             return `
+                <div class="vote-card">
+                    <div class="vote-header">
+                        <svg class="vote-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14h-2v-4h2v4zm0-6h-2V7h2v4z"/></svg>
+                        ${title}
+                    </div>
+                    <div class="vote-options ${hasVoteImages ? 'with-images' : ''}">
+                        ${items.map(item => {
+                            const cnt = item.cnt || 0;
+                            const percent = total > 0 ? Math.round((cnt / total) * 100) : 0;
+                            return `
+                            <div class="vote-item ${item.image ? 'has-image' : ''}" style="position: relative; overflow: hidden;">
+                                ${total > 0 ? `<div class="vote-stat-bar" style="width: ${percent}%;"></div>` : ''}
+                                ${item.image ? `<div class="vote-item-image"><img src="${item.image}" /></div>` : ''}
+                                <div class="vote-item-content" ${item.image ? 'style="flex-direction:column; gap:8px;"' : ''}>
+                                    <span class="vote-text">${item.desc || item.name || item.text || ''}</span>
+                                    ${total > 0 ? `<span class="vote-stat-text">${cnt}票 (${percent}%)</span>` : ''}
+                                </div>
+                            </div>
+                        `}).join('')}
+                    </div>
+                    <div class="vote-footer">
+                        <span class="vote-btn">${choiceCnt > 1 ? '多选' : '单选'}</span>
+                        <span>${this.formatNumber(total)}人参与</span>
+                    </div>
+                </div>
+             `;
+        };
+ 
+        const normalizeVote = (v) => {
+            if (!v) return null;
+            return {
+                desc: v.desc || v.title || '',
+                items: v.items || v.options || [],
+                join_num: v.join_num || v.participant || v.total || v.total_num || 0,
+                choice_cnt: v.choice_cnt || v.choiceCount || (v.multi_select ? 2 : 1) || 1
+            };
+        };
+ 
+        const getVoteFromModules = (modules) => {
+            if (!modules) return null;
+            const mi = modules.module_interaction || {};
+            let v = mi.vote || mi.vote_info || null;
+            if (v && v.vote) v = v.vote;
+            if (!v) {
+                const major = (modules.module_dynamic || {}).major || {};
+                v = major.vote || null;
+            }
+            if (!v) {
+                const additional = (modules.module_dynamic || {}).additional || {};
+                v = additional.vote || null;
+            }
+            return normalizeVote(v);
+        };
+
+        const seen = new Set();
+        const colors = [];
+        const addColor = (c) => {
+            if (isHex(c) && !seen.has(c.toLowerCase())) {
+                seen.add(c.toLowerCase());
+                colors.push(c);
+            }
+        };
+        if (type === 'video' && data.data) {
+            const f = (data.data.focus || {});
+            addColor(f.cover);
+            addColor(f.avatar);
+        } else if (type === 'bangumi' && data.data) {
+            const f = (data.data.focus || {});
+            addColor(f.cover);
+        } else if (type === 'article' && data.data) {
+            const f = (data.data.focus || {});
+            addColor(f.cover);
+            addColor(f.avatar);
+        } else if (type === 'live' && data.data) {
+            const f = (data.data.focus || {});
+            addColor(f.cover);
+            addColor(f.avatar);
+        } else if (type === 'user' && data.data) {
+            const f = (data.data.focus || {});
+            addColor(f.avatar);
+        } else if (type === 'dynamic') {
+            let modules = {};
+            let item = {};
+            if (data.data && data.data.item) {
+                item = data.data.item;
+                modules = item.modules || {};
+            } else if (data.data) {
+                item = data.data;
+                modules = item.modules || {};
+            }
+            const module_author = modules.module_author || {};
+            const authorInfo = item.author || data.data?.author || {};
+            const fanColor = authorInfo.fan_color || (module_author.decoration_card && module_author.decoration_card.fan && module_author.decoration_card.fan.color) || null;
+            const cardFocus = authorInfo.card_focus_color || null;
+            const avatarFocus = authorInfo.avatar_focus_color || null;
+            addColor(fanColor);
+            addColor(cardFocus);
+            addColor(avatarFocus);
+        }
+        if (colors.length === 0) {
+            addColor(currentType.color);
+        }
+        if (colors.length === 1) {
+            addColor(this.adjustBrightness(colors[0], -10));
+        }
+        if (colors.length === 2) {
+            addColor(this.adjustBrightness(colors[0], 12));
+        }
+        const stops = colors.map((c, i) => {
+            const pct = colors.length > 1 ? Math.round(i * 100 / (colors.length - 1)) : 100;
+            return `${c} ${pct}%`;
+        });
+        const gradientMix = `linear-gradient(135deg, ${stops.join(', ')})`;
+
         // 现代化美化的 CSS 样式
         const style = `
             <style>
+                /* Design Tokens */
+                :root {
+                    /* Palette - Light */
+                    --color-bg: #F5F7FA;
+                    --color-card-bg: #FFFFFF;
+                    --color-text: #1A1A1A;
+                    --color-subtext: #5A5F66;
+                    --color-border: rgba(0, 0, 0, 0.08);
+                    --color-soft-bg: #F0F2F5;
+                    --color-soft-bg-2: #EDEFF3;
+
+                    /* Accent */
+                    --color-primary: ${currentType.color};
+                    --color-secondary: #00A1D6;
+                    --color-emphasis: #FF6699;
+
+                    /* Radii */
+                    --radius-sm: 4px;
+                    --radius-md: 6px;
+                    --radius-lg: 8px;
+
+                    /* Shadows */
+                    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+                    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.10);
+                    --shadow-lg: 0 10px 32px rgba(0, 0, 0, 0.14);
+                }
+
+                /* Dark Theme Override */
+                .theme-dark {
+                    --color-bg: #0F1216;
+                    --color-card-bg: #171B21;
+                    --color-text: #E8EAED;
+                    --color-subtext: #A8ADB4;
+                    --color-border: rgba(255, 255, 255, 0.08);
+                    --color-soft-bg: #12161B;
+                    --color-soft-bg-2: #0D1014;
+
+                    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.60);
+                    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.65);
+                    --shadow-lg: 0 10px 32px rgba(0, 0, 0, 0.70);
+                }
+
                 body {
                     margin: 0;
                     padding: 0;
-                    background: transparent;
-                    width: ${baseWidth}px;
+                    background: var(--color-bg);
+                    width: fit-content;
+                    min-width: ${minWidth}px;
+                    max-width: ${baseWidth}px;
                     font-family: "MiSans", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
                     -webkit-font-smoothing: antialiased;
                     -moz-osx-font-smoothing: grayscale;
                 }
 
                 .container {
-                    padding: 28px;
-                    background: linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%);
+                    padding: 24px;
+                    background: var(--color-bg);
                     box-sizing: border-box;
                     width: 100%;
                     min-height: 300px;
                     display: inline-block;
+                    transition: background-color .3s ease;
                 }
 
-                .card {
+                 .card {
+                     position: relative;
+                     background: var(--color-card-bg);
+                     border-radius: var(--radius-lg);
+                     overflow: hidden;
+                     box-shadow: var(--shadow-lg);
+                     border: 1px solid var(--color-border);
+                     transition: background-color .3s ease, box-shadow .3s ease, border-color .3s ease;
+                 }
+                
+                .container.gradient-bg { position: relative; }
+                .container.gradient-bg::before {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background: var(--gradient-mix);
+                    opacity: 0.18;
+                    z-index: 0;
+                }
+                @supports (backdrop-filter: blur(2px)) {
+                    .container.gradient-bg::before {
+                        backdrop-filter: blur(2px);
+                    }
+                }
+                .container.gradient-bg > * {
                     position: relative;
-                    background: #ffffff;
-                    border-radius: 24px;
-                    overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-                    border: 1px solid rgba(255, 255, 255, 0.9);
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    z-index: 1;
                 }
 
                 /* Type Badge - 更现代的设计 - 放大版 */
@@ -150,28 +409,28 @@ class ImageGenerator {
                     display: inline-flex;
                     align-items: center;
                     gap: 12px;
-                    margin-bottom: 24px;
+                    margin-bottom: 20px;
                     margin-left: 6px;
                     background: linear-gradient(135deg, ${currentType.color}, ${this.adjustBrightness(currentType.color, -10)});
-                    color: white;
-                    padding: 20px 40px;
-                    border-radius: 24px;
-                    font-size: 36px;
+                    color: #fff;
+                    padding: 16px 28px;
+                    border-radius: var(--radius-lg);
+                    font-size: 28px;
                     font-weight: 700;
-                    box-shadow: 0 8px 24px ${this.hexToRgba(currentType.color, 0.4)}, 0 4px 12px rgba(0, 0, 0, 0.15);
+                    box-shadow: 0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm);
                     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
                     letter-spacing: 1px;
                 }
 
                 .cover-container { position: relative; width: 100%; }
-                .cover { width: 100%; display: block; object-fit: cover; }
+                .cover { width: 100%; display: block; object-fit: cover; border-radius: var(--radius-lg); }
                 .cover.video { aspect-ratio: 16/9; }
                 .cover.bangumi { aspect-ratio: 3/4; object-fit: cover; }
                 .cover.live { aspect-ratio: 16/9; }
                 .cover.article { aspect-ratio: 21/9; }
 
                 .content {
-                    padding: 28px;
+                    padding: 24px;
                     position: relative;
                 }
 
@@ -186,8 +445,8 @@ class ImageGenerator {
 
                 .avatar-wrapper {
                     position: relative;
-                    width: 112px;
-                    height: 112px;
+                    width: 108px;
+                    height: 108px;
                     margin-right: 18px;
                 }
 
@@ -195,18 +454,18 @@ class ImageGenerator {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 60px;
-                    height: 60px;
+                    width: 64px;
+                    height: 64px;
                     transform: translate(-50%, -50%);
                     border-radius: 50%;
-                    border: 3px solid #fff;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+                    border: 3px solid var(--color-card-bg);
+                    box-shadow: var(--shadow-sm);
                     z-index: 1;
                 }
 
                 .avatar.no-frame {
-                    width: 80px;
-                    height: 80px;
+                    width: 82px;
+                    height: 82px;
                 }
 
                 .avatar.no-border { border: none; }
@@ -215,8 +474,8 @@ class ImageGenerator {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 112px;
-                    height: 112px;
+                    width: 108px;
+                    height: 108px;
                     transform: translate(-50%, -50%);
                     object-fit: contain;
                     pointer-events: none;
@@ -231,9 +490,9 @@ class ImageGenerator {
                 }
 
                 .user-name {
-                    font-size: 32px;
+                    font-size: 30px;
                     font-weight: 700;
-                    color: #18191c;
+                    color: var(--color-text);
                     display: flex;
                     align-items: center;
                     gap: 10px;
@@ -245,14 +504,14 @@ class ImageGenerator {
                     color: #fff;
                     font-size: 16px;
                     padding: 4px 10px;
-                    border-radius: 10px;
+                    border-radius: var(--radius-md);
                     font-weight: 700;
                     box-shadow: 0 2px 8px rgba(255, 179, 0, 0.3);
                 }
 
                 .pub-time {
-                    font-size: 22px;
-                    color: #999;
+                    font-size: 20px;
+                    color: var(--color-subtext);
                     font-weight: 400;
                 }
 
@@ -262,7 +521,7 @@ class ImageGenerator {
                 }
 
                 .decoration-card {
-                    height: 112px;
+                    height: 108px;
                     width: auto;
                     object-fit: contain;
                     margin: 0;
@@ -274,12 +533,12 @@ class ImageGenerator {
                     top: 50%;
                     left: 120px;
                     transform: translateY(-50%);
-                    background: rgba(255, 255, 255, 0.95);
+                    background: rgba(255, 255, 255, 0.90);
                     padding: 8px 12px;
-                    border-radius: 12px;
+                    border-radius: var(--radius-md);
                     font-weight: 700;
                     font-size: 20px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    box-shadow: var(--shadow-sm);
                     backdrop-filter: blur(8px);
                 }
 
@@ -289,7 +548,7 @@ class ImageGenerator {
                     left: 0;
                     right: 0;
                     height: 140px;
-                    border-radius: 20px 20px 0 0;
+                    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
                     overflow: hidden;
                 }
 
@@ -307,15 +566,15 @@ class ImageGenerator {
                     left: 0;
                     right: 0;
                     height: 140px;
-                    border-radius: 20px 20px 0 0;
+                    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
                     background: linear-gradient(to bottom, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0));
                 }
 
                 .title {
-                    font-size: 46px;
+                    font-size: 42px;
                     font-weight: 700;
                     margin-bottom: 16px;
-                    color: #18191c;
+                    color: var(--color-text);
                     line-height: 1.5;
                     letter-spacing: 0.5px;
                 }
@@ -323,7 +582,7 @@ class ImageGenerator {
                     margin-top: 8px;
                     margin-bottom: 12px;
                     font-size: 22px;
-                    color: #555;
+                    color: var(--color-subtext);
                     display: flex;
                     flex-wrap: wrap;
                     gap: 8px;
@@ -333,7 +592,7 @@ class ImageGenerator {
 
                 .text-content {
                     font-size: 30px;
-                    color: #333;
+                    color: var(--color-text);
                     line-height: 1.75;
                     margin-top: 20px;
                     margin-bottom: 18px;
@@ -343,11 +602,11 @@ class ImageGenerator {
                 }
                 .orig-card {
                     margin-top: 16px;
-                    border: 2px solid #f0f0f0;
-                    background: linear-gradient(135deg, #fafbfc 0%, #f7f9fb 100%);
-                    border-radius: 16px;
+                    border: 2px solid var(--color-border);
+                    background: var(--color-card-bg);
+                    border-radius: var(--radius-lg);
                     overflow: hidden;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+                    box-shadow: var(--shadow-sm);
                 }
 
                 .orig-header {
@@ -355,21 +614,21 @@ class ImageGenerator {
                     align-items: center;
                     gap: 12px;
                     padding: 16px;
-                    border-bottom: 2px solid #f0f0f0;
-                    background: rgba(255, 255, 255, 0.6);
+                    border-bottom: 2px solid var(--color-border);
+                    background: var(--color-soft-bg);
                 }
 
                 .orig-author-avatar {
                     width: 48px;
                     height: 48px;
                     border-radius: 50%;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                    box-shadow: var(--shadow-sm);
                 }
 
                 .orig-author-name {
                     font-weight: 700;
                     font-size: 20px;
-                    color: #333;
+                    color: var(--color-text);
                 }
 
                 .orig-content { padding: 16px; }
@@ -377,14 +636,14 @@ class ImageGenerator {
                 .orig-title {
                     font-size: 22px;
                     font-weight: 700;
-                    color: #18191c;
+                    color: var(--color-text);
                     margin-bottom: 10px;
                     line-height: 1.4;
                 }
 
                 .orig-text {
                     font-size: 20px;
-                    color: #555;
+                    color: var(--color-subtext);
                     line-height: 1.7;
                     white-space: pre-wrap;
                 }
@@ -393,14 +652,14 @@ class ImageGenerator {
                     display: flex;
                     gap: 28px;
                     font-size: 28px;
-                    color: #8a8f99;
+                    color: var(--color-subtext);
                     align-items: center;
                     margin-bottom: 12px;
-                    background: linear-gradient(135deg, #f8f9fa 0%, #f4f6f8 100%);
+                    background: var(--color-soft-bg);
                     padding: 16px 20px;
-                    border-radius: 14px;
+                    border-radius: var(--radius-md);
                     width: fit-content;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+                    box-shadow: var(--shadow-sm);
                 }
 
                 .stat-item {
@@ -408,12 +667,12 @@ class ImageGenerator {
                     align-items: center;
                     gap: 10px;
                     font-weight: 600;
-                    color: #666;
+                    color: var(--color-subtext);
                     white-space: nowrap;
                 }
 
                 .stat-item svg {
-                    fill: #8a8f99;
+                    fill: var(--color-subtext);
                     width: 32px;
                     height: 32px;
                 }
@@ -436,10 +695,10 @@ class ImageGenerator {
                     height: 100%;
                     object-fit: cover;
                     aspect-ratio: 1/1;
-                    border-radius: 14px;
+                    border-radius: var(--radius-md);
                     cursor: pointer;
                     transition: transform 0.2s;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+                    box-shadow: var(--shadow-sm);
                 }
 
                 .single-image {
@@ -447,27 +706,25 @@ class ImageGenerator {
                     width: 100%;
                     max-height: 500px;
                     object-fit: contain;
-                    border-radius: 18px;
+                    border-radius: var(--radius-lg);
                     display: block;
                     height: auto;
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+                    box-shadow: var(--shadow-md);
                 }
 
                 .dynamic-image {
                     margin-top: 24px;
                     width: 100%;
                     height: auto;
-                    object-fit: contain;
-                    border-radius: 18px;
+                    border-radius: var(--radius-lg);
                     display: block;
-                    max-height: 900px;
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+                    box-shadow: var(--shadow-md);
                 }
 
                 .live-badge-status {
                     display: inline-block;
                     padding: 4px 12px;
-                    border-radius: 8px;
+                    border-radius: var(--radius-md);
                     font-size: 14px;
                     font-weight: 700;
                     margin-left: 10px;
@@ -476,31 +733,194 @@ class ImageGenerator {
                 }
 
                 .live-on {
-                    background: linear-gradient(135deg, #FF6699, #FF4477);
+                    background: linear-gradient(135deg, var(--color-emphasis), ${this.adjustBrightness('#FF6699', -10)});
                     color: white;
-                    box-shadow: 0 2px 8px rgba(255, 102, 153, 0.4);
+                    box-shadow: var(--shadow-sm);
                 }
 
                 .live-off {
-                    background: #e7e7e7;
-                    color: #999;
+                    background: var(--color-soft-bg-2);
+                    color: var(--color-subtext);
                 }
 
                 .video-tag {
-                    background: #f6f7f8;
-                    color: #666;
+                    background: var(--color-soft-bg);
+                    color: var(--color-subtext);
                     padding: 4px 10px;
-                    border-radius: 6px;
+                    border-radius: var(--radius-sm);
                     font-size: 14px;
                     margin-right: 8px;
                     vertical-align: middle;
                     font-weight: 500;
                 }
-            </style>
-        `;
+
+                .duration-badge {
+                    position: absolute;
+                    bottom: 8px;
+                    right: 8px;
+                    background: rgba(0, 0, 0, 0.65);
+                    color: white;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    backdrop-filter: blur(4px);
+                }
+
+                /* Rich Text & Special Content */
+                .emoji {
+                    width: 32px;
+                    height: 32px;
+                    vertical-align: text-bottom;
+                    margin: 0 2px;
+                    display: inline-block;
+                }
+
+                .at-user {
+                    color: var(--color-secondary);
+                    font-weight: 600;
+                    margin: 0 4px;
+                    background: rgba(0, 161, 214, 0.08);
+                    padding: 2px 6px;
+                    border-radius: 6px;
+                    display: inline-block;
+                    cursor: pointer;
+                }
+                
+                .topic-tag {
+                    color: var(--color-secondary);
+                    margin: 0 4px;
+                    font-weight: 500;
+                }
+
+                .vote-card {
+                    background: var(--color-soft-bg);
+                    border-radius: var(--radius-lg);
+                    padding: 20px;
+                    margin-top: 24px;
+                    border: 1px solid var(--color-border);
+                    box-shadow: var(--shadow-sm);
+                }
+
+                .vote-header {
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: var(--color-text);
+                    margin-bottom: 16px;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                
+                .vote-icon {
+                    width: 24px;
+                    height: 24px;
+                    fill: var(--color-secondary);
+                }
+
+                .vote-options {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+
+                .vote-options.with-images {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                }
+
+                .vote-item {
+                    background: var(--color-card-bg);
+                    padding: 16px 20px;
+                    border-radius: var(--radius-md);
+                    font-size: 22px;
+                    color: var(--color-text);
+                    border: 1px solid var(--color-border);
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    transition: background-color 0.2s;
+                }
+
+                .vote-item.has-image {
+                    flex-direction: column;
+                    padding: 12px;
+                    align-items: stretch;
+                    text-align: center;
+                }
+
+                .vote-stat-bar {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    bottom: 0;
+                    background: rgba(0, 161, 214, 0.1);
+                    z-index: 0;
+                    transition: width 0.5s ease;
+                }
+                
+                .vote-item-content {
+                    position: relative;
+                    z-index: 1;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    width: 100%;
+                }
+
+                .vote-stat-text {
+                    font-size: 16px;
+                    color: var(--color-subtext);
+                    margin-left: 10px;
+                    font-weight: 500;
+                }
+
+                .vote-item-image {
+                    width: 100%;
+                    aspect-ratio: 1;
+                    border-radius: var(--radius-sm);
+                    overflow: hidden;
+                    margin-bottom: 10px;
+                }
+
+                .vote-item-image img {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                }
+
+                .vote-footer {
+                    margin-top: 16px;
+                    color: var(--color-subtext);
+                    font-size: 18px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                
+                 .vote-btn {
+                     background: var(--color-emphasis);
+                     color: white;
+                     padding: 8px 24px;
+                     border-radius: var(--radius-md);
+                     font-weight: 700;
+                     font-size: 18px;
+                 }
+ 
+                 .vote-inline {
+                     display: inline-block;
+                     padding: 2px 8px;
+                     border-radius: 999px;
+                     background: rgba(0, 161, 214, 0.12);
+                     color: var(--color-secondary);
+                     font-weight: 700;
+                     margin: 0 4px;
+                 }
+             </style>
+         `;
 
         let htmlContent = `<html><head>${style}</head><body>
-            <div class="container">
+            <div class="container ${themeClass} gradient-bg" style="--gradient-mix:${gradientMix}">
                 <div class="type-badge">
                     <span>${currentType.icon}</span>
                     <span>${currentType.label}</span>
@@ -737,19 +1157,38 @@ class ImageGenerator {
             
             let text = "";
             let title = "";
+            let richTextNodes = null;
+
+            // Handle DYNAMIC_TYPE_LIVE_RCMD
+            let liveRcmdInfo = null;
+            if (item.type === 'DYNAMIC_TYPE_LIVE_RCMD' && module_dynamic.major?.live_rcmd?.content) {
+                try {
+                    const contentStr = module_dynamic.major.live_rcmd.content;
+                    const contentJson = JSON.parse(contentStr);
+                    if (contentJson.live_play_info) {
+                        liveRcmdInfo = contentJson.live_play_info;
+                    }
+                } catch (e) {
+                    logger.error('Failed to parse live_rcmd content', e);
+                }
+            }
 
             if (module_dynamic.desc) {
                 text = module_dynamic.desc.text || "";
+                richTextNodes = module_dynamic.desc.rich_text_nodes;
             } else if (module_dynamic.major?.opus) {
-                 if (module_dynamic.major.opus.summary?.text) {
-                     text = module_dynamic.major.opus.summary.text;
-                 } else if (module_dynamic.major.opus.summary?.rich_text_nodes) {
-                     text = module_dynamic.major.opus.summary.rich_text_nodes.map(n => n.text).join('');
-                 } else {
-                     text = "";
+                 if (module_dynamic.major.opus.summary) {
+                     text = module_dynamic.major.opus.summary.text || "";
+                     richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
                  }
                  title = module_dynamic.major.opus.title || "";
             }
+            
+            // Process text with parseRichText
+            text = parseRichText(richTextNodes, text);
+
+            const voteObj = getVoteFromModules(modules);
+            const voteHtml = renderVoteCard(voteObj);
 
             let images = [];
             let videoCard = null;
@@ -762,6 +1201,21 @@ class ImageGenerator {
                  // Video card embedded in dynamic
                  videoCard = module_dynamic.major.archive;
                  if(!text) text = videoCard.desc;
+            } else if (liveRcmdInfo) {
+                // Construct pseudo videoCard for live
+                 const isLive = liveRcmdInfo.live_status === 1;
+                 const liveBadge = isLive
+                    ? `<span class="live-badge-status live-on">LIVE</span>`
+                    : `<span class="live-badge-status live-off">OFFLINE</span>`;
+                 
+                 videoCard = {
+                    cover: liveRcmdInfo.cover,
+                    title: liveRcmdInfo.title,
+                    isLiveRcmd: true,
+                    liveBadge: liveBadge,
+                    area: `${liveRcmdInfo.parent_area_name} · ${liveRcmdInfo.area_name}`,
+                    watched: liveRcmdInfo.watched_show?.text_large || ''
+                 };
             }
 
             // Construct Image HTML
@@ -774,14 +1228,44 @@ class ImageGenerator {
                         ${images.map(src => `<img src="${src}" style="width: 100%; height: 100%; object-fit: cover; aspect-ratio: 1/1; margin-top: 10px;">`).join('')}
                     </div>`;
             } else if (videoCard) {
-                mediaHtml = `
-                    <div style="margin-top:20px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
-                        <img src="${videoCard.cover}" style="width: 100%; aspect-ratio:16/9; object-fit: cover; max-height: 800px;">
-                        <div style="padding:10px; background:#f9f9f9;">
-                            <div style="font-weight:bold; font-size:14px;">${videoCard.title}</div>
+                if (videoCard.isLiveRcmd) {
+                     mediaHtml = `
+                        <div style="margin-top:20px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                            <div class="cover-container">
+                                <img src="${videoCard.cover}" style="width: 100%; aspect-ratio:16/9; object-fit: cover; max-height: 800px;">
+                                ${videoCard.liveBadge ? `<div style="position:absolute; top:10px; right:10px;">${videoCard.liveBadge}</div>` : ''}
+                            </div>
+                            <div style="padding:15px; background:#f9f9f9;">
+                                <div style="font-weight:bold; font-size:18px; margin-bottom:8px;">${videoCard.title}</div>
+                                <div style="color:#666; font-size:14px; display:flex; gap:15px;">
+                                    <span>${videoCard.area}</span>
+                                    <span>${videoCard.watched}</span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                } else {
+                    const duration = videoCard.duration_text || '';
+                    const play = videoCard.stat?.play || '';
+                    const danmaku = videoCard.stat?.danmaku || '';
+                    mediaHtml = `
+                        <div style="margin-top:20px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                            <div class="cover-container">
+                                <img src="${videoCard.cover}" style="width: 100%; height: auto; display: block;">
+                                ${duration ? `<span class="duration-badge">${duration}</span>` : ''}
+                            </div>
+                            <div style="padding:10px; background:#f9f9f9;">
+                                <div style="font-weight:bold; font-size:14px;">${videoCard.title}</div>
+                                ${(play || danmaku) ? `
+                                <div style="color:#999; font-size:13px; display:flex; gap:15px; align-items:center; margin-top: 4px;">
+                                    ${play ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.view} ${play}</span>` : ''}
+                                    ${danmaku ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.comment} ${danmaku}</span>` : ''}
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
             }
 
             // Determine media presence
@@ -795,18 +1279,18 @@ class ImageGenerator {
                 const o_dynamic = omodules.module_dynamic || {};
                 let o_text = "";
                 let o_title = "";
+                let o_richTextNodes = null;
                 if (o_dynamic.desc) {
                     o_text = o_dynamic.desc.text || "";
+                    o_richTextNodes = o_dynamic.desc.rich_text_nodes;
                 } else if (o_dynamic.major?.opus) {
-                    if (o_dynamic.major.opus.summary?.text) {
-                        o_text = o_dynamic.major.opus.summary.text;
-                    } else if (o_dynamic.major.opus.summary?.rich_text_nodes) {
-                        o_text = o_dynamic.major.opus.summary.rich_text_nodes.map(n => n.text).join('');
-                    } else {
-                        o_text = "";
+                    if (o_dynamic.major.opus.summary) {
+                        o_text = o_dynamic.major.opus.summary.text || "";
+                        o_richTextNodes = o_dynamic.major.opus.summary.rich_text_nodes;
                     }
                     o_title = o_dynamic.major.opus.title || "";
                 }
+                o_text = parseRichText(o_richTextNodes, o_text);
                 let o_images = [];
                 let o_videoCard = null;
                 if (o_dynamic.major?.draw?.items) {
@@ -826,15 +1310,29 @@ class ImageGenerator {
                             ${o_images.map(src => `<img src="${src}" style="width: 100%; height: 100%; object-fit: cover; aspect-ratio: 1/1;">`).join('')}
                         </div>`;
                 } else if (o_videoCard) {
+                    const duration = o_videoCard.duration_text || '';
+                    const play = o_videoCard.stat?.play || '';
+                    const danmaku = o_videoCard.stat?.danmaku || '';
                     o_mediaHtml = `
                         <div style="margin-top:10px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
-                            <img src="${o_videoCard.cover}" style="width: 100%; aspect-ratio:16/9; object-fit: cover; max-height: 800px;">
+                            <div class="cover-container">
+                                <img src="${o_videoCard.cover}" style="width: 100%; aspect-ratio:16/9; object-fit: cover; max-height: 800px;">
+                                ${duration ? `<span class="duration-badge">${duration}</span>` : ''}
+                            </div>
                             <div style="padding:10px; background:#f9f9f9;">
                                 <div style="font-weight:bold; font-size:14px;">${o_videoCard.title}</div>
+                                ${(play || danmaku) ? `
+                                <div style="color:#999; font-size:13px; display:flex; gap:15px; align-items:center; margin-top: 4px;">
+                                    ${play ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.view} ${play}</span>` : ''}
+                                    ${danmaku ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.comment} ${danmaku}</span>` : ''}
+                                </div>
+                                ` : ''}
                             </div>
                         </div>
                     `;
                 }
+                const o_voteObj = getVoteFromModules(omodules);
+                const o_voteHtml = renderVoteCard(o_voteObj);
                 const o_name = o_author.name || 'Unknown';
                 const o_face = o_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
                 origHtml = `
@@ -846,6 +1344,7 @@ class ImageGenerator {
                         <div class="orig-content">
                             ${o_title ? `<div class="orig-title">${o_title}</div>` : ''}
                             ${o_text ? `<div class="orig-text">${o_text}</div>` : ''}
+                            ${o_voteHtml}
                             ${o_mediaHtml}
                         </div>
                     </div>
@@ -887,6 +1386,7 @@ class ImageGenerator {
                          <span class="stat-item">${ICONS.like} ${this.formatNumber(module_stat.like?.count)}</span>
                     </div>
                     <div class="text-content">${text}</div>
+                    ${voteHtml}
                     ${origHtml}
                     ${mediaHtml}
                 </div>

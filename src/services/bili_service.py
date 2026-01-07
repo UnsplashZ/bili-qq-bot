@@ -64,7 +64,7 @@ def _choose_focus_color(img: Image.Image) -> str:
             h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
             if v < 0.15:
                 continue
-            if s < 0.38:
+            if s < 0.15:
                 continue
             score = (s * 0.7 + v * 0.3) * count
             if score > best_score:
@@ -93,6 +93,15 @@ async def get_video_info(bvid):
     try:
         v = video.Video(bvid=bvid, credential=load_credential())
         info = await v.get_info()
+        cover_url = info.get('pic') or ''
+        owner = info.get('owner') or {}
+        avatar_url = owner.get('face') or ''
+        cover_focus = await get_image_focus_color(cover_url)
+        avatar_focus = await get_image_focus_color(avatar_url)
+        info['focus'] = {
+            "cover": cover_focus,
+            "avatar": avatar_focus
+        }
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -166,7 +175,10 @@ async def get_bangumi_info(season_id):
             "season_type": overview.get('season_type'),
             "type_desc": overview.get('type_desc'),
             "series": overview.get('series', {}),
-            "detail": detail
+            "detail": detail,
+            "focus": {
+                "cover": await get_image_focus_color(overview.get('cover', ''))
+            }
         }
 
         return {"status": "success", "type": "bangumi", "data": data}
@@ -228,6 +240,18 @@ async def get_article_info(cvid):
 
         info['summary'] = summary[:2500] if summary else '点击查看详情'
         info['author_face'] = author_face  # 添加作者头像
+        
+        # Determine cover image
+        cover = info.get('banner_url')
+        if not cover and info.get('image_urls'):
+            cover = info['image_urls'][0]
+        if not cover:
+            cover = ''
+
+        info['focus'] = {
+            "cover": await get_image_focus_color(cover),
+            "avatar": await get_image_focus_color(author_face)
+        }
 
         # Map publish_time if missing (Article API varies)
         if 'publish_time' not in info:
@@ -242,6 +266,14 @@ async def get_live_room_info(room_id):
     try:
         l = live.LiveRoom(int(room_id), credential=load_credential())
         info = await l.get_room_info()
+        room_info = info.get('room_info', {})
+        anchor_info = info.get('anchor_info', {}).get('base_info', {})
+        cover_url = room_info.get('cover') or ''
+        avatar_url = anchor_info.get('face') or ''
+        info['focus'] = {
+            "cover": await get_image_focus_color(cover_url),
+            "avatar": await get_image_focus_color(avatar_url)
+        }
         return {"status": "success", "type": "live", "data": info}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -343,11 +375,17 @@ async def get_user_dynamic(uid):
             except:
                 pass
             card_focus_color = None
+            avatar_focus_color = None
             try:
                 src = card_url or ((decoration_card or {}).get('card_url'))
                 card_focus_color = await get_image_focus_color(src) if src else None
             except:
                 card_focus_color = None
+            try:
+                author_face_url = ma.get('face') or (latest.get('author') or {}).get('face') or ''
+                avatar_focus_color = await get_image_focus_color(author_face_url) if author_face_url else None
+            except:
+                avatar_focus_color = None
             
             return {"status": "success", "data": {
                 "id": latest.get('id_str'),
@@ -362,7 +400,8 @@ async def get_user_dynamic(uid):
                     "decoration_card": decoration_card,
                     "card_number": card_number,
                     "card_focus_color": card_focus_color,
-                    "fan_color": fan_color
+                    "fan_color": fan_color,
+                    "avatar_focus_color": avatar_focus_color
                 }
             }}
         return {"status": "success", "data": None}
@@ -465,11 +504,17 @@ async def get_dynamic_detail(dynamic_id):
             except:
                 pass
         card_focus_color = None
+        avatar_focus_color = None
         try:
             src = card_url or ((decoration_card or {}).get('card_url'))
             card_focus_color = await get_image_focus_color(src) if src else None
         except:
             card_focus_color = None
+        try:
+            avatar_url = author_module.get('face') or ''
+            avatar_focus_color = await get_image_focus_color(avatar_url) if avatar_url else None
+        except:
+            avatar_focus_color = None
 
         author_obj = {
             "level": author_level,
@@ -478,13 +523,66 @@ async def get_dynamic_detail(dynamic_id):
             "decoration_card": decoration_card,
             "card_number": card_number,
             "card_focus_color": card_focus_color,
-            "fan_color": fan_color
+            "fan_color": fan_color,
+            "avatar_focus_color": avatar_focus_color
         }
         info['author'] = author_obj
         try:
             if isinstance(info.get('item'), dict):
                 info['item']['author'] = author_obj
         except:
+            pass
+        # Enrich vote info (if present) using bilibili_api.vote by vote_id
+        try:
+            mods = (info.get('item') or {}).get('modules') or info.get('modules') or {}
+            md = mods.get('module_dynamic') or {}
+            additional = md.get('additional') or {}
+            vobj = additional.get('vote') or {}
+            vote_id = vobj.get('vote_id')
+            if vote_id:
+                from bilibili_api import vote as vote_api
+                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential())
+                vinfo = await vv.get_info()
+                # Normalize to expected fields for Node renderer
+                # choices may reside under data['choices'] or info['options'] or similar
+                items = []
+                try:
+                    # Priority: info.options (seen in debug) -> data.choices -> choices
+                    choices = (vinfo.get('info') or {}).get('options') or vinfo.get('data', {}).get('choices') or vinfo.get('choices') or []
+                except:
+                    choices = []
+                for ch in choices:
+                    # support both dict and tuple-like entries
+                    desc = (ch.get('desc') if isinstance(ch, dict) else str(ch)) or ''
+                    img = (ch.get('image') if isinstance(ch, dict) else None)
+                    cnt = (ch.get('cnt') if isinstance(ch, dict) else 0)
+                    items.append({"desc": desc, "image": img, "cnt": cnt})
+                
+                # Join num and choice cnt
+                join_num = (vinfo.get('info') or {}).get('cnt') or vinfo.get('data', {}).get('join_num') or vinfo.get('join_num') or vobj.get('join_num')
+                choice_cnt = (vinfo.get('info') or {}).get('choice_cnt') or vinfo.get('data', {}).get('choice_cnt') or vinfo.get('choice_cnt') or vobj.get('choice_cnt')
+                title = (vinfo.get('info') or {}).get('title') or vinfo.get('data', {}).get('title') or vinfo.get('title') or vobj.get('title')
+                desc = (vinfo.get('info') or {}).get('desc') or vinfo.get('data', {}).get('desc') or vinfo.get('desc') or vobj.get('desc')
+                # Attach normalized fields back to structure
+                vobj['items'] = items
+                if join_num is not None:
+                    vobj['join_num'] = join_num
+                if choice_cnt is not None:
+                    vobj['choice_cnt'] = choice_cnt
+                if title is not None:
+                    vobj['title'] = title
+                if desc is not None:
+                    vobj['desc'] = desc
+                # write back
+                additional['vote'] = vobj
+                md['additional'] = additional
+                mods['module_dynamic'] = md
+                # Update both places (item.modules and top-level modules) for robustness
+                if isinstance(info.get('item'), dict):
+                    info['item']['modules'] = mods
+                info['modules'] = mods
+        except Exception:
+            # ignore enrichment errors
             pass
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
@@ -557,7 +655,10 @@ async def get_media_info(media_id):
             "publish": overview.get('publish', {}),
             "season_id": overview.get('season_id', ''),
             "series": overview.get('series', {}),
-            "detail": detail
+            "detail": detail,
+            "focus": {
+                "cover": await get_image_focus_color(overview.get('cover', ''))
+            }
         }
         return {"status": "success", "type": "bangumi", "data": data}
     except Exception as e:
@@ -607,7 +708,10 @@ async def get_user_info(uid):
             "relation": relation,
             "likes": likes,
             "archive_view": archive_view,
-            "dynamic": latest_dynamic
+            "dynamic": latest_dynamic,
+            "focus": {
+                "avatar": await get_image_focus_color(user_info.get('face', ''))
+            }
         }
 
         return {"status": "success", "type": "user", "data": data}
