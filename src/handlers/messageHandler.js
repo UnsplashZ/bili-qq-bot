@@ -122,16 +122,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for video ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/video/${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取视频信息';
-                        logger.warn(`[MessageHandler] Failed to get video info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取视频失败: ${errorMsg}\nhttps://www.bilibili.com/video/${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get video info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }]);
                     }
                     break;
 
@@ -146,16 +141,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for bangumi ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/bangumi/play/ss${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取番剧信息';
-                        logger.warn(`[MessageHandler] Failed to get bangumi info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取番剧失败: ${errorMsg}\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get bangumi info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }]);
                     }
                     break;
 
@@ -170,15 +160,10 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for dynamic ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://t.bilibili.com/${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取动态信息';
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取动态失败: ${errorMsg}\nhttps://t.bilibili.com/${id}` } }
-                        ]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }]);
                     }
                     break;
 
@@ -193,16 +178,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for article ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/read/cv${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取专栏信息';
-                        logger.warn(`[MessageHandler] Failed to get article info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取专栏失败: ${errorMsg}\nhttps://www.bilibili.com/read/cv${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get article info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }]);
                     }
                     break;
 
@@ -217,16 +197,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for live ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://live.bilibili.com/${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取直播间信息';
-                        logger.warn(`[MessageHandler] Failed to get live room info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取直播间失败: ${errorMsg}\nhttps://live.bilibili.com/${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get live room info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }]);
                     }
                     break;
 
@@ -241,15 +216,10 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for opus ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/opus/${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取 Opus 信息';
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取 Opus 失败: ${errorMsg}\nhttps://www.bilibili.com/opus/${id}` } }
-                        ]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }]);
                     }
                     break;
 
@@ -264,16 +234,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for ep ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/bangumi/play/ep${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取 EP 信息';
-                        logger.warn(`[MessageHandler] Failed to get ep info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取 EP 失败: ${errorMsg}\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get ep info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }]);
                     }
                     break;
 
@@ -288,16 +253,11 @@ class MessageHandler {
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for media ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://www.bilibili.com/bangumi/media/md${id}` } }
-                            ]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }]);
                         }
                     } else {
-                        const errorMsg = info.message || '无法获取媒体信息';
-                        logger.warn(`[MessageHandler] Failed to get media info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取媒体失败: ${errorMsg}\nhttps://www.bilibili.com/bangumi/media/md${id}` } }
-                        ]);
+                        logger.warn(`[MessageHandler] Failed to get media info for ${id}`);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }]);
                     }
                     break;
 
@@ -339,15 +299,13 @@ class MessageHandler {
             // 先尝试发送图片+文本
             this.sendGroupMessage(ws, groupId, [
                 { type: 'image', data: { file: `base64://${base64Image}` } },
-                { type: 'text', data: { text: `\n${url}` } }
+                { type: 'text', data: { text: `${url}` } }
             ]);
             logger.info(`[MessageHandler] Message with image sent successfully for ${url}`);
         } catch (e) {
             // 如果发送失败，降级为纯文本
             logger.error(`[MessageHandler] Failed to send message with image for ${url}, falling back to text only:`, e);
-            this.sendGroupMessage(ws, groupId, [
-                { type: 'text', data: { text: url } }
-            ]);
+            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `图片发送失败，已降级为文本链接：\n${url}` } }]);
         }
     }
 
@@ -522,11 +480,47 @@ class MessageHandler {
         if (rawMessage.startsWith('/订阅番剧 ')) {
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
-                const seasonId = parts[1];
-                subscriptionService.addBangumiSubscription(seasonId, groupId);
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `成功订阅番剧 ${seasonId} 更新。` } }]);
+                const arg = parts[1].trim();
+                (async () => {
+                    try {
+                        let seasonId = null;
+                        if (/^https?:\/\//i.test(arg)) {
+                            const ssMatch = arg.match(/play\/ss(\d+)/);
+                            const mdMatch = arg.match(/media\/md(\d+)/);
+                            const epMatch = arg.match(/play\/ep(\d+)/);
+                            if (ssMatch) {
+                                seasonId = ssMatch[1];
+                            } else if (mdMatch) {
+                                const res = await biliApi.getMediaInfo(mdMatch[1]);
+                                if (res.status === 'success') seasonId = res.data?.season_id;
+                            } else if (epMatch) {
+                                const res = await biliApi.getEpInfo(epMatch[1]);
+                                if (res.status === 'success') seasonId = res.data?.season_id;
+                            }
+                        } else if (/^md\d+$/i.test(arg)) {
+                            const mdId = arg.replace(/md/i, '');
+                            const res = await biliApi.getMediaInfo(mdId);
+                            if (res.status === 'success') seasonId = res.data?.season_id;
+                        } else if (/^ep\d+$/i.test(arg)) {
+                            const epId = arg.replace(/ep/i, '');
+                            const res = await biliApi.getEpInfo(epId);
+                            if (res.status === 'success') seasonId = res.data?.season_id;
+                        } else if (/^\d+$/.test(arg)) {
+                            seasonId = arg;
+                        }
+                        if (seasonId) {
+                            subscriptionService.addBangumiSubscription(seasonId, groupId);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `成功订阅番剧 ${seasonId} 更新。` } }]);
+                        } else {
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
+                        }
+                    } catch (e) {
+                        logger.error('订阅番剧解析失败:', e);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '订阅失败：无法解析参数，请使用 season_id、md 或 ep 链接。' } }]);
+                    }
+                })();
             } else {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id>' } }]);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
             }
             return;
         }

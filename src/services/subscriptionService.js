@@ -222,35 +222,22 @@ class SubscriptionService {
                                     const base64Image = await imageGenerator.generatePreviewCard(dynamicDetail, 'dynamic');
                                     logger.info(`[CheckDynamic] Preview card generated successfully, sending to groups...`);
 
-                                    const modules = res.data.modules || {};
-                                    const module_author = modules.module_author || {};
-                                    const module_dynamic = modules.module_dynamic || {};
-                                    const authorName = module_author.name || sub.uid;
-                                    const pubTime = module_author.pub_time || '';
-                                    const isForward = !!res.data.orig;
-                                    const eventType = isForward ? '转发' : '动态';
-                                    let summary = '';
-                                    if (module_dynamic.desc && module_dynamic.desc.text) summary = module_dynamic.desc.text;
-                                    else if (module_dynamic.major?.opus?.title) summary = module_dynamic.major.opus.title;
-                                    summary = (summary || '').slice(0, 80);
-
                                     // Send image and link to groups
                                     this.notifyGroups(sub.groupIds, [
-                                        { type: 'text', data: { text: `[${eventType}] ${authorName} · ${pubTime}\n${summary}` } },
                                         { type: 'image', data: { file: `base64://${base64Image}` } },
-                                        { type: 'text', data: { text: `用户 ${sub.uid} 发布了新动态: https://t.bilibili.com/${dynamicId}` } }
+                                        { type: 'text', data: { text: `https://t.bilibili.com/${dynamicId}` } }
                                     ]);
                                     logger.info(`[CheckDynamic] Notification sent successfully for dynamic ${dynamicId}`);
                                 } else {
                                     logger.warn(`[CheckDynamic] Dynamic detail status not success, falling back to text`);
                                     // Fallback to text notification if image generation fails
-                                    this.notifyGroups(sub.groupIds, `用户 ${sub.uid} 发布了新动态: https://t.bilibili.com/${dynamicId}`);
+                                    this.notifyGroups(sub.groupIds, `动态预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${dynamicId}`);
                                 }
                             } catch (e) {
                                 logger.error(`[CheckDynamic] Error generating/sending image for dynamic ${dynamicId}:`, e);
                                 logger.error(`[CheckDynamic] Error stack:`, e.stack);
                                 // Fallback to text notification
-                                this.notifyGroups(sub.groupIds, `用户 ${sub.uid} 发布了新动态: https://t.bilibili.com/${dynamicId} (图片生成失败)`);
+                                this.notifyGroups(sub.groupIds, `动态预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${dynamicId}`);
                             }
                         } else {
                             logger.info(`[CheckDynamic] Ignored old dynamic for ${sub.uid}: ID=${dynamicId}, Time=${dynamicTime} <= LastTime=${sub.lastDynamicTime}`);
@@ -349,18 +336,17 @@ class SubscriptionService {
 
                         // Send image and link to groups
                         this.notifyGroups(sub.groupIds, [
-                            { type: 'text', data: { text: `[直播] ${res.data.user_info?.uname || sub.uid} 开播` } },
                             { type: 'image', data: { file: `base64://${base64Image}` } },
-                            { type: 'text', data: { text: `用户 ${sub.uid} 开始直播了: https://live.bilibili.com/${roomId}` } }
+                            { type: 'text', data: { text: `https://live.bilibili.com/${roomId}` } }
                         ]);
                     } else {
                         // Fallback to text notification if image generation fails
-                        this.notifyGroups(sub.groupIds, `用户 ${sub.uid} 开始直播了: https://live.bilibili.com/${roomId}`);
+                        this.notifyGroups(sub.groupIds, `直播预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${roomId}`);
                     }
                 } catch (e) {
                     logger.error(`Error generating image for live room ${roomId}:`, e);
                     // Fallback to text notification
-                    this.notifyGroups(sub.groupIds, `用户 ${sub.uid} 开始直播了: https://live.bilibili.com/${roomId}`);
+                    this.notifyGroups(sub.groupIds, `直播预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${roomId}`);
                 }
             }
 
@@ -377,13 +363,13 @@ class SubscriptionService {
             const epTitle = newEp.index_show || newEp.title || '';
             const isNew = newEp.is_new === 1;
             if (epId && (sub.lastEpId === null || sub.lastEpId !== epId)) {
+                let updateEpoch = Date.now();
                 try {
                     const base64Image = await imageGenerator.generatePreviewCard({ status: 'success', type: 'bangumi', data: info }, 'bangumi');
                     const seasonUrl = `https://www.bilibili.com/bangumi/play/ss${sub.seasonId}`;
                     const epUrl = `https://www.bilibili.com/bangumi/play/ep${epId}`;
                     const updateTimeRaw = newEp.pub_time || newEp.release_time || info.publish?.pub_time || '';
                     let updateTimeStr = '';
-                    let updateEpoch = Date.now();
                     if (updateTimeRaw) {
                         const safeStr = (updateTimeRaw + '').replace(' ', 'T');
                         const dt = new Date(safeStr);
@@ -396,13 +382,12 @@ class SubscriptionService {
                         updateTimeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
                     }
                     this.notifyGroups(sub.groupIds, [
-                        { type: 'text', data: { text: `[番剧更新] ${info.title} 更新至 ${epTitle || epId}\n更新时间：${updateTimeStr}` } },
                         { type: 'image', data: { file: `base64://${base64Image}` } },
-                        { type: 'text', data: { text: `观看入口：${epUrl}\n番剧主页：${seasonUrl}` } }
+                        { type: 'text', data: { text: `${epUrl}` } }
                     ]);
                 } catch (e) {
                     logger.error(`[CheckBangumi] Error generating image for season ${sub.seasonId}:`, e);
-                    this.notifyGroups(sub.groupIds, `[番剧更新] ${info.title} 更新至 ${epTitle || epId}\n观看入口：https://www.bilibili.com/bangumi/play/ep${epId}\n番剧主页：https://www.bilibili.com/bangumi/play/ss${sub.seasonId}`);
+                    this.notifyGroups(sub.groupIds, `番剧预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${epId}`);
                 }
                 sub.lastEpId = epId;
                 sub.lastEpTime = updateEpoch;
