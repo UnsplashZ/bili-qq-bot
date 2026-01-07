@@ -678,6 +678,42 @@ class MessageHandler {
             return;
         }
 
+        // Command: /深色模式 <开|关|定时> [timeRange]
+        if (rawMessage.startsWith('/深色模式 ')) {
+             if (config.adminQQ && userId != config.adminQQ) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。' } }]);
+                return;
+            }
+            const parts = rawMessage.split(' ');
+            const mode = parts[1]; // 开, 关, 定时
+            
+            if (mode === '开') {
+                config.nightMode.mode = 'on';
+                config.save();
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '深色模式已强制开启。' } }]);
+            } else if (mode === '关') {
+                config.nightMode.mode = 'off';
+                config.save();
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '深色模式已强制关闭。' } }]);
+            } else if (mode === '定时') {
+                // Expect format: 21:30-07:30
+                const timeRange = parts[2];
+                if (timeRange && /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(timeRange)) {
+                    const [start, end] = timeRange.split('-');
+                    config.nightMode.mode = 'timed';
+                    config.nightMode.startTime = start;
+                    config.nightMode.endTime = end;
+                    config.save();
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `深色模式已设置为定时开启：${start} 至 ${end}。` } }]);
+                } else {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。请使用: /深色模式 定时 21:30-07:30' } }]);
+                }
+            } else {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /深色模式 <开|关|定时> [开始时间-结束时间]' } }]);
+            }
+            return;
+        }
+
         // Command: /清理上下文
         if (rawMessage.trim() === '/清理上下文') {
             aiHandler.clearContext(groupId || userId);
@@ -736,7 +772,7 @@ class MessageHandler {
             }
 
             // 生成唯一的文件名
-            const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}.jpg`;
+            const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}.png`;
             const hostFilePath = path.join(hostTempDir, fileName); // 宿主机上的完整路径
             const containerFilePath = path.join(containerTempDir, fileName); // 容器内的路径
 

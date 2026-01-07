@@ -320,7 +320,27 @@ async def get_user_dynamic(uid):
         # 使用新的 get_dynamics_new 接口
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
-            latest = dynamics['items'][0]
+            latest = None
+            max_ts = -1
+            
+            # Check top 5 items to find the latest by timestamp (handling pinned posts)
+            for item in dynamics['items'][:5]:
+                ts = 0
+                try:
+                    if 'modules' in item and 'module_author' in item['modules']:
+                        ts = int(item['modules']['module_author'].get('pub_ts', 0))
+                except:
+                    pass
+                
+                if ts > max_ts:
+                    max_ts = ts
+                    latest = item
+
+            if not latest and len(dynamics['items']) > 0:
+                latest = dynamics['items'][0]
+
+            if not latest:
+                 return {"status": "success", "data": None}
             
             # 获取发布时间 (pub_time)
             # 不同的动态类型，时间字段位置可能不同，通常在 modules.module_author.pub_ts
@@ -691,7 +711,21 @@ async def get_user_info(uid):
         try:
             dynamics = await u.get_dynamics_new(offset="")
             if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
-                latest_dynamic = dynamics['items'][0]
+                max_ts = -1
+                for item in dynamics['items'][:5]:
+                    ts = 0
+                    try:
+                        if 'modules' in item and 'module_author' in item['modules']:
+                            ts = int(item['modules']['module_author'].get('pub_ts', 0))
+                    except:
+                        pass
+                    
+                    if ts > max_ts:
+                        max_ts = ts
+                        latest_dynamic = item
+
+                if not latest_dynamic:
+                    latest_dynamic = dynamics['items'][0]
         except:
             pass
 

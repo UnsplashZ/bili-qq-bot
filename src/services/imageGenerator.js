@@ -2,17 +2,18 @@ const puppeteer = require('puppeteer');
 const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
+const config = require('../config');
 
 // SVG Icons (Unified Style - Material Designish)
 const ICONS = {
-    view: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
-    like: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></svg>',
-    comment: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
-    fire: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>',
-    star: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>',
-    heart: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
-    share: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c0 .24-.04.47-.09.7l7.05 4.11c.54-.5 1.25-.81 2.04-.81 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3z"/></svg>',
-    globe: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>'
+    view: '<svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
+    like: '<svg viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></svg>',
+    comment: '<svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
+    fire: '<svg viewBox="0 0 24 24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>',
+    star: '<svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>',
+    heart: '<svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><path d="M18 16.1c-.8 0-1.4.3-1.9.8l-7.1-4.2c.1-.2.1-.5.1-.7s0-.5-.1-.7L16.1 7.1c.5.5 1.1.8 1.9.8 1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3c0 .2 0 .5.1.7L8 9.8C7.5 9.3 6.8 9 6 9c-1.7 0-3 1.3-3 3s1.3 3 3 3c.8 0 1.5-.3 1.9-.8l7.1 4.2c-.1.2-.1.4-.1.6 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9-1.3-2.9-2.9-2.9z"/></svg>',
+    globe: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>'
 };
 
 class ImageGenerator {
@@ -41,6 +42,39 @@ class ImageGenerator {
                 ],
                 headless: "new"
             });
+        }
+    }
+
+    isNightMode() {
+        if (!config.nightMode) return false;
+        const { mode, startTime, endTime } = config.nightMode;
+        
+        if (mode === 'on') return true;
+        if (mode === 'off') return false;
+        
+        // Timed
+        const now = new Date();
+        const shTime = new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false
+        }).format(now);
+        
+        const [h, m] = shTime.split(':').map(Number);
+        const curMinutes = h * 60 + m;
+        
+        const [startH, startM] = startTime.split(':').map(Number);
+        const startMinutes = startH * 60 + startM;
+        
+        const [endH, endM] = endTime.split(':').map(Number);
+        const endMinutes = endH * 60 + endM;
+        
+        if (startMinutes < endMinutes) {
+            return curMinutes >= startMinutes && curMinutes < endMinutes;
+        } else {
+            // Cross midnight, e.g. 21:00 to 06:00
+            return curMinutes >= startMinutes || curMinutes < endMinutes;
         }
     }
 
@@ -83,21 +117,16 @@ class ImageGenerator {
         await page.setViewport({
             width: baseWidth,
             height: 1200,  // 增加高度以容纳更多内容
-            deviceScaleFactor: 1.5  // 提高到2以获得视网膜屏清晰度
+            deviceScaleFactor: 1.1  // 降低缩放以减小体积
         });
 
-        // Theme: auto switch by Beijing time (21:00-06:00)
-        const shHour = parseInt(new Intl.DateTimeFormat('zh-CN', {
-            timeZone: 'Asia/Shanghai',
-            hour: 'numeric',
-            hour12: false
-        }).format(new Date()), 10);
-        const isNight = (shHour >= 21 || shHour < 6);
+        // Theme: auto switch by config
+        const isNight = this.isNightMode();
         const themeClass = isNight ? 'theme-dark' : 'theme-light';
-
+        
         // Type Config (Label & Color)
         const TYPE_CONFIG = {
-            video: { label: '视频', color: '#FB7299', icon: '📺' },
+            video: { label: '视频', color: '#FB7299', icon: '▶️' },
             bangumi: { label: '番剧', color: '#00A1D6', icon: '🎬' },
             article: { label: '专栏', color: '#FAA023', icon: '📰' },
             live: { label: '直播', color: '#FF6699', icon: '📡' },
@@ -122,6 +151,9 @@ class ImageGenerator {
                  currentType = { label: '综艺', color: '#FE5050', icon: '🎤' };
              }
         }
+
+        // 调整夜间模式下的标签颜色
+        const badgeColor = isNight ? this.adjustBrightness(currentType.color, -25) : currentType.color;
 
         const isHex = (c) => typeof c === 'string' && /^#([0-9a-fA-F]{6})$/.test(c);
         const clamp01 = (n) => Math.max(0, Math.min(1, n));
@@ -196,7 +228,7 @@ class ImageGenerator {
              return `
                 <div class="vote-card">
                     <div class="vote-header">
-                        <svg class="vote-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14h-2v-4h2v4zm0-6h-2V7h2v4z"/></svg>
+                        <svg class="vote-icon" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
                         ${title}
                     </div>
                     <div class="vote-options ${hasVoteImages ? 'with-images' : ''}">
@@ -215,8 +247,8 @@ class ImageGenerator {
                         `}).join('')}
                     </div>
                     <div class="vote-footer">
-                        <span class="vote-btn">${choiceCnt > 1 ? '多选' : '单选'}</span>
-                        <span>${this.formatNumber(total)}人参与</span>
+                        <span class="vote-type-text">${choiceCnt > 1 ? '多选' : '单选'}</span>
+                        <span class="vote-total-text">${this.formatNumber(total)}人参与</span>
                     </div>
                 </div>
              `;
@@ -308,6 +340,12 @@ class ImageGenerator {
         });
         const gradientMix = `linear-gradient(135deg, ${stops.join(', ')})`;
 
+        // Night mode badge adjustments
+        const badgeBg = isNight ? '#23272D' : `linear-gradient(135deg, ${badgeColor}, ${this.adjustBrightness(badgeColor, -10)})`;
+        const badgeTextColor = isNight ? badgeColor : '#fff';
+        const badgeShadow = isNight ? 'none' : `0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`;
+        const badgeBorder = isNight ? `1px solid ${this.hexToRgba(badgeColor, 0.3)}` : 'none';
+
         // 现代化美化的 CSS 样式
         const style = `
             <style>
@@ -340,7 +378,7 @@ class ImageGenerator {
 
                 /* Dark Theme Override */
                 .theme-dark {
-                    --color-bg: #0F1216;
+                    --color-bg: rgba(0, 0, 0, 0.9);
                     --color-card-bg: #171B21;
                     --color-text: #E8EAED;
                     --color-subtext: #A8ADB4;
@@ -411,15 +449,17 @@ class ImageGenerator {
                     gap: 12px;
                     margin-bottom: 20px;
                     margin-left: 6px;
-                    background: linear-gradient(135deg, ${currentType.color}, ${this.adjustBrightness(currentType.color, -10)});
-                    color: #fff;
+                    background: ${badgeBg};
+                    color: ${badgeTextColor};
                     padding: 16px 28px;
                     border-radius: var(--radius-lg);
                     font-size: 28px;
                     font-weight: 700;
-                    box-shadow: 0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm);
-                    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+                    box-shadow: ${badgeShadow};
+                    border: ${badgeBorder};
+                    text-shadow: ${isNight ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.2)'};
                     letter-spacing: 1px;
+                    line-height: 1;
                 }
 
                 .cover-container { position: relative; width: 100%; }
@@ -533,13 +573,12 @@ class ImageGenerator {
                     top: 50%;
                     left: 120px;
                     transform: translateY(-50%);
-                    background: rgba(255, 255, 255, 0.90);
-                    padding: 8px 12px;
+                    background: rgba(255, 255, 255, 0.2);
+                    padding: 4px 8px;
                     border-radius: var(--radius-md);
                     font-weight: 700;
                     font-size: 20px;
-                    box-shadow: var(--shadow-sm);
-                    backdrop-filter: blur(8px);
+                    backdrop-filter: blur(4px);
                 }
 
                 .decorate-bg {
@@ -662,6 +701,32 @@ class ImageGenerator {
                     box-shadow: var(--shadow-sm);
                 }
 
+                .action-bar {
+                    display: flex;
+                    align-items: center;
+                    gap: 48px;
+                    margin-top: 24px;
+                    padding-top: 20px;
+                    border-top: 1px solid var(--color-border);
+                    width: 100%;
+                }
+
+                .action-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-size: 26px;
+                    color: var(--color-subtext);
+                    font-weight: 500;
+                }
+
+                .action-item svg {
+                    width: 32px;
+                    height: 32px;
+                    fill: var(--color-subtext);
+                    opacity: 0.85;
+                }
+
                 .stat-item {
                     display: flex;
                     align-items: center;
@@ -778,19 +843,15 @@ class ImageGenerator {
 
                 .at-user {
                     color: var(--color-secondary);
-                    font-weight: 600;
-                    margin: 0 4px;
-                    background: rgba(0, 161, 214, 0.08);
-                    padding: 2px 6px;
-                    border-radius: 6px;
-                    display: inline-block;
+                    font-weight: 700;
+                    margin: 0 2px;
                     cursor: pointer;
                 }
                 
                 .topic-tag {
                     color: var(--color-secondary);
-                    margin: 0 4px;
-                    font-weight: 500;
+                    margin: 0 2px;
+                    font-weight: 700;
                 }
 
                 .vote-card {
@@ -800,6 +861,8 @@ class ImageGenerator {
                     margin-top: 24px;
                     border: 1px solid var(--color-border);
                     box-shadow: var(--shadow-sm);
+                    width: 100%;
+                    box-sizing: border-box;
                 }
 
                 .vote-header {
@@ -813,9 +876,23 @@ class ImageGenerator {
                 }
                 
                 .vote-icon {
-                    width: 24px;
-                    height: 24px;
+                    width: 28px;
+                    height: 28px;
                     fill: var(--color-secondary);
+                }
+
+                .vote-footer {
+                    margin-top: 16px;
+                    display: flex;
+                    gap: 12px;
+                    font-size: 16px;
+                    color: var(--color-subtext);
+                    align-items: center;
+                }
+
+                .vote-type-text {
+                    font-weight: 500;
+                    color: var(--color-subtext);
                 }
 
                 .vote-options {
@@ -908,14 +985,47 @@ class ImageGenerator {
                  }
  
                  .vote-inline {
-                     display: inline-block;
-                     padding: 2px 8px;
-                     border-radius: 999px;
-                     background: rgba(0, 161, 214, 0.12);
-                     color: var(--color-secondary);
-                     font-weight: 700;
-                     margin: 0 4px;
-                 }
+                    color: var(--color-secondary);
+                    font-weight: 700;
+                    margin: 0 2px;
+                }
+
+                .video-card-inline {
+                    margin-top: 20px;
+                    border: 1px solid var(--color-border);
+                    border-radius: var(--radius-lg);
+                    overflow: hidden;
+                    background: var(--color-card-bg);
+                }
+                .video-card-content {
+                    padding: 12px;
+                    background: var(--color-soft-bg);
+                }
+                .video-card-title {
+                    font-weight: bold;
+                    font-size: 14px;
+                    margin-bottom: 6px;
+                    color: var(--color-text);
+                }
+                .stat-inline-container {
+                    color: var(--color-subtext);
+                    font-size: 13px;
+                    display: flex;
+                    gap: 15px;
+                    align-items: center;
+                    margin-top: 4px;
+                }
+                .stat-inline {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    white-space: nowrap;
+                }
+                .stat-inline svg {
+                    width: 16px;
+                    height: 16px;
+                    fill: var(--color-subtext);
+                }
              </style>
          `;
 
@@ -959,7 +1069,7 @@ class ImageGenerator {
                             </div>
                             <div class="user-info">
                                 <span class="user-name">${info.owner.name}</span>
-                                <span class="pub-time">${new Date(info.pubdate * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}${durationStr}</span>
+                                <span class="pub-time">${this.formatPubTime(info.pubdate)}${durationStr}</span>
                             </div>
                         </div>
                     </div>
@@ -1051,7 +1161,7 @@ class ImageGenerator {
         else if (type === 'article') {
             const info = data.data;
             const cover = info.banner_url || (info.image_urls && info.image_urls.length > 0 ? info.image_urls[0] : '');
-            const pubDate = info.publish_time ? new Date(info.publish_time * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
+            const pubDate = this.formatPubTime(info.publish_time);
             const authorFace = info.author_face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
 
             htmlContent += `
@@ -1137,7 +1247,7 @@ class ImageGenerator {
 
             const authorName = module_author.name || 'Unknown';
             const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
-            const pubTime = module_author.pub_time || '';
+            const pubTime = this.formatPubTime(data.data.pub_ts) || module_author.pub_time || '';
 
             // 获取作者装饰信息
             const pendant = module_author.pendant || {};
@@ -1221,7 +1331,7 @@ class ImageGenerator {
             // Construct Image HTML
             let mediaHtml = '';
             if (images.length === 1) {
-                mediaHtml = `<img class="dynamic-image" src="${images[0]}" style="width: 100%; height: auto; object-fit: contain; max-height: 1200px; margin-top: 20px;">`;
+                mediaHtml = `<img class="dynamic-image" src="${images[0]}" style="width: 100%; height: auto; margin-top: 20px;">`;
             } else if (images.length > 1) {
                 mediaHtml = `
                     <div class="images-grid">
@@ -1249,17 +1359,17 @@ class ImageGenerator {
                     const play = videoCard.stat?.play || '';
                     const danmaku = videoCard.stat?.danmaku || '';
                     mediaHtml = `
-                        <div style="margin-top:20px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                        <div class="video-card-inline">
                             <div class="cover-container">
                                 <img src="${videoCard.cover}" style="width: 100%; height: auto; display: block;">
                                 ${duration ? `<span class="duration-badge">${duration}</span>` : ''}
                             </div>
-                            <div style="padding:10px; background:#f9f9f9;">
+                            <div class="video-card-content">
                                 <div style="font-weight:bold; font-size:14px;">${videoCard.title}</div>
                                 ${(play || danmaku) ? `
-                                <div style="color:#999; font-size:13px; display:flex; gap:15px; align-items:center; margin-top: 4px;">
-                                    ${play ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.view} ${play}</span>` : ''}
-                                    ${danmaku ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.comment} ${danmaku}</span>` : ''}
+                                <div class="stat-inline-container">
+                                    ${play ? `<span class="stat-inline">${ICONS.view} ${play}</span>` : ''}
+                                    ${danmaku ? `<span class="stat-inline">${ICONS.comment} ${danmaku}</span>` : ''}
                                 </div>
                                 ` : ''}
                             </div>
@@ -1311,22 +1421,20 @@ class ImageGenerator {
                         </div>`;
                 } else if (o_videoCard) {
                     const duration = o_videoCard.duration_text || '';
-                    const play = o_videoCard.stat?.play || '';
-                    const danmaku = o_videoCard.stat?.danmaku || '';
+                    const play = this.formatNumber(o_videoCard.stat?.play || o_videoCard.stat?.view);
+                    const danmaku = this.formatNumber(o_videoCard.stat?.danmaku);
                     o_mediaHtml = `
-                        <div style="margin-top:10px; border:1px solid #eee; border-radius:8px; overflow:hidden;">
+                        <div class="video-card-inline">
                             <div class="cover-container">
                                 <img src="${o_videoCard.cover}" style="width: 100%; aspect-ratio:16/9; object-fit: cover; max-height: 800px;">
                                 ${duration ? `<span class="duration-badge">${duration}</span>` : ''}
                             </div>
-                            <div style="padding:10px; background:#f9f9f9;">
-                                <div style="font-weight:bold; font-size:14px;">${o_videoCard.title}</div>
-                                ${(play || danmaku) ? `
-                                <div style="color:#999; font-size:13px; display:flex; gap:15px; align-items:center; margin-top: 4px;">
-                                    ${play ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.view} ${play}</span>` : ''}
-                                    ${danmaku ? `<span style="display:flex;align-items:center;gap:4px;">${ICONS.comment} ${danmaku}</span>` : ''}
+                            <div class="video-card-content">
+                                <div class="video-card-title">${o_videoCard.title}</div>
+                                <div class="stat-inline-container">
+                                    <span class="stat-inline">${ICONS.view} ${play}</span>
+                                    <span class="stat-inline">${ICONS.comment} ${danmaku}</span>
                                 </div>
-                                ` : ''}
                             </div>
                         </div>
                     `;
@@ -1374,21 +1482,21 @@ class ImageGenerator {
                             ${cardUrl ? `
                                 <div class="decoration-card-wrapper">
                                     <img class="decoration-card" src="${cardUrl}" />
-                                    ${serial ? `<span class="serial-badge" style="color: ${fanColor}; background: ${fanColor}4D;">No.${serial}</span>` : ''}
+                                    ${serial ? `<span class="serial-badge" style="color: ${fanColor};">No.${serial}</span>` : ''}
                                 </div>
                             ` : ''}
                         </div>
                     </div>
                     ${title ? `<div class="title">${title}</div>` : ''}
-                    <div class="stats">
-                         <span class="stat-item">${ICONS.share} ${this.formatNumber(module_stat.forward?.count)}</span>
-                         <span class="stat-item">${ICONS.comment} ${this.formatNumber(module_stat.comment?.count)}</span>
-                         <span class="stat-item">${ICONS.like} ${this.formatNumber(module_stat.like?.count)}</span>
-                    </div>
                     <div class="text-content">${text}</div>
                     ${voteHtml}
                     ${origHtml}
                     ${mediaHtml}
+                    <div class="action-bar">
+                         <div class="action-item">${ICONS.share} ${this.formatNumber(module_stat.forward?.count)}</div>
+                         <div class="action-item">${ICONS.comment} ${this.formatNumber(module_stat.comment?.count)}</div>
+                         <div class="action-item">${ICONS.like} ${this.formatNumber(module_stat.like?.count)}</div>
+                    </div>
                 </div>
             `;
         } 
@@ -1447,20 +1555,20 @@ class ImageGenerator {
                 
                 let mediaHtml = '';
                 if (dynImages.length > 0) {
-                     mediaHtml = `<div style="display: flex; gap: 12px; margin-top: 25px; overflow: hidden; height: 180px;">
-                        ${dynImages.slice(0, 3).map(src => `<img src="${src}" style="height: 180px; width: 180px; object-fit: cover; border-radius: 10px;">`).join('')}
+                     mediaHtml = `<div style="display: flex; gap: 12px; margin-top: 20px; overflow: hidden; height: 180px;">
+                        ${dynImages.slice(0, 3).map(src => `<img src="${src}" style="height: 180px; width: 180px; object-fit: cover; border-radius: 8px;">`).join('')}
                      </div>`;
                 } else if (dynVideo) {
-                     mediaHtml = `<div style="margin-top: 25px; display: flex; gap: 18px; background: #f7f8f9; border-radius: 12px; padding: 12px;">
-                        <img src="${dynVideo.cover}" style="height: 105px; width: 168px; object-fit: cover; border-radius: 10px;">
-                        <div style="flex: 1; font-size: 24px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4;">${dynVideo.title}</div>
+                     mediaHtml = `<div style="margin-top: 20px; display: flex; gap: 16px; background: var(--color-soft-bg); border-radius: 12px; padding: 12px; align-items: center;">
+                        <img src="${dynVideo.cover}" style="height: 90px; width: 144px; object-fit: cover; border-radius: 8px;">
+                        <div style="flex: 1; font-size: 20px; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4;">${dynVideo.title}</div>
                      </div>`;
                 }
 
                 dynamicHtml = `
-                    <div style="margin-top: 45px; border-top: 1px solid #eee; padding-top: 30px; text-align: left;">
-                        <div style="font-size: 24px; color: #999; margin-bottom: 18px; font-weight: bold;">最近动态</div>
-                        <div style="font-size: 28px; color: #333; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;">${dynText}</div>
+                    <div style="margin-top: 35px; border-top: 1px solid var(--color-border); padding-top: 25px; text-align: left;">
+                        <div style="font-size: 20px; color: var(--color-subtext); margin-bottom: 12px; font-weight: bold;">最近动态</div>
+                        <div style="font-size: 24px; color: var(--color-text); line-height: 1.6; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;">${dynText}</div>
                         ${mediaHtml}
                     </div>
                 `;
@@ -1468,42 +1576,44 @@ class ImageGenerator {
 
             htmlContent += `
                 <div class="content">
-                    <div class="header" style="justify-content: center; flex-direction: column; text-align: center; margin-bottom: 10px;">
-                        <div class="avatar-wrapper" style="width: 150px; height: 150px; margin: 0 auto 20px auto;">
-                            <img class="avatar no-frame" src="${face}" style="width: 150px; height: 150px; border-width: 5px;">
+                    <div class="header" style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 10px;">
+                        <div class="avatar-wrapper" style="width: 150px; height: 150px; margin-bottom: 20px; position: relative;">
+                            <img class="avatar no-frame" src="${face}" style="width: 150px; height: 150px; border-width: 4px; border-color: var(--color-card-bg); box-shadow: var(--shadow-md);">
+                            ${pendantImage ? `<img src="${pendantImage}" style="position: absolute; top: -20%; left: -20%; width: 140%; height: 140%; pointer-events: none;">` : ''}
                         </div>
-                        <div class="user-info" style="align-items: center; margin-left: 0;">
-                            <div class="user-name" style="font-size: 40px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        <div class="user-info" style="width: 100%;">
+                            <div class="user-name" style="font-size: 36px; font-weight: bold; color: var(--color-text); display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
                                 ${name} 
-                                <span class="user-level" style="font-size: 20px; background: #FB7299; color: white; padding: 2px 8px; border-radius: 4px;">Lv${level}</span>
-                                ${vipLabel ? `<span style="font-size: 20px; background: #FB7299; color: white; padding: 2px 8px; border-radius: 4px;">${vipLabel}</span>` : ''}
+                                <span class="user-level" style="font-size: 16px; background: #FB7299; color: white; padding: 4px 8px; border-radius: 4px; vertical-align: middle;">Lv${level}</span>
+                                ${vipLabel ? `<span style="font-size: 16px; background: #FB7299; color: white; padding: 4px 8px; border-radius: 4px; vertical-align: middle;">${vipLabel}</span>` : ''}
                             </div>
                             ${medalName ? `
-                            <div style="margin-top: 8px; display: flex; align-items: center; justify-content: center;">
-                                <span style="border: 1px solid #666; border-radius: 4px; overflow: hidden; display: flex;">
-                                    <span style="background: #666; color: white; padding: 0 4px; font-size: 18px;">${medalName}</span>
-                                    <span style="background: white; color: #666; padding: 0 4px; font-size: 18px;">${medalLevel}</span>
-                                </span>
+                            <div style="margin-top: 12px; display: flex; align-items: center; justify-content: center;">
+                                <div style="display: inline-flex; border: 1px solid var(--color-subtext); border-radius: 4px; overflow: hidden;">
+                                    <span style="background: var(--color-subtext); color: var(--color-card-bg); padding: 2px 6px; font-size: 16px; font-weight: bold;">${medalName}</span>
+                                    <span style="background: var(--color-card-bg); color: var(--color-subtext); padding: 2px 6px; font-size: 16px;">${medalLevel}</span>
+                                </div>
                             </div>` : ''}
-                            ${sign ? `<div class="text-content" style="text-align: center; margin-top: 15px; color: #666; font-style: italic; font-size: 20px;">"${sign}"</div>` : ''}
+                            ${sign ? `<div class="text-content" style="text-align: center; margin-top: 16px; color: var(--color-subtext); font-size: 18px; line-height: 1.5; padding: 0 20px;">"${sign}"</div>` : ''}
                         </div>
                     </div>
-                    <div class="stats" style="display: flex; justify-content: center; margin: 25px auto 0 auto; gap: 40px;">
+
+                    <div class="stats" style="display: flex; justify-content: center; gap: 40px; margin: 30px auto 0 auto; padding: 20px 40px; background: var(--color-soft-bg); border-radius: 12px; width: fit-content;">
                         <div style="text-align: center;">
-                            <div style="font-size: 28px; font-weight: bold; color: #333;">${this.formatNumber(follower)}</div>
-                            <div style="font-size: 20px; color: #999;">粉丝</div>
+                            <div style="font-size: 24px; font-weight: bold; color: var(--color-text); margin-bottom: 4px;">${this.formatNumber(follower)}</div>
+                            <div style="font-size: 16px; color: var(--color-subtext);">粉丝</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 28px; font-weight: bold; color: #333;">${this.formatNumber(following)}</div>
-                            <div style="font-size: 20px; color: #999;">关注</div>
+                            <div style="font-size: 24px; font-weight: bold; color: var(--color-text); margin-bottom: 4px;">${this.formatNumber(following)}</div>
+                            <div style="font-size: 16px; color: var(--color-subtext);">关注</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 28px; font-weight: bold; color: #333;">${this.formatNumber(info.likes || 0)}</div>
-                            <div style="font-size: 20px; color: #999;">获赞</div>
+                            <div style="font-size: 24px; font-weight: bold; color: var(--color-text); margin-bottom: 4px;">${this.formatNumber(info.likes || 0)}</div>
+                            <div style="font-size: 16px; color: var(--color-subtext);">获赞</div>
                         </div>
                         <div style="text-align: center;">
-                            <div style="font-size: 28px; font-weight: bold; color: #333;">${this.formatNumber(info.archive_view || 0)}</div>
-                            <div style="font-size: 20px; color: #999;">播放</div>
+                            <div style="font-size: 24px; font-weight: bold; color: var(--color-text); margin-bottom: 4px;">${this.formatNumber(info.archive_view || 0)}</div>
+                            <div style="font-size: 16px; color: var(--color-subtext);">播放</div>
                         </div>
                     </div>
                     ${dynamicHtml}
@@ -1518,9 +1628,8 @@ class ImageGenerator {
         await page.waitForTimeout(300);
         const container = await page.$('.container');
         const buffer = await container.screenshot({
-            type: 'jpeg',
-            quality: 95,  // 提高质量到95以获得更清晰的图片
-            omitBackground: false
+            type: 'png',
+            omitBackground: true
         });
 
         await page.close();
@@ -1575,8 +1684,46 @@ class ImageGenerator {
             deviceScaleFactor: 1.5  // 提高到2以获得视网膜屏清晰度
         });
 
+        // Theme: auto switch by config
+        const isNight = this.isNightMode();
+        const themeClass = isNight ? 'theme-dark' : 'theme-light';
+
         const style = `
             <style>
+                :root {
+                    --bg-gradient: linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%);
+                    --card-bg: #fff;
+                    --card-border: rgba(255, 255, 255, 0.9);
+                    --text-title: #333;
+                    --text-subtitle: #999;
+                    --link-bg: linear-gradient(135deg, #f8f9fa 0%, #f4f6f8 100%);
+                    --link-text: #555;
+                    --cmd-item-bg: #fff;
+                    --cmd-item-border: #f0f0f0;
+                    --cmd-code-bg: linear-gradient(135deg, #FFF0F6, #FFE8F0);
+                    --cmd-code-color: #FB7299;
+                    --cmd-desc: #666;
+                    --footer-text: #bbb;
+                    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+                }
+
+                .theme-dark {
+                    --bg-gradient: linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%);
+                    --card-bg: #171B21;
+                    --card-border: rgba(255, 255, 255, 0.08);
+                    --text-title: #E8EAED;
+                    --text-subtitle: #A8ADB4;
+                    --link-bg: #12161B;
+                    --link-text: #A8ADB4;
+                    --cmd-item-bg: #12161B;
+                    --cmd-item-border: rgba(255, 255, 255, 0.08);
+                    --cmd-code-bg: rgba(251, 114, 153, 0.15);
+                    --cmd-code-color: #FF6699;
+                    --cmd-desc: #888;
+                    --footer-text: #666;
+                    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+                }
+
                 body {
                     margin: 0;
                     padding: 0;
@@ -1589,25 +1736,25 @@ class ImageGenerator {
 
                 .container {
                     padding: 24px;
-                    background: linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%);
+                    background: var(--bg-gradient);
                     box-sizing: border-box;
                     width: 100%;
                     display: inline-block;
                 }
 
                 .card {
-                    background: #fff;
+                    background: var(--card-bg);
                     border-radius: 20px;
                     overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
-                    border: 1px solid rgba(255, 255, 255, 0.9);
+                    box-shadow: var(--shadow-card);
+                    border: 1px solid var(--card-border);
                     padding: 28px;
                 }
 
                 .header {
                     text-align: center;
                     margin-bottom: 28px;
-                    border-bottom: 2px solid #f5f5f5;
+                    border-bottom: 2px solid var(--cmd-item-border);
                     padding-bottom: 20px;
                 }
 
@@ -1624,7 +1771,7 @@ class ImageGenerator {
 
                 .subtitle {
                     font-size: 22px;
-                    color: #999;
+                    color: var(--text-subtitle);
                     font-weight: 500;
                 }
 
@@ -1635,7 +1782,7 @@ class ImageGenerator {
                 .section-title {
                     font-size: 26px;
                     font-weight: 700;
-                    color: #333;
+                    color: var(--text-title);
                     margin-bottom: 16px;
                     display: flex;
                     align-items: center;
@@ -1659,11 +1806,11 @@ class ImageGenerator {
                 }
 
                 .link-item {
-                    background: linear-gradient(135deg, #f8f9fa 0%, #f4f6f8 100%);
+                    background: var(--link-bg);
                     padding: 12px 16px;
                     border-radius: 12px;
                     font-size: 20px;
-                    color: #555;
+                    color: var(--link-text);
                     display: flex;
                     align-items: center;
                     gap: 10px;
@@ -1686,8 +1833,8 @@ class ImageGenerator {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    background: #fff;
-                    border: 2px solid #f0f0f0;
+                    background: var(--cmd-item-bg);
+                    border: 2px solid var(--cmd-item-border);
                     padding: 14px 18px;
                     border-radius: 12px;
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
@@ -1696,8 +1843,8 @@ class ImageGenerator {
                 .cmd-code {
                     font-family: 'Consolas', 'Monaco', monospace;
                     font-weight: bold;
-                    color: #FB7299;
-                    background: linear-gradient(135deg, #FFF0F6, #FFE8F0);
+                    color: var(--cmd-code-color);
+                    background: var(--cmd-code-bg);
                     padding: 6px 12px;
                     border-radius: 8px;
                     font-size: 20px;
@@ -1705,14 +1852,14 @@ class ImageGenerator {
 
                 .cmd-desc {
                     font-size: 18px;
-                    color: #666;
+                    color: var(--cmd-desc);
                     font-weight: 500;
                 }
 
                 .footer {
                     text-align: center;
                     font-size: 16px;
-                    color: #bbb;
+                    color: var(--footer-text);
                     margin-top: 12px;
                     font-weight: 400;
                 }
@@ -1720,7 +1867,7 @@ class ImageGenerator {
         `;
 
         const html = `<html><head>${style}</head><body>
-            <div class="container">
+            <div class="container ${themeClass}">
                 <div class="card">
                     <div class="header">
                         <div class="title">Bilibili Assistant</div>
@@ -1802,6 +1949,10 @@ class ImageGenerator {
                                 <span class="cmd-code">/设置 &lt;缓存|轮询&gt; &lt;秒数&gt;</span>
                                 <span class="cmd-desc">动态调整系统参数</span>
                             </div>
+                            <div class="cmd-item">
+                                <span class="cmd-code">/深色模式 &lt;开|关|定时&gt;</span>
+                                <span class="cmd-desc">配置深色模式 (21:30-7:30)</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -1813,14 +1964,57 @@ class ImageGenerator {
         await page.setContent(html);
         const container = await page.$('.container');
         const buffer = await container.screenshot({
-            type: 'jpeg',
-            quality: 95,  // 提高质量到95以获得更清晰的图片
+            type: 'webp',
+            quality: 80,  // 使用 WebP 压缩体积
             omitBackground: false
         });
 
         await page.close();
 
         return buffer.toString('base64');
+    }
+
+    formatPubTime(timestamp) {
+        if (!timestamp) return '';
+        const now = new Date();
+        const date = new Date(timestamp * 1000);
+        const diff = now - date;
+        const diffMinutes = Math.floor(diff / 1000 / 60);
+        const diffHours = Math.floor(diff / 1000 / 3600);
+        
+        // Calculate days based on calendar dates
+        const dateZero = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const nowZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const diffDays = Math.floor((nowZero - dateZero) / (1000 * 60 * 60 * 24));
+
+        const isThisYear = now.getFullYear() === date.getFullYear();
+
+        if (!isThisYear) {
+            const y = date.getFullYear();
+            const m = (date.getMonth() + 1).toString().padStart(2, '0');
+            const d = date.getDate().toString().padStart(2, '0');
+            const h = date.getHours().toString().padStart(2, '0');
+            const min = date.getMinutes().toString().padStart(2, '0');
+            return `${y}年${m}月${d}日 ${h}:${min}`;
+        }
+
+        if (diffMinutes < 60) {
+            return `${Math.max(1, diffMinutes)}分钟前`;
+        }
+
+        if (diffDays === 0) {
+             return `${diffHours}小时前`;
+        }
+
+        if (diffDays < 3) {
+            return `${diffDays}天前`;
+        }
+
+        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+        const d = date.getDate().toString().padStart(2, '0');
+        const h = date.getHours().toString().padStart(2, '0');
+        const min = date.getMinutes().toString().padStart(2, '0');
+        return `${m}月${d}日 ${h}:${min}`;
     }
 
     formatNumber(num) {

@@ -49,6 +49,13 @@ const config = {
     // Subscription check interval in seconds
     subscriptionCheckInterval: parseInt(configData.subscriptionCheckInterval || 60),
 
+    // Night Mode Config
+    nightMode: configData.nightMode || {
+        mode: 'timed', // 'on', 'off', 'timed'
+        startTime: '21:00',
+        endTime: '06:00'
+    },
+
     // Save configuration to file (Only dynamic fields)
     save: function() {
         const data = {
@@ -56,7 +63,8 @@ const config = {
             blacklistedQQs: this.blacklistedQQs,
             enabledGroups: this.enabledGroups,
             linkCacheTimeout: this.linkCacheTimeout,
-            subscriptionCheckInterval: this.subscriptionCheckInterval
+            subscriptionCheckInterval: this.subscriptionCheckInterval,
+            nightMode: this.nightMode
         };
         try {
             fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
