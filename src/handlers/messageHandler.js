@@ -376,23 +376,6 @@ class MessageHandler {
             return;
         }
 
-        // Expand short links if present (before cache check)
-        if (this.shortLinkRegex.test(rawMessage)) {
-            const match = rawMessage.match(this.shortLinkRegex);
-            if (match) {
-                const shortUrl = match[0];
-                logger.info(`[MessageHandler] Found short link: ${shortUrl}, expanding...`);
-                try {
-                    const expanded = await this.expandUrl(shortUrl);
-                    logger.info(`[MessageHandler] Expanded ${shortUrl} to ${expanded}`);
-                    rawMessage += " " + expanded;
-                    logger.info(`[MessageHandler] Updated rawMessage with expanded URL`);
-                } catch (e) {
-                    logger.error(`[MessageHandler] Failed to expand short link ${shortUrl}:`, e);
-                }
-            }
-        }
-
         // Check for JSON message (Mini Program) and extract URL (before cache check)
         const jsonMsg = message.find(m => m.type === 'json');
         if (jsonMsg) {
@@ -422,6 +405,23 @@ class MessageHandler {
             } catch (e) {
                 logger.warn('[MessageHandler] Failed to parse JSON message:', e);
                 logger.warn('[MessageHandler] JSON raw data:', jsonMsg.data.data.substring(0, 500));
+            }
+        }
+
+        // Expand short links if present (before cache check)
+        if (this.shortLinkRegex.test(rawMessage)) {
+            const match = rawMessage.match(this.shortLinkRegex);
+            if (match) {
+                const shortUrl = match[0];
+                logger.info(`[MessageHandler] Found short link: ${shortUrl}, expanding...`);
+                try {
+                    const expanded = await this.expandUrl(shortUrl);
+                    logger.info(`[MessageHandler] Expanded ${shortUrl} to ${expanded}`);
+                    rawMessage += " " + expanded;
+                    logger.info(`[MessageHandler] Updated rawMessage with expanded URL`);
+                } catch (e) {
+                    logger.error(`[MessageHandler] Failed to expand short link ${shortUrl}:`, e);
+                }
             }
         }
 
@@ -654,7 +654,7 @@ class MessageHandler {
             return;
         }
 
-        // Command: /设置 <缓存|轮询> <value>
+        // Command: /设置 <缓存|轮询|标签> <value>
         if (rawMessage.startsWith('/设置 ')) {
              if (config.adminQQ && userId != config.adminQQ) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。' } }]);
@@ -672,8 +672,30 @@ class MessageHandler {
             } else if (type === '轮询' && !isNaN(value)) {
                 subscriptionService.updateCheckInterval(value);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `订阅轮询间隔已设置为 ${value} 秒。` } }]);
+            } else if (type === '标签') {
+                 const category = parts[2]; // e.g. 动态
+                 const switchState = parts[3]; // e.g. 开/关
+
+                 const categoryMap = {
+                     '视频': 'video',
+                     '番剧': 'bangumi',
+                     '专栏': 'article',
+                     '直播': 'live',
+                     '动态': 'dynamic',
+                     '用户': 'user'
+                 };
+                 const key = categoryMap[category];
+                 
+                 if (key && (switchState === '开' || switchState === '关')) {
+                     if (!config.labelConfig) config.labelConfig = {};
+                     config.labelConfig[key] = (switchState === '开');
+                     config.save();
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已${switchState} ${category} 标签显示。` } }]);
+                 } else {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 标签 <视频|番剧|专栏|直播|动态|用户> <开|关>' } }]);
+                 }
             } else {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 <缓存|轮询> <秒数>' } }]);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 <缓存|轮询|标签> ...' } }]);
             }
             return;
         }

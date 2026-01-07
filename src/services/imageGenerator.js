@@ -346,9 +346,40 @@ class ImageGenerator {
         const badgeShadow = isNight ? 'none' : `0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`;
         const badgeBorder = isNight ? `1px solid ${this.hexToRgba(badgeColor, 0.3)}` : 'none';
 
+        // Load Custom Fonts
+        const fontDir = path.join(__dirname, '../../fonts/custom');
+        let customFontsCss = '';
+        let customFontFamilies = [];
+        if (fs.existsSync(fontDir)) {
+            try {
+                const files = fs.readdirSync(fontDir);
+                files.forEach(file => {
+                    const ext = path.extname(file).toLowerCase();
+                    if (['.ttf', '.otf', '.woff', '.woff2'].includes(ext)) {
+                        const fontName = path.basename(file, ext);
+                        const fontPath = path.join(fontDir, file);
+                        const fontBuffer = fs.readFileSync(fontPath);
+                        const base64Font = fontBuffer.toString('base64');
+                        customFontsCss += `
+                            @font-face {
+                                font-family: "${fontName}";
+                                src: url(data:font/${ext.slice(1)};charset=utf-8;base64,${base64Font}) format('${ext === '.ttf' ? 'truetype' : ext === '.otf' ? 'opentype' : ext.slice(1)}');
+                            }
+                        `;
+                        customFontFamilies.push(`"${fontName}"`);
+                    }
+                });
+            } catch (e) {
+                logger.error('Failed to load custom fonts:', e);
+            }
+        }
+
         // 现代化美化的 CSS 样式
         const style = `
             <style>
+                /* Custom Fonts */
+                ${customFontsCss}
+
                 /* Design Tokens */
                 :root {
                     /* Palette - Light */
@@ -394,11 +425,11 @@ class ImageGenerator {
                 body {
                     margin: 0;
                     padding: 0;
-                    background: var(--color-bg);
+                    background: transparent;
                     width: fit-content;
                     min-width: ${minWidth}px;
                     max-width: ${baseWidth}px;
-                    font-family: "MiSans", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+                    font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"MiSans", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
                     -webkit-font-smoothing: antialiased;
                     -moz-osx-font-smoothing: grayscale;
                 }
@@ -409,7 +440,10 @@ class ImageGenerator {
                     box-sizing: border-box;
                     width: 100%;
                     min-height: 300px;
-                    display: inline-block;
+                    display: inline-flex;
+                    flex-direction: column;
+                    align-items: flex-start;
+                    border-radius: var(--radius-lg);
                     transition: background-color .3s ease;
                 }
 
@@ -1031,10 +1065,11 @@ class ImageGenerator {
 
         let htmlContent = `<html><head>${style}</head><body>
             <div class="container ${themeClass} gradient-bg" style="--gradient-mix:${gradientMix}">
+                ${(config.labelConfig && config.labelConfig[type] !== false) ? `
                 <div class="type-badge">
                     <span>${currentType.icon}</span>
                     <span>${currentType.label}</span>
-                </div>
+                </div>` : ''}
                 <div class="card">
         `;
 
@@ -1365,7 +1400,7 @@ class ImageGenerator {
                                 ${duration ? `<span class="duration-badge">${duration}</span>` : ''}
                             </div>
                             <div class="video-card-content">
-                                <div style="font-weight:bold; font-size:14px;">${videoCard.title}</div>
+                                <div class="video-card-title">${videoCard.title}</div>
                                 ${(play || danmaku) ? `
                                 <div class="stat-inline-container">
                                     ${play ? `<span class="stat-inline">${ICONS.view} ${play}</span>` : ''}

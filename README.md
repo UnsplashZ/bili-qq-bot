@@ -70,6 +70,7 @@
 | `AI_SYSTEM_PROMPT` | AI 人设提示词 | `你是一个可爱的猫娘...` |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
+| `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 
 ### 2. 动态配置 (config.json)
 复制 `config/config.json.example` 为 `config/config.json`。这些配置支持热更新（通过 `/设置` 指令修改）：
@@ -81,6 +82,8 @@
 | `linkCacheTimeout` | 链接解析缓存时间 (秒) | `300` |
 | `subscriptionCheckInterval` | 订阅轮询间隔 (秒) | `60` |
 | `aiContextLimit` | AI 上下文保留条数 | `10` |
+| `nightMode` | 深色模式配置 | `{"mode": "timed", ...}` |
+| `labelConfig` | 标签显示配置 | `{"video": true, ...}` |
 
 ## 快速部署 (Docker)
 
@@ -111,6 +114,7 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./fonts/custom:/app/fonts/custom
       - /root/napcat-data/QQ:/root/napcat-data/QQ
     environment:
       - TZ=Asia/Shanghai
@@ -179,11 +183,13 @@ npm start
 | `/深色模式 <开\|关\|定时> [时间]` | 配置深色模式 (定时格式: HH:mm-HH:mm) | `/深色模式 定时 21:30-07:30` |
 | `/黑名单 <add\|remove\|list> [qq]` | 管理黑名单 (管理员) | `/黑名单 add 123456` |
 | `/设置 <缓存\|轮询> <秒数>` | 调整系统参数 (管理员) | `/设置 轮询 120` |
+| `/设置 标签 <分类> <开\|关>` | 开启/关闭指定分类的标签显示 (管理员) | `/设置 标签 动态 开` |
 
 
 ## 项目结构
 
 *   `Dockerfile` / `docker-compose.yml`: Docker 部署配置
+*   `fonts/custom/`: **自定义字体目录** (放入 .ttf/.otf 文件即可优先使用，支持热更新)
 *   `src/bot.js`: 程序入口，WebSocket 连接管理
 *   `src/config.js`: 项目配置文件
 *   `src/handlers/`: 消息处理逻辑
@@ -201,6 +207,7 @@ npm start
 
 - [ ] **抖音/小红书支持**：扩展解析能力，支持抖音、小红书等平台的链接解析与卡片生成。
 - [ ] **setup.sh 一键安装脚本**：编辑配置、安装环境、打包镜像、生成 compose、启动并输出日志
+- [x] **自定义字体支持**：优先调用用户配置字体，未配置时使用默认字体
 
 ## 致谢 (Acknowledgments)
 

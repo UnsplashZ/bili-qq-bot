@@ -3,5 +3,18 @@
   "blacklistedQQs": [],
   "enabledGroups": [],
   "linkCacheTimeout": 300,
-  "subscriptionCheckInterval": 60
+  "subscriptionCheckInterval": 60,
+  "nightMode": {
+    "mode": "timed",
+    "startTime": "21:00",
+    "endTime": "06:00"
+  },
+  "labelConfig": {
+    "video": true,
+    "bangumi": true,
+    "article": true,
+    "live": true,
+    "dynamic": true,
+    "user": true
+  }
 }

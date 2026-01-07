@@ -56,6 +56,16 @@ const config = {
         endTime: '06:00'
     },
 
+    // Label Config (Show/Hide top-left label)
+    labelConfig: configData.labelConfig || {
+        video: true,
+        bangumi: true,
+        article: true,
+        live: true,
+        dynamic: true,
+        user: true
+    },
+
     // Save configuration to file (Only dynamic fields)
     save: function() {
         const data = {
@@ -64,7 +74,8 @@ const config = {
             enabledGroups: this.enabledGroups,
             linkCacheTimeout: this.linkCacheTimeout,
             subscriptionCheckInterval: this.subscriptionCheckInterval,
-            nightMode: this.nightMode
+            nightMode: this.nightMode,
+            labelConfig: this.labelConfig
         };
         try {
             fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));

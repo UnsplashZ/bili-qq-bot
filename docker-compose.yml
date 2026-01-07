@@ -16,6 +16,7 @@ services:
       - ./config:/app/config              # 配置目录 (.env, config.json)
       - ./data:/app/data                  # 数据目录 (cookies.json, subscriptions.json)
       - ./logs:/app/logs                  # 查看日志
+      - ./fonts/custom:/app/fonts/custom  # 自定义字体目录
       - /root/napcat-data/QQ:/root/napcat-data/QQ                  # QQ数据目录映射
     # 环境变量 (也可以直接读取 .env 文件)
     environment:
