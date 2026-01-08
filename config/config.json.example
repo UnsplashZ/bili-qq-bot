@@ -2,10 +2,10 @@
   "aiContextLimit": 10,
   "blacklistedQQs": [],
   "enabledGroups": [],
-  "linkCacheTimeout": 300,
+  "linkCacheTimeout": 600,
   "subscriptionCheckInterval": 60,
   "nightMode": {
-    "mode": "timed",
+    "mode": "off",
     "startTime": "21:00",
     "endTime": "06:00"
   },

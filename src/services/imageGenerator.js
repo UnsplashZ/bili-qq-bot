@@ -45,9 +45,10 @@ class ImageGenerator {
         }
     }
 
-    isNightMode() {
-        if (!config.nightMode) return false;
-        const { mode, startTime, endTime } = config.nightMode;
+    isNightMode(groupId) {
+        const nightMode = config.getGroupConfig(groupId, 'nightMode');
+        if (!nightMode) return false;
+        const { mode, startTime, endTime } = nightMode;
         
         if (mode === 'on') return true;
         if (mode === 'off') return false;
@@ -78,7 +79,7 @@ class ImageGenerator {
         }
     }
 
-    async generatePreviewCard(data, type) {
+    async generatePreviewCard(data, type, groupId) {
         await this.init();
         const page = await this.browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -121,7 +122,7 @@ class ImageGenerator {
         });
 
         // Theme: auto switch by config
-        const isNight = this.isNightMode();
+        const isNight = this.isNightMode(groupId);
         const themeClass = isNight ? 'theme-dark' : 'theme-light';
         
         // Type Config (Label & Color)
@@ -1065,11 +1066,14 @@ class ImageGenerator {
 
         let htmlContent = `<html><head>${style}</head><body>
             <div class="container ${themeClass} gradient-bg" style="--gradient-mix:${gradientMix}">
-                ${(config.labelConfig && config.labelConfig[type] !== false) ? `
+                ${(function() {
+                    const labelConfig = config.getGroupConfig(groupId, 'labelConfig');
+                    return (labelConfig && labelConfig[type] !== false) ? `
                 <div class="type-badge">
                     <span>${currentType.icon}</span>
                     <span>${currentType.label}</span>
-                </div>` : ''}
+                </div>` : '';
+                })()}
                 <div class="card">
         `;
 
@@ -1413,9 +1417,6 @@ class ImageGenerator {
                 }
             }
 
-            // Determine media presence
-            const hasMedia = (images && images.length > 0) || !!videoCard;
-
             let origHtml = '';
             if (item.orig) {
                 const oitem = item.orig.item ? item.orig.item : item.orig;
@@ -1496,12 +1497,7 @@ class ImageGenerator {
 
             htmlContent += `
                 <div class="content">
-                    ${cardUrl && !hasMedia ? `
-                        <div class="decorate-bg">
-                            <img src="${cardUrl}" />
-                            <div class="decorate-overlay"></div>
-                        </div>
-                    ` : ''}
+
                     <div class="header">
                         <div class="header-left">
                             <div class="avatar-wrapper">
@@ -1612,13 +1608,13 @@ class ImageGenerator {
             htmlContent += `
                 <div class="content">
                     <div class="header" style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 10px;">
-                        <div class="avatar-wrapper" style="width: 150px; height: 150px; margin-bottom: 20px; position: relative;">
-                            <img class="avatar no-frame" src="${face}" style="width: 150px; height: 150px; border-width: 4px; border-color: var(--color-card-bg); box-shadow: var(--shadow-md);">
-                            ${pendantImage ? `<img src="${pendantImage}" style="position: absolute; top: -20%; left: -20%; width: 140%; height: 140%; pointer-events: none;">` : ''}
+                        <div class="avatar-wrapper" style="width: 150px; height: 150px; margin-bottom: 20px;">
+                            <img class="avatar ${pendantImage ? '' : 'no-frame'}" src="${face}" style="width: 150px; height: 150px; border-width: 4px;">
+                            ${pendantImage ? `<img class="avatar-frame" src="${pendantImage}" style="width: 154%; height: 154%;">` : ''}
                         </div>
                         <div class="user-info" style="width: 100%;">
                             <div class="user-name" style="font-size: 36px; font-weight: bold; color: var(--color-text); display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
-                                ${name} 
+                                ${name}
                                 <span class="user-level" style="font-size: 16px; background: #FB7299; color: white; padding: 4px 8px; border-radius: 4px; vertical-align: middle;">Lv${level}</span>
                                 ${vipLabel ? `<span style="font-size: 16px; background: #FB7299; color: white; padding: 4px 8px; border-radius: 4px; vertical-align: middle;">${vipLabel}</span>` : ''}
                             </div>
@@ -1708,7 +1704,7 @@ class ImageGenerator {
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
-    async generateHelpCard() {
+    async generateHelpCard(type = 'user', groupId) {
         await this.init();
         const page = await this.browser.newPage();
 
@@ -1720,7 +1716,7 @@ class ImageGenerator {
         });
 
         // Theme: auto switch by config
-        const isNight = this.isNightMode();
+        const isNight = this.isNightMode(groupId);
         const themeClass = isNight ? 'theme-dark' : 'theme-light';
 
         const style = `
@@ -1901,95 +1897,129 @@ class ImageGenerator {
             </style>
         `;
 
+        let contentHtml = '';
+        let title = 'Bilibili Assistant';
+        let subtitle = '全能 B 站链接解析 & 订阅助手';
+
+        if (type === 'user') {
+            contentHtml = `
+                <div class="section">
+                    <div class="section-title">功能指令</div>
+                    <div class="cmd-list">
+                        <div class="cmd-item">
+                            <span class="cmd-code">/订阅用户 &lt;uid&gt;</span>
+                            <span class="cmd-desc">订阅用户（动态+直播）</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/取消订阅用户 &lt;uid&gt;</span>
+                            <span class="cmd-desc">取消用户订阅</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/订阅番剧 &lt;season_id&gt;</span>
+                            <span class="cmd-desc">订阅番剧新剧集更新</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/取消订阅番剧 &lt;season_id&gt;</span>
+                            <span class="cmd-desc">取消番剧订阅</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
+                            <span class="cmd-desc">立即检查某用户动态</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/订阅列表</span>
+                            <span class="cmd-desc">查看本群分类订阅列表</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/清理上下文</span>
+                            <span class="cmd-desc">清理当前群组的 AI 对话记忆</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">@Bot &lt;内容&gt;</span>
+                            <span class="cmd-desc">与 AI 进行对话</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/菜单</span>
+                            <span class="cmd-desc">显示此菜单</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">支持解析</div>
+                    <div class="link-list">
+                        <div class="link-item"><span class="icon">📺</span> 视频 (BV/av)</div>
+                        <div class="link-item"><span class="icon">🎬</span> 番剧 (ss/ep)</div>
+                        <div class="link-item"><span class="icon">📰</span> 专栏文章 (cv)</div>
+                        <div class="link-item"><span class="icon">📡</span> 直播间 (live)</div>
+                        <div class="link-item"><span class="icon">📱</span> 动态 (dynamic)</div>
+                        <div class="link-item"><span class="icon">🖼️</span> Opus图文</div>
+                        <div class="link-item"><span class="icon">🔗</span> 短链 (b23.tv)</div>
+                        <div class="link-item"><span class="icon">📦</span> 小程序分享</div>
+                    </div>
+                </div>
+                
+                <div class="footer" style="margin-top: 20px; font-weight: bold; color: var(--text-subtitle);">
+                    管理员请发送 <span style="font-family: monospace; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">/设置 帮助</span> 查看管理面板
+                </div>
+            `;
+        } else {
+            title = '管理面板';
+            subtitle = '系统配置与权限管理';
+            contentHtml = `
+                <div class="section">
+                    <div class="section-title">系统设置</div>
+                    <div class="cmd-list">
+                         <div class="cmd-item">
+                            <span class="cmd-code">/设置 登录</span>
+                            <span class="cmd-desc">获取 B 站登录二维码</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 验证 &lt;key&gt;</span>
+                            <span class="cmd-desc">扫码后验证登录状态</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 功能 &lt;开|关&gt; [群号]</span>
+                            <span class="cmd-desc">开启/关闭指定群的Bot权限</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 黑名单 &lt;add|remove|list&gt;</span>
+                            <span class="cmd-desc">管理黑名单用户</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 缓存 &lt;秒数&gt;</span>
+                            <span class="cmd-desc">设置链接解析缓存时间</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 标签 &lt;分类&gt; &lt;开|关&gt;</span>
+                            <span class="cmd-desc">设置解析卡片左上角标签</span>
+                        </div>
+                         <div class="cmd-item">
+                            <span class="cmd-code">/设置 深色模式 &lt;开|关|定时&gt;</span>
+                            <span class="cmd-desc">配置深色模式 (21:30-7:30)</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 轮询 &lt;秒数&gt;</span>
+                            <span class="cmd-desc">设置全局轮询间隔 (Root)</span>
+                        </div>
+                         <div class="cmd-item">
+                            <span class="cmd-code">/设置 管理员 &lt;add|remove&gt;</span>
+                            <span class="cmd-desc">管理群超级用户 (Root)</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         const html = `<html><head>${style}</head><body>
             <div class="container ${themeClass}">
                 <div class="card">
                     <div class="header">
-                        <div class="title">Bilibili Assistant</div>
-                        <div class="subtitle">全能 B 站链接解析 & 订阅助手</div>
+                        <div class="title">${title}</div>
+                        <div class="subtitle">${subtitle}</div>
                     </div>
                     
-                    <div class="section">
-                        <div class="section-title">支持解析</div>
-                        <div class="link-list">
-                            <div class="link-item"><span class="icon">📺</span> 视频 (BV/av)</div>
-                            <div class="link-item"><span class="icon">🎬</span> 番剧 (ss/ep)</div>
-                            <div class="link-item"><span class="icon">📰</span> 专栏文章 (cv)</div>
-                            <div class="link-item"><span class="icon">📡</span> 直播间 (live)</div>
-                            <div class="link-item"><span class="icon">📱</span> 动态 (dynamic)</div>
-                            <div class="link-item"><span class="icon">🖼️</span> Opus图文</div>
-                            <div class="link-item"><span class="icon">🔗</span> 短链 (b23.tv)</div>
-                            <div class="link-item"><span class="icon">📦</span> 小程序分享</div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-title">指令列表</div>
-                        <div class="cmd-list">
-                            <div class="cmd-item">
-                                <span class="cmd-code">/订阅用户 &lt;uid&gt;</span>
-                                <span class="cmd-desc">订阅用户（动态+直播）</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/取消订阅用户 &lt;uid&gt;</span>
-                                <span class="cmd-desc">取消用户订阅</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/订阅列表</span>
-                                <span class="cmd-desc">查看本群分类订阅列表</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
-                                <span class="cmd-desc">立即检查某用户动态</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/订阅番剧 &lt;season_id&gt;</span>
-                                <span class="cmd-desc">订阅番剧新剧集更新</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/取消订阅番剧 &lt;season_id&gt;</span>
-                                <span class="cmd-desc">取消番剧订阅</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/清理上下文</span>
-                                <span class="cmd-desc">清理当前群组的 AI 对话记忆</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">@Bot &lt;内容&gt;</span>
-                                <span class="cmd-desc">与 AI 进行对话</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/菜单</span>
-                                <span class="cmd-desc">显示此菜单</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="section">
-                        <div class="section-title">管理员指令</div>
-                        <div class="cmd-list">
-                            <div class="cmd-item">
-                                <span class="cmd-code">/登录</span>
-                                <span class="cmd-desc">获取 B 站登录二维码</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/验证 &lt;key&gt;</span>
-                                <span class="cmd-desc">扫码后验证登录状态</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/黑名单 &lt;add|remove&gt; &lt;qq&gt;</span>
-                                <span class="cmd-desc">管理黑名单用户</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/设置 &lt;缓存|轮询&gt; &lt;秒数&gt;</span>
-                                <span class="cmd-desc">动态调整系统参数</span>
-                            </div>
-                            <div class="cmd-item">
-                                <span class="cmd-code">/深色模式 &lt;开|关|定时&gt;</span>
-                                <span class="cmd-desc">配置深色模式 (21:30-7:30)</span>
-                            </div>
-                        </div>
-                    </div>
+                    ${contentHtml}
                     
                     <div class="footer">由 NapCat & Puppeteer 驱动</div>
                 </div>
@@ -2013,6 +2043,17 @@ class ImageGenerator {
         if (!timestamp) return '';
         const now = new Date();
         const date = new Date(timestamp * 1000);
+        
+        // 校验日期是否有效
+        if (isNaN(date.getTime())) {
+             // 尝试直接解析字符串 (兼容 "YYYY-MM-DD HH:mm:ss" 或其他格式)
+             const tryDate = new Date(timestamp);
+             if (!isNaN(tryDate.getTime())) {
+                 return this.formatPubTime(tryDate.getTime() / 1000);
+             }
+             return String(timestamp);
+        }
+
         const diff = now - date;
         const diffMinutes = Math.floor(diff / 1000 / 60);
         const diffHours = Math.floor(diff / 1000 / 3600);
@@ -2033,16 +2074,28 @@ class ImageGenerator {
             return `${y}年${m}月${d}日 ${h}:${min}`;
         }
 
+        if (diffMinutes < 1) {
+            return '刚刚';
+        }
+
         if (diffMinutes < 60) {
-            return `${Math.max(1, diffMinutes)}分钟前`;
+            return `${diffMinutes}分钟前`;
         }
 
         if (diffDays === 0) {
              return `${diffHours}小时前`;
         }
 
-        if (diffDays < 3) {
-            return `${diffDays}天前`;
+        if (diffDays === 1) {
+            const h = date.getHours().toString().padStart(2, '0');
+            const min = date.getMinutes().toString().padStart(2, '0');
+            return `昨天 ${h}:${min}`;
+        }
+        
+        if (diffDays === 2) {
+             const h = date.getHours().toString().padStart(2, '0');
+             const min = date.getMinutes().toString().padStart(2, '0');
+             return `前天 ${h}:${min}`;
         }
 
         const m = (date.getMonth() + 1).toString().padStart(2, '0');
