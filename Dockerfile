@@ -1,9 +1,20 @@
 # 使用 Node.js 20 (Debian Bookworm) 作为基础镜像
 # Slim 版本较小，但包含了运行 Puppeteer 所需的大部分系统库的基础
-FROM node:20-bookworm-slim
+FROM docker.1ms.run/library/node:20-bookworm-slim
 
 # 设置工作目录
 WORKDIR /app
+
+# 切换 apt 源为国内镜像
+RUN set -eux; \
+    rm -f /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf '%s\n' \
+      'deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free non-free-firmware' \
+      'deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware' \
+      'deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-backports main contrib non-free non-free-firmware' \
+      'deb http://mirrors.tuna.tsinghua.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware' \
+      > /etc/apt/sources.list
 
 # 1. 安装系统依赖
 # - python3, python3-pip, python3-venv: 用于运行 B 站脚本
@@ -44,6 +55,7 @@ COPY package.json package-lock.json ./
 # 设置 Puppeteer 环境变量
 # 使用系统安装的 Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm config set registry https://registry.npmmirror.com && npm ci
 

@@ -28,7 +28,8 @@ class AiHandler {
 
             // Trim context to limit (keep recent messages)
             // config.aiContextLimit determines how many messages to keep
-            while (context.length > config.aiContextLimit) {
+            const contextLimit = config.getGroupConfig(groupId, 'aiContextLimit');
+            while (context.length > contextLimit) {
                 context.shift();
             }
 
@@ -56,7 +57,7 @@ class AiHandler {
                 context.push({ role: 'assistant', content: reply });
                 
                 // Trim context again
-                while (context.length > config.aiContextLimit) {
+                while (context.length > contextLimit) {
                     context.shift();
                 }
 
@@ -75,8 +76,17 @@ class AiHandler {
         }
     }
 
-    shouldReply(message, isAt) {
+    shouldReply(message, isAt, groupId) {
         if (isAt) return true;
+        // Check if AI is enabled for this group (if there's a switch, but currently it's probability)
+        // User mentioned "AI context menu" -> "ai上下文菜单" switch?
+        // If user wants a switch, we might need a boolean config like 'aiEnabled'
+        // But for now, user said "AI context menu" which might be "aiContextLimit".
+        // Let's stick to probability for now or check if there's a new requirement.
+        // But user said "AI context menu... adjusted to follow group ID".
+        // If it means "Probability", I should use getGroupConfig for probability too?
+        // User didn't mention probability explicitly, but "AI context menu" usually implies the feature itself.
+        // I'll leave probability global unless user asked, but I will pass groupId to be safe.
         return Math.random() < config.aiProbability;
     }
     

@@ -17,11 +17,11 @@ class BiliApi {
             const chunks = [];
             let errorString = '';
 
-            // Set timeout for Python process (30 seconds)
+            // Set timeout for Python process (60 seconds)
             const timeout = setTimeout(() => {
                 pythonProcess.kill();
                 reject(new Error(`Python script timed out for command: ${command}`));
-            }, 30000);
+            }, 60000);
 
             pythonProcess.stdout.on('data', (data) => {
                 chunks.push(data);

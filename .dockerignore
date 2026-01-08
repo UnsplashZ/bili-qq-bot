@@ -1,12 +1,41 @@
-# 忽略 node_modules 和 本地环境
+# Dependencies
 node_modules
 venv
+
+# Version Control
 .git
+.gitignore
+
+# Environment & Config (Sensitive)
 .env
-logs/*.log
-temp/*
-test_*.py
-debug_*.py
-inspect_*.py
-__pycache__
-*.pyc
+config/.env
+config/config.json
+
+# Data & Logs
+data/
+logs/
+temp/
+npm-debug.log
+*.log
+
+# System
+.DS_Store
+.vscode
+.idea
+.github
+
+# Docker & Setup (Not needed in image)
+docker-compose.yml
+.dockerignore
+setup.sh
+Dockerfile
+scripts/
+docs/
+
+# Documentation & Dev Tools
+README.md
+LICENSE
+check_data_structure.js
+*.md
+fonts/tmp
+.claude

@@ -25,6 +25,11 @@ ws.on('message', function incoming(data) {
             messageHandler.handleMessage(ws, payload);
         }
 
+        // Handle Notices (e.g. Bot join group)
+        if (payload.post_type === 'notice' && payload.notice_type === 'group_increase') {
+            messageHandler.handleGroupIncrease(ws, payload);
+        }
+
     } catch (e) {
         logger.error('Error processing message:', e);
     }
