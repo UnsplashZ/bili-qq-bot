@@ -491,6 +491,10 @@ class MessageHandler {
 
         // Command: /取消订阅 <uid> <type>
         if (rawMessage.startsWith('/取消订阅用户 ')) {
+            if (!config.isGroupAdmin(groupId, userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+                return;
+            }
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const uid = parts[1];
@@ -504,6 +508,10 @@ class MessageHandler {
 
         // Command: /订阅 <uid> <type>
         if (rawMessage.startsWith('/订阅用户 ')) {
+            if (!config.isGroupAdmin(groupId, userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+                return;
+            }
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const uid = parts[1];
@@ -523,6 +531,10 @@ class MessageHandler {
         }
 
         if (rawMessage.startsWith('/订阅番剧 ')) {
+            if (!config.isGroupAdmin(groupId, userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+                return;
+            }
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const arg = parts[1].trim();
@@ -571,6 +583,10 @@ class MessageHandler {
         }
 
         if (rawMessage.startsWith('/取消订阅番剧 ')) {
+            if (!config.isGroupAdmin(groupId, userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+                return;
+            }
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const seasonId = parts[1];
@@ -584,6 +600,10 @@ class MessageHandler {
 
         // Command: /查询订阅 <uid>
         if (rawMessage.startsWith('/查询订阅 ') || rawMessage.startsWith('/checksub ')) {
+            if (!config.isGroupAdmin(groupId, userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+                return;
+            }
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const uid = parts[1];
@@ -618,7 +638,7 @@ class MessageHandler {
         // 统一指令入口：/设置
         if (rawMessage.startsWith('/设置 ')) {
              if (!config.isGroupAdmin(groupId, userId)) {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。需要管理员权限。' } }]);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员或全局管理员使用。' } }]);
                 return;
             }
 
@@ -645,11 +665,15 @@ class MessageHandler {
             // New: 管理员 (/设置 管理员 <add|remove> <qq>)
             if (subCommand === '管理员') {
                 if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。仅限全局管理员。' } }]);
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
                      return;
                 }
-                const action = parts[2];
+                let action = parts[2];
                 const targetQQ = parts[3];
+
+                if (action === '添加') action = 'add';
+                if (action === '移除') action = 'remove';
+
                 if (action === 'add' && targetQQ) {
                     if (config.addGroupAdmin(groupId, targetQQ)) {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 添加为本群管理员。` } }]);
@@ -670,6 +694,10 @@ class MessageHandler {
 
             // 2. 登录 (/设置 登录)
             if (subCommand === '登录') {
+                if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                }
                  try {
                     const res = await biliApi.getLoginUrl();
                     if (res.status === 'success') {
@@ -693,6 +721,10 @@ class MessageHandler {
 
             // 3. 验证 (/设置 验证 <key>)
             if (subCommand === '验证') {
+                if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                }
                 const key = parts[2];
                 if (key) {
                     try {
@@ -727,7 +759,7 @@ class MessageHandler {
                 // Only Root can change other groups' config? 
                 // Spec: "Root Admin... manage all group configs". "Group Admin... adjust this group config".
                 if (targetGroupId !== groupId && !config.isRootAdmin(userId)) {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。只能管理本群功能。' } }]);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：您只能管理当前群组的配置。' } }]);
                     return;
                 }
 
@@ -745,8 +777,13 @@ class MessageHandler {
 
             // 5. 黑名单 (/设置 黑名单 <add|remove|list> [qq])
             if (subCommand === '黑名单') {
-                const action = parts[2];
+                let action = parts[2];
                 const targetQQ = parts[3];
+                
+                // Map Chinese actions to English
+                if (action === '添加') action = 'add';
+                if (action === '移除') action = 'remove';
+                if (action === '列表') action = 'list';
                 
                 // Root -> Global, Group Admin -> Group
                 const isRoot = config.isRootAdmin(userId);
@@ -829,7 +866,7 @@ class MessageHandler {
                             config.save();
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局链接缓存时间已设置为 ${value} 秒。` } }]);
                         } else {
-                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `权限不足。全局设置仅限全局管理员。` } }]);
+                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `权限不足：全局配置仅限全局管理员 (Root) 使用。` } }]);
                         }
                     }
                  } else {
@@ -841,7 +878,7 @@ class MessageHandler {
             // 7. 轮询 (/设置 轮询 <秒数>)
             if (subCommand === '轮询') {
                 if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足。仅限全局管理员。' } }]);
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
                      return;
                 }
                 const value = parseInt(parts[2]);
@@ -860,12 +897,12 @@ class MessageHandler {
                  const switchState = parts[3]; 
 
                  const categoryMap = {
-                     '视频': 'video',
-                     '番剧': 'bangumi',
-                     '专栏': 'article',
-                     '直播': 'live',
-                     '动态': 'dynamic',
-                     '用户': 'user'
+                     '视频': 'video', 'video': 'video',
+                     '番剧': 'bangumi', 'bangumi': 'bangumi',
+                     '专栏': 'article', 'article': 'article',
+                     '直播': 'live', 'live': 'live',
+                     '动态': 'dynamic', 'dynamic': 'dynamic',
+                     '用户': 'user', 'user': 'user'
                  };
                  const key = categoryMap[category];
                  

@@ -1887,6 +1887,38 @@ class ImageGenerator {
                     font-weight: 500;
                 }
 
+                .cmd-tag {
+                    font-size: 12px;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    margin-left: 8px;
+                    vertical-align: middle;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
+                    border: 1px solid transparent;
+                    background: transparent;
+                }
+
+                .tag-root {
+                    color: #FF6666;
+                    border-color: rgba(255, 100, 100, 0.4);
+                }
+
+                .tag-admin {
+                    color: #44AAFF;
+                    border-color: rgba(68, 170, 255, 0.4);
+                }
+
+                .theme-dark .tag-root {
+                    color: #FF8888;
+                    border-color: rgba(255, 136, 136, 0.4);
+                }
+                
+                .theme-dark .tag-admin {
+                    color: #88DDFF;
+                    border-color: rgba(136, 221, 255, 0.4);
+                }
+
                 .footer {
                     text-align: center;
                     font-size: 16px;
@@ -1904,28 +1936,8 @@ class ImageGenerator {
         if (type === 'user') {
             contentHtml = `
                 <div class="section">
-                    <div class="section-title">功能指令</div>
+                    <div class="section-title">用户指令</div>
                     <div class="cmd-list">
-                        <div class="cmd-item">
-                            <span class="cmd-code">/订阅用户 &lt;uid&gt;</span>
-                            <span class="cmd-desc">订阅用户（动态+直播）</span>
-                        </div>
-                        <div class="cmd-item">
-                            <span class="cmd-code">/取消订阅用户 &lt;uid&gt;</span>
-                            <span class="cmd-desc">取消用户订阅</span>
-                        </div>
-                        <div class="cmd-item">
-                            <span class="cmd-code">/订阅番剧 &lt;season_id&gt;</span>
-                            <span class="cmd-desc">订阅番剧新剧集更新</span>
-                        </div>
-                        <div class="cmd-item">
-                            <span class="cmd-code">/取消订阅番剧 &lt;season_id&gt;</span>
-                            <span class="cmd-desc">取消番剧订阅</span>
-                        </div>
-                        <div class="cmd-item">
-                            <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
-                            <span class="cmd-desc">立即检查某用户动态</span>
-                        </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/订阅列表</span>
                             <span class="cmd-desc">查看本群分类订阅列表</span>
@@ -1946,6 +1958,32 @@ class ImageGenerator {
                 </div>
 
                 <div class="section">
+                    <div class="section-title">管理指令<span class="cmd-tag tag-admin">群管</span></div>
+                    <div class="cmd-list">
+                        <div class="cmd-item">
+                            <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
+                            <span class="cmd-desc">立即检查某用户动态</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/订阅用户 &lt;uid&gt;</span>
+                            <span class="cmd-desc">订阅用户（动态+直播）</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/取消订阅用户 &lt;uid&gt;</span>
+                            <span class="cmd-desc">取消用户订阅</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/订阅番剧 &lt;season_id&gt;</span>
+                            <span class="cmd-desc">订阅番剧新剧集更新</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/取消订阅番剧 &lt;season_id&gt;</span>
+                            <span class="cmd-desc">取消番剧订阅</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
                     <div class="section-title">支持解析</div>
                     <div class="link-list">
                         <div class="link-item"><span class="icon">📺</span> 视频 (BV/av)</div>
@@ -1959,52 +1997,62 @@ class ImageGenerator {
                     </div>
                 </div>
                 
-                <div class="footer" style="margin-top: 20px; font-weight: bold; color: var(--text-subtitle);">
-                    管理员请发送 <span style="font-family: monospace; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">/设置 帮助</span> 查看管理面板
+                <div class="footer" style="margin-top: 20px; font-weight: bold; color: var(--text-subtitle); display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <div>管理员请发送 <span style="font-family: monospace; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">/设置 帮助</span> 查看管理面板</div>
                 </div>
             `;
-        } else {
+        } else if (type === 'admin') {
             title = '管理面板';
             subtitle = '系统配置与权限管理';
             contentHtml = `
                 <div class="section">
-                    <div class="section-title">系统设置</div>
+                    <div class="section-title">管理员菜单<span class="cmd-tag tag-admin">群管</span></div>
                     <div class="cmd-list">
-                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 登录</span>
-                            <span class="cmd-desc">获取 B 站登录二维码</span>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
+                            <span class="cmd-desc">检查动态更新</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 验证 &lt;key&gt;</span>
-                            <span class="cmd-desc">扫码后验证登录状态</span>
+                            <span class="cmd-code">/设置 功能 &lt;开|关&gt;</span>
+                            <span class="cmd-desc">开关Bot权限</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 功能 &lt;开|关&gt; [群号]</span>
-                            <span class="cmd-desc">开启/关闭指定群的Bot权限</span>
+                            <span class="cmd-code">/设置 黑名单 &lt;操作&gt;</span>
+                            <span class="cmd-desc">管理黑名单</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 黑名单 &lt;add|remove|list&gt;</span>
-                            <span class="cmd-desc">管理黑名单用户</span>
+                            <span class="cmd-code">/设置 标签 &lt;操作&gt;</span>
+                            <span class="cmd-desc">设置解析标签</span>
+                        </div>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 深色模式</span>
+                            <span class="cmd-desc">配置深色模式</span>
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 缓存 &lt;秒数&gt;</span>
-                            <span class="cmd-desc">设置链接解析缓存时间</span>
+                            <span class="cmd-desc">设置解析缓存</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">系统菜单<span class="cmd-tag tag-root">Root</span></div>
+                    <div class="cmd-list">
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 登录</span>
+                            <span class="cmd-desc">获取登录二维码</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 标签 &lt;分类&gt; &lt;开|关&gt;</span>
-                            <span class="cmd-desc">设置解析卡片左上角标签</span>
-                        </div>
-                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 深色模式 &lt;开|关|定时&gt;</span>
-                            <span class="cmd-desc">配置深色模式 (21:30-7:30)</span>
+                            <span class="cmd-code">/设置 验证 &lt;key&gt;</span>
+                            <span class="cmd-desc">验证登录状态</span>
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 轮询 &lt;秒数&gt;</span>
-                            <span class="cmd-desc">设置全局轮询间隔 (Root)</span>
+                            <span class="cmd-desc">设置轮询间隔</span>
                         </div>
-                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 管理员 &lt;add|remove&gt;</span>
-                            <span class="cmd-desc">管理群超级用户 (Root)</span>
+                        <div class="cmd-item">
+                            <span class="cmd-code">/设置 管理员 &lt;添加|移除&gt;</span>
+                            <span class="cmd-desc">设置本群管理员</span>
                         </div>
                     </div>
                 </div>
@@ -2021,7 +2069,10 @@ class ImageGenerator {
                     
                     ${contentHtml}
                     
-                    <div class="footer">由 NapCat & Puppeteer 驱动</div>
+                    <div class="footer" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                        <div style="font-size: 14px; opacity: 0.8; font-weight: normal;">输入指令（不带参数）即可获取指令帮助</div>
+                        <div>由 NapCat & Puppeteer 驱动</div>
+                    </div>
                 </div>
             </div>
         </body></html>`;
