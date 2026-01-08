@@ -2,6 +2,19 @@
   "aiContextLimit": 10,
   "blacklistedQQs": [],
   "enabledGroups": [],
-  "linkCacheTimeout": 300,
-  "subscriptionCheckInterval": 60
+  "linkCacheTimeout": 600,
+  "subscriptionCheckInterval": 60,
+  "nightMode": {
+    "mode": "off",
+    "startTime": "21:00",
+    "endTime": "06:00"
+  },
+  "labelConfig": {
+    "video": true,
+    "bangumi": true,
+    "article": true,
+    "live": true,
+    "dynamic": true,
+    "user": true
+  }
 }

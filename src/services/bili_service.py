@@ -4,7 +4,7 @@ import asyncio
 import re
 import aiohttp
 from bs4 import BeautifulSoup
-from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, Credential
+from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
 import bilibili_api.login_v2 as login
 import io
 from PIL import Image
@@ -64,7 +64,7 @@ def _choose_focus_color(img: Image.Image) -> str:
             h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
             if v < 0.15:
                 continue
-            if s < 0.38:
+            if s < 0.15:
                 continue
             score = (s * 0.7 + v * 0.3) * count
             if score > best_score:
@@ -91,8 +91,21 @@ async def get_image_focus_color(url: str) -> str:
 
 async def get_video_info(bvid):
     try:
-        v = video.Video(bvid=bvid, credential=load_credential())
+        if str(bvid).lower().startswith('av'):
+            aid = int(str(bvid)[2:])
+            v = video.Video(aid=aid, credential=load_credential())
+        else:
+            v = video.Video(bvid=bvid, credential=load_credential())
         info = await v.get_info()
+        cover_url = info.get('pic') or ''
+        owner = info.get('owner') or {}
+        avatar_url = owner.get('face') or ''
+        cover_focus = await get_image_focus_color(cover_url)
+        avatar_focus = await get_image_focus_color(avatar_url)
+        info['focus'] = {
+            "cover": cover_focus,
+            "avatar": avatar_focus
+        }
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -166,16 +179,177 @@ async def get_bangumi_info(season_id):
             "season_type": overview.get('season_type'),
             "type_desc": overview.get('type_desc'),
             "series": overview.get('series', {}),
-            "detail": detail
+            "detail": detail,
+            "focus": {
+                "cover": await get_image_focus_color(overview.get('cover', ''))
+            }
         }
 
         return {"status": "success", "type": "bangumi", "data": data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def _parse_opus_json_to_html(modules):
+    html_parts = []
+    for module in modules:
+        if module.get('module_type') == 'MODULE_TYPE_CONTENT':
+            paragraphs = module.get('module_content', {}).get('paragraphs', [])
+            for para in paragraphs:
+                para_type = para.get('para_type')
+                
+                # Text
+                if para_type == 1:
+                    nodes = para.get('text', {}).get('nodes', [])
+                    p_content = ""
+                    for node in nodes:
+                        if node.get('type') == 'TEXT_NODE_TYPE_WORD':
+                            word_info = node.get('word', {})
+                            text = word_info.get('words', '').replace('\n', '<br>')
+                            # Handle styles
+                            style = word_info.get('style', {})
+                            color = word_info.get('color')
+                            
+                            span_style = ""
+                            if style.get('bold'):
+                                span_style += "font-weight:bold;"
+                            if color:
+                                span_style += f"color:{color};"
+                            
+                            if span_style:
+                                p_content += f'<span style="{span_style}">{text}</span>'
+                            else:
+                                p_content += text
+                    if p_content:
+                        html_parts.append(f'<p>{p_content}</p>')
+                    else:
+                        html_parts.append('<br>')
+                
+                # Image
+                elif para_type == 2:
+                    pics = para.get('pic', {}).get('pics', [])
+                    for pic in pics:
+                        url = pic.get('url')
+                        if url:
+                            html_parts.append(f'<img src="{url}" style="max-width:100%;" />')
+                            
+                # Line
+                elif para_type == 3:
+                     html_parts.append('<hr />')
+                     
+                # Heading
+                elif para_type == 8:
+                    level = para.get('heading', {}).get('level', 1)
+                    nodes = para.get('heading', {}).get('nodes', [])
+                    h_content = ""
+                    for node in nodes:
+                        if node.get('type') == 'TEXT_NODE_TYPE_WORD':
+                            word_info = node.get('word', {})
+                            text = word_info.get('words', '')
+                            # Handle styles for heading too
+                            color = word_info.get('color')
+                            if color:
+                                h_content += f'<span style="color:{color}">{text}</span>'
+                            else:
+                                h_content += text
+                    html_parts.append(f'<h{level}>{h_content}</h{level}>')
+
+    return "".join(html_parts)
+
+async def get_opus_detail(opus_id):
+    try:
+        o = opus.Opus(int(opus_id), credential=load_credential())
+        info = await o.get_info()
+        
+        item = info.get('item', {})
+        basic = item.get('basic', {})
+        modules = item.get('modules', [])
+        
+        title = basic.get('title', '')
+        
+        html_content = _parse_opus_json_to_html(modules)
+        
+        # Extract author info from modules
+        author_face = ""
+        author_name = ""
+        pub_ts = 0
+        stats = {}
+        
+        for module in modules:
+            if module.get('module_type') == 'MODULE_TYPE_AUTHOR':
+                author_module = module.get('module_author', {})
+                author_face = author_module.get('face', '')
+                author_name = author_module.get('name', '')
+                pub_ts = author_module.get('pub_ts', 0)
+            elif module.get('module_type') == 'MODULE_TYPE_STAT':
+                stat_module = module.get('module_stat', {})
+                stats = {
+                    'view': 0, # Opus often doesn't show view count in stat module
+                    'like': stat_module.get('like', {}).get('count', 0),
+                    'reply': stat_module.get('comment', {}).get('count', 0),
+                    'share': stat_module.get('forward', {}).get('count', 0)
+                }
+
+        # Determine cover (check top module or first image)
+        cover = ""
+        # Check MODULE_TYPE_TOP
+        for module in modules:
+            if module.get('module_type') == 'MODULE_TYPE_TOP':
+                # Could be video or image
+                display = module.get('module_top', {}).get('display', {})
+                if display.get('video'):
+                    cover = display.get('video', {}).get('cover', '')
+                break
+        
+        if not cover:
+             # Try to find first image in content
+             for module in modules:
+                if module.get('module_type') == 'MODULE_TYPE_CONTENT':
+                    paragraphs = module.get('module_content', {}).get('paragraphs', [])
+                    for para in paragraphs:
+                        if para.get('para_type') == 2:
+                             pics = para.get('pic', {}).get('pics', [])
+                             if pics:
+                                 cover = pics[0].get('url', '')
+                                 break
+                    if cover:
+                        break
+
+        data = {
+            "title": title,
+            "html_content": html_content,
+            "summary": html_content, # Use full HTML content as summary for article mode
+            "publish_time": pub_ts,
+            "author_face": author_face,
+            "author_name": author_name,
+            "banner_url": cover,
+            "image_urls": [cover] if cover else [],
+            "stats": stats,
+             "focus": {
+                "cover": await get_image_focus_color(cover),
+                "avatar": await get_image_focus_color(author_face)
+            }
+        }
+        
+        return {"status": "success", "type": "article", "data": data}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
 async def get_article_info(cvid):
     try:
-        cvid_int = int(cvid.replace('cv', ''))
+        # Clean cvid: remove 'cv' prefix
+        # Handle cases like "cv123456?param=1" -> "123456"
+        # Split by '?' first to remove query params
+        base_id = cvid.split('?')[0].split('#')[0]
+        # Remove 'cv' (case insensitive)
+        base_id = re.sub(r'cv', '', base_id, flags=re.IGNORECASE)
+        # Extract the first sequence of digits
+        match = re.search(r'(\d+)', base_id)
+        if not match:
+             return {"status": "error", "message": "Invalid Article ID"}
+             
+        cvid_int = int(match.group(1))
         a = article.Article(cvid_int, credential=load_credential())
         info = await a.get_info()
 
@@ -196,8 +370,10 @@ async def get_article_info(cvid):
 
         # Try to get content for summary
         summary = ""
+        html_content = ""
         try:
             content = await a.fetch_content()
+            html_content = content
             summary = re.sub('<[^<]+?>', '', content)
         except Exception:
             pass
@@ -211,23 +387,51 @@ async def get_article_info(cvid):
                 }
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=headers) as resp:
+                        # Check for redirect to Opus
+                        final_url = str(resp.url)
+                        if '/opus/' in final_url:
+                            opus_match = re.search(r'/opus/(\d+)', final_url)
+                            if opus_match:
+                                opus_id = opus_match.group(1)
+                                return await get_opus_detail(opus_id)
+
                         if resp.status == 200:
                             html = await resp.text()
                             soup = BeautifulSoup(html, 'html.parser')
                             # Try specific holders first
-                            holder = soup.find(class_='article-holder') or soup.find(id='read-article-holder')
+                            holder = soup.find(class_='article-holder') or soup.find(id='read-article-holder') or soup.find(class_='opus-module-content')
                             if holder:
+                                # Clean up scripts/styles from holder
+                                for script in holder(["script", "style"]):
+                                    script.extract()
+                                html_content = holder.decode_contents()
                                 summary = holder.get_text(separator='\n', strip=True)
                             else:
                                 # Fallback to body text, removing scripts/styles
                                 for script in soup(["script", "style"]):
                                     script.extract()
+                                html_content = soup.body.decode_contents() if soup.body else soup.decode_contents()
                                 summary = soup.get_text(separator='\n', strip=True)
             except Exception as e:
                 summary = f"无法抓取正文: {str(e)}"
+                html_content = ""
 
         info['summary'] = summary[:2500] if summary else '点击查看详情'
+        info['html_content'] = html_content
+
         info['author_face'] = author_face  # 添加作者头像
+        
+        # Determine cover image
+        cover = info.get('banner_url')
+        if not cover and info.get('image_urls'):
+            cover = info['image_urls'][0]
+        if not cover:
+            cover = ''
+
+        info['focus'] = {
+            "cover": await get_image_focus_color(cover),
+            "avatar": await get_image_focus_color(author_face)
+        }
 
         # Map publish_time if missing (Article API varies)
         if 'publish_time' not in info:
@@ -242,6 +446,14 @@ async def get_live_room_info(room_id):
     try:
         l = live.LiveRoom(int(room_id), credential=load_credential())
         info = await l.get_room_info()
+        room_info = info.get('room_info', {})
+        anchor_info = info.get('anchor_info', {}).get('base_info', {})
+        cover_url = room_info.get('cover') or ''
+        avatar_url = anchor_info.get('face') or ''
+        info['focus'] = {
+            "cover": await get_image_focus_color(cover_url),
+            "avatar": await get_image_focus_color(avatar_url)
+        }
         return {"status": "success", "type": "live", "data": info}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -288,7 +500,27 @@ async def get_user_dynamic(uid):
         # 使用新的 get_dynamics_new 接口
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
-            latest = dynamics['items'][0]
+            latest = None
+            max_ts = -1
+            
+            # Check top 5 items to find the latest by timestamp (handling pinned posts)
+            for item in dynamics['items'][:5]:
+                ts = 0
+                try:
+                    if 'modules' in item and 'module_author' in item['modules']:
+                        ts = int(item['modules']['module_author'].get('pub_ts', 0))
+                except:
+                    pass
+                
+                if ts > max_ts:
+                    max_ts = ts
+                    latest = item
+
+            if not latest and len(dynamics['items']) > 0:
+                latest = dynamics['items'][0]
+
+            if not latest:
+                 return {"status": "success", "data": None}
             
             # 获取发布时间 (pub_time)
             # 不同的动态类型，时间字段位置可能不同，通常在 modules.module_author.pub_ts
@@ -343,11 +575,17 @@ async def get_user_dynamic(uid):
             except:
                 pass
             card_focus_color = None
+            avatar_focus_color = None
             try:
                 src = card_url or ((decoration_card or {}).get('card_url'))
                 card_focus_color = await get_image_focus_color(src) if src else None
             except:
                 card_focus_color = None
+            try:
+                author_face_url = ma.get('face') or (latest.get('author') or {}).get('face') or ''
+                avatar_focus_color = await get_image_focus_color(author_face_url) if author_face_url else None
+            except:
+                avatar_focus_color = None
             
             return {"status": "success", "data": {
                 "id": latest.get('id_str'),
@@ -362,7 +600,8 @@ async def get_user_dynamic(uid):
                     "decoration_card": decoration_card,
                     "card_number": card_number,
                     "card_focus_color": card_focus_color,
-                    "fan_color": fan_color
+                    "fan_color": fan_color,
+                    "avatar_focus_color": avatar_focus_color
                 }
             }}
         return {"status": "success", "data": None}
@@ -400,6 +639,16 @@ async def get_dynamic_detail(dynamic_id):
         # 检查返回的数据是否有效
         if not info:
             return {"status": "error", "message": f"无法获取动态 {dynamic_id} 的信息，可能已被删除或设置为私密"}
+
+        # Check for Opus redirect in basic info
+        item = info.get('item', {})
+        basic = item.get('basic', {})
+        jump_url = basic.get('jump_url', '')
+        if '/opus/' in jump_url:
+            opus_match = re.search(r'/opus/(\d+)', jump_url)
+            if opus_match:
+                opus_id = opus_match.group(1)
+                return await get_opus_detail(opus_id)
 
         modules = (info.get('item') or {}).get('modules') or info.get('modules') or {}
 
@@ -465,11 +714,17 @@ async def get_dynamic_detail(dynamic_id):
             except:
                 pass
         card_focus_color = None
+        avatar_focus_color = None
         try:
             src = card_url or ((decoration_card or {}).get('card_url'))
             card_focus_color = await get_image_focus_color(src) if src else None
         except:
             card_focus_color = None
+        try:
+            avatar_url = author_module.get('face') or ''
+            avatar_focus_color = await get_image_focus_color(avatar_url) if avatar_url else None
+        except:
+            avatar_focus_color = None
 
         author_obj = {
             "level": author_level,
@@ -478,13 +733,66 @@ async def get_dynamic_detail(dynamic_id):
             "decoration_card": decoration_card,
             "card_number": card_number,
             "card_focus_color": card_focus_color,
-            "fan_color": fan_color
+            "fan_color": fan_color,
+            "avatar_focus_color": avatar_focus_color
         }
         info['author'] = author_obj
         try:
             if isinstance(info.get('item'), dict):
                 info['item']['author'] = author_obj
         except:
+            pass
+        # Enrich vote info (if present) using bilibili_api.vote by vote_id
+        try:
+            mods = (info.get('item') or {}).get('modules') or info.get('modules') or {}
+            md = mods.get('module_dynamic') or {}
+            additional = md.get('additional') or {}
+            vobj = additional.get('vote') or {}
+            vote_id = vobj.get('vote_id')
+            if vote_id:
+                from bilibili_api import vote as vote_api
+                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential())
+                vinfo = await vv.get_info()
+                # Normalize to expected fields for Node renderer
+                # choices may reside under data['choices'] or info['options'] or similar
+                items = []
+                try:
+                    # Priority: info.options (seen in debug) -> data.choices -> choices
+                    choices = (vinfo.get('info') or {}).get('options') or vinfo.get('data', {}).get('choices') or vinfo.get('choices') or []
+                except:
+                    choices = []
+                for ch in choices:
+                    # support both dict and tuple-like entries
+                    desc = (ch.get('desc') if isinstance(ch, dict) else str(ch)) or ''
+                    img = (ch.get('image') if isinstance(ch, dict) else None)
+                    cnt = (ch.get('cnt') if isinstance(ch, dict) else 0)
+                    items.append({"desc": desc, "image": img, "cnt": cnt})
+                
+                # Join num and choice cnt
+                join_num = (vinfo.get('info') or {}).get('cnt') or vinfo.get('data', {}).get('join_num') or vinfo.get('join_num') or vobj.get('join_num')
+                choice_cnt = (vinfo.get('info') or {}).get('choice_cnt') or vinfo.get('data', {}).get('choice_cnt') or vinfo.get('choice_cnt') or vobj.get('choice_cnt')
+                title = (vinfo.get('info') or {}).get('title') or vinfo.get('data', {}).get('title') or vinfo.get('title') or vobj.get('title')
+                desc = (vinfo.get('info') or {}).get('desc') or vinfo.get('data', {}).get('desc') or vinfo.get('desc') or vobj.get('desc')
+                # Attach normalized fields back to structure
+                vobj['items'] = items
+                if join_num is not None:
+                    vobj['join_num'] = join_num
+                if choice_cnt is not None:
+                    vobj['choice_cnt'] = choice_cnt
+                if title is not None:
+                    vobj['title'] = title
+                if desc is not None:
+                    vobj['desc'] = desc
+                # write back
+                additional['vote'] = vobj
+                md['additional'] = additional
+                mods['module_dynamic'] = md
+                # Update both places (item.modules and top-level modules) for robustness
+                if isinstance(info.get('item'), dict):
+                    info['item']['modules'] = mods
+                info['modules'] = mods
+        except Exception:
+            # ignore enrichment errors
             pass
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
@@ -557,7 +865,10 @@ async def get_media_info(media_id):
             "publish": overview.get('publish', {}),
             "season_id": overview.get('season_id', ''),
             "series": overview.get('series', {}),
-            "detail": detail
+            "detail": detail,
+            "focus": {
+                "cover": await get_image_focus_color(overview.get('cover', ''))
+            }
         }
         return {"status": "success", "type": "bangumi", "data": data}
     except Exception as e:
@@ -590,7 +901,21 @@ async def get_user_info(uid):
         try:
             dynamics = await u.get_dynamics_new(offset="")
             if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
-                latest_dynamic = dynamics['items'][0]
+                max_ts = -1
+                for item in dynamics['items'][:5]:
+                    ts = 0
+                    try:
+                        if 'modules' in item and 'module_author' in item['modules']:
+                            ts = int(item['modules']['module_author'].get('pub_ts', 0))
+                    except:
+                        pass
+                    
+                    if ts > max_ts:
+                        max_ts = ts
+                        latest_dynamic = item
+
+                if not latest_dynamic:
+                    latest_dynamic = dynamics['items'][0]
         except:
             pass
 
@@ -600,13 +925,17 @@ async def get_user_info(uid):
             "name": user_info.get('name', ''),
             "level": user_info.get('level', 0),
             "face": user_info.get('face', ''),
+            "pendant": user_info.get('pendant', {}),
             "sign": user_info.get('sign', ''),
             "vip": user_info.get('vip', {}),
             "fans_medal": user_info.get('fans_medal', {}),
             "relation": relation,
             "likes": likes,
             "archive_view": archive_view,
-            "dynamic": latest_dynamic
+            "dynamic": latest_dynamic,
+            "focus": {
+                "avatar": await get_image_focus_color(user_info.get('face', ''))
+            }
         }
 
         return {"status": "success", "type": "user", "data": data}
@@ -662,9 +991,14 @@ async def main():
         result = await get_user_live(uid)
         print(json.dumps(result, ensure_ascii=False))
         
-    elif command == "dynamic_detail" or command == "opus":
+    elif command == "dynamic_detail":
         did = sys.argv[2]
         result = await get_dynamic_detail(did)
+        print(json.dumps(result, ensure_ascii=False))
+
+    elif command == "opus":
+        did = sys.argv[2]
+        result = await get_opus_detail(did)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "ep":

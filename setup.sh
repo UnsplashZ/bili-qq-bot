@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Setup script for NapCat QQ Bot
+# Setup script for Bili QQ Bot
 
-echo "Setting up NapCat QQ Bot environment..."
+echo "Setting up Bili QQ Bot environment..."
 
 # 1. Create Python Virtual Environment
 if [ ! -d "venv" ]; then

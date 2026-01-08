@@ -1,5 +1,5 @@
 {
-  "name": "napcat-qq-bot",
+  "name": "bili-qq-bot",
   "version": "1.0.0",
   "description": "QQ Bot based on NapCat with Bilibili integration and AI chat",
   "main": "src/bot.js",

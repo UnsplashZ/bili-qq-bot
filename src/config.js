@@ -44,10 +44,108 @@ const config = {
     enabledGroups: configData.enabledGroups || [],
 
     // Link processing cache timeout in seconds
-    linkCacheTimeout: parseInt(configData.linkCacheTimeout || 300),
+    linkCacheTimeout: parseInt(configData.linkCacheTimeout || 600),
 
     // Subscription check interval in seconds
     subscriptionCheckInterval: parseInt(configData.subscriptionCheckInterval || 60),
+
+    // Night Mode Config
+    nightMode: configData.nightMode || {
+        mode: 'off', // 'on', 'off', 'timed'
+        startTime: '21:00',
+        endTime: '06:00'
+    },
+
+    // Label Config (Show/Hide top-left label)
+    labelConfig: configData.labelConfig || {
+        video: true,
+        bangumi: true,
+        article: true,
+        live: true,
+        dynamic: true,
+        user: true
+    },
+
+    // Show ID Config (Toggle UID display)
+    showId: configData.showId !== undefined ? configData.showId : true,
+
+    // Group Configs (overrides global settings per group)
+    groupConfigs: configData.groupConfigs || {},
+
+    // Helper to get config value for a group
+    getGroupConfig: function(groupId, key) {
+        if (groupId && this.groupConfigs[groupId] && this.groupConfigs[groupId][key] !== undefined) {
+            return this.groupConfigs[groupId][key];
+        }
+        return this[key];
+    },
+
+    // Permission Checks
+    isRootAdmin: function(userId) {
+        return this.adminQQ && userId.toString() === this.adminQQ.toString();
+    },
+
+    isGroupAdmin: function(groupId, userId) {
+        if (this.isRootAdmin(userId)) return true;
+        if (!groupId) return false;
+        
+        const groupConfig = this.groupConfigs[groupId];
+        if (groupConfig && groupConfig.admins && Array.isArray(groupConfig.admins)) {
+            return groupConfig.admins.includes(userId.toString());
+        }
+        return false;
+    },
+
+    // Admin Management
+    addGroupAdmin: function(groupId, userId) {
+        if (!groupId || !userId) return false;
+        if (!this.groupConfigs[groupId]) this.groupConfigs[groupId] = {};
+        if (!this.groupConfigs[groupId].admins) this.groupConfigs[groupId].admins = [];
+        
+        const strId = userId.toString();
+        if (!this.groupConfigs[groupId].admins.includes(strId)) {
+            this.groupConfigs[groupId].admins.push(strId);
+            this.save();
+            return true;
+        }
+        return false;
+    },
+
+    removeGroupAdmin: function(groupId, userId) {
+        if (!groupId || !userId) return false;
+        if (!this.groupConfigs[groupId] || !this.groupConfigs[groupId].admins) return false;
+        
+        const strId = userId.toString();
+        const index = this.groupConfigs[groupId].admins.indexOf(strId);
+        if (index > -1) {
+            this.groupConfigs[groupId].admins.splice(index, 1);
+            this.save();
+            return true;
+        }
+        return false;
+    },
+
+    isGroupEnabled: function(groupId) {
+        // If whitelist is empty, all allowed
+        if (!this.enabledGroups || this.enabledGroups.length === 0) return true;
+        return this.enabledGroups.includes(groupId.toString());
+    },
+
+    enableGroup: function(groupId) {
+        if (!this.enabledGroups) this.enabledGroups = [];
+        const strId = groupId.toString();
+        if (!this.enabledGroups.includes(strId)) {
+            this.enabledGroups.push(strId);
+            this.save();
+        }
+    },
+
+    disableGroup: function(groupId) {
+        if (!this.enabledGroups) return;
+        const strId = groupId.toString();
+        this.enabledGroups = this.enabledGroups.filter(id => id !== strId);
+        this.save();
+    },
 
     // Save configuration to file (Only dynamic fields)
     save: function() {
@@ -56,7 +154,11 @@ const config = {
             blacklistedQQs: this.blacklistedQQs,
             enabledGroups: this.enabledGroups,
             linkCacheTimeout: this.linkCacheTimeout,
-            subscriptionCheckInterval: this.subscriptionCheckInterval
+            subscriptionCheckInterval: this.subscriptionCheckInterval,
+            nightMode: this.nightMode,
+            labelConfig: this.labelConfig,
+            showId: this.showId,
+            groupConfigs: this.groupConfigs
         };
         try {
             fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
