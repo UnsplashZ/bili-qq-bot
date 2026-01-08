@@ -77,16 +77,39 @@ class SubscriptionService {
     }
 
     // New API: 用户订阅
-    addUserSubscription(uid, groupId) {
+    async addUserSubscription(uid, groupId) {
         let sub = this.userSubs.find(s => s.uid === uid);
+        let name = '';
+        
+        // Fetch user info to get name if it's a new subscription or name is missing
+        try {
+            const info = await biliApi.getUserInfo(uid);
+            if (info && info.status === 'success' && info.data) {
+                name = info.data.name;
+            }
+        } catch (e) {
+            logger.error(`Failed to fetch user info for ${uid}:`, e);
+        }
+
         if (!sub) {
-            sub = { uid, groupIds: [groupId], lastDynamicId: null, lastDynamicTime: 0, lastLiveStatus: '0' };
+            sub = { 
+                uid, 
+                groupIds: [groupId], 
+                lastDynamicId: null, 
+                lastDynamicTime: 0, 
+                lastLiveStatus: '0',
+                name: name || `用户${uid}` 
+            };
             this.userSubs.push(sub);
-        } else if (!sub.groupIds.includes(groupId)) {
-            sub.groupIds.push(groupId);
+        } else {
+            if (!sub.groupIds.includes(groupId)) {
+                sub.groupIds.push(groupId);
+            }
+            // Update name if we fetched it
+            if (name) sub.name = name;
         }
         this.saveSubscriptions();
-        return true;
+        return sub.name;
     }
 
     removeUserSubscription(uid, groupId) {
@@ -101,16 +124,38 @@ class SubscriptionService {
     }
 
     // New API: 番剧订阅
-    addBangumiSubscription(seasonId, groupId) {
+    async addBangumiSubscription(seasonId, groupId) {
         let sub = this.bangumiSubs.find(s => s.seasonId === seasonId);
+        let title = '';
+
+        // Fetch bangumi info to get title
+        try {
+            const info = await biliApi.getBangumiInfo(seasonId);
+            if (info && info.status === 'success' && info.data) {
+                title = info.data.title;
+            }
+        } catch (e) {
+            logger.error(`Failed to fetch bangumi info for ${seasonId}:`, e);
+        }
+
         if (!sub) {
-            sub = { seasonId, groupIds: [groupId], lastEpId: null, lastEpTime: 0 };
+            sub = { 
+                seasonId, 
+                groupIds: [groupId], 
+                lastEpId: null, 
+                lastEpTime: 0,
+                title: title || `番剧${seasonId}`
+            };
             this.bangumiSubs.push(sub);
-        } else if (!sub.groupIds.includes(groupId)) {
-            sub.groupIds.push(groupId);
+        } else {
+            if (!sub.groupIds.includes(groupId)) {
+                sub.groupIds.push(groupId);
+            }
+            // Update title if we fetched it
+            if (title) sub.title = title;
         }
         this.saveSubscriptions();
-        return true;
+        return sub.title;
     }
 
     removeBangumiSubscription(seasonId, groupId) {
@@ -125,8 +170,8 @@ class SubscriptionService {
     }
 
     getSubscriptionsByGroup(groupId) {
-        const users = this.userSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'user', uid: s.uid }));
-        const bangumis = this.bangumiSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'bangumi', seasonId: s.seasonId }));
+        const users = this.userSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'user', uid: s.uid, name: s.name || s.uid }));
+        const bangumis = this.bangumiSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'bangumi', seasonId: s.seasonId, title: s.title || s.seasonId }));
         return [...users, ...bangumis];
     }
 
@@ -147,6 +192,57 @@ class SubscriptionService {
         if (this.intervalId) clearInterval(this.intervalId);
         this.intervalId = setInterval(() => this.checkAll(), this.checkInterval);
         logger.info('Subscription service started.');
+        
+        // Background task: refresh missing names for legacy data
+        this.refreshMissingNames().catch(e => logger.error('Error in refreshMissingNames:', e));
+    }
+
+    async refreshMissingNames() {
+        logger.info('Starting background refresh of missing subscription names...');
+        let updated = false;
+
+        // 1. Refresh User Names
+        for (const sub of this.userSubs) {
+            if (!sub.name) {
+                try {
+                    const info = await biliApi.getUserInfo(sub.uid);
+                    if (info && info.status === 'success' && info.data) {
+                        sub.name = info.data.name;
+                        updated = true;
+                        logger.info(`Refreshed name for UID ${sub.uid}: ${sub.name}`);
+                        // Small delay to be nice to API
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                } catch (e) {
+                    logger.error(`Failed to refresh name for UID ${sub.uid}:`, e);
+                }
+            }
+        }
+
+        // 2. Refresh Bangumi Titles
+        for (const sub of this.bangumiSubs) {
+            if (!sub.title) {
+                try {
+                    const info = await biliApi.getBangumiInfo(sub.seasonId);
+                    if (info && info.status === 'success' && info.data) {
+                        sub.title = info.data.title;
+                        updated = true;
+                        logger.info(`Refreshed title for Season ${sub.seasonId}: ${sub.title}`);
+                        // Small delay to be nice to API
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                } catch (e) {
+                    logger.error(`Failed to refresh title for Season ${sub.seasonId}:`, e);
+                }
+            }
+        }
+
+        if (updated) {
+            this.saveSubscriptions();
+            logger.info('Finished refreshing missing subscription names. Data saved.');
+        } else {
+            logger.info('No missing names found or no updates needed.');
+        }
     }
 
     updateCheckInterval(newIntervalSeconds) {
@@ -218,15 +314,7 @@ class SubscriptionService {
 
                                 if (dynamicDetail.status === 'success') {
                                     logger.info(`[CheckDynamic] Generating preview card for dynamic ${dynamicId}...`);
-                                    // Generate image using existing functionality
-                                    const base64Image = await imageGenerator.generatePreviewCard(dynamicDetail, 'dynamic');
-                                    logger.info(`[CheckDynamic] Preview card generated successfully, sending to groups...`);
-
-                                    // Send image and link to groups
-                                    this.notifyGroups(sub.groupIds, [
-                                        { type: 'image', data: { file: `base64://${base64Image}` } },
-                                        { type: 'text', data: { text: `https://t.bilibili.com/${dynamicId}` } }
-                                    ]);
+                                    await this.notifyGroupsWithImage(sub.groupIds, dynamicDetail, 'dynamic', `https://t.bilibili.com/${dynamicId}`);
                                     logger.info(`[CheckDynamic] Notification sent successfully for dynamic ${dynamicId}`);
                                 } else {
                                     logger.warn(`[CheckDynamic] Dynamic detail status not success, falling back to text`);
@@ -290,13 +378,9 @@ class SubscriptionService {
 
                 if (res.status === 'success' && res.data) {
                     logger.info(`[CheckSubscriptionNow] Successfully fetched dynamic ${uid}, generating image...`);
-                    const base64Image = await imageGenerator.generatePreviewCard(res, 'dynamic');
-                    logger.info(`[CheckSubscriptionNow] Image generated, sending to group ${groupId}...`);
-
-                    this.notifyGroups([groupId], [
-                        { type: 'image', data: { file: `base64://${base64Image}` } },
-                        { type: 'text', data: { text: `动态详情: https://t.bilibili.com/${uid}` } }
-                    ]);
+                    
+                    await this.notifyGroupsWithImage([groupId], res, 'dynamic', `动态详情: https://t.bilibili.com/${uid}`);
+                    
                     logger.info(`[CheckSubscriptionNow] Successfully sent dynamic ${uid} to group`);
                     return true;
                 } else {
@@ -331,14 +415,7 @@ class SubscriptionService {
                     // Get live room details and generate image
                     const liveDetail = await biliApi.getLiveRoomInfo(roomId);
                     if (liveDetail.status === 'success') {
-                        // Generate image using existing functionality
-                        const base64Image = await imageGenerator.generatePreviewCard(liveDetail, 'live');
-
-                        // Send image and link to groups
-                        this.notifyGroups(sub.groupIds, [
-                            { type: 'image', data: { file: `base64://${base64Image}` } },
-                            { type: 'text', data: { text: `https://live.bilibili.com/${roomId}` } }
-                        ]);
+                        await this.notifyGroupsWithImage(sub.groupIds, liveDetail, 'live', `https://live.bilibili.com/${roomId}`);
                     } else {
                         // Fallback to text notification if image generation fails
                         this.notifyGroups(sub.groupIds, `直播预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${roomId}`);
@@ -454,6 +531,51 @@ class SubscriptionService {
         } catch (e) {
             logger.warn('[SubscriptionService] Text cleaning failed, using original:', e);
             return text;
+        }
+    }
+
+    // 辅助函数：根据群组配置分组生成图片并发送
+    async notifyGroupsWithImage(groupIds, data, type, textUrl) {
+        if (!groupIds || groupIds.length === 0) return;
+
+        // Group by config signature
+        const groupsByConfig = new Map(); // Key: "night:T|F_label:T|F" -> [groupIds]
+
+        for (const groupId of groupIds) {
+            const isNight = imageGenerator.isNightMode(groupId);
+            
+            // Access label config logic (replicating logic from imageGenerator to key correctly)
+            const labelConfig = config.getGroupConfig(groupId, 'labelConfig');
+            const showLabel = (!labelConfig || labelConfig[type] !== false);
+            
+            const key = `night:${isNight}_label:${showLabel}`;
+            
+            if (!groupsByConfig.has(key)) {
+                groupsByConfig.set(key, []);
+            }
+            groupsByConfig.get(key).push(groupId);
+        }
+
+        // Process each group
+        for (const [key, targetGroupIds] of groupsByConfig) {
+            try {
+                // Use the first group as representative for generation
+                const representativeGroupId = targetGroupIds[0];
+                
+                // Generate image
+                const base64Image = await imageGenerator.generatePreviewCard(data, type, representativeGroupId);
+                
+                // Send
+                this.notifyGroups(targetGroupIds, [
+                    { type: 'image', data: { file: `base64://${base64Image}` } },
+                    { type: 'text', data: { text: textUrl } }
+                ]);
+                
+            } catch (e) {
+                logger.error(`[SubscriptionService] Error generating image for groups [${targetGroupIds.join(', ')}]:`, e);
+                // Fallback to text
+                this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textUrl}`);
+            }
         }
     }
 
