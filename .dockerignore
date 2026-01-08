@@ -16,9 +16,13 @@ data/
 logs/
 temp/
 npm-debug.log
+*.log
 
 # System
 .DS_Store
+.vscode
+.idea
+.github
 
 # Docker & Setup (Not needed in image)
 docker-compose.yml
@@ -27,3 +31,11 @@ setup.sh
 Dockerfile
 scripts/
 docs/
+
+# Documentation & Dev Tools
+README.md
+LICENSE
+check_data_structure.js
+*.md
+fonts/tmp
+.claude

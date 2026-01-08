@@ -469,22 +469,70 @@ class MessageHandler {
             if (subs.length === 0) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅。' } }]);
             } else {
-                let message = '本群订阅列表：\n';
+                // Notify processing
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '正在获取订阅信息并生成图片，请稍候...' } }]);
+
                 const userSubs = subs.filter(s => s.type === 'user');
                 const bangumiSubs = subs.filter(s => s.type === 'bangumi');
-                if (userSubs.length) {
-                    message += '\n【用户订阅】\n';
-                    userSubs.forEach((sub, index) => {
-                        message += `${index + 1}. ${sub.name} (UID: ${sub.uid})\n`;
-                    });
-                }
-                if (bangumiSubs.length) {
-                    message += '\n【番剧订阅】\n';
-                    bangumiSubs.forEach((sub, index) => {
-                        message += `${index + 1}. ${sub.title} (SID: ${sub.seasonId})\n`;
-                    });
-                }
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
+
+                (async () => {
+                    try {
+                        // Fetch user details
+                        const userDetailsPromises = userSubs.map(async (sub) => {
+                            try {
+                                const info = await biliApi.getUserInfo(sub.uid);
+                                if (info && info.status === 'success' && info.data) {
+                                    return {
+                                        ...sub,
+                                        name: info.data.name || sub.name, // Update name if available
+                                        face: info.data.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
+                                        level: info.data.level || 0,
+                                        pendant: info.data.pendant || {},
+                                        fans_medal: info.data.fans_medal || {}
+                                    };
+                                }
+                            } catch (e) {
+                                logger.error(`Failed to fetch info for user ${sub.uid}`, e);
+                            }
+                            // Fallback if fetch fails
+                            return {
+                                ...sub,
+                                face: 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
+                                level: 0,
+                                pendant: {},
+                                fans_medal: {}
+                            };
+                        });
+
+                        const detailedUserSubs = await Promise.all(userDetailsPromises);
+
+                        const data = {
+                            users: detailedUserSubs,
+                            bangumis: bangumiSubs
+                        };
+
+                        const base64Image = await imageGenerator.generateSubscriptionList(data, groupId);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
+
+                    } catch (e) {
+                        logger.error('Error generating subscription list image:', e);
+                        // Fallback to text
+                        let message = '生成图片失败，显示文本列表：\n';
+                        if (userSubs.length) {
+                            message += '\n【用户订阅】\n';
+                            userSubs.forEach((sub, index) => {
+                                message += `${index + 1}. ${sub.name} (UID: ${sub.uid})\n`;
+                            });
+                        }
+                        if (bangumiSubs.length) {
+                            message += '\n【番剧订阅】\n';
+                            bangumiSubs.forEach((sub, index) => {
+                                message += `${index + 1}. ${sub.title} (SID: ${sub.seasonId})\n`;
+                            });
+                        }
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
+                    }
+                })();
             }
             return;
         }

@@ -1668,6 +1668,284 @@ class ImageGenerator {
         return buffer.toString('base64');
     }
 
+    async generateSubscriptionList(data, groupId) {
+        await this.init();
+        const page = await this.browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+        const isNight = this.isNightMode(groupId);
+        
+        const html = `<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                :root {
+                    --bg-color: ${isNight ? '#1a1a1a' : '#f4f5f7'};
+                    --card-bg: ${isNight ? '#2d2d2d' : '#ffffff'};
+                    --text-main: ${isNight ? '#e0e0e0' : '#18191c'};
+                    --text-subtitle: ${isNight ? '#aaaaaa' : '#9499a0'};
+                    --border-color: ${isNight ? '#3d3d3d' : '#e3e5e7'};
+                    --primary-color: #00AEEC;
+                    --accent-color: #FB7299;
+                }
+                body {
+                    margin: 0;
+                    padding: 20px;
+                    background-color: var(--bg-color);
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                    width: 800px;
+                }
+                .container {
+                    background-color: var(--card-bg);
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, ${isNight ? '0.4' : '0.1'});
+                    padding: 24px;
+                    overflow: hidden;
+                }
+                .header {
+                    text-align: center;
+                    margin-bottom: 24px;
+                    border-bottom: 2px solid var(--border-color);
+                    padding-bottom: 16px;
+                }
+                .header h1 {
+                    margin: 0;
+                    font-size: 24px;
+                    color: var(--text-main);
+                }
+                .section {
+                    margin-bottom: 24px;
+                }
+                .section-title {
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: var(--text-main);
+                    margin-bottom: 16px;
+                    padding-left: 10px;
+                    border-left: 4px solid var(--primary-color);
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }
+                .count-badge {
+                    background: var(--primary-color);
+                    color: white;
+                    font-size: 12px;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                }
+                .user-list {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 16px;
+                }
+                .user-card {
+                    display: flex;
+                    align-items: center;
+                    padding: 12px;
+                    background-color: ${isNight ? '#363636' : '#f9f9f9'};
+                    border-radius: 8px;
+                    border: 1px solid var(--border-color);
+                }
+                .avatar-container {
+                    position: relative;
+                    width: 60px;
+                    height: 60px;
+                    margin-right: 16px;
+                    flex-shrink: 0;
+                }
+                .avatar {
+                    width: 60px;
+                    height: 60px;
+                    border-radius: 50%;
+                    object-fit: cover;
+                    border: 2px solid var(--card-bg);
+                }
+                .pendant {
+                    position: absolute;
+                    top: -12px;
+                    left: -12px;
+                    width: 84px;
+                    height: 84px;
+                    pointer-events: none;
+                }
+                .user-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .user-name-row {
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 4px;
+                }
+                .user-name {
+                    font-size: 16px;
+                    font-weight: bold;
+                    color: var(--text-main);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    margin-right: 8px;
+                }
+                .level-badge {
+                    font-size: 10px;
+                    padding: 0 4px;
+                    border-radius: 2px;
+                    background-color: #ddd;
+                    color: #666;
+                    font-weight: bold;
+                }
+                .level-badge.lv0 { background-color: #bfbfbf; color: #fff; }
+                .level-badge.lv1 { background-color: #bfbfbf; color: #fff; }
+                .level-badge.lv2 { background-color: #95ddb2; color: #fff; }
+                .level-badge.lv3 { background-color: #92d1e5; color: #fff; }
+                .level-badge.lv4 { background-color: #ffb37c; color: #fff; }
+                .level-badge.lv5 { background-color: #ff6c00; color: #fff; }
+                .level-badge.lv6 { background-color: #ff0000; color: #fff; }
+                
+                .user-details {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    font-size: 12px;
+                    color: var(--text-subtitle);
+                    align-items: center;
+                }
+                .uid {
+                    font-family: monospace;
+                }
+                .fan-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    border: 1px solid var(--primary-color);
+                    border-radius: 2px;
+                    font-size: 10px;
+                    height: 16px;
+                    line-height: 14px;
+                    overflow: hidden;
+                }
+                .fan-name {
+                    background-color: var(--primary-color);
+                    color: white;
+                    padding: 0 4px;
+                }
+                .fan-level {
+                    color: var(--primary-color);
+                    background-color: ${isNight ? '#1a1a1a' : '#fff'};
+                    padding: 0 4px;
+                }
+
+                .bangumi-list {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px;
+                }
+                .bangumi-card {
+                    padding: 12px;
+                    background-color: ${isNight ? '#363636' : '#f9f9f9'};
+                    border-radius: 8px;
+                    border: 1px solid var(--border-color);
+                    display: flex;
+                    align-items: center;
+                }
+                .bangumi-icon {
+                    margin-right: 8px;
+                    font-size: 20px;
+                }
+                .bangumi-title {
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: var(--text-main);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                
+                .empty-tip {
+                    text-align: center;
+                    color: var(--text-subtitle);
+                    padding: 20px;
+                    font-style: italic;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>订阅列表</h1>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">
+                        用户订阅
+                        <span class="count-badge">${data.users.length}</span>
+                    </div>
+                    ${data.users.length > 0 ? `
+                        <div class="user-list">
+                            ${data.users.map(u => {
+                                const pendantImg = u.pendant?.image ? `<img src="${u.pendant.image}" class="pendant" crossorigin="anonymous">` : '';
+                                const fanBadge = (u.fans_medal && u.fans_medal.medal) ? `
+                                    <div class="fan-badge">
+                                        <span class="fan-name">${u.fans_medal.medal.medal_name}</span>
+                                        <span class="fan-level">${u.fans_medal.medal.level}</span>
+                                    </div>
+                                ` : '';
+                                return `
+                                <div class="user-card">
+                                    <div class="avatar-container">
+                                        <img src="${u.face}" class="avatar" crossorigin="anonymous">
+                                        ${pendantImg}
+                                    </div>
+                                    <div class="user-info">
+                                        <div class="user-name-row">
+                                            <span class="user-name">${u.name}</span>
+                                            <span class="level-badge lv${u.level}">LV${u.level}</span>
+                                        </div>
+                                        <div class="user-details">
+                                            <span class="uid">UID:${u.uid}</span>
+                                            ${fanBadge}
+                                        </div>
+                                    </div>
+                                </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : '<div class="empty-tip">暂无用户订阅</div>'}
+                </div>
+
+                <div class="section">
+                    <div class="section-title">
+                        番剧订阅
+                        <span class="count-badge">${data.bangumis.length}</span>
+                    </div>
+                    ${data.bangumis.length > 0 ? `
+                        <div class="bangumi-list">
+                            ${data.bangumis.map(b => `
+                                <div class="bangumi-card">
+                                    <span class="bangumi-icon">📺</span>
+                                    <span class="bangumi-title">${b.title}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : '<div class="empty-tip">暂无番剧订阅</div>'}
+                </div>
+            </div>
+        </body>
+        </html>`;
+
+        await page.setContent(html);
+        const container = await page.$('.container');
+        const buffer = await container.screenshot({
+            type: 'webp',
+            quality: 80,
+            omitBackground: false
+        });
+
+        await page.close();
+        return buffer.toString('base64');
+    }
+
     // 辅助函数：调整颜色亮度
     adjustBrightness(hex, percent) {
         // 移除 # 号
