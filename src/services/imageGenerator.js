@@ -323,6 +323,8 @@ class ImageGenerator {
                                 @font-face {
                                     font-family: "${fontName}";
                                     src: url(data:font/${ext.slice(1)};charset=utf-8;base64,${base64Font}) format('${ext === '.ttf' ? 'truetype' : ext === '.otf' ? 'opentype' : ext.slice(1)}');
+                                    font-weight: 100 900;
+                                    font-style: normal;
                                 }
                             `;
                             customFontFamilies.push(`"${fontName}"`);
