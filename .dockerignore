@@ -1,6 +1,10 @@
 # Dependencies
 node_modules
 venv
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Version Control
 .git
@@ -11,15 +15,17 @@ venv
 config/.env
 config/config.json
 
-# Data & Logs
+# Data & Logs (Runtime)
 data/
 logs/
 temp/
-npm-debug.log
+tmp/
 *.log
+application.log
 
-# System
+# System & IDE
 .DS_Store
+Thumbs.db
 .vscode
 .idea
 .github
@@ -32,10 +38,14 @@ Dockerfile
 scripts/
 docs/
 
-# Documentation & Dev Tools
+# Tests & Coverage
+test*
+coverage/
+
+# Documentation & Tools
 README.md
 LICENSE
 check_data_structure.js
 *.md
-fonts/tmp
 .claude
+.trae

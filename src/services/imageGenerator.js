@@ -2449,7 +2449,7 @@ class ImageGenerator {
                             <span class="cmd-desc">取消番剧订阅</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/查询订阅 &lt;uid&gt;</span>
+                            <span class="cmd-code">/查询订阅 &lt;uid|用户名&gt;</span>
                             <span class="cmd-desc">立即检查某用户动态</span>
                         </div>
                     </div>
@@ -2507,10 +2507,6 @@ class ImageGenerator {
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 显示UID &lt;开|关&gt;</span>
                             <span class="cmd-desc">开关订阅列表UID</span>
-                        </div>
-                        <div class="cmd-item">
-                            <span class="cmd-code">/查询订阅 &lt;uid|用户名&gt;</span>
-                            <span class="cmd-desc">检查用户动态更新</span>
                         </div>
                     </div>
                 </div>

@@ -17,19 +17,30 @@ pyvenv.cfg
 __pycache__/
 
 # Environment & Secrets
+.env
 config/.env
 config/config.json
+
+# Data (Runtime)
 data/cookies.json
 data/subscriptions.json
 data/subfollowers.json
+data/contexts/*
+data/vectors/*
+!data/contexts/.gitkeep
+!data/vectors/.gitkeep
 
 # Project Logs
 application.log
+logs/
 
 # AI tools
 .claude/
+.trae/
 
-# OS
+# Editor/IDE
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
 
@@ -38,12 +49,6 @@ tmp/
 temp/
 *.tmp
 
-# Logs
-logs/
-
-
 # Test
 test*
-data/contexts/1065812436.json
-data/contexts/469615909.json
-data/vectors/1065812436.json
+coverage/
