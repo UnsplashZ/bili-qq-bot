@@ -21,6 +21,7 @@ config/.env
 config/config.json
 data/cookies.json
 data/subscriptions.json
+data/subfollowers.json
 
 # Project Logs
 application.log
