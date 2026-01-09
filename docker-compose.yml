@@ -2,12 +2,12 @@ version: '3.8'
 
 services:
   bili-bot:
-    # image: unsplash/bili-qq-bot
+    image: unsplash/bili-qq-bot:latest
     # 若需使用本地打包镜像：
     # 1) 注释掉上面的 image 字段
     # 2) 取消注释下方 build 字段
     # 3) 执行 `docker-compose up -d --build`
-    build: .
+    # build: .
     container_name: bili-qq-bot
     restart: always
     network_mode: "host" # 使用宿主机网络，解决连接 localhost:3001 的问题
