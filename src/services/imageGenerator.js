@@ -2537,11 +2537,11 @@ class ImageGenerator {
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 AI上下文 &lt;条数&gt;</span>
-                            <span class="cmd-desc">设置 AI 上下文限制</span>
+                            <span class="cmd-desc">设置 AI 上下文限制<span class="cmd-tag tag-root">Root</span></span>
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 AI概率 &lt;0-1&gt;</span>
-                            <span class="cmd-desc">设置 AI 随机回复概率</span>
+                            <span class="cmd-desc">设置 AI 随机回复概率<span class="cmd-tag tag-root">Root</span></span>
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 深色模式</span>
