@@ -127,11 +127,14 @@ class AiHandler {
 
             // RAG: Retrieve relevant long-term memories
             let systemPrompt = config.aiSystemPrompt;
+            // Inject current time into system prompt
+            systemPrompt += `\n当前时间: ${new Date().toLocaleString()}`;
+
             try {
                 const relevantMemories = await vectorMemory.search(contextKey, message);
                 if (relevantMemories.length > 0) {
                     const memoryText = relevantMemories.map(m => 
-                        `[${new Date(m.timestamp).toLocaleString()}] ${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
+                        `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
                     ).join('\n');
                     systemPrompt += `\n\n【Related History/Memory】:\n${memoryText}\n【End of Memory】\n(Use these memories to maintain context consistency)`;
                     logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}`);
@@ -158,17 +161,25 @@ class AiHandler {
                     content = content.trim();
                 }
 
-                // Format timestamp if available
                 let timePrefix = '';
-                if (msg.timestamp) {
-                    const date = new Date(msg.timestamp);
-                    timePrefix = `[${date.toLocaleString()}] `;
+                // ✅ 只为用户消息添加时间
+                if (msg.role === 'user' && msg.timestamp) {
+                    const now = Date.now();
+                    const diff = now - msg.timestamp;
+                    const minutes = Math.floor(diff / 60000);
+                    const hours = Math.floor(diff / 3600000);
+                    const days = Math.floor(diff / 86400000);
+
+                    if (days > 0) timePrefix = `(${days}天前) `;
+                    else if (hours > 0) timePrefix = `(${hours}小时前) `;
+                    else if (minutes > 0) timePrefix = `(${minutes}分钟前) `;
+                    else timePrefix = `(刚才) `;
                 }
 
                 if (msg.role === 'user' && msg.userId) {
                     return { role: 'user', content: `${timePrefix}[用户 ${msg.userId}]: ${content}` };
                 }
-                return { role: msg.role, content: `${timePrefix}${content}` };
+                return { role: msg.role, content: content }; // AI回复无时间标记
             });
             
             const messages = [
