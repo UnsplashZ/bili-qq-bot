@@ -1857,7 +1857,7 @@ class ImageGenerator {
             <style>
                 :root {
                     --bg-gradient: linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%);
-                    --card-bg: #fff;
+                    --card-bg: rgba(255, 255, 255, 0.75);
                     --card-border: rgba(255, 255, 255, 0.9);
                     --text-title: #333;
                     --text-subtitle: #999;
@@ -1869,7 +1869,7 @@ class ImageGenerator {
                 }
                 .theme-dark {
                     --bg-gradient: linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%);
-                    --card-bg: #171B21;
+                    --card-bg: rgba(23, 27, 33, 0.75);
                     --card-border: rgba(255, 255, 255, 0.08);
                     --text-title: #E8EAED;
                     --text-subtitle: #A8ADB4;
@@ -1897,6 +1897,8 @@ class ImageGenerator {
                     border: 1px solid var(--card-border);
                     padding: 28px;
                     overflow: hidden;
+                    backdrop-filter: blur(24px);
+                    -webkit-backdrop-filter: blur(24px);
                 }
                 .header {
                     text-align: center;
@@ -2205,7 +2207,7 @@ class ImageGenerator {
             <style>
                 :root {
                     --bg-gradient: linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%);
-                    --card-bg: #fff;
+                    --card-bg: rgba(255, 255, 255, 0.75);
                     --card-border: rgba(255, 255, 255, 0.9);
                     --text-title: #333;
                     --text-subtitle: #999;
@@ -2222,7 +2224,7 @@ class ImageGenerator {
 
                 .theme-dark {
                     --bg-gradient: linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%);
-                    --card-bg: #171B21;
+                    --card-bg: rgba(23, 27, 33, 0.75);
                     --card-border: rgba(255, 255, 255, 0.08);
                     --text-title: #E8EAED;
                     --text-subtitle: #A8ADB4;
@@ -2263,6 +2265,8 @@ class ImageGenerator {
                     box-shadow: var(--shadow-card);
                     border: 1px solid var(--card-border);
                     padding: 28px;
+                    backdrop-filter: blur(24px);
+                    -webkit-backdrop-filter: blur(24px);
                 }
 
                 .header {

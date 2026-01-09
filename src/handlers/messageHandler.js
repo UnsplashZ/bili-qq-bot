@@ -525,6 +525,7 @@ class MessageHandler {
                                 // Use lighter getUserCard instead of full getUserInfo
                                 const info = await biliApi.getUserCard(sub.uid);
                                 if (info && info.status === 'success' && info.data) {
+                                    logger.info(`[DebugAvatar] Fetched card for ${sub.uid}: face=${info.data.face}`);
                                     return {
                                         ...sub,
                                         name: info.data.name || sub.name, 
@@ -1123,6 +1124,10 @@ class MessageHandler {
 
             // 9. AI上下文 (/设置 AI上下文 <条数>)
             if (subCommand === 'AI上下文') {
+                 if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                 }
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                      if (groupId) {
@@ -1143,6 +1148,10 @@ class MessageHandler {
             
             // 10. AI概率 (/设置 AI概率 <数值>)
             if (subCommand === 'AI概率') {
+                 if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                 }
                  const value = parseFloat(parts[2]);
                  if (!isNaN(value) && value >= 0 && value <= 1) {
                      if (groupId) {
