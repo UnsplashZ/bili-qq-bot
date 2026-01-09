@@ -338,7 +338,7 @@ class ImageGenerator {
                 :root {
                     /* Palette - Light */
                     --color-bg: #F5F7FA;
-                    --color-card-bg: #FFFFFF;
+                    --color-card-bg: rgba(255, 255, 255, 0.75);
                     --color-text: #1A1A1A;
                     --color-subtext: #5A5F66;
                     --color-border: rgba(0, 0, 0, 0.08);
@@ -350,10 +350,10 @@ class ImageGenerator {
                     --color-secondary: #00A1D6;
                     --color-emphasis: #FF6699;
 
-                    /* Radii */
-                    --radius-sm: 4px;
-                    --radius-md: 6px;
-                    --radius-lg: 8px;
+                    /* Radii - Unified & Modern */
+                    --radius-sm: 6px;
+                    --radius-md: 10px;
+                    --radius-lg: 18px;
 
                     /* Shadows */
                     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -364,7 +364,7 @@ class ImageGenerator {
                 /* Dark Theme Override */
                 .theme-dark {
                     --color-bg: rgba(0, 0, 0, 0.9);
-                    --color-card-bg: #171B21;
+                    --color-card-bg: rgba(23, 27, 33, 0.75);
                     --color-text: #E8EAED;
                     --color-subtext: #A8ADB4;
                     --color-border: rgba(255, 255, 255, 0.08);
@@ -410,6 +410,8 @@ class ImageGenerator {
                      box-shadow: var(--shadow-lg);
                      border: 1px solid var(--color-border);
                      transition: background-color .3s ease, box-shadow .3s ease, border-color .3s ease;
+                     backdrop-filter: blur(24px);
+                     -webkit-backdrop-filter: blur(24px);
                  }
                 
                 .container.gradient-bg { position: relative; }
