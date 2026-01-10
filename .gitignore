@@ -29,6 +29,8 @@ data/contexts/*
 data/vectors/*
 !data/contexts/.gitkeep
 !data/vectors/.gitkeep
+data/cache/*
+napcat/*
 
 # Project Logs
 application.log

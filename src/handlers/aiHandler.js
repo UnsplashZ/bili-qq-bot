@@ -77,6 +77,31 @@ class AiHandler {
         return newContext;
     }
 
+    // Check file size and trim if necessary
+    checkSizeAndTrim(context, maxSize) {
+        // Optimization: Only check if context is large
+        if (context.length < 100) return;
+
+        let jsonString = JSON.stringify(context);
+        let currentSize = Buffer.byteLength(jsonString, 'utf8');
+
+        if (currentSize <= maxSize) return;
+
+        logger.info(`[AiHandler] Context size ${currentSize} exceeds limit ${maxSize}. Trimming...`);
+
+        // Trim until under limit
+        while (currentSize > maxSize && context.length > 0) {
+            // Remove chunks of messages to be faster
+            const removeCount = Math.max(1, Math.floor(context.length * 0.1)); // Remove 10%
+            context.splice(0, removeCount);
+            
+            jsonString = JSON.stringify(context);
+            currentSize = Buffer.byteLength(jsonString, 'utf8');
+        }
+        
+        logger.info(`[AiHandler] Context trimmed to ${currentSize} bytes.`);
+    }
+
     // Save context for a specific group asynchronously with debounce
     saveContext(groupId) {
         if (this.saveTimers.has(groupId)) {
@@ -92,6 +117,11 @@ class AiHandler {
                     fs.mkdirSync(this.contextsDir, { recursive: true });
                 }
                 
+                // Check size and trim before saving
+                // Hardcoded limit: 200MB
+                const maxSize = 209715200; 
+                this.checkSizeAndTrim(context, maxSize);
+
                 const filePath = path.join(this.contextsDir, `${groupId}.json`);
                 const data = JSON.stringify(context, null, 2);
                 
@@ -108,6 +138,18 @@ class AiHandler {
         }, 1000); // Wait 1s after last change before saving
 
         this.saveTimers.set(groupId, timer);
+    }
+
+    // Clean CQ codes for AI consumption
+    cleanMessage(content) {
+        if (!content) return '';
+        // Replace [CQ:at,qq=123] with @User123
+        content = content.replace(/\[CQ:at,qq=(\d+)\]/g, ' @User$1 ');
+        // Replace [CQ:image,...] with [图片]
+        content = content.replace(/\[CQ:image,[^\]]+\]/g, ' [图片] ');
+        // Remove other CQ codes to avoid confusion
+        content = content.replace(/\[CQ:[^\]]+\]/g, '');
+        return content.trim();
     }
 
     async getReply(message, userId, groupId) {
@@ -157,17 +199,7 @@ class AiHandler {
             // Format content as "[User <id>]: <content>" so AI knows who said what
             // And clean content to avoid "I can't see QQ" issues
             const apiContext = context.map(msg => {
-                let content = msg.content;
-                // Clean CQ codes for AI consumption
-                if (content) {
-                    // Replace [CQ:at,qq=123] with @User123
-                    content = content.replace(/\[CQ:at,qq=(\d+)\]/g, ' @User$1 ');
-                    // Replace [CQ:image,...] with [图片]
-                    content = content.replace(/\[CQ:image,[^\]]+\]/g, ' [图片] ');
-                    // Remove other CQ codes to avoid confusion
-                    content = content.replace(/\[CQ:[^\]]+\]/g, '');
-                    content = content.trim();
-                }
+                let content = this.cleanMessage(msg.content);
 
                 let timePrefix = '';
                 // ✅ 只为用户消息添加时间
@@ -219,20 +251,13 @@ class AiHandler {
                 
                 // Add to Vector Memory (Async)
                 // Use cleaned content for vector embedding to improve quality
-                // But we don't have cleaned user message easily accessible here except by re-cleaning
-                // Let's just use raw message for now, vector models are usually robust enough
-                // Or better, let's clean it before sending to vector memory
                 
                 // Clean user message for vector memory
-                let cleanUserMsg = message;
-                if (cleanUserMsg) {
-                     cleanUserMsg = cleanUserMsg.replace(/\[CQ:at,qq=(\d+)\]/g, ' @User$1 ');
-                     cleanUserMsg = cleanUserMsg.replace(/\[CQ:image,[^\]]+\]/g, ' [图片] ');
-                     cleanUserMsg = cleanUserMsg.replace(/\[CQ:[^\]]+\]/g, '');
-                     cleanUserMsg = cleanUserMsg.trim();
-                }
+                const cleanUserMsg = this.cleanMessage(message);
                 
-                vectorMemory.addMemory(contextKey, cleanUserMsg, 'user');
+                if (cleanUserMsg) {
+                    vectorMemory.addMemory(contextKey, cleanUserMsg, 'user');
+                }
                 vectorMemory.addMemory(contextKey, reply, 'assistant');
 
                 return reply;
@@ -273,9 +298,9 @@ class AiHandler {
         
         context.push(msgObj);
         
-        // Trim context based on persistence limit (200)
-        const persistenceLimit = 200;
-        while (context.length > persistenceLimit) {
+        // We do not trim by count anymore, we rely on checkSizeAndTrim during save
+        // But to prevent memory explosion before save, we can keep a safety limit for memory
+        if (context.length > 5000) {
             context.shift();
         }
         

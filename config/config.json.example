@@ -1,4 +1,5 @@
 {
+  "_comment": "此文件仅作为示例展示字段，请勿直接修改此文件。程序运行时会自动生成并使用 config/config.json",
   "aiContextLimit": 10,
   "blacklistedQQs": [],
   "enabledGroups": [],
@@ -16,5 +17,6 @@
     "live": true,
     "dynamic": true,
     "user": true
-  }
+  },
+  "showId": true
 }

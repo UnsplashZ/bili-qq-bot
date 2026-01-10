@@ -129,14 +129,65 @@ class VectorMemoryService {
                 timestamp: Date.now()
             });
 
-            // Keep max 500 vectors per group to prevent massive files (approx 3-5MB)
-            if (memory.length > 500) {
+            // Keep max vectors based on file size limit (default 200MB)
+            // We check size during saveGroupMemory, but here we can prevent in-memory bloat
+            if (memory.length > 10000) {
                 memory.shift();
             }
 
             this.saveGroupMemory(groupId);
         } catch (e) {
             logger.error('[VectorMemory] Error adding memory:', e);
+        }
+    }
+
+    // Check file size and trim if necessary
+    checkSizeAndTrim(memory, maxSize) {
+        // Optimization: Only check if memory is large (e.g. > 100 items)
+        if (memory.length < 100) return;
+
+        let jsonString = JSON.stringify(memory);
+        let currentSize = Buffer.byteLength(jsonString, 'utf8');
+
+        if (currentSize <= maxSize) return;
+
+        logger.info(`[VectorMemory] Memory size ${currentSize} exceeds limit ${maxSize}. Trimming...`);
+
+        // Trim until under limit
+        while (currentSize > maxSize && memory.length > 0) {
+            // Remove chunks of messages to be faster
+            // Since vectors are large, maybe remove fewer items at a time or calculate better
+            const removeCount = Math.max(1, Math.floor(memory.length * 0.1)); // Remove 10%
+            memory.splice(0, removeCount);
+            
+            jsonString = JSON.stringify(memory);
+            currentSize = Buffer.byteLength(jsonString, 'utf8');
+        }
+        
+        logger.info(`[VectorMemory] Memory trimmed to ${currentSize} bytes.`);
+    }
+
+    saveGroupMemory(groupId) {
+        if (!this.memories.has(groupId)) return;
+        
+        try {
+            if (!fs.existsSync(this.dataDir)) {
+                fs.mkdirSync(this.dataDir, { recursive: true });
+            }
+            
+            const memory = this.memories.get(groupId);
+            
+            // Check size and trim before saving
+            // Hardcoded limit: 200MB
+            const maxSize = 209715200;
+            this.checkSizeAndTrim(memory, maxSize);
+
+            const filePath = path.join(this.dataDir, `${groupId}.json`);
+            fs.writeFile(filePath, JSON.stringify(memory, null, 2), 'utf8', (err) => {
+                if (err) logger.error(`[VectorMemory] Failed to save memory for group ${groupId}:`, err);
+            });
+        } catch (e) {
+            logger.error(`[VectorMemory] Failed to save memory for group ${groupId}:`, e);
         }
     }
 
