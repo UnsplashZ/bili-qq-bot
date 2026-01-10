@@ -17,13 +17,12 @@ RUN set -eux; \
       > /etc/apt/sources.list
 
 # 1. 安装系统依赖
-# - python3, python3-pip, python3-venv: 用于运行 B 站脚本
+# - python3, python3-pip: 用于运行 B 站脚本
 # - fonts-noto-cjk, fonts-noto-color-emoji: 用于 Puppeteer 截图中文和 Emoji (关键！)
 # - chromium: 系统浏览器
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     fonts-symbola \
@@ -38,15 +37,10 @@ RUN apt-get update && apt-get install -y \
 COPY fonts/ /usr/share/fonts/truetype/
 RUN fc-cache -fv
 
-# 4. 设置 Python 虚拟环境 (为了匹配源码中的 venv/bin/python 路径)
-# 创建虚拟环境
-RUN python3 -m venv /app/venv
-
-# 复制 Python 依赖文件
+# 4. 安装 Python 依赖 (全局安装)
 COPY requirements.txt .
-
-# 在虚拟环境中安装依赖
-RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# Debian Bookworm 默认禁止全局 pip，需添加 --break-system-packages
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 6. 设置 Node.js 环境
 # 复制 package.json 和 lock 文件
@@ -63,7 +57,7 @@ RUN npm config set registry https://registry.npmmirror.com && npm ci
 COPY . .
 
 # 创建必要的目录
-RUN mkdir -p logs temp && mkdir -p /root/napcat-data/QQ/NapCat/temp
+RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
 # EXPOSE 3000

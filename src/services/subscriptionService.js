@@ -781,8 +781,8 @@ class SubscriptionService {
     saveImageAsFile(base64Data) {
         try {
             // 使用共享目录，确保npm运行的bot和docker运行的napcat都能访问
-            const hostTempDir = '/root/napcat-data/QQ/NapCat/temp/'; // 宿主机上的目录
-            const containerTempDir = '/app/.config/QQ/NapCat/temp/'; // 容器内的目录（映射到宿主机）
+            const hostTempDir = config.napcatTempPath; // Bot 写入的路径 (容器内或宿主机)
+            const containerTempDir = config.napcatReadPath; // NapCat 读取的路径 (NapCat 容器内)
 
             // 确保目录存在
             if (!fs.existsSync(hostTempDir)) {

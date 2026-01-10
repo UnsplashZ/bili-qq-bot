@@ -30,30 +30,86 @@
     *   **Opus 图文** (opus) - **支持富文本解析**，智能识别专栏类型，完美还原图文混排内容
     *   **直播间** (live.bilibili.com)
     *   **小程序/短链** (b23.tv) - 自动还原到目标链接（支持 PC 与移动端域名）
-*   🖼️ **高颜值预览**：
-    *   使用 Puppeteer 生成精美的长截图卡片（推荐搭配 MiSans 字体）。
-    *   **UI 全新升级**：引入**统一设计系统 (Design System)**，全面优化**深色模式**阅读体验，移除冗余视觉元素。采用 **毛玻璃 (Glassmorphism)** 视觉风格，统一 **20px 圆角**设计与**半透明高斯模糊**效果，视觉更通透、现代。
+*   ⚡ **性能优化**：
+    *   **智能缓存**：自动缓存解析数据到本地 (`data/cache`)，再次解析相同链接时极速响应，减少 API 请求频率。
+    *   **LRU 清理机制**：缓存目录自动维护，默认限制 1GB 上限，自动清理久未访问的数据。
+*   🎨 **高颜值预览**：
+    *   使用 Puppeteer 生成精美的长截图卡片（默认搭配 MiSans 字体）。
+    *   **UI 全新升级**：引入**统一设计系统**，支持**定时深色模式**。采用 **毛玻璃** 视觉风格，统一圆角设计与半透明高斯模糊效果，视觉更通透、现代。
     *   **智能配色**：自动提取装饰卡片重点色，动态调整氛围背景与粉丝编号颜色。
-    *   支持 **SVG 矢量图标**，无乱码，视觉统一。
-    *   智能布局：自适应单图/多图，自动提取封面颜色背景，类型标签悬浮显示。
+    *   使用 **SVG 矢量图标** & **Emoji**，无乱码，视觉统一。
+    *   智能布局：自适应单图/多图，自动提取封面颜色背景，类型标签悬浮显示，支持自定义开关。
 *   🤖 **智能 AI 对话**：
+    *   **群组记忆 (RAG)**：内置向量记忆系统，支持跨越时间的长期记忆。
+    *   **上下文感知**：智能维护对话上下文，支持流畅的多轮对话。
+    *   **时间感知**：AI 具备精确的时间观念，能理解消息的时间跨度（如“刚才”、“5分钟前”）。
+    *   **角色扮演**：支持自定义 System Prompt，可打造专属人设。
+    *   **安全增强**：内置 Prompt Injection 防御机制，有效防止越狱。
     *   支持自定义回复概率 (随机插话) 与 `@机器人` 触发。
-    *   支持自定义系统提示词 (System Prompt) 设定人设，支持**管理员重置对话记忆**。
-    *   🛡️ **安全增强**：内置多层 Prompt Injection 防御机制，采用 `<user_input>` 标签隔离用户输入，并配合系统提示词安全规范，有效防止角色扮演越狱与指令注入。
-*   📡 **订阅推送**：内置订阅系统，支持**群订阅与账户关注列表合并展示**，支持**分组同步过滤**，可实时追踪 UP 主动态与直播、番剧更新。
-*   🐳 **Docker 化部署**：一键打包部署，默认内置 **MiSans (小米)** 、**Noto CJK (思源)** 与 **Emoji** 字体
+*   📡 **订阅推送**：内置订阅系统，支持**分群订阅**与**分群同步关注分组**，可实时追踪 UP 主动态与直播、番剧更新。
+*   🐳 **Docker 化部署**：一键打包部署，默认内置 **MiSans** 、**思源** 与 **Emoji** 字体
 
 ## 预览效果
 
-<div align="center">
-    <img src="docs/images/help.jpg" alt="帮助菜单" height="300" />
-    <img src="docs/images/live.jpg" alt="直播间" height="300" />
-    <img src="docs/images/dynamic.jpg" alt="动态卡片" height="300" />
-    <img src="docs/images/user_info.jpg" alt="用户主页" height="300" />
-    <img src="docs/images/video.jpg" alt="视频预览" height="300" />
-    <img src="docs/images/bangumi.jpg" alt="番剧信息" height="300" />
-    <img src="docs/images/movie.jpg" alt="电影信息" height="300" />
-</div>
+### ☀️ 浅色模式
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/images/帮助菜单-浅色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
+    <td align="center"><img src="docs/images/管理菜单-浅色模式.webp" height="400" /><br /><b>管理菜单</b></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>展开查看更多功能预览（视频、动态、用户主页...）</b></summary>
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/images/用户卡片-浅色模式.png" height="300" /><br /><b>用户主页</b></td>
+    <td align="center"><img src="docs/images/直播-浅色模式.png" height="300" /><br /><b>直播间</b></td>
+    <td align="center"><img src="docs/images/视频动态-浅色模式.png" height="300" /><br /><b>视频动态</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/动态-浅色模式.png" height="300" /><br /><b>动态卡片</b></td>
+    <td align="center"><img src="docs/images/视频-浅色模式.png" height="300" /><br /><b>视频解析</b></td>
+    <td align="center"><img src="docs/images/番剧-浅色模式.png" height="300" /><br /><b>番剧信息</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/转发动态-浅色模式.png" height="300" /><br /><b>转发动态</b></td>
+    <td align="center"><img src="docs/images/电影-浅色模式.png" height="300" /><br /><b>电影信息</b></td>
+    <td align="center"><img src="docs/images/Opus专栏-浅色模式.png" height="300" /><br /><b>Opus专栏</b></td>
+  </tr>
+</table>
+</details>
+
+### 🌙 深色模式
+#### *预览图关闭了左上角标签功能*
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/images/帮助菜单-深色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
+    <td align="center"><img src="docs/images/管理菜单-深色模式.webp" height="400" /><br /><b>管理菜单</b></td>
+  </tr>
+</table>
+
+<details>
+<summary><b>展开查看更多功能预览（视频、动态、用户主页...）</b></summary>
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/images/用户卡片-深色模式.png" height="300" /><br /><b>用户主页</b></td>
+    <td align="center"><img src="docs/images/直播-深色模式.png" height="300" /><br /><b>直播间</b></td>
+    <td align="center"><img src="docs/images/视频动态-深色模式.png" height="300" /><br /><b>视频动态</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/动态-深色模式.png" height="300" /><br /><b>动态卡片</b></td>
+    <td align="center"><img src="docs/images/视频-深色模式.png" height="300" /><br /><b>视频解析</b></td>
+    <td align="center"><img src="docs/images/番剧-深色模式.png" height="300" /><br /><b>番剧信息</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/转发动态-深色模式.png" height="300" /><br /><b>转发动态</b></td>
+    <td align="center"><img src="docs/images/电影-深色模式.png" height="300" /><br /><b>电影信息</b></td>
+    <td align="center"><img src="docs/images/Opus专栏-深色模式.png" height="300" /><br /><b>Opus专栏</b></td>
+  </tr>
+</table>
+</details>
 
 ## 配置说明
 
@@ -64,17 +120,23 @@
 
 | 变量名 | 说明 | 示例 / 默认值 |
 | :--- | :--- | :--- |
-| `WS_URL` | NapCat 的 WebSocket 地址 | `ws://localhost:3001` |
+| `WS_URL` | NapCat 的 WebSocket 地址 | `ws://napcat:3001` (Docker) / `ws://localhost:3001` (本地) |
+| `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
+| `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
 | `AI_API_URL` | AI 接口地址 (OpenAI 兼容) | `https://api.openai.com/v1/chat/completions` |
 | `AI_API_KEY` | AI 接口密钥 | `sk-xxxxxxxx` |
 | `AI_MODEL` | 使用的模型名称 | `gpt-3.5-turbo` |
 | `AI_PROBABILITY` | AI 随机插话概率 (0-1) | `0.1` |
 | `AI_SYSTEM_PROMPT` | AI 人设提示词 | `你是一个可爱的猫娘...` |
-| `PYTHON_PATH` | Python 解释器路径 (本地开发用) | `venv/bin/python` |
+| `AI_EMBEDDING_API_URL` | 向量嵌入接口地址 (用于记忆) | `https://api.openai.com/v1/embeddings` |
+| `AI_EMBEDDING_API_KEY` | 向量嵌入密钥 (留空则同上) | `sk-xxxxxxxx` |
+| `AI_CHAT_PROXY` | AI 聊天接口代理地址 (可选) | `http://127.0.0.1:7890` |
+| `AI_EMBEDDING_PROXY` | AI 嵌入接口代理地址 (可选) | `http://127.0.0.1:7890` |
+| `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 
-> **注意**：最新版本的 `.env.example` 中包含增强的 `AI_SYSTEM_PROMPT` 安全配置，建议使用新版模板以获得更好的防注入效果。
+
 
 ### 2. 动态配置 (config.json)
 复制 `config/config.json.example` 为 `config/config.json`。这些配置支持热更新（通过 `/设置` 指令修改）：
@@ -85,162 +147,105 @@
 | `enabledGroups` | 允许响应的群组 (空为全部) | `[]` |
 | `linkCacheTimeout` | 链接解析缓存时间 (秒) | `600` |
 | `subscriptionCheckInterval` | 订阅轮询间隔 (秒) | `60` |
-| `aiContextLimit` | AI 上下文保留条数 | `10` |
+| `aiContextLimit` | AI 上下文保留条数 (发送给 API 的消息数) | `10` |
 | `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
 | `labelConfig` | 标签显示配置 | `{"video": true, ...}` |
+| `showId` | 是否在卡片中显示 UID | `true` |
 
 ## 快速部署 (Docker)
 
-这是最简单、最稳定的部署方式，推荐直接使用线上镜像。
+### 1. 一键部署 (Linux 推荐)
 
-### 1. 前置准备
-- 部署并运行 [NapCatQQ](https://github.com/NapNeko/NapCatQQ)，并开启 **正向 WebSocket 服务** (默认端口 3001)
-- 准备本项目的配置目录 `config/`，填写 `.env` 与 `config.json`（参考下文配置说明）
+如果您是 Linux 用户，这是最简单的部署方式。脚本将自动检测环境、安装 Docker、配置 NapCat 并启动所有服务。
 
-### 2. 获取项目
 ```bash
-git clone https://github.com/UnsplashZ/bili-qq-bot.git
-cd bili-qq-bot
+wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/setup.sh && chmod +x setup.sh && sudo ./setup.sh
 ```
 
-### 3. 使用线上镜像部署
-默认的 `docker-compose.yml` 已配置为线上镜像：
-```yaml
-services:
-  bili-bot:
-    image: unsplash/bili-qq-bot:lastest
-    container_name: bili-qq-bot
-    restart: always
-    network_mode: "host"
-    volumes:
-      - ./config:/app/config
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./fonts/custom:/app/fonts/custom
-      - /root/napcat-data/QQ:/root/napcat-data/QQ
-    environment:
-      - TZ=Asia/Shanghai
-```
-启动：
-```bash
-docker-compose up -d
-docker-compose logs -f
-```
-> 注意：如果 NapCat 也在 Docker 中运行，`WS_URL` 请填写宿主机 IP 或使用 Docker 网络别名。本项目默认使用 `network_mode: "host"`，因此可以直接使用 `localhost:3001` (Linux 环境)。
+**部署流程：**
+1.  **环境检查**：自动安装 wget, curl, docker 等必要依赖。
+2.  **配置引导**：脚本会引导您输入 Bot QQ 号，自动生成 NapCat 配置。
+3.  **服务启动**：自动拉取镜像并启动容器。
+4.  **扫码登录**：直接在终端显示 NapCat 日志和二维码，扫码即可完成登录。
 
-### 4. 目录映射 (关键)
-为了确保机器人生成的图片能被 NapCat 发送，NapCat 需要能访问图片的临时目录，或通过 Base64 发送：
-- 默认：使用 `docker-compose.yml` 中的 `volumes` 映射确保数据与临时目录可访问
-- 可选：在 `.env` 中设置 `USE_BASE64_SEND=true`，直接发送 Base64 数据，无需目录映射
+如需开启 AI 功能或修改高级配置，请在部署完成后编辑 `config/.env` 文件（参考 [配置说明](#配置说明)），然后重启容器。
 
-### 5. 使用本地打包镜像（可选）
-如需本地构建镜像，编辑 `docker-compose.yml`：
-1) 注释掉 `image: unsplash/bili-qq-bot`
-2) 取消注释 `build: .`
-3) 执行：
-```bash
-docker-compose up -d --build
-```
-其余配置与日志查看与线上镜像相同。
+### 2. 本地 Docker 部署 (Git Clone)
 
-## npm 运行方法
+如果您希望手动管理项目文件：
 
-本项目也支持直接通过 npm 运行。
+1.  **下载项目**
+    ```bash
+    git clone https://github.com/UnsplashZ/bili-qq-bot.git
+    cd bili-qq-bot
+    ```
 
-### 环境要求
-- Node.js (v18+)
-- Python (v3.8+) 并安装 `bilibili-api-python`（供 `bili_service.py` 调用）
-- Chrome/Chromium（Puppeteer 依赖）
+2.  **配置环境**
+    复制配置文件模板并进行修改：
+    ```bash
+    cp config/.env.example config/.env
+    # 编辑 .env 文件，填入必要信息
+    nano config/.env
+    ```
 
-### 安装与运行
-```bash
-# 安装 Node 依赖
-npm install
+3.  **启动服务**
+    ```bash
+    docker-compose up -d
+    ```
 
-# 配置变量，填入 NapCat 地址和 AI Key 等
-cp config/.env.example config/.env
-nano config/.env
+4.  **查看日志与登录**
+    ```bash
+    docker logs -f napcat
+    ```
 
-# 运行
-npm start
-```
-> 提示：如果使用 Python 虚拟环境，请在 `.env` 中设置 `PYTHON_PATH` 指向你的虚拟环境解释器（例如 `venv/bin/python`）。
+**高级选项：**
+*   **自行构建镜像**：修改 `docker-compose.yml`，注释掉 `image: ...`，取消注释 `build: .`，使用 `docker-compose up -d --build` 构建并启动。
+*   **已有 NapCat**：如果您已有 NapCat 服务，可自行修改 `docker-compose.yml` ，并更新 `config/.env` 中的 `WS_URL` (如 `ws://localhost:3001`) 和 `NAPCAT_TEMP_PATH` 路径映射。
 
-## 指令列表
+### 3. 本地 NPM 运行
 
-所有指令均支持在群聊中直接发送。
+适用于开发调试或非 Docker 环境。
 
-### 1. 用户指令 (所有人可用)
-| 指令 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| **B站链接/小程序** | 直接发送链接，Bot 自动回复预览卡片 | `https://www.bilibili.com/video/BV1xx...` |
-| `@Bot <内容>` | 与 AI 进行对话 | `@Bot 你好呀` |
-| `/菜单` | 查看帮助菜单 | `/菜单` |
-| `/订阅列表` | 查看本群订阅列表及账户关注 | `/订阅列表` |
-
-### 2. 管理指令 (需群管权限)
-| 指令 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| `/查询订阅 <uid\|用户名>` | 立即检查某用户动态 | `/查询订阅 123456` |
-| `/订阅用户 <uid>` | 订阅用户（动态+直播） | `/订阅用户 123456` |
-| `/取消订阅用户 <uid\|用户名>` | 取消用户订阅 | `/取消订阅用户 123456` |
-| `/订阅番剧 <season_id>` | 订阅番剧新剧集更新 (支持直接粘贴链接) | `/订阅番剧 https://b23.tv/...` |
-| `/取消订阅番剧 <season_id>` | 取消番剧订阅 | `/取消订阅番剧 3068` |
-| `/设置 帮助` | 查看详细管理面板 | `/设置 帮助` |
-| `/设置 功能 <开\|关>` | 开启/关闭指定群的Bot权限 | `/设置 功能 关` |
-| `/设置 关注同步 <开\|关> [分组]` | 同步 Bot 账户关注至本群订阅 (可指定分组) | `/设置 关注同步 开 游戏区` |
-| `/设置 黑名单 <add\|remove\|list> [qq]` | 管理本群/全局黑名单 (Root操作全局) | `/设置 黑名单 add 123456` |
-| `/设置 标签 <分类> <开\|关>` | 开启/关闭指定分类的标签显示 | `/设置 标签 动态 开` |
-| `/设置 显示UID <开\|关>` | 开启/关闭卡片中的 UID 显示 | `/设置 显示UID 关` |
-| `/设置 深色模式 <开\|关\|定时> [时间]` | 配置深色模式 (定时格式: HH:mm-HH:mm) | `/设置 深色模式 定时 21:30-07:30` |
-| `/设置 缓存 <秒数>` | 设置链接解析缓存时间 | `/设置 缓存 600` |
-
-### 3. 系统指令 (仅 Root 管理员)
-| 指令 | 说明 | 示例 |
-| :--- | :--- | :--- |
-| `/管理 新对话 [群号]` | 重置指定群 (默认本群) 的 AI 上下文记忆 | `/管理 新对话` |
-| `/设置 AI上下文 <条数>` | 设置本群或全局 AI 上下文保留条数 | `/设置 AI上下文 10` |
-| `/设置 AI概率 <0-1>` | 设置本群或全局 AI 随机回复概率 | `/设置 AI概率 0.05` |
-| `/管理 <群列表\|清理> [群号]` | 查看群组状态或清理数据 | `/管理 群列表` |
-| `/设置 登录` | 获取 B 站登录二维码 | `/设置 登录` |
-| `/设置 验证 <key>` | 扫码后验证登录状态 | `/设置 验证 8a7c...` |
-| `/设置 轮询 <秒数>` | 设置订阅轮询间隔 | `/设置 轮询 60` |
-| `/设置 管理员 <添加\|移除> <qq>` | 设置本群管理员 (Root 权限下放) | `/设置 管理员 添加 123456` |
-
+1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Chrome/Chromium。
+2.  **安装依赖**：克隆项目到本地后运行以下命令安装依赖，如果要使用虚拟环境，请先激活环境，并更新 `.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
+    ```bash
+    npm install
+    pip install bilibili-api-python
+    ```
+3.  **配置**：同上，复制并编辑 `config/.env`。**注意**：本地运行时，请确保 `.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
+4.  **运行**：
+    ```bash
+    npm start
+    ```
 
 ## 项目结构
 
+*   `setup.sh`: 一键部署脚本
 *   `Dockerfile` / `docker-compose.yml`: Docker 部署配置
-*   `fonts/custom/` 与 `fonts/mi/`: **自定义字体目录** (支持热更新)
-*   `src/bot.js`: 程序入口，WebSocket 连接管理
-*   `src/config.js`: 项目配置文件
-*   `src/handlers/`: 消息处理逻辑
-    *   `messageHandler.js`: 核心路由，正则匹配链接
-    *   `aiHandler.js`: AI 对话逻辑
-*   `src/services/`: 业务服务
-    *   `biliApi.js`: B站API接口封装
-    *   `bili_service.py`: Python 中间件，调用 `bilibili-api-python`
-    *   `imageGenerator.js`: Puppeteer 绘图与 HTML 渲染
-    *   `subscriptionService.js`: 订阅监控服务
-*   `src/utils/`: 工具函数
-    *   `logger.js`: 日志记录工具
-
-## 最近更新 (Recent Updates)
-
-### 2026-01-10 UI 与设计系统重构
-*   **统一设计系统 (Design System)**：引入 `designSystem.js` 统一管理色彩、圆角与排版，确保全站视觉一致性。
-*   **深色模式优化**：大幅提升深色模式下的文本对比度与阅读舒适度，修复页脚与次级文本颜色过暗的问题。
-*   **界面精简**：移除帮助菜单与订阅列表中冗余的左上角类型标签，界面更加简洁清爽。
-*   **样式修复**：修正浅色模式下订阅列表的部分样式变量引用错误，确保卡片背景色正确显示。
-
-## 待办计划 (Roadmap)
-
-- [ ] **setup.sh 一键安装脚本**：编辑配置、安装环境、打包镜像、生成 compose、启动并输出日志
-- [ ] **图片生成程序解构**：将图片生成逻辑拆分为独立模块，方便维护与扩展
+*   `config/`:
+    *   `.env`: **核心配置文件** (API Key, WS 地址等)
+    *   `config.json`: 运行时动态配置 (黑名单, 自动保存)
+*   `napcat/`: NapCat 配置文件与数据目录 (自动生成)
+*   `logs/`: 运行日志目录
+*   `data/`: 数据持久化目录
+    *   `cache/`: API 数据缓存，加速解析并降低请求频率 (LRU 策略)
+    *   `contexts/`: AI 对话上下文历史 (每个群一个文件)
+    *   `vectors/`: AI 向量记忆库 (用于长期记忆检索，每个群一个文件)
+    *   `cookies.json`: Bilibili 登录凭证 (用于获取高清资源/会员内容)
+    *   `subscriptions.json`: 订阅配置信息 (UP主/番剧/关键词监控)
+    *   `subfollowers.json`: 订阅推送目标列表 (群组/用户映射关系)
+*   `fonts/`: 字体文件目录 (支持热更新)
+*   `src/`: 源代码
+    *   `bot.js`: 程序入口
+    *   `handlers/`: 消息与 AI 处理逻辑
+    *   `services/`: B站 API, 绘图服务, 订阅服务
+    *   `utils/`: 工具函数
 
 ## 致谢 (Acknowledgments)
 
-本项目在开发过程中得到了以下 AI 模型与工具的强力支持：
+本项目默认使用 **MiSans (小米)** 字体以获得最佳视觉体验。
+
+特别感谢以下 AI 模型与工具在开发过程中的强力支持：
 
 *   **Qwen**
 *   **Gemini**

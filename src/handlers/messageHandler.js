@@ -8,6 +8,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const cacheManager = require('../utils/cacheManager');
 
 class MessageHandler {
     constructor() {
@@ -126,6 +127,23 @@ class MessageHandler {
         }
     }
 
+    // Helper to get data with cache
+    async getDataWithCache(type, id, apiCall) {
+        const cacheKey = `${type}_${id}`;
+        let info = await cacheManager.get(cacheKey);
+        
+        if (info) {
+            logger.info(`[MessageHandler] Data cache hit for ${cacheKey}`);
+            return info;
+        }
+
+        info = await apiCall();
+        if (info && info.status === 'success') {
+            await cacheManager.set(cacheKey, info);
+        }
+        return info;
+    }
+
     // 处理单个链接
     async processSingleLink(link, ws, groupId) {
         const { type, id, cacheKey } = link;
@@ -136,7 +154,7 @@ class MessageHandler {
             switch (type) {
                 case 'video':
                     logger.info(`[MessageHandler] Processing Bilibili Video: ${id}`);
-                    info = await biliApi.getVideoInfo(id);
+                    info = await this.getDataWithCache('video', id, () => biliApi.getVideoInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'video', groupId);
@@ -155,7 +173,7 @@ class MessageHandler {
 
                 case 'bangumi':
                     logger.info(`[MessageHandler] Processing Bilibili Bangumi: ${id}`);
-                    info = await biliApi.getBangumiInfo(id);
+                    info = await this.getDataWithCache('bangumi', id, () => biliApi.getBangumiInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
@@ -174,7 +192,7 @@ class MessageHandler {
 
                 case 'dynamic':
                     logger.info(`[MessageHandler] Processing Bilibili Dynamic: ${id}`);
-                    info = await biliApi.getDynamicInfo(id);
+                    info = await this.getDataWithCache('dynamic', id, () => biliApi.getDynamicInfo(id));
                     if (info.status === 'success') {
                         try {
                             // Use returned type if available (e.g., 'article' for Opus redirects), fallback to 'dynamic'
@@ -194,7 +212,7 @@ class MessageHandler {
 
                 case 'article':
                     logger.info(`[MessageHandler] Processing Bilibili Article: ${id}`);
-                    info = await biliApi.getArticleInfo(id);
+                    info = await this.getDataWithCache('article', id, () => biliApi.getArticleInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
@@ -213,7 +231,7 @@ class MessageHandler {
 
                 case 'live':
                     logger.info(`[MessageHandler] Processing Bilibili Live: ${id}`);
-                    info = await biliApi.getLiveRoomInfo(id);
+                    info = await this.getDataWithCache('live', id, () => biliApi.getLiveRoomInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'live', groupId);
@@ -232,7 +250,7 @@ class MessageHandler {
 
                 case 'opus':
                     logger.info(`[MessageHandler] Processing Bilibili Opus: ${id}`);
-                    info = await biliApi.getOpusInfo(id);
+                    info = await this.getDataWithCache('opus', id, () => biliApi.getOpusInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
@@ -250,7 +268,7 @@ class MessageHandler {
 
                 case 'ep':
                     logger.info(`[MessageHandler] Processing Bilibili EP: ${id}`);
-                    info = await biliApi.getEpInfo(id);
+                    info = await this.getDataWithCache('ep', id, () => biliApi.getEpInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
@@ -269,7 +287,7 @@ class MessageHandler {
 
                 case 'media':
                     logger.info(`[MessageHandler] Processing Bilibili Media: ${id}`);
-                    info = await biliApi.getMediaInfo(id);
+                    info = await this.getDataWithCache('media', id, () => biliApi.getMediaInfo(id));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
@@ -288,7 +306,7 @@ class MessageHandler {
 
                 case 'user':
                     logger.info(`[MessageHandler] Processing Bilibili User: ${id}`);
-                    info = await biliApi.getUserInfo(id);
+                    info = await this.getDataWithCache('user', id, () => biliApi.getUserInfo(id));
                     if (info.status === 'success') {
                         try {
                             const showId = config.getGroupConfig(groupId, 'showId');
@@ -1408,8 +1426,8 @@ class MessageHandler {
     saveImageAsFile(base64Data) {
         try {
             // 使用共享目录，确保npm运行的bot和docker运行的napcat都能访问
-            const hostTempDir = '/root/napcat-data/QQ/NapCat/temp/'; // 宿主机上的目录
-            const containerTempDir = '/app/.config/QQ/NapCat/temp/'; // 容器内的目录（映射到宿主机）
+            const hostTempDir = config.napcatTempPath; // Bot 写入的路径 (容器内或宿主机)
+            const containerTempDir = config.napcatReadPath; // NapCat 读取的路径 (NapCat 容器内)
 
             // 确保目录存在
             if (!fs.existsSync(hostTempDir)) {

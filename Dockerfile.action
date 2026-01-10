@@ -37,6 +37,6 @@ RUN npm ci
 
 # 5. 复制代码
 COPY . .
-RUN mkdir -p logs temp && mkdir -p /root/napcat-data/QQ/NapCat/temp
+RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 CMD ["npm", "start"]

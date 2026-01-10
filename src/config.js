@@ -36,14 +36,24 @@ const config = {
     aiSystemPrompt: process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
     
     // System Paths & Admin
-    pythonPath: process.env.PYTHON_PATH || 'venv/bin/python',
+    pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? 'venv/bin/python' : 'python3'),
     biliScriptPath: './src/services/bili_service.py',
     adminQQ: process.env.ADMIN_QQ,
     useBase64Send: process.env.USE_BASE64_SEND === 'true',
+    // NapCat temporary file path (host path mapped to container)
+    napcatTempPath: process.env.NAPCAT_TEMP_PATH || '/app/.config/QQ/tmp/',
+    // Path sent to NapCat (where NapCat looks for the file inside ITS container)
+    napcatReadPath: process.env.NAPCAT_READ_PATH || '/app/.config/QQ/tmp/',
 
     // --- Dynamic Configuration (config.json) ---
-    // AI Context Limit
+    // AI Context Limit (Number of messages sent to API)
     aiContextLimit: configData.aiContextLimit || 10,
+
+    // AI History File Size Limit in Bytes (default 200MB)
+    aiHistoryMaxSize: configData.aiHistoryMaxSize || 200 * 1024 * 1024,
+
+    // AI Vector Memory File Size Limit in Bytes (default 200MB)
+    aiVectorMaxSize: configData.aiVectorMaxSize || 200 * 1024 * 1024,
 
     // Blacklist QQ numbers
     blacklistedQQs: configData.blacklistedQQs || [],

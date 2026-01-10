@@ -1,23 +1,42 @@
 version: '3.8'
 
 services:
-  bili-bot:
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: always
+    ports:
+      - "6099:6099" # NapCat WebUI
+      - "3001:3001" # WebSocket Server
+    environment:
+      - TZ=Asia/Shanghai
+      - WS_ENABLE=true
+      - HTTP_ENABLE=true
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./napcat/qq:/app/.config/QQ
+    networks:
+      - bot_network
+
+  bili-qq-bot:
     image: unsplash/bili-qq-bot:latest
-    # 若需使用本地打包镜像：
-    # 1) 注释掉上面的 image 字段
-    # 2) 取消注释下方 build 字段
-    # 3) 执行 `docker-compose up -d --build`
     # build: .
     container_name: bili-qq-bot
     restart: always
-    network_mode: "host" # 使用宿主机网络，解决连接 localhost:3001 的问题
-    # 挂载卷：持久化重要数据
-    volumes:
-      - ./config:/app/config              # 配置目录 (.env, config.json)
-      - ./data:/app/data                  # 数据目录 (cookies.json, subscriptions.json)
-      - ./logs:/app/logs                  # 查看日志
-      - ./fonts/custom:/app/fonts/custom  # 自定义字体目录
-      - /root/napcat-data/QQ:/root/napcat-data/QQ                  # QQ数据目录映射
-    # 环境变量 (也可以直接读取 .env 文件)
+    depends_on:
+      - napcat
     environment:
-      - TZ=Asia/Shanghai                  # 设置时区为上海
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./fonts/custom:/app/fonts/custom
+      # 映射此目录以将生成的图片写入 NapCat 可访问的位置
+      - ./napcat/qq:/app/.config/QQ
+    networks:
+      - bot_network
+
+networks:
+  bot_network:
+    driver: bridge

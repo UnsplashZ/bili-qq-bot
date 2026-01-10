@@ -327,8 +327,8 @@ class ImageGenerator {
 
         const badgeBg = isNight ? '#23272D' : `linear-gradient(135deg, ${badgeColor}, ${this.adjustBrightness(badgeColor, -10)})`;
         const badgeTextColor = isNight ? badgeColor : '#fff';
-        const badgeShadow = isNight ? 'none' : `0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`;
-        const badgeBorder = isNight ? `1px solid ${this.hexToRgba(badgeColor, 0.3)}` : 'none';
+        const badgeShadow = isNight ? '0 4px 12px rgba(0, 0, 0, 0.4)' : `0 8px 24px ${this.hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`;
+        const badgeBorder = isNight ? '1px solid rgba(255, 255, 255, 0.1)' : 'none';
 
         return {
             badgeColor,
@@ -475,13 +475,10 @@ class ImageGenerator {
                     top: 50%;
                     left: 120px;
                     transform: translateY(-50%);
-                    background: rgba(255, 255, 255, 0.2);
-                    padding: 4px 8px;
-                    border-radius: var(--radius-md);
                     font-weight: 700;
                     font-size: 20px;
-                    backdrop-filter: blur(4px);
                 }
+
 
                 .decorate-bg {
                     position: absolute;
@@ -539,7 +536,7 @@ class ImageGenerator {
                     margin-bottom: 18px;
                     white-space: pre-wrap;
                     word-wrap: break-word;
-                    text-align: justify;
+                    text-align: left;
                 }
                 .text-content img {
                     max-width: 100%;
@@ -575,7 +572,7 @@ class ImageGenerator {
                     margin-top: 24px;
                     margin-bottom: 24px;
                     word-wrap: break-word;
-                    text-align: justify;
+                    text-align: left;
                 }
                 .article-body img {
                     max-width: 100%;
@@ -1284,7 +1281,7 @@ class ImageGenerator {
 
         const authorName = module_author.name || 'Unknown';
         const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
-        const pubTime = this.formatPubTime(data.data.pub_ts) || module_author.pub_time || '';
+        const pubTime = this.formatPubTime(data.data.pub_ts) || this.formatPubTime(module_author.pub_ts) || module_author.pub_time || '';
 
         // Author decoration
         const decorationCard = module_author.decoration_card || {};
