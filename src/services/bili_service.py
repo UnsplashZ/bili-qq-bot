@@ -5,6 +5,7 @@ import re
 import aiohttp
 from bs4 import BeautifulSoup
 from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
+from bilibili_api.utils.network import Api
 import bilibili_api.login_v2 as login
 import io
 from PIL import Image
@@ -189,148 +190,16 @@ async def get_bangumi_info(season_id):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def _parse_opus_json_to_html(modules):
-    html_parts = []
-    for module in modules:
-        if module.get('module_type') == 'MODULE_TYPE_CONTENT':
-            paragraphs = module.get('module_content', {}).get('paragraphs', [])
-            for para in paragraphs:
-                para_type = para.get('para_type')
-                
-                # Text
-                if para_type == 1:
-                    nodes = para.get('text', {}).get('nodes', [])
-                    p_content = ""
-                    for node in nodes:
-                        if node.get('type') == 'TEXT_NODE_TYPE_WORD':
-                            word_info = node.get('word', {})
-                            text = word_info.get('words', '').replace('\n', '<br>')
-                            # Handle styles
-                            style = word_info.get('style', {})
-                            color = word_info.get('color')
-                            
-                            span_style = ""
-                            if style.get('bold'):
-                                span_style += "font-weight:bold;"
-                            if color:
-                                span_style += f"color:{color};"
-                            
-                            if span_style:
-                                p_content += f'<span style="{span_style}">{text}</span>'
-                            else:
-                                p_content += text
-                    if p_content:
-                        html_parts.append(f'<p>{p_content}</p>')
-                    else:
-                        html_parts.append('<br>')
-                
-                # Image
-                elif para_type == 2:
-                    pics = para.get('pic', {}).get('pics', [])
-                    for pic in pics:
-                        url = pic.get('url')
-                        if url:
-                            html_parts.append(f'<img src="{url}" style="max-width:100%;" />')
-                            
-                # Line
-                elif para_type == 3:
-                     html_parts.append('<hr />')
-                     
-                # Heading
-                elif para_type == 8:
-                    level = para.get('heading', {}).get('level', 1)
-                    nodes = para.get('heading', {}).get('nodes', [])
-                    h_content = ""
-                    for node in nodes:
-                        if node.get('type') == 'TEXT_NODE_TYPE_WORD':
-                            word_info = node.get('word', {})
-                            text = word_info.get('words', '')
-                            # Handle styles for heading too
-                            color = word_info.get('color')
-                            if color:
-                                h_content += f'<span style="color:{color}">{text}</span>'
-                            else:
-                                h_content += text
-                    html_parts.append(f'<h{level}>{h_content}</h{level}>')
-
-    return "".join(html_parts)
-
 async def get_opus_detail(opus_id):
     try:
         o = opus.Opus(int(opus_id), credential=load_credential())
-        info = await o.get_info()
-        
-        item = info.get('item', {})
-        basic = item.get('basic', {})
-        modules = item.get('modules', [])
-        
-        title = basic.get('title', '')
-        
-        html_content = _parse_opus_json_to_html(modules)
-        
-        # Extract author info from modules
-        author_face = ""
-        author_name = ""
-        pub_ts = 0
-        stats = {}
-        
-        for module in modules:
-            if module.get('module_type') == 'MODULE_TYPE_AUTHOR':
-                author_module = module.get('module_author', {})
-                author_face = author_module.get('face', '')
-                author_name = author_module.get('name', '')
-                pub_ts = author_module.get('pub_ts', 0)
-            elif module.get('module_type') == 'MODULE_TYPE_STAT':
-                stat_module = module.get('module_stat', {})
-                stats = {
-                    'view': 0, # Opus often doesn't show view count in stat module
-                    'like': stat_module.get('like', {}).get('count', 0),
-                    'reply': stat_module.get('comment', {}).get('count', 0),
-                    'share': stat_module.get('forward', {}).get('count', 0)
-                }
-
-        # Determine cover (check top module or first image)
-        cover = ""
-        # Check MODULE_TYPE_TOP
-        for module in modules:
-            if module.get('module_type') == 'MODULE_TYPE_TOP':
-                # Could be video or image
-                display = module.get('module_top', {}).get('display', {})
-                if display.get('video'):
-                    cover = display.get('video', {}).get('cover', '')
-                break
-        
-        if not cover:
-             # Try to find first image in content
-             for module in modules:
-                if module.get('module_type') == 'MODULE_TYPE_CONTENT':
-                    paragraphs = module.get('module_content', {}).get('paragraphs', [])
-                    for para in paragraphs:
-                        if para.get('para_type') == 2:
-                             pics = para.get('pic', {}).get('pics', [])
-                             if pics:
-                                 cover = pics[0].get('url', '')
-                                 break
-                    if cover:
-                        break
-
-        data = {
-            "title": title,
-            "html_content": html_content,
-            "summary": html_content, # Use full HTML content as summary for article mode
-            "publish_time": pub_ts,
-            "author_face": author_face,
-            "author_name": author_name,
-            "banner_url": cover,
-            "image_urls": [cover] if cover else [],
-            "stats": stats,
-             "focus": {
-                "cover": await get_image_focus_color(cover),
-                "avatar": await get_image_focus_color(author_face)
-            }
-        }
-        
-        return {"status": "success", "type": "article", "data": data}
+        if await o.is_article():
+            result = await get_article_info(opus_id)
+            if result.get('status') == 'success':
+                return result
+            # If article fetch fails (e.g. 404), fallback to dynamic detail
+            
+        return await get_dynamic_detail(opus_id)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -640,20 +509,20 @@ async def get_dynamic_detail(dynamic_id):
         if not info:
             return {"status": "error", "message": f"无法获取动态 {dynamic_id} 的信息，可能已被删除或设置为私密"}
 
-        # Check for Opus redirect in basic info
-        item = info.get('item', {})
-        basic = item.get('basic', {})
-        jump_url = basic.get('jump_url', '')
-        if '/opus/' in jump_url:
-            opus_match = re.search(r'/opus/(\d+)', jump_url)
-            if opus_match:
-                opus_id = opus_match.group(1)
-                return await get_opus_detail(opus_id)
-
+        # 检查modules是否为空
         modules = (info.get('item') or {}).get('modules') or info.get('modules') or {}
 
-        # 检查modules是否为空
         if not modules:
+            # Check for Opus redirect in basic info as fallback
+            item = info.get('item', {})
+            basic = item.get('basic', {})
+            jump_url = basic.get('jump_url', '')
+            if '/opus/' in jump_url:
+                opus_match = re.search(r'/opus/(\d+)', jump_url)
+                if opus_match:
+                    opus_id = opus_match.group(1)
+                    return await get_opus_detail(opus_id)
+
             return {"status": "error", "message": f"动态 {dynamic_id} 的数据结构异常，可能已被删除"}
 
         author_module = modules.get('module_author') or {}
@@ -874,6 +743,19 @@ async def get_media_info(media_id):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+async def get_user_card(uid):
+    try:
+        u = user.User(uid=int(uid), credential=load_credential())
+        user_info = await u.get_user_info()
+        data = {
+            "uid": user_info.get('mid', uid),
+            "name": user_info.get('name', ''),
+            "face": user_info.get('face', '')
+        }
+        return {"status": "success", "type": "user_card", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 async def get_user_info(uid):
     try:
         u = user.User(uid=int(uid), credential=load_credential())
@@ -942,7 +824,121 @@ async def get_user_info(uid):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+async def get_my_followings(group_name=None):
+    try:
+        cred = load_credential()
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+        
+        # Get self info to find my_uid
+        self_info = await user.get_self_info(credential=cred)
+        my_uid = self_info['mid']
+        u = user.User(uid=my_uid, credential=cred)
+        
+        all_followings = []
+        page = 1
+        page_size = 50
+        
+        if group_name:
+            # 1. 获取所有分组
+            try:
+                groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
+                groups = await groups_api.result
+            except Exception as e:
+                return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
+            
+            target_group = None
+            if groups:
+                for g in groups:
+                    if g.get('name') == group_name:
+                        target_group = g
+                        break
+            
+            if not target_group:
+                 return {"status": "error", "message": f"未找到名为 '{group_name}' 的分组"}
+            
+            tagid = target_group['tagid']
+            
+            # 2. 获取分组下的用户
+            while True:
+                try:
+                    group_users_api = Api("https://api.bilibili.com/x/relation/tag", method="GET", credential=cred)
+                    group_users_api.update_params(mid=my_uid, tagid=tagid, pn=page, ps=page_size)
+                    res = await group_users_api.result
+                except Exception as e:
+                    # 某些情况下 API 可能报错或返回非标准格式
+                    print(f"Error fetching group users: {e}")
+                    break
 
+                if not res:
+                    break
+                
+                # The structure of x/relation/tag result is a list of users directly
+                # It doesn't seem to have 'total' field in the root usually?
+                # Actually standard pagination usually needs total.
+                # But 'res' IS the list of users according to my test script output structure (Users in group: [])
+                # Wait, my test script printed: "Users in group: []"
+                # If there were users, it would be a list of dicts.
+                
+                if isinstance(res, list):
+                    current_list = res
+                    if not current_list:
+                        break
+                    all_followings.extend(current_list)
+                    
+                    # If we got fewer items than page_size, we are done
+                    if len(current_list) < page_size:
+                        break
+                else:
+                    break
+
+                page += 1
+                if page > 100:
+                    break
+                    
+        else:
+            # 原有逻辑：获取所有关注
+            while True:
+                # get_followings returns a dict with 'list', 'total', 're_version'
+                res = await u.get_followings(pn=page, ps=page_size)
+                if not res or 'list' not in res or not res['list']:
+                    break
+                    
+                followings_list = res['list']
+                all_followings.extend(followings_list)
+                
+                total = res.get('total', 0)
+                if len(all_followings) >= total:
+                    break
+                
+                page += 1
+                if page > 100: 
+                    break
+                
+        # Format the result
+        result = []
+        for f in all_followings:
+            # 统一字段处理
+            # x/relation/tag 返回的字段可能略有不同，但通常也有 mid, uname, face 等
+            uid = f.get('mid')
+            uname = f.get('uname') or f.get('name') # tag api might use name? let's assume uname/mid are standard
+            face = f.get('face')
+            sign = f.get('sign', '')
+            
+            if uid and uname:
+                result.append({
+                    'uid': uid,
+                    'name': uname,
+                    'face': face,
+                    'level': 0, 
+                    'sign': sign
+                })
+            
+        return {"status": "success", "type": "user_list", "data": result}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
 
 # Command dispatcher
 async def main():
@@ -1016,7 +1012,17 @@ async def main():
         result = await get_user_info(uid)
         print(json.dumps(result, ensure_ascii=False))
 
+    elif command == "user_card":
+        uid = sys.argv[2]
+        result = await get_user_card(uid)
+        print(json.dumps(result, ensure_ascii=False))
 
+    elif command == "my_followings":
+        group_name = None
+        if len(sys.argv) > 2:
+            group_name = sys.argv[2]
+        result = await get_my_followings(group_name)
+        print(json.dumps(result, ensure_ascii=False))
 
     else:
         print(json.dumps({"status": "error", "message": "Unknown command"}))

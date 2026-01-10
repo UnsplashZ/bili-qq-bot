@@ -24,6 +24,14 @@ const config = {
     aiApiUrl: process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions',
     aiApiKey: process.env.AI_API_KEY || '',
     aiModel: process.env.AI_MODEL || 'gpt-3.5-turbo',
+    // Auto-infer embedding URL from API URL if not provided
+    aiEmbeddingApiUrl: process.env.AI_EMBEDDING_API_URL || (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings'),
+    // Use dedicated embedding key if provided, otherwise fallback to main AI key
+    aiEmbeddingApiKey: process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '',
+    aiEmbeddingModel: process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
+    // Proxy Config
+    aiChatProxy: process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '',
+    aiEmbeddingProxy: process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '',
     aiProbability: parseFloat(process.env.AI_PROBABILITY || '0.1'),
     aiSystemPrompt: process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
     
@@ -78,6 +86,16 @@ const config = {
             return this.groupConfigs[groupId][key];
         }
         return this[key];
+    },
+
+    // Helper to set config value for a group
+    setGroupConfig: function(groupId, key, value) {
+        if (!groupId) return;
+        if (!this.groupConfigs[groupId]) {
+            this.groupConfigs[groupId] = {};
+        }
+        this.groupConfigs[groupId][key] = value;
+        this.save();
     },
 
     // Permission Checks
@@ -150,6 +168,7 @@ const config = {
     // Save configuration to file (Only dynamic fields)
     save: function() {
         const data = {
+            aiProbability: this.aiProbability,
             aiContextLimit: this.aiContextLimit,
             blacklistedQQs: this.blacklistedQQs,
             enabledGroups: this.enabledGroups,

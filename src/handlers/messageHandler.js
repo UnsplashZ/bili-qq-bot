@@ -36,6 +36,9 @@ class MessageHandler {
         // Link processing cache
         this.linkCache = new Map();
         // this.cacheTimeout is now dynamic per group
+
+        // Subscription list command cooldown
+        this.groupListCmdCd = new Map();
     }
 
     // 提取消息中的所有链接及其类型
@@ -194,7 +197,7 @@ class MessageHandler {
                     info = await biliApi.getArticleInfo(id);
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'article', groupId);
+                            base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/read/cv${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
                             this.addLinkToCache(cacheKey);
@@ -232,7 +235,7 @@ class MessageHandler {
                     info = await biliApi.getOpusInfo(id);
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'article', groupId);
+                            base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/opus/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
                             this.addLinkToCache(cacheKey);
@@ -418,6 +421,11 @@ class MessageHandler {
             }
         }
 
+        // Record message for AI context
+        if (rawMessage) {
+            aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId);
+        }
+
         // Check for JSON message (Mini Program) and extract URL (before cache check)
         const jsonMsg = message.find(m => m.type === 'json');
         if (jsonMsg) {
@@ -469,36 +477,67 @@ class MessageHandler {
 
         // Command: /订阅列表
         if (rawMessage.trim() === '/订阅列表' || rawMessage.trim() === '/listsub') {
-            const subs = subscriptionService.getSubscriptionsByGroup(groupId);
-            if (subs.length === 0) {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅。' } }]);
-            } else {
-                // Notify processing
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '正在获取订阅信息并生成图片，请稍候...' } }]);
+            const now = Date.now();
+            const lastTime = this.groupListCmdCd.get(groupId) || 0;
+            if (now - lastTime < 120 * 1000) {
+                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `指令冷却中，请等待 ${(120 - (now - lastTime) / 1000).toFixed(0)} 秒后再试。` } }]);
+                 return;
+            }
+            this.groupListCmdCd.set(groupId, now);
 
-                const userSubs = subs.filter(s => s.type === 'user');
-                const bangumiSubs = subs.filter(s => s.type === 'bangumi');
+            // Notify user about refresh
+            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '正在刷新关注列表并生成图片，请稍候...' } }]);
 
-                (async () => {
+            (async () => {
+                let userSubs = [];
+                let bangumiSubs = [];
+                try {
+                    // 1. Refresh Cookie Followings first
+                    await subscriptionService.refreshCookieFollowings();
+
+                    // 2. Fetch Subscriptions & Followings
+                    const subs = subscriptionService.getSubscriptionsByGroup(groupId);
+                    
+                    // Get Account Follows (merged view)
+                    let followings = [];
                     try {
-                        // Fetch user details
-                        const userDetailsPromises = userSubs.map(async (sub) => {
+                         followings = subscriptionService.cookieFollowings || [];
+                    } catch (e) {
+                         logger.error('Error fetching followings for merge view:', e);
+                    }
+
+                    if (subs.length === 0 && followings.length === 0) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅，且账户关注列表为空。' } }]);
+                        return;
+                    }
+
+                    userSubs = subs.filter(s => s.type === 'user');
+                    bangumiSubs = subs.filter(s => s.type === 'bangumi');
+
+                    // Fetch user details for Group Subs (with concurrency limit and lightweight API)
+                    const detailedUserSubs = [];
+                    const CONCURRENCY_LIMIT = 3; // Limit parallel requests to avoid rate limits
+                    
+                    for (let i = 0; i < userSubs.length; i += CONCURRENCY_LIMIT) {
+                         const chunk = userSubs.slice(i, i + CONCURRENCY_LIMIT);
+                         const chunkResults = await Promise.all(chunk.map(async (sub) => {
                             try {
-                                const info = await biliApi.getUserInfo(sub.uid);
+                                // Use lighter getUserCard instead of full getUserInfo
+                                const info = await biliApi.getUserCard(sub.uid);
                                 if (info && info.status === 'success' && info.data) {
+                                    logger.info(`[DebugAvatar] Fetched card for ${sub.uid}: face=${info.data.face}`);
                                     return {
                                         ...sub,
-                                        name: info.data.name || sub.name, // Update name if available
+                                        name: info.data.name || sub.name, 
                                         face: info.data.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
-                                        level: info.data.level || 0,
-                                        pendant: info.data.pendant || {},
-                                        fans_medal: info.data.fans_medal || {}
+                                        level: 0,
+                                        pendant: {},
+                                        fans_medal: {}
                                     };
                                 }
                             } catch (e) {
-                                logger.error(`Failed to fetch info for user ${sub.uid}`, e);
+                                logger.error(`Failed to fetch card for user ${sub.uid}`, e);
                             }
-                            // Fallback if fetch fails
                             return {
                                 ...sub,
                                 face: 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
@@ -506,41 +545,63 @@ class MessageHandler {
                                 pendant: {},
                                 fans_medal: {}
                             };
-                        });
-
-                        const detailedUserSubs = await Promise.all(userDetailsPromises);
-
-                        const data = {
-                            users: detailedUserSubs,
-                            bangumis: bangumiSubs
-                        };
-
-                        const showId = config.getGroupConfig(groupId, 'showId');
-                        const base64Image = await imageGenerator.generateSubscriptionList(data, groupId, showId);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
-
-                    } catch (e) {
-                        logger.error('Error generating subscription list image:', e);
-                        // Fallback to text
-                        let message = '生成图片失败，显示文本列表：\n';
-                        if (userSubs.length) {
-                            message += '\n【用户订阅】\n';
-                            userSubs.forEach((sub, index) => {
-                                message += `${index + 1}. ${sub.name} (UID: ${sub.uid})\n`;
-                            });
-                        }
-                        if (bangumiSubs.length) {
-                            message += '\n【番剧订阅】\n';
-                            bangumiSubs.forEach((sub, index) => {
-                                message += `${index + 1}. ${sub.title} (SID: ${sub.seasonId})\n`;
-                            });
-                        }
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
+                        }));
+                        detailedUserSubs.push(...chunkResults);
                     }
-                })();
-            }
+
+                    const data = {
+                        users: detailedUserSubs,
+                        bangumis: bangumiSubs,
+                        accountFollows: followings // Pass account follows
+                    };
+
+                    const showId = config.getGroupConfig(groupId, 'showId');
+                    
+                    const enableSync = config.getGroupConfig(groupId, 'enableCookieSync');
+                    const syncGroup = config.getGroupConfig(groupId, 'cookieSyncGroupName');
+                    
+                    if (!enableSync) {
+                        data.accountFollows = [];
+                        data.accountFollowsTitle = '';
+                    } else if (syncGroup) {
+                        data.accountFollows = data.accountFollows.filter(u => u.biliGroups && u.biliGroups.includes(syncGroup));
+                        data.accountFollowsTitle = `关注列表 - ${syncGroup}`;
+                    } else {
+                        data.accountFollowsTitle = '账户关注列表';
+                    }
+
+                    if (data.users.length === 0 && data.bangumis.length === 0 && (!data.accountFollows || data.accountFollows.length === 0)) {
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅' + (enableSync ? '，且符合条件的账户关注为空' : '') + '。' } }]);
+                         return;
+                    }
+
+                    const base64Image = await imageGenerator.generateSubscriptionList(data, groupId, showId);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
+
+                } catch (e) {
+                    logger.error('Error generating subscription list image:', e);
+                    // Fallback to text
+                    let message = '生成图片失败，显示文本列表：\n';
+                    if (userSubs.length) {
+                        message += '\n【本群用户订阅】\n';
+                        userSubs.forEach((sub, index) => {
+                            message += `${index + 1}. ${sub.name} (UID: ${sub.uid})\n`;
+                        });
+                    }
+                    if (bangumiSubs.length) {
+                        message += '\n【本群番剧订阅】\n';
+                        bangumiSubs.forEach((sub, index) => {
+                            message += `${index + 1}. ${sub.title} (SID: ${sub.seasonId})\n`;
+                        });
+                    }
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
+                }
+            })();
             return;
         }
+
+        // Command: /账户关注列表 (Deprecated/Merged)
+        // if (rawMessage.trim() === '/账户关注列表' || rawMessage.trim() === '/listfollow') { ... }
 
         // Command: /取消订阅 <uid> <type>
         if (rawMessage.startsWith('/取消订阅用户 ')) {
@@ -548,13 +609,36 @@ class MessageHandler {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
                 return;
             }
-            const parts = rawMessage.split(' ');
-            if (parts.length === 2) {
-                const uid = parts[1];
-                const result = subscriptionService.removeUserSubscription(uid, groupId);
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: result ? `已取消订阅用户 ${uid}。` : `未找到用户 ${uid} 的订阅。` } }]);
+            const parts = rawMessage.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const input = parts[1];
+                let uidToRemove = input;
+
+                // Check if input is a number (UID)
+                if (!/^\d+$/.test(input)) {
+                    // Try to resolve name to UID from current group subscriptions
+                    const subs = subscriptionService.getSubscriptionsByGroup(groupId);
+                    // Try exact match first
+                    let userSub = subs.find(s => s.type === 'user' && s.name === input);
+                    
+                    if (!userSub) {
+                        // If exact match fails, try partial match if it's unique? 
+                        // For safety, let's stick to exact match or tell user if not found.
+                        // Actually, let's just use exact match for now to avoid accidental deletions.
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未在本群找到用户名为 "${input}" 的订阅。请尝试使用 UID 或检查用户名是否完全正确。` } }]);
+                        return;
+                    }
+                    uidToRemove = userSub.uid;
+                }
+
+                const result = subscriptionService.removeUserSubscription(uidToRemove, groupId);
+                if (result) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已取消订阅用户 ${uidToRemove}。` } }]);
+                } else {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未找到用户 ${uidToRemove} 的订阅。` } }]);
+                }
             } else {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /取消订阅用户 <uid>' } }]);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /取消订阅用户 <uid|用户名>' } }]);
             }
             return;
         }
@@ -651,21 +735,43 @@ class MessageHandler {
             return;
         }
 
+        // Command: /账户关注列表 (Deprecated, merged into /订阅列表)
+        // if (rawMessage.trim() === '/账户关注列表') {
+        //    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '此指令已合并至 /订阅列表，请直接使用 /订阅列表 查看。' } }]);
+        //    return;
+        // }
+
         // Command: /查询订阅 <uid>
         if (rawMessage.startsWith('/查询订阅 ') || rawMessage.startsWith('/checksub ')) {
             if (!config.isGroupAdmin(groupId, userId)) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
                 return;
             }
-            const parts = rawMessage.split(' ');
-            if (parts.length === 2) {
-                const uid = parts[1];
-                const result = await subscriptionService.checkSubscriptionNow(uid, groupId);
+            const parts = rawMessage.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const input = parts[1];
+                let uidToCheck = input;
+
+                // Check if input is a number (UID)
+                if (!/^\d+$/.test(input)) {
+                    // Try to resolve name to UID from current group subscriptions
+                    const subs = subscriptionService.getSubscriptionsByGroup(groupId);
+                    // Try exact match first
+                    let userSub = subs.find(s => s.type === 'user' && s.name === input);
+                    
+                    if (!userSub) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未在本群找到用户名为 "${input}" 的订阅。请尝试使用 UID 或检查用户名是否完全正确。` } }]);
+                        return;
+                    }
+                    uidToCheck = userSub.uid;
+                }
+
+                const result = await subscriptionService.checkSubscriptionNow(uidToCheck, groupId);
                 if (!result) {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未找到用户 ${uid} 的动态订阅，或获取失败。` } }]);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未找到用户 ${uidToCheck} 的动态订阅，或获取失败。` } }]);
                 }
             } else {
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /查询订阅 <uid>' } }]);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /查询订阅 <uid|用户名>' } }]);
             }
             return;
         }
@@ -891,12 +997,22 @@ class MessageHandler {
                         }
                     }
                 } else if (action === 'list') {
-                    if (isRoot) {
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局黑名单列表: ${config.blacklistedQQs.join(', ') || '无'}` } }]);
-                    } else {
-                         const list = (config.groupConfigs[groupId] && config.groupConfigs[groupId].blacklistedQQs) ? config.groupConfigs[groupId].blacklistedQQs.join(', ') : '无';
-                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群黑名单列表: ${list}` } }]);
+                    let msg = '【黑名单列表】\n';
+                    
+                    // Group Blacklist
+                    if (groupId) {
+                        const groupConfig = config.groupConfigs[groupId];
+                        const groupBlacklist = (groupConfig && groupConfig.blacklistedQQs) ? groupConfig.blacklistedQQs : [];
+                        msg += `\n[本群黑名单]\n${groupBlacklist.length > 0 ? groupBlacklist.join('\n') : '(空)'}\n`;
                     }
+
+                    // Global Blacklist (Root only)
+                    if (isRoot) {
+                        const globalBlacklist = config.blacklistedQQs || [];
+                        msg += `\n[全局黑名单]\n${globalBlacklist.length > 0 ? globalBlacklist.join('\n') : '(空)'}\n`;
+                    }
+
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: msg } }]);
                 } else {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 黑名单 <add|remove|list> [qq]' } }]);
                 }
@@ -944,7 +1060,34 @@ class MessageHandler {
                 return;
             }
 
-            // 8. 标签 (/设置 标签 <类型> <开|关>)
+            // 8. 关注同步 (/设置 关注同步 <开|关> [B站分组名])
+            if (subCommand === '关注同步') {
+                const action = parts[2];
+                const groupName = parts[3]; // Optional group name
+
+                if (action === '开') {
+                    config.setGroupConfig(groupId, 'enableCookieSync', true);
+                    if (groupName) {
+                        config.setGroupConfig(groupId, 'cookieSyncGroupName', groupName);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已开启本群的关注列表同步功能，并绑定到B站分组：${groupName}。` } }]);
+                    } else {
+                        // If no group name provided, default to syncing all (clear specific group config)
+                        config.setGroupConfig(groupId, 'cookieSyncGroupName', null);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已开启本群的关注列表同步功能。账户关注的所有用户将自动被视为本群订阅。' } }]);
+                    }
+                    // Trigger refresh to ensure data is available
+                    subscriptionService.refreshCookieFollowings();
+                } else if (action === '关') {
+                    config.setGroupConfig(groupId, 'enableCookieSync', false);
+                    config.setGroupConfig(groupId, 'cookieSyncGroupName', null);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已关闭本群的关注列表同步功能。' } }]);
+                } else {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 关注同步 <开|关> [B站分组名]' } }]);
+                }
+                return;
+            }
+
+            // 9. 标签 (/设置 标签 <类型> <开|关>)
             if (subCommand === '标签') {
                  const category = parts[2]; 
                  const switchState = parts[3]; 
@@ -988,6 +1131,10 @@ class MessageHandler {
 
             // 9. AI上下文 (/设置 AI上下文 <条数>)
             if (subCommand === 'AI上下文') {
+                 if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                 }
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                      if (groupId) {
@@ -1006,6 +1153,30 @@ class MessageHandler {
                  return;
             }
             
+            // 10. AI概率 (/设置 AI概率 <数值>)
+            if (subCommand === 'AI概率') {
+                 if (!config.isRootAdmin(userId)) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                     return;
+                 }
+                 const value = parseFloat(parts[2]);
+                 if (!isNaN(value) && value >= 0 && value <= 1) {
+                     if (groupId) {
+                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
+                        config.groupConfigs[groupId].aiProbability = value;
+                        config.save();
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 AI 随机回复概率已设置为 ${value} (${(value*100).toFixed(0)}%)。` } }]);
+                     } else {
+                        config.aiProbability = value;
+                        config.save();
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局 AI 随机回复概率已设置为 ${value} (${(value*100).toFixed(0)}%)。` } }]);
+                     }
+                 } else {
+                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的概率 (0.0 - 1.0)。' } }]);
+                 }
+                 return;
+            }
+
             // 10. 深色模式 (/设置 深色模式 <开|关|定时>)
             if (subCommand === '深色模式') {
                 const mode = parts[2];
@@ -1092,13 +1263,108 @@ class MessageHandler {
             return;
         }
 
+        // Command: /查看黑名单 (Deprecated, merged into /设置 黑名单 列表)
+        // if (rawMessage.trim() === '/查看黑名单' || rawMessage.trim() === '/blacklist') {
+        //      if (!config.isGroupAdmin(groupId, userId)) {
+        //          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
+        //          return;
+        //      }
+             
+        //      let msg = '【黑名单列表】\n';
+             
+        //      // Group Blacklist
+        //      let groupBL = [];
+        //      if (groupId && config.groupConfigs[groupId] && config.groupConfigs[groupId].blacklistedQQs) {
+        //          groupBL = config.groupConfigs[groupId].blacklistedQQs;
+        //      }
+        //      msg += `--- 本群黑名单 ---\n${groupBL.length > 0 ? groupBL.join('\n') : '(无)'}\n`;
 
+        //      // Global Blacklist (Root only)
+        //      if (config.isRootAdmin(userId)) {
+        //          const globalBL = config.blacklistedQQs || [];
+        //          msg += `\n--- 全局黑名单 ---\n${globalBL.length > 0 ? globalBL.join('\n') : '(无)'}\n`;
+        //      }
+             
+        //      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: msg } }]);
+        //      return;
+        // }
 
-        // Command: /清理上下文
-        if (rawMessage.trim() === '/清理上下文') {
-            aiHandler.clearContext(groupId || userId);
-            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: 'AI 上下文已清理。' } }]);
-            return;
+        // 12. 管理 (/管理 <群列表|清理> [群号])
+        if (rawMessage.startsWith('/管理 ') || rawMessage.startsWith('/admin ')) {
+            if (!config.isRootAdmin(userId)) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                return;
+            }
+            const parts = rawMessage.trim().split(/\s+/);
+            const subCommand = parts[1];
+
+            if (subCommand === '新对话' || subCommand === 'newchat') {
+                const targetGid = parts[2] || groupId;
+                aiHandler.resetContext(targetGid);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已重置群 ${targetGid} 的 AI 对话记忆。` } }]);
+                return;
+            } else if (subCommand === '群列表' || subCommand === 'list') {
+                 // Gather stats
+                 const stats = new Map(); // groupId -> { hasConfig, hasSubs, hasBlacklist }
+                 
+                 // 1. Check Configs
+                 if (config.groupConfigs) {
+                     Object.keys(config.groupConfigs).forEach(gid => {
+                         const strGid = gid.toString();
+                         if (!stats.has(strGid)) stats.set(strGid, { hasConfig: false, hasSubs: false, hasBlacklist: false });
+                         const c = config.groupConfigs[gid];
+                         if (c) {
+                             stats.get(strGid).hasConfig = true;
+                             if (c.blacklistedQQs && c.blacklistedQQs.length > 0) {
+                                 stats.get(strGid).hasBlacklist = true;
+                             }
+                         }
+                     });
+                 }
+
+                 // 2. Check Subscriptions
+                 const allSubs = subscriptionService.userSubs.concat(subscriptionService.bangumiSubs || []);
+                 allSubs.forEach(sub => {
+                     sub.groupIds.forEach(gid => {
+                          const strGid = gid.toString();
+                          if (!stats.has(strGid)) stats.set(strGid, { hasConfig: false, hasSubs: false, hasBlacklist: false });
+                          stats.get(strGid).hasSubs = true;
+                     });
+                 });
+
+                 let msg = '【Bot群组状态】\n群号 | 订阅 | 配置 | 黑名单\n';
+                 stats.forEach((val, key) => {
+                     msg += `${key} | ${val.hasSubs?'√':'x'} | ${val.hasConfig?'√':'x'} | ${val.hasBlacklist?'√':'x'}\n`;
+                 });
+                 
+                 if (stats.size === 0) msg += '(无记录)';
+                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: msg } }]);
+                 return;
+
+            } else if (subCommand === '清理' || subCommand === 'clean') {
+                const targetGid = parts[2];
+                if (!targetGid) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请指定要清理的群号: /管理 清理 <群号>' } }]);
+                    return;
+                }
+                
+                // 1. Remove Config
+                let configRemoved = false;
+                if (config.groupConfigs && config.groupConfigs[targetGid]) {
+                    delete config.groupConfigs[targetGid];
+                    config.save();
+                    configRemoved = true;
+                }
+
+                // 2. Remove Subscriptions
+                const subsRemoved = subscriptionService.removeAllGroupSubscriptions(targetGid);
+
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `群 ${targetGid} 清理完成。\n配置删除: ${configRemoved?'是':'否'}\n订阅移除: ${subsRemoved?'是':'否'}` } }]);
+                return;
+            } else {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '未知指令。可用: /管理 <群列表|清理> [群号]' } }]);
+                return;
+            }
         }
 
         const safeRawMessage = rawMessage.replace(/\[CQ:[^\]]+\]/g, '');

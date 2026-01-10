@@ -7,6 +7,7 @@ const https = require('https');
 const config = require('../config');
 
 const SUBS_FILE = path.join(__dirname, '../../data/subscriptions.json');
+const FOLLOWERS_FILE = path.join(__dirname, '../../data/subfollowers.json');
 
 class SubscriptionService {
     constructor() {
@@ -15,9 +16,12 @@ class SubscriptionService {
         // New architecture
         this.userSubs = [];      // { uid, groupIds: string[], lastDynamicId?: string, lastDynamicTime?: number, lastLiveStatus?: '0'|'1' }
         this.bangumiSubs = [];   // { seasonId: string, groupIds: string[], lastEpId?: string|number, lastEpTime?: number }
+        this.cookieFollowings = []; // In-memory cache of followings: [{ uid: number, name: string, face: string }]
         this.ws = null;
         this.checkInterval = config.subscriptionCheckInterval * 1000; // 从配置读取并转换为毫秒
+        this.cookieSyncInterval = 60 * 60 * 1000; // Check followings every 60 minutes
         this.loadSubscriptions();
+        this.loadFollowers();
     }
 
     setWs(ws) {
@@ -60,6 +64,33 @@ class SubscriptionService {
         }
     }
 
+    loadFollowers() {
+        try {
+            if (fs.existsSync(FOLLOWERS_FILE)) {
+                const data = JSON.parse(fs.readFileSync(FOLLOWERS_FILE, 'utf8'));
+                if (Array.isArray(data)) {
+                    this.cookieFollowings = data;
+                    logger.info(`Loaded ${this.cookieFollowings.length} followers from ${FOLLOWERS_FILE}`);
+                }
+            }
+        } catch (e) {
+            logger.error('Failed to load followers:', e);
+        }
+    }
+
+    saveFollowers() {
+        try {
+            const dir = path.dirname(FOLLOWERS_FILE);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(FOLLOWERS_FILE, JSON.stringify(this.cookieFollowings, null, 2));
+            logger.info(`Saved ${this.cookieFollowings.length} followers to ${FOLLOWERS_FILE}`);
+        } catch (e) {
+            logger.error('Failed to save followers:', e);
+        }
+    }
+
     saveSubscriptions() {
         try {
             const dir = path.dirname(SUBS_FILE);
@@ -77,18 +108,20 @@ class SubscriptionService {
     }
 
     // New API: 用户订阅
-    async addUserSubscription(uid, groupId) {
+    async addUserSubscription(uid, groupId, knownName = null) {
         let sub = this.userSubs.find(s => s.uid === uid);
-        let name = '';
+        let name = knownName || '';
         
-        // Fetch user info to get name if it's a new subscription or name is missing
-        try {
-            const info = await biliApi.getUserInfo(uid);
-            if (info && info.status === 'success' && info.data) {
-                name = info.data.name;
+        // Fetch user info only if name is not provided
+        if (!name) {
+            try {
+                const info = await biliApi.getUserInfo(uid);
+                if (info && info.status === 'success' && info.data) {
+                    name = info.data.name;
+                }
+            } catch (e) {
+                logger.error(`Failed to fetch user info for ${uid}:`, e);
             }
-        } catch (e) {
-            logger.error(`Failed to fetch user info for ${uid}:`, e);
         }
 
         if (!sub) {
@@ -169,6 +202,43 @@ class SubscriptionService {
         return true;
     }
 
+    removeAllGroupSubscriptions(groupId) {
+        if (!groupId) return false;
+        const strGroupId = groupId.toString();
+        let changed = false;
+
+        // Clean user subscriptions
+        this.userSubs.forEach(sub => {
+            const idx = sub.groupIds.indexOf(strGroupId);
+            if (idx > -1) {
+                sub.groupIds.splice(idx, 1);
+                changed = true;
+            }
+        });
+        // Remove empty subs
+        const initialUserCount = this.userSubs.length;
+        this.userSubs = this.userSubs.filter(s => s.groupIds.length > 0);
+        if (this.userSubs.length !== initialUserCount) changed = true;
+
+        // Clean bangumi subscriptions
+        this.bangumiSubs.forEach(sub => {
+            const idx = sub.groupIds.indexOf(strGroupId);
+            if (idx > -1) {
+                sub.groupIds.splice(idx, 1);
+                changed = true;
+            }
+        });
+        // Remove empty subs
+        const initialBangumiCount = this.bangumiSubs.length;
+        this.bangumiSubs = this.bangumiSubs.filter(s => s.groupIds.length > 0);
+        if (this.bangumiSubs.length !== initialBangumiCount) changed = true;
+
+        if (changed) {
+            this.saveSubscriptions();
+        }
+        return changed;
+    }
+
     getSubscriptionsByGroup(groupId) {
         const users = this.userSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'user', uid: s.uid, name: s.name || s.uid }));
         const bangumis = this.bangumiSubs.filter(s => s.groupIds.includes(groupId)).map(s => ({ type: 'bangumi', seasonId: s.seasonId, title: s.title || s.seasonId }));
@@ -191,10 +261,117 @@ class SubscriptionService {
     start() {
         if (this.intervalId) clearInterval(this.intervalId);
         this.intervalId = setInterval(() => this.checkAll(), this.checkInterval);
+        
+        // Cookie sync task
+        if (this.cookieSyncIntervalId) clearInterval(this.cookieSyncIntervalId);
+        this.cookieSyncIntervalId = setInterval(() => this.refreshCookieFollowings(), this.cookieSyncInterval);
+        
         logger.info('Subscription service started.');
         
-        // Background task: refresh missing names for legacy data
+        // Initial tasks
         this.refreshMissingNames().catch(e => logger.error('Error in refreshMissingNames:', e));
+        this.refreshCookieFollowings().catch(e => logger.error('Error in refreshCookieFollowings:', e));
+    }
+
+    async refreshCookieFollowings() {
+        logger.info('Refreshing cookie followings...');
+        try {
+            // 1. Identify what groups we need to fetch
+            const neededGroups = new Set();
+            let needAll = false;
+
+            // Check config for active sync groups
+            for (const groupId in config.groupConfigs) {
+                if (config.getGroupConfig(groupId, 'enableCookieSync')) {
+                    const groupName = config.getGroupConfig(groupId, 'cookieSyncGroupName');
+                    if (groupName) {
+                        neededGroups.add(groupName);
+                    } else {
+                        needAll = true;
+                    }
+                }
+            }
+
+            if (neededGroups.size === 0 && !needAll) {
+                logger.info('No groups have enabled cookie sync. Skipping refresh.');
+                return;
+            }
+
+            const newFollowingsMap = new Map(); // uid -> user object with biliGroups
+
+            // Helper to merge user into map
+            const mergeUser = (user, groupTag) => {
+                const uid = String(user.uid);
+                if (!newFollowingsMap.has(uid)) {
+                    newFollowingsMap.set(uid, {
+                        ...user,
+                        biliGroups: [] 
+                    });
+                }
+                const entry = newFollowingsMap.get(uid);
+                if (groupTag && !entry.biliGroups.includes(groupTag)) {
+                    entry.biliGroups.push(groupTag);
+                }
+            };
+
+            // 2. Fetch "All" if needed
+            if (needAll) {
+                logger.info('Fetching ALL followings...');
+                const res = await biliApi.getMyFollowings();
+                if (res.status === 'success' && res.data) {
+                    for (const u of res.data) {
+                        mergeUser(u, 'ALL'); // Mark as belonging to ALL set
+                    }
+                } else {
+                    logger.warn(`Failed to fetch ALL followings: ${res.message}`);
+                }
+            }
+
+            // 3. Fetch specific groups
+            for (const groupName of neededGroups) {
+                logger.info(`Fetching followings for group: ${groupName}...`);
+                const res = await biliApi.getMyFollowings(groupName);
+                if (res.status === 'success' && res.data) {
+                    for (const u of res.data) {
+                        mergeUser(u, groupName);
+                    }
+                } else {
+                    logger.warn(`Failed to fetch followings for group ${groupName}: ${res.message}`);
+                }
+            }
+
+            // 4. Update state and save
+            // Preserve state from existing in-memory list
+            const stateMap = new Map();
+            if (this.cookieFollowings && this.cookieFollowings.length > 0) {
+                for (const old of this.cookieFollowings) {
+                    if (old.lastDynamicId || old.lastLiveStatus) {
+                        stateMap.set(String(old.uid), {
+                            lastDynamicId: old.lastDynamicId,
+                            lastDynamicTime: old.lastDynamicTime,
+                            lastLiveStatus: old.lastLiveStatus
+                        });
+                    }
+                }
+            }
+
+            this.cookieFollowings = Array.from(newFollowingsMap.values());
+
+            // Restore state
+            for (const newItem of this.cookieFollowings) {
+                const state = stateMap.get(String(newItem.uid));
+                if (state) {
+                    newItem.lastDynamicId = state.lastDynamicId;
+                    newItem.lastDynamicTime = state.lastDynamicTime;
+                    newItem.lastLiveStatus = state.lastLiveStatus;
+                }
+            }
+
+            this.saveFollowers();
+            logger.info(`Refreshed cookie followings: ${this.cookieFollowings.length} unique users.`);
+        } catch (e) {
+            logger.error('Error refreshing cookie followings:', e);
+        }
     }
 
     async refreshMissingNames() {
@@ -260,24 +437,135 @@ class SubscriptionService {
     async checkAll() {
         if (!this.ws) return;
 
-        // 用户订阅：同时检查动态与直播
-        for (const sub of this.userSubs) {
-            try {
-                await this.checkUserDynamic(sub);
-                await this.checkUserLive(sub);
-            } catch (e) {
-                logger.error(`Error checking user subscription for ${sub.uid}:`, e);
+        // Get effective list including synced followings
+        const effectiveUserSubs = this.getEffectiveUserSubs();
+        
+        logger.info(`Starting check cycle for ${effectiveUserSubs.length} users and ${this.bangumiSubs.length} bangumis...`);
+        const startTime = Date.now();
+
+        // 用户订阅：并发检查动态与直播
+        const BATCH_SIZE = 10; // Process 10 users at a time to avoid overwhelming API or getting banned
+        for (let i = 0; i < effectiveUserSubs.length; i += BATCH_SIZE) {
+            const batch = effectiveUserSubs.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (sub) => {
+                try {
+                    await this.checkUserDynamic(sub);
+                    await this.checkUserLive(sub);
+                    // Update state
+                    this.updateSubState(sub);
+                } catch (e) {
+                    logger.error(`Error checking user subscription for ${sub.uid}:`, e);
+                }
+            }));
+            
+            // Optional: small delay between batches
+            if (i + BATCH_SIZE < effectiveUserSubs.length) {
+                await new Promise(r => setTimeout(r, 500));
             }
         }
-        // 番剧订阅：检查更新剧集
-        for (const sub of this.bangumiSubs) {
-            try {
+        
+        // 番剧订阅：并发检查
+        await Promise.all(this.bangumiSubs.map(async (sub) => {
+             try {
                 await this.checkBangumi(sub);
             } catch (e) {
                 logger.error(`Error checking bangumi subscription for ${sub.seasonId}:`, e);
             }
-        }
+        }));
+
         this.saveSubscriptions();
+        this.saveFollowers(); // Also save followers state
+        
+        const duration = (Date.now() - startTime) / 1000;
+        logger.info(`Check cycle finished in ${duration.toFixed(2)}s.`);
+    }
+    
+    // Helper to update state after check
+    updateSubState(sub) {
+        // 1. Try to find in persistent storage
+        const persistentSub = this.userSubs.find(s => String(s.uid) === String(sub.uid));
+        if (persistentSub) {
+            persistentSub.lastDynamicId = sub.lastDynamicId;
+            persistentSub.lastDynamicTime = sub.lastDynamicTime;
+            persistentSub.lastLiveStatus = sub.lastLiveStatus;
+            persistentSub.name = sub.name; // Update name too
+        } else {
+            // 2. If not persistent, it's a sync-only sub. Update the state in cookieFollowings?
+            // cookieFollowings is just a list of {uid, name, face}. It doesn't have state fields.
+            // We should add state fields to cookieFollowings entries in memory.
+            const following = this.cookieFollowings.find(f => String(f.uid) === String(sub.uid));
+            if (following) {
+                following.lastDynamicId = sub.lastDynamicId;
+                following.lastDynamicTime = sub.lastDynamicTime;
+                following.lastLiveStatus = sub.lastLiveStatus;
+            }
+        }
+    }
+    
+    // Override getEffectiveUserSubs to use state from cookieFollowings
+    getEffectiveUserSubs() {
+        const subMap = new Map();
+
+        // 1. Add manual subscriptions
+        for (const sub of this.userSubs) {
+            subMap.set(String(sub.uid), { ...sub, groupIds: [...sub.groupIds] });
+        }
+
+        // 2. Add cookie followings for groups that enabled sync
+        // Identify which groups are syncing what
+        const groupSyncRules = []; // [{ groupId, targetBiliGroup }]
+        
+        for (const groupId in config.groupConfigs) {
+            if (config.getGroupConfig(groupId, 'enableCookieSync')) {
+                const target = config.getGroupConfig(groupId, 'cookieSyncGroupName'); // null/undefined means ALL
+                groupSyncRules.push({ groupId, target });
+            }
+        }
+
+        if (groupSyncRules.length > 0 && this.cookieFollowings.length > 0) {
+            for (const following of this.cookieFollowings) {
+                const uid = String(following.uid);
+                
+                // Determine which QQ groups should subscribe to this user
+                const targetGroupIds = [];
+                for (const rule of groupSyncRules) {
+                    if (!rule.target) {
+                        // Rule wants ALL users
+                        targetGroupIds.push(rule.groupId);
+                    } else {
+                        // Rule wants specific group
+                        if (following.biliGroups && following.biliGroups.includes(rule.target)) {
+                            targetGroupIds.push(rule.groupId);
+                        }
+                    }
+                }
+
+                if (targetGroupIds.length > 0) {
+                    if (subMap.has(uid)) {
+                        // Merge groups
+                        const entry = subMap.get(uid);
+                        for (const gid of targetGroupIds) {
+                            if (!entry.groupIds.includes(gid)) {
+                                entry.groupIds.push(gid);
+                            }
+                        }
+                    } else {
+                        // New entry from sync
+                        // USE STATE FROM following object if available
+                        subMap.set(uid, {
+                            uid: following.uid,
+                            groupIds: targetGroupIds,
+                            lastDynamicId: following.lastDynamicId || null,
+                            lastDynamicTime: following.lastDynamicTime || 0,
+                            lastLiveStatus: following.lastLiveStatus || '0',
+                            name: following.name
+                        });
+                    }
+                }
+            }
+        }
+        
+        return Array.from(subMap.values());
     }
 
     async checkUserDynamic(sub, force = false) {
@@ -555,6 +843,34 @@ class SubscriptionService {
     async notifyGroupsWithImage(groupIds, data, type, textUrl) {
         if (!groupIds || groupIds.length === 0) return;
 
+        // Construct descriptive text
+        let description = textUrl;
+        try {
+            let name = '';
+            let action = '';
+
+            if (type === 'dynamic' && data.data) {
+                name = data.data.modules?.module_author?.name;
+                const dType = data.data.type;
+                if (dType === 'DYNAMIC_TYPE_FORWARD') action = '转发动态';
+                else if (dType === 'DYNAMIC_TYPE_AV') action = '投稿视频';
+                else if (dType === 'DYNAMIC_TYPE_ARTICLE') action = '发布专栏';
+                else action = '发送动态';
+            } else if (type === 'live' && data.data) {
+                name = data.data.anchor_info?.base_info?.uname;
+                action = '开始直播';
+            } else if (type === 'bangumi' && data.data) {
+                name = data.data.title;
+                action = '更新了';
+            }
+
+            if (name && action) {
+                description = `${name} ${action} ${textUrl}`;
+            }
+        } catch (e) {
+            logger.warn('Failed to construct description text:', e);
+        }
+
         // Group by config signature
         const groupsByConfig = new Map(); // Key: "night:T|F_label:T|F" -> [groupIds]
 
@@ -602,7 +918,7 @@ class SubscriptionService {
                 // Send
                 this.notifyGroups(targetGroupIds, [
                     { type: 'image', data: { file: `base64://${base64Image}` } },
-                    { type: 'text', data: { text: textUrl } }
+                    { type: 'text', data: { text: description } }
                 ]);
                 
             } catch (e) {

@@ -104,12 +104,21 @@ class BiliApi {
         return this.runCommand('user_info', [uid]);
     }
 
+    async getUserCard(uid) {
+        return this.runCommand('user_card', [uid]);
+    }
+
     async getEpInfo(epId) {
         return this.runCommand('ep', [epId]);
     }
 
     async getMediaInfo(mediaId) {
         return this.runCommand('media', [mediaId]);
+    }
+
+    async getMyFollowings(groupName) {
+        const args = groupName ? [groupName] : [];
+        return this.runCommand('my_followings', args);
     }
 }
 
