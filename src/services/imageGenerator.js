@@ -2412,8 +2412,8 @@ class ImageGenerator {
                             <span class="cmd-desc">配置深色模式</span>
                         </div>
                         <div class="cmd-item">
-                            <span class="cmd-code">/设置 缓存 &lt;秒数&gt;</span>
-                            <span class="cmd-desc">设置解析缓存</span>
+                            <span class="cmd-code">/设置 冷却 &lt;秒数&gt;</span>
+                            <span class="cmd-desc">设置相同链接解析冷却</span>
                         </div>
                         <div class="cmd-item">
                             <span class="cmd-code">/设置 显示UID &lt;开|关&gt;</span>

@@ -935,7 +935,8 @@ class MessageHandler {
                 
                 // Only Root can change other groups' config? 
                 // Spec: "Root Admin... manage all group configs". "Group Admin... adjust this group config".
-                if (targetGroupId !== groupId && !config.isRootAdmin(userId)) {
+                // Ensure type safety when comparing IDs
+                if (targetGroupId.toString() !== groupId.toString() && !config.isRootAdmin(userId)) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：您只能管理当前群组的配置。' } }]);
                     return;
                 }
@@ -1037,21 +1038,21 @@ class MessageHandler {
                 return;
             }
 
-            // 6. 缓存 (/设置 缓存 <秒数>)
-            if (subCommand === '缓存') {
+            // 6. 冷却 (/设置 冷却 <秒数>)
+            if (subCommand === '冷却') {
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                     if (groupId) {
                         if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
                         config.groupConfigs[groupId].linkCacheTimeout = value;
                         config.save();
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群链接缓存时间已设置为 ${value} 秒。` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群相同链接解析冷却时间已设置为 ${value} 秒。` } }]);
                     } else {
                         // Only Root can set Global
                         if (config.isRootAdmin(userId)) {
                             config.linkCacheTimeout = value;
                             config.save();
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局链接缓存时间已设置为 ${value} 秒。` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局相同链接解析冷却时间已设置为 ${value} 秒。` } }]);
                         } else {
                              this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `权限不足：全局配置仅限全局管理员 (Root) 使用。` } }]);
                         }
