@@ -60,7 +60,7 @@ class SubscriptionService {
                 }
             }
         } catch (e) {
-            logger.error('Failed to load subscriptions:', e);
+            logger.error('[SubscriptionService] Failed to load subscriptions:', e);
         }
     }
 
@@ -70,11 +70,11 @@ class SubscriptionService {
                 const data = JSON.parse(fs.readFileSync(FOLLOWERS_FILE, 'utf8'));
                 if (Array.isArray(data)) {
                     this.cookieFollowings = data;
-                    logger.info(`Loaded ${this.cookieFollowings.length} followers from ${FOLLOWERS_FILE}`);
+                    logger.info(`[SubscriptionService] Loaded ${this.cookieFollowings.length} followers from ${FOLLOWERS_FILE}`);
                 }
             }
         } catch (e) {
-            logger.error('Failed to load followers:', e);
+            logger.error('[SubscriptionService] Failed to load followers:', e);
         }
     }
 
@@ -85,9 +85,9 @@ class SubscriptionService {
                 fs.mkdirSync(dir, { recursive: true });
             }
             fs.writeFileSync(FOLLOWERS_FILE, JSON.stringify(this.cookieFollowings, null, 2));
-            logger.info(`Saved ${this.cookieFollowings.length} followers to ${FOLLOWERS_FILE}`);
+            logger.info(`[SubscriptionService] Saved ${this.cookieFollowings.length} followers to ${FOLLOWERS_FILE}`);
         } catch (e) {
-            logger.error('Failed to save followers:', e);
+            logger.error('[SubscriptionService] Failed to save followers:', e);
         }
     }
 
@@ -103,7 +103,7 @@ class SubscriptionService {
             };
             fs.writeFileSync(SUBS_FILE, JSON.stringify(data, null, 2));
         } catch (e) {
-            logger.error('Failed to save subscriptions:', e);
+            logger.error('[SubscriptionService] Failed to save subscriptions:', e);
         }
     }
 
@@ -115,12 +115,13 @@ class SubscriptionService {
         // Fetch user info only if name is not provided
         if (!name) {
             try {
-                const info = await biliApi.getUserInfo(uid);
+                // Pass groupId to use group-specific cookie
+                const info = await biliApi.getUserInfo(uid, groupId);
                 if (info && info.status === 'success' && info.data) {
                     name = info.data.name;
                 }
             } catch (e) {
-                logger.error(`Failed to fetch user info for ${uid}:`, e);
+                logger.error(`[SubscriptionService] Failed to fetch user info for ${uid}:`, e);
             }
         }
 
@@ -163,12 +164,13 @@ class SubscriptionService {
 
         // Fetch bangumi info to get title
         try {
-            const info = await biliApi.getBangumiInfo(seasonId);
+            // Pass groupId to use group-specific cookie
+            const info = await biliApi.getBangumiInfo(seasonId, groupId);
             if (info && info.status === 'success' && info.data) {
                 title = info.data.title;
             }
         } catch (e) {
-            logger.error(`Failed to fetch bangumi info for ${seasonId}:`, e);
+            logger.error(`[SubscriptionService] Failed to fetch bangumi info for ${seasonId}:`, e);
         }
 
         if (!sub) {
@@ -266,37 +268,20 @@ class SubscriptionService {
         if (this.cookieSyncIntervalId) clearInterval(this.cookieSyncIntervalId);
         this.cookieSyncIntervalId = setInterval(() => this.refreshCookieFollowings(), this.cookieSyncInterval);
         
-        logger.info('Subscription service started.');
+        logger.info('[SubscriptionService] Subscription service started.');
         
         // Initial tasks
-        this.refreshMissingNames().catch(e => logger.error('Error in refreshMissingNames:', e));
-        this.refreshCookieFollowings().catch(e => logger.error('Error in refreshCookieFollowings:', e));
+        this.refreshMissingNames().catch(e => logger.error('\[SubscriptionService\] Error in refreshMissingNames:', e));
+        this.refreshCookieFollowings().catch(e => logger.error('\[SubscriptionService\] Error in refreshCookieFollowings:', e));
     }
 
     async refreshCookieFollowings() {
-        logger.info('Refreshing cookie followings...');
+        logger.info('[SubscriptionService] Refreshing cookie followings...');
         try {
             // 1. Identify what groups we need to fetch
-            const neededGroups = new Set();
-            let needAll = false;
-
-            // Check config for active sync groups
-            for (const groupId in config.groupConfigs) {
-                if (config.getGroupConfig(groupId, 'enableCookieSync')) {
-                    const groupName = config.getGroupConfig(groupId, 'cookieSyncGroupName');
-                    if (groupName) {
-                        neededGroups.add(groupName);
-                    } else {
-                        needAll = true;
-                    }
-                }
-            }
-
-            if (neededGroups.size === 0 && !needAll) {
-                logger.info('No groups have enabled cookie sync. Skipping refresh.');
-                return;
-            }
-
+            // We iterate over all groups that have cookie sync enabled.
+            // For each group, we use its own credential to fetch its followings.
+            
             const newFollowingsMap = new Map(); // uid -> user object with biliGroups
 
             // Helper to merge user into map
@@ -314,30 +299,33 @@ class SubscriptionService {
                 }
             };
 
-            // 2. Fetch "All" if needed
-            if (needAll) {
-                logger.info('Fetching ALL followings...');
-                const res = await biliApi.getMyFollowings();
-                if (res.status === 'success' && res.data) {
-                    for (const u of res.data) {
-                        mergeUser(u, 'ALL'); // Mark as belonging to ALL set
+            let hasEnabledGroups = false;
+
+            for (const groupId in config.groupConfigs) {
+                if (config.getGroupConfig(groupId, 'enableCookieSync')) {
+                    hasEnabledGroups = true;
+                    const groupName = config.getGroupConfig(groupId, 'cookieSyncGroupName'); // e.g. "SpecialGroup" or null for All
+                    
+                    logger.info(`[SubscriptionService] Fetching followings for QQ Group ${groupId} (BiliGroup: ${groupName || 'ALL'})...`);
+                    
+                    // Call API with groupId to use that group's cookie
+                    const res = await biliApi.getMyFollowings(groupName, groupId);
+                    
+                    if (res.status === 'success' && res.data) {
+                        const tag = groupName || 'ALL';
+                        for (const u of res.data) {
+                            mergeUser(u, tag);
+                        }
+                        logger.info(`[SubscriptionService] Fetched ${res.data.length} users for QQ Group ${groupId}`);
+                    } else {
+                        logger.warn(`[SubscriptionService] Failed to fetch followings for QQ Group ${groupId}: ${res.message}`);
                     }
-                } else {
-                    logger.warn(`Failed to fetch ALL followings: ${res.message}`);
                 }
             }
 
-            // 3. Fetch specific groups
-            for (const groupName of neededGroups) {
-                logger.info(`Fetching followings for group: ${groupName}...`);
-                const res = await biliApi.getMyFollowings(groupName);
-                if (res.status === 'success' && res.data) {
-                    for (const u of res.data) {
-                        mergeUser(u, groupName);
-                    }
-                } else {
-                    logger.warn(`Failed to fetch followings for group ${groupName}: ${res.message}`);
-                }
+            if (!hasEnabledGroups) {
+                logger.info('[SubscriptionService] No groups have enabled cookie sync. Skipping refresh.');
+                return;
             }
 
             // 4. Update state and save
@@ -368,30 +356,32 @@ class SubscriptionService {
             }
 
             this.saveFollowers();
-            logger.info(`Refreshed cookie followings: ${this.cookieFollowings.length} unique users.`);
+            logger.info(`[SubscriptionService] Refreshed cookie followings: ${this.cookieFollowings.length} unique users.`);
         } catch (e) {
-            logger.error('Error refreshing cookie followings:', e);
+            logger.error('[SubscriptionService] Error refreshing cookie followings:', e);
         }
     }
 
     async refreshMissingNames() {
-        logger.info('Starting background refresh of missing subscription names...');
+        logger.info('[SubscriptionService] Starting background refresh of missing subscription names...');
         let updated = false;
 
         // 1. Refresh User Names
         for (const sub of this.userSubs) {
             if (!sub.name) {
                 try {
-                    const info = await biliApi.getUserInfo(sub.uid);
+                    // Try to use the first group's credential
+                    const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
+                    const info = await biliApi.getUserInfo(sub.uid, groupId);
                     if (info && info.status === 'success' && info.data) {
                         sub.name = info.data.name;
                         updated = true;
-                        logger.info(`Refreshed name for UID ${sub.uid}: ${sub.name}`);
+                        logger.info(`[SubscriptionService] Refreshed name for UID ${sub.uid}: ${sub.name}`);
                         // Small delay to be nice to API
                         await new Promise(r => setTimeout(r, 1000));
                     }
                 } catch (e) {
-                    logger.error(`Failed to refresh name for UID ${sub.uid}:`, e);
+                    logger.error(`[SubscriptionService] Failed to refresh name for UID ${sub.uid}:`, e);
                 }
             }
         }
@@ -400,25 +390,27 @@ class SubscriptionService {
         for (const sub of this.bangumiSubs) {
             if (!sub.title) {
                 try {
-                    const info = await biliApi.getBangumiInfo(sub.seasonId);
+                    // Try to use the first group's credential
+                    const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
+                    const info = await biliApi.getBangumiInfo(sub.seasonId, groupId);
                     if (info && info.status === 'success' && info.data) {
                         sub.title = info.data.title;
                         updated = true;
-                        logger.info(`Refreshed title for Season ${sub.seasonId}: ${sub.title}`);
+                        logger.info(`[SubscriptionService] Refreshed title for Season ${sub.seasonId}: ${sub.title}`);
                         // Small delay to be nice to API
                         await new Promise(r => setTimeout(r, 1000));
                     }
                 } catch (e) {
-                    logger.error(`Failed to refresh title for Season ${sub.seasonId}:`, e);
+                    logger.error(`[SubscriptionService] Failed to refresh title for Season ${sub.seasonId}:`, e);
                 }
             }
         }
 
         if (updated) {
             this.saveSubscriptions();
-            logger.info('Finished refreshing missing subscription names. Data saved.');
+            logger.info('\[SubscriptionService\] Finished refreshing missing subscription names. Data saved.');
         } else {
-            logger.info('No missing names found or no updates needed.');
+            logger.info('[SubscriptionService] No missing names found or no updates needed.');
         }
     }
 
@@ -430,7 +422,7 @@ class SubscriptionService {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = setInterval(() => this.checkAll(), this.checkInterval);
-            logger.info(`Subscription check interval updated to ${newIntervalSeconds} seconds.`);
+            logger.info(`[SubscriptionService] Subscription check interval updated to ${newIntervalSeconds} seconds.`);
         }
     }
 
@@ -439,45 +431,89 @@ class SubscriptionService {
 
         // Get effective list including synced followings
         const effectiveUserSubs = this.getEffectiveUserSubs();
-        
-        logger.info(`Starting check cycle for ${effectiveUserSubs.length} users and ${this.bangumiSubs.length} bangumis...`);
+
+        logger.info(`[SubscriptionService] Starting check cycle for ${effectiveUserSubs.length} users and ${this.bangumiSubs.length} bangumis...`);
         const startTime = Date.now();
 
-        // 用户订阅：并发检查动态与直播
-        const BATCH_SIZE = 10; // Process 10 users at a time to avoid overwhelming API or getting banned
+        // 用户订阅：并发检查动态与直播（优化版）
+        const BATCH_SIZE = 6; // 减少批次大小以降低API压力（从10降至6）
+        const BATCH_DELAY = 1500; // 批次间延迟1.5秒，避免触发速率限制
+        const MAX_RETRIES = 1; // 失败后最多重试1次
+
+        let successCount = 0;
+        let failCount = 0;
+
         for (let i = 0; i < effectiveUserSubs.length; i += BATCH_SIZE) {
             const batch = effectiveUserSubs.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map(async (sub) => {
-                try {
-                    await this.checkUserDynamic(sub);
-                    await this.checkUserLive(sub);
-                    // Update state
-                    this.updateSubState(sub);
-                } catch (e) {
-                    logger.error(`Error checking user subscription for ${sub.uid}:`, e);
+            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(effectiveUserSubs.length / BATCH_SIZE);
+
+            // 简化日志输出：仅在批次开始时记录
+            if (effectiveUserSubs.length > BATCH_SIZE) {
+                logger.info(`[SubscriptionService] Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
+            }
+
+            // 处理当前批次，支持重试机制
+            const results = await Promise.allSettled(batch.map(async (sub) => {
+                let lastError = null;
+
+                // 重试循环
+                for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                        await this.checkUserDynamic(sub);
+                        await this.checkUserLive(sub);
+                        // Update state
+                        this.updateSubState(sub);
+                        return { success: true, uid: sub.uid };
+                    } catch (e) {
+                        lastError = e;
+
+                        // 如果还有重试机会，等待后重试
+                        if (attempt < MAX_RETRIES) {
+                            const retryDelay = 1000 * (attempt + 1); // 递增延迟：1秒、2秒
+                            logger.warn(`[SubscriptionService] Check failed for user ${sub.uid}, retrying in ${retryDelay}ms... (attempt ${attempt + 1}/${MAX_RETRIES})`);
+                            await new Promise(r => setTimeout(r, retryDelay));
+                        }
+                    }
                 }
+
+                // 所有重试都失败了
+                logger.error(`[SubscriptionService] Failed to check user ${sub.uid} after ${MAX_RETRIES + 1} attempts:`, lastError.message);
+                return { success: false, uid: sub.uid, error: lastError };
             }));
-            
-            // Optional: small delay between batches
+
+            // 统计成功和失败次数
+            results.forEach(result => {
+                if (result.status === 'fulfilled' && result.value.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            });
+
+            // 批次间延迟（最后一个批次不需要延迟）
             if (i + BATCH_SIZE < effectiveUserSubs.length) {
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, BATCH_DELAY));
             }
         }
-        
-        // 番剧订阅：并发检查
-        await Promise.all(this.bangumiSubs.map(async (sub) => {
-             try {
-                await this.checkBangumi(sub);
-            } catch (e) {
-                logger.error(`Error checking bangumi subscription for ${sub.seasonId}:`, e);
-            }
-        }));
+
+        // 番剧订阅：并发检查（保持原有逻辑，番剧更新频率低，无需特殊优化）
+        if (this.bangumiSubs.length > 0) {
+            logger.info(`Checking ${this.bangumiSubs.length} bangumi subscriptions...`);
+            await Promise.all(this.bangumiSubs.map(async (sub) => {
+                try {
+                    await this.checkBangumi(sub);
+                } catch (e) {
+                    logger.error(`[SubscriptionService] Error checking bangumi subscription for ${sub.seasonId}:`, e);
+                }
+            }));
+        }
 
         this.saveSubscriptions();
         this.saveFollowers(); // Also save followers state
-        
+
         const duration = (Date.now() - startTime) / 1000;
-        logger.info(`Check cycle finished in ${duration.toFixed(2)}s.`);
+        logger.info(`[SubscriptionService] Check cycle finished in ${duration.toFixed(2)}s. Success: ${successCount}, Failed: ${failCount}`);
     }
     
     // Helper to update state after check
@@ -571,7 +607,9 @@ class SubscriptionService {
     async checkUserDynamic(sub, force = false) {
         logger.info(`[CheckDynamic] Checking dynamic for UID: ${sub.uid}, Force: ${force}`);
         try {
-            const res = await biliApi.getUserDynamic(sub.uid);
+            // Try to use the first group's credential
+            const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
+            const res = await biliApi.getUserDynamic(sub.uid, groupId);
             logger.info(`[CheckDynamic] API response status: ${res.status}`);
 
             if (res.status === 'success' && res.data) {
@@ -680,7 +718,8 @@ class SubscriptionService {
             logger.info(`[CheckSubscriptionNow] No subscription found for UID ${uid}, trying as dynamic ID...`);
             try {
                 const biliApi = require('./biliApi');
-                const res = await biliApi.getDynamicInfo(uid);
+                // Pass groupId to use group-specific cookie
+                const res = await biliApi.getDynamicInfo(uid, groupId);
                 logger.info(`[CheckSubscriptionNow] Dynamic detail API response status: ${res.status}`);
 
                 if (res.status === 'success' && res.data) {
@@ -705,7 +744,9 @@ class SubscriptionService {
     }
 
     async checkUserLive(sub) {
-        const res = await biliApi.getUserLive(sub.uid);
+        // Try to use the first group's credential
+        const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
+        const res = await biliApi.getUserLive(sub.uid, groupId);
         if (res.status === 'success' && res.data) {
             const isLive = res.data.live_room?.live_status === 1;
             const roomId = res.data.live_room?.room_id;
@@ -720,7 +761,7 @@ class SubscriptionService {
             if (isLive && !wasLive && roomId) {
                 try {
                     // Get live room details and generate image
-                    const liveDetail = await biliApi.getLiveRoomInfo(roomId);
+                    const liveDetail = await biliApi.getLiveRoomInfo(roomId, groupId);
                     if (liveDetail.status === 'success') {
                         await this.notifyGroupsWithImage(sub.groupIds, liveDetail, 'live', `https://live.bilibili.com/${roomId}`);
                     } else {
@@ -728,7 +769,7 @@ class SubscriptionService {
                         this.notifyGroups(sub.groupIds, `直播预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${roomId}`);
                     }
                 } catch (e) {
-                    logger.error(`Error generating image for live room ${roomId}:`, e);
+                    logger.error(`[SubscriptionService] Error generating image for live room ${roomId}:`, e);
                     // Fallback to text notification
                     this.notifyGroups(sub.groupIds, `直播预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${roomId}`);
                 }
@@ -739,7 +780,9 @@ class SubscriptionService {
     }
 
     async checkBangumi(sub) {
-        const res = await biliApi.getBangumiInfo(sub.seasonId);
+        // Try to use the first group's credential
+        const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
+        const res = await biliApi.getBangumiInfo(sub.seasonId, groupId);
         if (res.status === 'success' && res.data) {
             const info = res.data;
             const newEp = info.new_ep || {};
@@ -868,7 +911,7 @@ class SubscriptionService {
                 description = `${name} ${action} ${textUrl}`;
             }
         } catch (e) {
-            logger.warn('Failed to construct description text:', e);
+            logger.warn('[SubscriptionService] Failed to construct description text:', e);
         }
 
         // Group by config signature

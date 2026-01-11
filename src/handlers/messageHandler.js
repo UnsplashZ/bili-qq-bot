@@ -4,6 +4,7 @@ const aiHandler = require('./aiHandler');
 const logger = require('../utils/logger');
 const QRCode = require('qrcode');
 const subscriptionService = require('../services/subscriptionService');
+const notificationService = require('../services/notificationService');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -40,6 +41,9 @@ class MessageHandler {
 
         // Subscription list command cooldown
         this.groupListCmdCd = new Map();
+
+        // Login pending map: key -> groupId
+        this.loginPending = new Map();
     }
 
     // 提取消息中的所有链接及其类型
@@ -81,21 +85,18 @@ class MessageHandler {
     isLinkCached(cacheKey) {
         if (this.linkCache.has(cacheKey)) {
             const cachedTime = this.linkCache.get(cacheKey);
-            
+
             // Parse groupId from cacheKey: type_id_groupId
-            // Note: id might contain underscores? Regex used in extractLinks ensures id is captured.
-            // But cacheKey construction: `${linkType.type}_${id}_${groupId}`
-            // Let's split by _. type is safe. id is usually safe. groupId is safe.
-            // But id might have special chars? Bilibili IDs are alphanumeric.
-            const parts = cacheKey.split('_');
-            const groupId = parts.length >= 3 ? parts[parts.length - 1] : null;
+            // Use lastIndexOf to safely extract groupId even if id contains underscores
+            const lastUnderscoreIndex = cacheKey.lastIndexOf('_');
+            const groupId = lastUnderscoreIndex !== -1 ? cacheKey.substring(lastUnderscoreIndex + 1) : null;
 
             // Get timeout for this group
             const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
             const timeout = (timeoutSeconds || 300) * 1000;
 
             if (Date.now() - cachedTime < timeout) {
-                logger.info(`链接 ${cacheKey} 在缓存期内，跳过处理`);
+                logger.info(`[MessageHandler] 链接 ${cacheKey} 在缓存期内，跳过处理`);
                 return true;
             } else {
                 // 缓存已过期，删除它
@@ -115,9 +116,10 @@ class MessageHandler {
     cleanupExpiredCache() {
         const now = Date.now();
         for (const [key, time] of this.linkCache.entries()) {
-            const parts = key.split('_');
-            const groupId = parts.length >= 3 ? parts[parts.length - 1] : null;
-            
+            // Use lastIndexOf to safely extract groupId even if id contains underscores
+            const lastUnderscoreIndex = key.lastIndexOf('_');
+            const groupId = lastUnderscoreIndex !== -1 ? key.substring(lastUnderscoreIndex + 1) : null;
+
             const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
             const timeout = (timeoutSeconds || 300) * 1000;
 
@@ -145,7 +147,7 @@ class MessageHandler {
     }
 
     // 处理单个链接
-    async processSingleLink(link, ws, groupId) {
+    async processSingleLink(link, ws, groupId, userId = null) {
         const { type, id, cacheKey } = link;
 
         try {
@@ -154,178 +156,178 @@ class MessageHandler {
             switch (type) {
                 case 'video':
                     logger.info(`[MessageHandler] Processing Bilibili Video: ${id}`);
-                    info = await this.getDataWithCache('video', id, () => biliApi.getVideoInfo(id));
+                    info = await this.getDataWithCache('video', id, () => biliApi.getVideoInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'video', groupId);
                             url = `https://www.bilibili.com/video/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for video ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get video info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
                     }
                     break;
 
                 case 'bangumi':
                     logger.info(`[MessageHandler] Processing Bilibili Bangumi: ${id}`);
-                    info = await this.getDataWithCache('bangumi', id, () => biliApi.getBangumiInfo(id));
+                    info = await this.getDataWithCache('bangumi', id, () => biliApi.getBangumiInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ss${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for bangumi ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get bangumi info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }], userId);
                     }
                     break;
 
                 case 'dynamic':
                     logger.info(`[MessageHandler] Processing Bilibili Dynamic: ${id}`);
-                    info = await this.getDataWithCache('dynamic', id, () => biliApi.getDynamicInfo(id));
+                    info = await this.getDataWithCache('dynamic', id, () => biliApi.getDynamicInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             // Use returned type if available (e.g., 'article' for Opus redirects), fallback to 'dynamic'
                             const cardType = info.type || 'dynamic';
                             base64Image = await imageGenerator.generatePreviewCard(info, cardType, groupId);
                             url = `https://t.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for dynamic ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }], userId);
                         }
                     } else {
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }], userId);
                     }
                     break;
 
                 case 'article':
                     logger.info(`[MessageHandler] Processing Bilibili Article: ${id}`);
-                    info = await this.getDataWithCache('article', id, () => biliApi.getArticleInfo(id));
+                    info = await this.getDataWithCache('article', id, () => biliApi.getArticleInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/read/cv${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for article ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get article info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }], userId);
                     }
                     break;
 
                 case 'live':
                     logger.info(`[MessageHandler] Processing Bilibili Live: ${id}`);
-                    info = await this.getDataWithCache('live', id, () => biliApi.getLiveRoomInfo(id));
+                    info = await this.getDataWithCache('live', id, () => biliApi.getLiveRoomInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'live', groupId);
                             url = `https://live.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for live ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get live room info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }], userId);
                     }
                     break;
 
                 case 'opus':
                     logger.info(`[MessageHandler] Processing Bilibili Opus: ${id}`);
-                    info = await this.getDataWithCache('opus', id, () => biliApi.getOpusInfo(id));
+                    info = await this.getDataWithCache('opus', id, () => biliApi.getOpusInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/opus/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for opus ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }], userId);
                         }
                     } else {
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }], userId);
                     }
                     break;
 
                 case 'ep':
                     logger.info(`[MessageHandler] Processing Bilibili EP: ${id}`);
-                    info = await this.getDataWithCache('ep', id, () => biliApi.getEpInfo(id));
+                    info = await this.getDataWithCache('ep', id, () => biliApi.getEpInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ep${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for ep ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get ep info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }], userId);
                     }
                     break;
 
                 case 'media':
                     logger.info(`[MessageHandler] Processing Bilibili Media: ${id}`);
-                    info = await this.getDataWithCache('media', id, () => biliApi.getMediaInfo(id));
+                    info = await this.getDataWithCache('media', id, () => biliApi.getMediaInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/media/md${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for media ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }]);
+                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }], userId);
                         }
                     } else {
                         logger.warn(`[MessageHandler] Failed to get media info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }]);
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }], userId);
                     }
                     break;
 
                 case 'user':
                     logger.info(`[MessageHandler] Processing Bilibili User: ${id}`);
-                    info = await this.getDataWithCache('user', id, () => biliApi.getUserInfo(id));
+                    info = await this.getDataWithCache('user', id, () => biliApi.getUserInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             const showId = config.getGroupConfig(groupId, 'showId');
                             base64Image = await imageGenerator.generatePreviewCard(info, 'user', groupId, showId);
                             url = `https://space.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url);
+                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
                             this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[MessageHandler] Image generation failed for user ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [
                                 { type: 'text', data: { text: `https://space.bilibili.com/${id}` } }
-                            ]);
+                            ], userId);
                         }
                     } else {
                         const errorMsg = info.message || '无法获取用户信息';
                         logger.warn(`[MessageHandler] Failed to get user info for ${id}: ${errorMsg}`);
                         this.sendGroupMessage(ws, groupId, [
                             { type: 'text', data: { text: `获取用户失败: ${errorMsg}\nhttps://space.bilibili.com/${id}` } }
-                        ]);
+                        ], userId);
                     }
                     break;
             } // switch end
@@ -333,23 +335,23 @@ class MessageHandler {
             logger.error(`[MessageHandler] Error processing ${type} link ${id}:`, e);
             this.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: `处理链接 ${link.match} 时发生错误: ${e.message || '未知错误'}` } }
-            ]);
+            ], userId);
         }
     }
 
     // 发送消息带降级处理 - 如果图片发送失败则发送纯文本
-    async sendGroupMessageWithFallback(ws, groupId, base64Image, url) {
+    async sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null) {
         try {
             // 先尝试发送图片+文本
             this.sendGroupMessage(ws, groupId, [
                 { type: 'image', data: { file: `base64://${base64Image}` } },
                 { type: 'text', data: { text: `${url}` } }
-            ]);
+            ], userId);
             logger.info(`[MessageHandler] Message with image sent successfully for ${url}`);
         } catch (e) {
             // 如果发送失败，降级为纯文本
             logger.error(`[MessageHandler] Failed to send message with image for ${url}, falling back to text only:`, e);
-            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `图片发送失败，已降级为文本链接：\n${url}` } }]);
+            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `图片发送失败，已降级为文本链接：\n${url}` } }], userId);
         }
     }
 
@@ -395,15 +397,63 @@ class MessageHandler {
         });
     }
 
+    async pollLoginStatus(key, targetGroupId, ws, groupId) {
+        const POLL_INTERVAL = 5000; // 5 seconds
+        const MAX_DURATION = 30000; // 30 seconds
+        const startTime = Date.now();
+
+        const timer = setInterval(async () => {
+            // Check if key is still pending (might be manually verified or cancelled)
+            if (!this.loginPending.has(key)) {
+                clearInterval(timer);
+                return;
+            }
+
+            // Check timeout
+            if (Date.now() - startTime > MAX_DURATION) {
+                clearInterval(timer);
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `自动登录检测超时。如果您已扫码，请手动输入: /设置 验证 ${key}` } }]);
+                return;
+            }
+
+            try {
+                const res = await biliApi.checkLogin(key, targetGroupId);
+                if (res.status === 'success') {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录成功！凭据已保存 (群: ${targetGroupId})。` } }]);
+                    this.loginPending.delete(key);
+                    clearInterval(timer);
+                } else if (res.code === 86038) { // QRCode Expired
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '二维码已过期，请重新获取。' } }]);
+                     this.loginPending.delete(key);
+                     clearInterval(timer);
+                }
+                // Other statuses (waiting for scan/confirm) -> continue polling
+            } catch (e) {
+                logger.error('[MessageHandler] Polling error:', e);
+            }
+        }, POLL_INTERVAL);
+    }
+
     async handleMessage(ws, messageData) {
         const message = messageData.message;
         let rawMessage = messageData.raw_message;
         const userId = messageData.user_id;
-        const groupId = messageData.group_id;
+        let groupId = messageData.group_id;
 
         // Prevent self-trigger
         if (userId === messageData.self_id) {
             return;
+        }
+
+        // Handle Private Messages
+        if (messageData.message_type === 'private') {
+            // Only respond to Root Admin
+            if (!config.isRootAdmin(userId)) {
+                return;
+            }
+            // Assign virtual group ID for private messages to reuse existing logic
+            groupId = `private_${userId}`;
+            logger.info(`[MessageHandler] Processing private message from Root Admin ${userId} as virtual group ${groupId}`);
         }
 
         logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}: ${rawMessage.substring(0, 100)}...`);
@@ -426,7 +476,9 @@ class MessageHandler {
 
 
         // 检查群组是否启用
-        if (groupId && !config.isGroupEnabled(groupId)) {
+        // Skip check for private messages (virtual groups)
+        const isPrivate = typeof groupId === 'string' && groupId.startsWith('private_');
+        if (groupId && !isPrivate && !config.isGroupEnabled(groupId)) {
             // 特例：允许管理员重新开启功能
             const isEnableCmd = rawMessage.trim().replace(/\s+/g, ' ').startsWith('/设置 功能 开');
             
@@ -515,13 +567,13 @@ class MessageHandler {
 
                     // 2. Fetch Subscriptions & Followings
                     const subs = subscriptionService.getSubscriptionsByGroup(groupId);
-                    
+
                     // Get Account Follows (merged view)
                     let followings = [];
                     try {
                          followings = subscriptionService.cookieFollowings || [];
                     } catch (e) {
-                         logger.error('Error fetching followings for merge view:', e);
+                         logger.error('\[MessageHandler\] Error fetching followings for merge view:', e);
                     }
 
                     if (subs.length === 0 && followings.length === 0) {
@@ -535,7 +587,7 @@ class MessageHandler {
                     // Fetch user details for Group Subs (with concurrency limit and lightweight API)
                     const detailedUserSubs = [];
                     const CONCURRENCY_LIMIT = 3; // Limit parallel requests to avoid rate limits
-                    
+
                     for (let i = 0; i < userSubs.length; i += CONCURRENCY_LIMIT) {
                          const chunk = userSubs.slice(i, i + CONCURRENCY_LIMIT);
                          const chunkResults = await Promise.all(chunk.map(async (sub) => {
@@ -543,10 +595,10 @@ class MessageHandler {
                                 // Use lighter getUserCard instead of full getUserInfo
                                 const info = await biliApi.getUserCard(sub.uid);
                                 if (info && info.status === 'success' && info.data) {
-                                    logger.info(`[DebugAvatar] Fetched card for ${sub.uid}: face=${info.data.face}`);
+                                    logger.info(`[MessageHandler] Fetched card for ${sub.uid}: face=${info.data.face}`);
                                     return {
                                         ...sub,
-                                        name: info.data.name || sub.name, 
+                                        name: info.data.name || sub.name,
                                         face: info.data.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
                                         level: 0,
                                         pendant: {},
@@ -554,7 +606,7 @@ class MessageHandler {
                                     };
                                 }
                             } catch (e) {
-                                logger.error(`Failed to fetch card for user ${sub.uid}`, e);
+                                logger.error(`[MessageHandler] Failed to fetch card for user ${sub.uid}`, e);
                             }
                             return {
                                 ...sub,
@@ -574,10 +626,10 @@ class MessageHandler {
                     };
 
                     const showId = config.getGroupConfig(groupId, 'showId');
-                    
+
                     const enableSync = config.getGroupConfig(groupId, 'enableCookieSync');
                     const syncGroup = config.getGroupConfig(groupId, 'cookieSyncGroupName');
-                    
+
                     if (!enableSync) {
                         data.accountFollows = [];
                         data.accountFollowsTitle = '';
@@ -597,7 +649,7 @@ class MessageHandler {
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
 
                 } catch (e) {
-                    logger.error('Error generating subscription list image:', e);
+                    logger.error('[MessageHandler] Error generating subscription list image:', e);
                     // Fallback to text
                     let message = '生成图片失败，显示文本列表：\n';
                     if (userSubs.length) {
@@ -614,7 +666,9 @@ class MessageHandler {
                     }
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
                 }
-            })();
+            })().catch(e => {
+                logger.error('[MessageHandler] Unhandled error in /订阅列表 async handler:', e);
+            });
             return;
         }
 
@@ -675,10 +729,12 @@ class MessageHandler {
                         const name = await subscriptionService.addUserSubscription(uid, groupId);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `成功订阅用户 ${name}（动态+直播）。` } }]);
                     } catch (e) {
-                         logger.error('Error adding user subscription:', e);
+                         logger.error('[MessageHandler] Error adding user subscription:', e);
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `订阅失败，请稍后重试。` } }]);
                     }
-                })();
+                })().catch(e => {
+                    logger.error('[MessageHandler] Unhandled error in /订阅用户 async handler:', e);
+                });
             } else {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅用户 <uid>' } }]);
             }
@@ -727,10 +783,12 @@ class MessageHandler {
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
                         }
                     } catch (e) {
-                        logger.error('订阅番剧解析失败:', e);
+                        logger.error('[MessageHandler] 订阅番剧解析失败:', e);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '订阅失败：无法解析参数，请使用 season_id、md 或 ep 链接。' } }]);
                     }
-                })();
+                })().catch(e => {
+                    logger.error('[MessageHandler] Unhandled error in /订阅番剧 async handler:', e);
+                });
             } else {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
             }
@@ -802,7 +860,7 @@ class MessageHandler {
                 const base64Image = await imageGenerator.generateHelpCard('user', groupId);
                 this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
             } catch (e) {
-                logger.error('Error generating help card:', e);
+                logger.error('[MessageHandler] Error generating help card:', e);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: 'Help menu generation failed.' } }]);
             }
             return;
@@ -833,7 +891,7 @@ class MessageHandler {
                     const base64Image = await imageGenerator.generateHelpCard('admin', groupId);
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
                 } catch (e) {
-                    logger.error('Error generating admin help card:', e);
+                    logger.error('[MessageHandler] Error generating admin help card:', e);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: 'Admin menu generation failed.' } }]);
                 }
                 return;
@@ -869,28 +927,57 @@ class MessageHandler {
                 return;
             }
 
-            // 2. 登录 (/设置 登录)
+            // 2. 登录 (/设置 登录 [群号])
             if (subCommand === '登录') {
-                if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                let targetGroupId = parts[2];
+                if (!targetGroupId) {
+                    targetGroupId = groupId;
+                }
+
+                if (!targetGroupId) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请在群组中使用此命令或指定群号。' } }]);
                      return;
                 }
+
+                // Permission check
+                let allowed = false;
+                if (config.isRootAdmin(userId)) {
+                    allowed = true;
+                } else if (config.isGroupAdmin(groupId, userId)) {
+                    // Group Admin can only login for their current group
+                    if (targetGroupId.toString() === groupId.toString()) {
+                        allowed = true;
+                    }
+                }
+
+                if (!allowed) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：群管理员只能登录当前群，Root可登录指定群。' } }]);
+                     return;
+                }
+
                  try {
                     const res = await biliApi.getLoginUrl();
                     if (res.status === 'success') {
                         const url = res.data.url;
                         const key = res.data.key;
+                        
+                        // Store pending login
+                        this.loginPending.set(key, targetGroupId);
+
                         const qrDataUrl = await QRCode.toDataURL(url);
                         const base64Image = qrDataUrl.replace(/^data:image\/png;base64,/, '');
                         this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `请扫描二维码登录。\n密钥: ${key}\n扫描后，请输入: /设置 验证 ${key}` } },
+                            { type: 'text', data: { text: `请在30秒内使用B站APP扫描登录 (目标群: ${targetGroupId})。\n机器人将自动检测登录状态，如超时请手动输入: /设置 验证 ${key}` } },
                             { type: 'image', data: { file: `base64://${base64Image}` } }
                         ]);
+
+                        // Start polling
+                        this.pollLoginStatus(key, targetGroupId, ws, groupId);
                     } else {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '获取登录URL失败。' } }]);
                     }
                 } catch (e) {
-                    logger.error('登录错误:', e);
+                    logger.error('[MessageHandler] 登录错误:', e);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '登录错误，请检查日志。' } }]);
                 }
                 return;
@@ -898,24 +985,52 @@ class MessageHandler {
 
             // 3. 验证 (/设置 验证 <key>)
             if (subCommand === '验证') {
-                if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
+                const key = parts[2];
+                if (!key) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请提供密钥: /设置 验证 <key>' } }]);
+                    return;
+                }
+
+                let targetGroupId = this.loginPending.get(key);
+                if (!targetGroupId) {
+                     // Try to infer from current context if user is admin, but safer to ask user to login again if key lost from memory (e.g. restart)
+                     // However, if user just types it, let's assume current group if not found?
+                     // No, "key" is tied to a session. If key is not in map, maybe it's invalid or bot restarted.
+                     // But biliApi checkLogin relies on Bilibili side session, key is just an identifier.
+                     // So if we lost map, we default to current groupId.
+                     targetGroupId = groupId;
+                }
+                
+                if (!targetGroupId) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '无法确定目标群组，请重新获取登录二维码。' } }]);
                      return;
                 }
-                const key = parts[2];
-                if (key) {
-                    try {
-                        const res = await biliApi.checkLogin(key);
-                        if (res.status === 'success') {
-                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '登录成功！凭据已保存。' } }]);
-                        } else {
-                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录状态: ${res.message}` } }]);
-                        }
-                    } catch (e) {
-                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '检查登录状态时出错。' } }]);
+
+                // Permission check
+                let allowed = false;
+                if (config.isRootAdmin(userId)) {
+                    allowed = true;
+                } else if (config.isGroupAdmin(groupId, userId)) {
+                    if (targetGroupId.toString() === groupId.toString()) {
+                        allowed = true;
                     }
-                } else {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请提供密钥: /设置 验证 <key>' } }]);
+                }
+
+                if (!allowed) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：您无法验证其他群组的登录。' } }]);
+                     return;
+                }
+
+                try {
+                    const res = await biliApi.checkLogin(key, targetGroupId);
+                    if (res.status === 'success') {
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录成功！凭据已保存 (群: ${targetGroupId})。` } }]);
+                         this.loginPending.delete(key);
+                    } else {
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录状态: ${res.message}` } }]);
+                    }
+                } catch (e) {
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '检查登录状态时出错。' } }]);
                 }
                 return;
             }
@@ -1425,130 +1540,27 @@ class MessageHandler {
 
     // 将base64图片保存为临时文件并返回文件路径
     saveImageAsFile(base64Data) {
-        try {
-            // 使用共享目录，确保npm运行的bot和docker运行的napcat都能访问
-            const hostTempDir = config.napcatTempPath; // Bot 写入的路径 (容器内或宿主机)
-            const containerTempDir = config.napcatReadPath; // NapCat 读取的路径 (NapCat 容器内)
-
-            // 确保目录存在
-            if (!fs.existsSync(hostTempDir)) {
-                fs.mkdirSync(hostTempDir, { recursive: true });
-                logger.info(`[MessageHandler] Created temp directory: ${hostTempDir}`);
-            }
-
-            // 生成唯一的文件名
-            const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}.png`;
-            const hostFilePath = path.join(hostTempDir, fileName); // 宿主机上的完整路径
-            const containerFilePath = path.join(containerTempDir, fileName); // 容器内的路径
-
-            // 将base64数据写入宿主机文件
-            const imageBuffer = Buffer.from(base64Data, 'base64');
-
-            // 检查图片大小（以MB为单位）
-            const imageSizeMB = imageBuffer.length / (1024 * 1024);
-            logger.info(`[MessageHandler] Image size: ${imageSizeMB.toFixed(2)} MB`);
-
-            // 如果图片超过10MB，记录警告
-            if (imageSizeMB > 10) {
-                logger.warn(`[MessageHandler] Large image detected (${imageSizeMB.toFixed(2)} MB), may fail to send`);
-            }
-
-            fs.writeFileSync(hostFilePath, imageBuffer);
-            logger.info(`[MessageHandler] Saved image to: ${hostFilePath} (size: ${imageSizeMB.toFixed(2)} MB)`);
-
-            // 返回容器内的路径，这样napcat可以访问
-            return containerFilePath;
-        } catch (e) {
-            logger.error('[MessageHandler] Error saving image file:', e);
-            throw e;
-        }
+        return notificationService.saveImageAsFile(base64Data, 'MessageHandler');
     }
 
     // 清理文本,移除可能导致编码问题的字符
     cleanText(text) {
-        if (typeof text !== 'string') return text;
-
-        try {
-            // 移除零宽字符和其他可能导致问题的Unicode字符
-            let cleaned = text
-                .replace(/[\u200B-\u200D\uFEFF]/g, '') // 零宽字符
-                .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '') // 控制字符
-                .replace(/\uFFFD/g, ''); // 替换字符
-
-            // 确保文本是有效的UTF-8
-            // 尝试编码和解码来验证
-            Buffer.from(cleaned, 'utf8');
-
-            return cleaned;
-        } catch (e) {
-            logger.warn('[MessageHandler] Text cleaning failed, using original:', e);
-            return text;
-        }
+        return notificationService.cleanText(text);
     }
 
-    sendGroupMessage(ws, groupId, messageChain) {
-        try {
-            // 处理图片消息，将base64图片转换为文件路径
-            // 同时清理文本消息
-            const processedMessageChain = messageChain.map(item => {
-                if (item.type === 'image' && item.data.file && item.data.file.startsWith('base64://')) {
-                    // 如果配置了直接发送 Base64，则不做转换
-                    if (config.useBase64Send) {
-                        return item;
-                    }
+    sendGroupMessage(ws, groupId, messageChain, userId = null) {
+        if (typeof groupId === 'string' && groupId.startsWith('private_')) {
+            const realUserId = groupId.replace('private_', '');
+            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'MessageHandler', true);
+            return;
+        }
 
-                    const base64Data = item.data.file.substring(9); // 移除 'base64://' 前缀
-                    const imagePath = this.saveImageAsFile(base64Data);
-                    // 返回文件路径格式，让NapCat直接发送原图
-                    return {
-                        type: 'image',
-                        data: {
-                            file: `file://${imagePath}`
-                        }
-                    };
-                } else if (item.type === 'text' && item.data.text) {
-                    // 清理文本
-                    return {
-                        type: 'text',
-                        data: {
-                            text: this.cleanText(item.data.text)
-                        }
-                    };
-                }
-                return item;
-            });
-
-            const payload = {
-                action: 'send_group_msg',
-                params: {
-                    group_id: groupId,
-                    message: processedMessageChain
-                }
-            };
-
-            logger.info(`[MessageHandler] Sending message to group ${groupId}, chain length: ${processedMessageChain.length}`);
-            logger.debug('[MessageHandler] Sending payload:', JSON.stringify(payload, null, 2).substring(0, 500)); // Debug log
-
-            ws.send(JSON.stringify(payload));
-            logger.info(`[MessageHandler] Message sent successfully to group ${groupId}`);
-        } catch (e) {
-            logger.error('[MessageHandler] Error sending group message:', e);
-            logger.error('[MessageHandler] Error stack:', e.stack);
-            logger.error('[MessageHandler] Failed message chain:', JSON.stringify(messageChain, null, 2).substring(0, 500));
-
-            // 尝试发送简化的错误通知
-            try {
-                const fallbackPayload = {
-                    action: 'send_group_msg',
-                    params: {
-                        group_id: groupId,
-                        message: [{ type: 'text', data: { text: '消息发送失败，请查看日志' } }]
-                    }
-                };
-                ws.send(JSON.stringify(fallbackPayload));
-            } catch (fallbackError) {
-                logger.error('[MessageHandler] Fallback message also failed:', fallbackError);
-            }
+        if (groupId) {
+            notificationService.sendGroupMessage(ws, groupId, messageChain, 'MessageHandler', true);
+        } else if (userId) {
+            notificationService.sendPrivateMessage(ws, userId, messageChain, 'MessageHandler', true);
+        } else {
+            logger.warn('[MessageHandler] Cannot send message: no groupId or userId provided');
         }
     }
 

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
+const logger = require('./utils/logger');
 
 const CONFIG_DIR = path.join(__dirname, '../config');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -11,7 +12,7 @@ if (fs.existsSync(CONFIG_PATH)) {
     try {
         configData = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        console.error('Failed to load config.json', e);
+        logger.error('[Config] Failed to load config.json', e);
     }
 }
 
@@ -36,7 +37,7 @@ const config = {
     aiSystemPrompt: process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
     
     // System Paths & Admin
-    pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? 'venv/bin/python' : 'python3'),
+    pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? path.join(__dirname, '../venv/bin/python') : 'python3'),
     biliScriptPath: './src/services/bili_service.py',
     adminQQ: process.env.ADMIN_QQ,
     useBase64Send: process.env.USE_BASE64_SEND === 'true',
@@ -176,10 +177,28 @@ const config = {
     },
 
     // Save configuration to file (Only dynamic fields)
+    // Uses a debounced queue to prevent excessive disk writes
+    _saveTimer: null,
+    _saveQueued: false,
+
     save: function() {
+        // Clear existing timer if any
+        if (this._saveTimer) {
+            clearTimeout(this._saveTimer);
+        }
+
+        // Debounce: wait 500ms before actually saving
+        this._saveTimer = setTimeout(() => {
+            this._performSave();
+        }, 500);
+    },
+
+    _performSave: function() {
         const data = {
             aiProbability: this.aiProbability,
             aiContextLimit: this.aiContextLimit,
+            aiHistoryMaxSize: this.aiHistoryMaxSize,
+            aiVectorMaxSize: this.aiVectorMaxSize,
             blacklistedQQs: this.blacklistedQQs,
             enabledGroups: this.enabledGroups,
             linkCacheTimeout: this.linkCacheTimeout,
@@ -189,11 +208,18 @@ const config = {
             showId: this.showId,
             groupConfigs: this.groupConfigs
         };
+
         try {
-            fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
-            console.log('Configuration saved to config.json');
+            const jsonString = JSON.stringify(data, null, 2);
+            fs.writeFile(CONFIG_PATH, jsonString, 'utf8', (err) => {
+                if (err) {
+                    logger.error('[Config] Failed to save configuration:', err);
+                } else {
+                    logger.info('[Config] Configuration saved to config.json');
+                }
+            });
         } catch (e) {
-            console.error('Failed to save configuration:', e);
+            logger.error('[Config] Error preparing configuration data:', e);
         }
     }
 };

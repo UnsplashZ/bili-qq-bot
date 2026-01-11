@@ -7,13 +7,15 @@ class BiliApi {
     constructor() {
         this.pythonPath = config.pythonPath;
         this.scriptPath = config.biliScriptPath;
+        this.retryDelay = 10000; // 10秒重试延迟
+        this.maxRetries = 1; // 最多重试1次
     }
 
     async runCommand(command, args = []) {
         return new Promise((resolve, reject) => {
             const processArgs = [this.scriptPath, command, ...args];
             const pythonProcess = spawn(this.pythonPath, processArgs);
-            
+
             const chunks = [];
             let errorString = '';
 
@@ -52,7 +54,7 @@ class BiliApi {
                     reject(e);
                 }
             });
-            
+
             pythonProcess.on('error', (err) => {
                 clearTimeout(timeout);
                 reject(err);
@@ -60,65 +62,137 @@ class BiliApi {
         });
     }
 
-    async getVideoInfo(bvid) {
-        return this.runCommand('video', [bvid]);
+    /**
+     * 带重试机制的命令执行
+     * @param {string} command - 命令名称
+     * @param {Array} args - 命令参数
+     * @param {number} retryCount - 当前重试次数（内部使用）
+     * @returns {Promise} 执行结果
+     */
+    async runCommandWithRetry(command, args = [], retryCount = 0) {
+        try {
+            logger.debug(`Executing command: ${command} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
+            const result = await this.runCommand(command, args);
+
+            // 成功执行，返回结果
+            if (retryCount > 0) {
+                logger.info(`Command ${command} succeeded after ${retryCount} retry(ies)`);
+            }
+            return result;
+        } catch (error) {
+            // 如果还有重试机会
+            if (retryCount < this.maxRetries) {
+                logger.warn(`Command ${command} failed (attempt ${retryCount + 1}/${this.maxRetries + 1}): ${error.message}`);
+                logger.info(`Retrying in ${this.retryDelay / 1000} seconds...`);
+
+                // 等待后重试
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+                return this.runCommandWithRetry(command, args, retryCount + 1);
+            } else {
+                // 已达到最大重试次数，记录错误并抛出
+                logger.error(`Command ${command} failed after ${this.maxRetries + 1} attempts: ${error.message}`);
+                throw error;
+            }
+        }
     }
 
-    async getBangumiInfo(seasonId) {
-        return this.runCommand('bangumi', [seasonId]);
+    async getVideoInfo(bvid, groupId) {
+        const args = [bvid];
+        if (groupId) args.push(groupId);
+        return this.runCommand('video', args);
     }
 
     async getLoginUrl() {
         return this.runCommand('login_url');
     }
 
-    async checkLogin(key) {
-        return this.runCommand('login_check', [key]);
+    async checkLogin(key, groupId) {
+        const args = [key];
+        if (groupId) args.push(groupId);
+        return this.runCommand('login_check', args);
     }
 
-    async getUserDynamic(uid) {
-        return this.runCommand('user_dynamic', [uid]);
+    async getUserDynamic(uid, groupId) {
+        const args = [uid];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('user_dynamic', args);
     }
 
-    async getUserLive(uid) {
-        return this.runCommand('user_live', [uid]);
+    async getUserLive(uid, groupId) {
+        const args = [uid];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('user_live', args);
     }
 
-    async getDynamicInfo(dynamicId) {
-        return this.runCommand('dynamic_detail', [dynamicId]);
+    async getDynamicInfo(dynamicId, groupId) {
+        const args = [dynamicId];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('dynamic_detail', args);
     }
 
-    async getArticleInfo(cvid) {
-        return this.runCommand('article', [cvid]);
+    async getArticleInfo(cvid, groupId) {
+        const args = [cvid];
+        if (groupId) args.push(groupId);
+        return this.runCommand('article', args);
     }
 
-    async getLiveRoomInfo(roomId) {
-        return this.runCommand('live_room', [roomId]);
+    async getBangumiInfo(seasonId, groupId) {
+        const args = [seasonId];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('bangumi', args);
     }
 
-    async getOpusInfo(opusId) {
-        return this.runCommand('opus', [opusId]);
+    async getLiveRoomInfo(roomId, groupId) {
+        const args = [roomId];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('live_room', args);
     }
 
-    async getUserInfo(uid) {
-        return this.runCommand('user_info', [uid]);
+    async getOpusInfo(opusId, groupId) {
+        const args = [opusId];
+        if (groupId) args.push(groupId);
+        return this.runCommand('opus', args);
     }
 
-    async getUserCard(uid) {
-        return this.runCommand('user_card', [uid]);
+    async getUserInfo(uid, groupId) {
+        const args = [uid];
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('user_info', args);
     }
 
-    async getEpInfo(epId) {
-        return this.runCommand('ep', [epId]);
+    async getUserCard(uid, groupId) {
+        const args = [uid];
+        if (groupId) args.push(groupId);
+        return this.runCommand('user_card', args);
     }
 
-    async getMediaInfo(mediaId) {
-        return this.runCommand('media', [mediaId]);
+    async getEpInfo(epId, groupId) {
+        const args = [epId];
+        if (groupId) args.push(groupId);
+        return this.runCommand('ep', args);
     }
 
-    async getMyFollowings(groupName) {
-        const args = groupName ? [groupName] : [];
-        return this.runCommand('my_followings', args);
+    async getMediaInfo(mediaId, groupId) {
+        const args = [mediaId];
+        if (groupId) args.push(groupId);
+        return this.runCommand('media', args);
+    }
+
+    async getMyFollowings(groupName, groupId) {
+        const args = [];
+        if (groupName) {
+            args.push(groupName);
+        } else {
+            // If groupName is skipped but groupId is present, we need to handle position.
+            // Python script: group_name = sys.argv[2], group_id = sys.argv[3]
+            // If we only have 1 arg in python, it's group_name.
+            // If we want to pass group_id but no group_name, we must pass "None" or "" for group_name.
+            if (groupId) {
+                args.push("None");
+            }
+        }
+        if (groupId) args.push(groupId);
+        return this.runCommandWithRetry('my_followings', args);
     }
 }
 

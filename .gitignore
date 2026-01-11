@@ -22,7 +22,7 @@ config/.env
 config/config.json
 
 # Data (Runtime)
-data/cookies.json
+data/cookies*
 data/subscriptions.json
 data/subfollowers.json
 data/contexts/*
@@ -54,3 +54,4 @@ temp/
 # Test
 test*
 coverage/
+

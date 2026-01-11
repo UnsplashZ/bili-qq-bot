@@ -29,6 +29,8 @@ Thumbs.db
 .vscode
 .idea
 .github
+.claude
+.trae
 
 # Docker & Setup (Not needed in image)
 docker-compose.yml
@@ -47,5 +49,4 @@ README.md
 LICENSE
 check_data_structure.js
 *.md
-.claude
-.trae
+

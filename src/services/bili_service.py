@@ -13,17 +13,61 @@ import colorsys
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'data/cookies.json'
+GROUP_COOKIES_MAP_FILE = 'data/cookies_map.json'
 
-def load_credential():
+import os
+
+def get_credential_file(group_id=None):
+    if not group_id:
+        return CREDENTIAL_FILE
+    
+    # Try to load mapping
+    mapping = {}
     try:
-        with open(CREDENTIAL_FILE, 'r') as f:
+        if os.path.exists(GROUP_COOKIES_MAP_FILE):
+            with open(GROUP_COOKIES_MAP_FILE, 'r') as f:
+                mapping = json.load(f)
+    except:
+        pass
+        
+    group_key = str(group_id)
+    if group_key in mapping:
+        return mapping[group_key]
+    
+    # Default to group specific file
+    return f'data/cookies_{group_key}.json'
+
+def load_credential(group_id=None):
+    file_path = get_credential_file(group_id)
+    try:
+        with open(file_path, 'r') as f:
             data = json.load(f)
             return Credential(sessdata=data.get('SESSDATA'), bili_jct=data.get('BILI_JCT'), buvid3=data.get('BUVID3'))
     except FileNotFoundError:
         return None
 
-def save_credential(credential):
-    with open(CREDENTIAL_FILE, 'w') as f:
+def save_credential(credential, group_id=None):
+    # Determine target file
+    if group_id:
+        group_key = str(group_id)
+        target_file = f'data/cookies_{group_key}.json'
+        
+        # Update mapping
+        mapping = {}
+        try:
+            if os.path.exists(GROUP_COOKIES_MAP_FILE):
+                with open(GROUP_COOKIES_MAP_FILE, 'r') as f:
+                    mapping = json.load(f)
+        except:
+            pass
+            
+        mapping[group_key] = target_file
+        with open(GROUP_COOKIES_MAP_FILE, 'w') as f:
+            json.dump(mapping, f, indent=4)
+    else:
+        target_file = CREDENTIAL_FILE
+
+    with open(target_file, 'w') as f:
         json.dump({
             'SESSDATA': credential.sessdata,
             'BILI_JCT': credential.bili_jct,
@@ -90,13 +134,13 @@ async def get_image_focus_color(url: str) -> str:
     except Exception:
         return None
 
-async def get_video_info(bvid):
+async def get_video_info(bvid, group_id=None):
     try:
         if str(bvid).lower().startswith('av'):
             aid = int(str(bvid)[2:])
-            v = video.Video(aid=aid, credential=load_credential())
+            v = video.Video(aid=aid, credential=load_credential(group_id))
         else:
-            v = video.Video(bvid=bvid, credential=load_credential())
+            v = video.Video(bvid=bvid, credential=load_credential(group_id))
         info = await v.get_info()
         cover_url = info.get('pic') or ''
         owner = info.get('owner') or {}
@@ -111,10 +155,10 @@ async def get_video_info(bvid):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_bangumi_info(season_id):
+async def get_bangumi_info(season_id, group_id=None):
     try:
         # 使用ssid参数初始化Bangumi类，这对某些番剧是必需的
-        b = bangumi.Bangumi(ssid=int(season_id), credential=load_credential())
+        b = bangumi.Bangumi(ssid=int(season_id), credential=load_credential(group_id))
 
         # 首先使用season_id获取meta信息，以获取media_id
         try:
@@ -123,7 +167,7 @@ async def get_bangumi_info(season_id):
 
             if media_id:
                 # 如果获取到media_id，使用它创建新的Bangumi实例来获取详细信息
-                b_with_media = bangumi.Bangumi(media_id=int(media_id), credential=load_credential())
+                b_with_media = bangumi.Bangumi(media_id=int(media_id), credential=load_credential(group_id))
 
                 # 获取overview和stat信息
                 try:
@@ -190,22 +234,22 @@ async def get_bangumi_info(season_id):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_opus_detail(opus_id):
+async def get_opus_detail(opus_id, group_id=None):
     try:
-        o = opus.Opus(int(opus_id), credential=load_credential())
+        o = opus.Opus(int(opus_id), credential=load_credential(group_id))
         if await o.is_article():
-            result = await get_article_info(opus_id)
+            result = await get_article_info(opus_id, group_id)
             if result.get('status') == 'success':
                 return result
             # If article fetch fails (e.g. 404), fallback to dynamic detail
             
-        return await get_dynamic_detail(opus_id)
+        return await get_dynamic_detail(opus_id, group_id)
     except Exception as e:
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-async def get_article_info(cvid):
+async def get_article_info(cvid, group_id=None):
     try:
         # Clean cvid: remove 'cv' prefix
         # Handle cases like "cv123456?param=1" -> "123456"
@@ -219,7 +263,7 @@ async def get_article_info(cvid):
              return {"status": "error", "message": "Invalid Article ID"}
              
         cvid_int = int(match.group(1))
-        a = article.Article(cvid_int, credential=load_credential())
+        a = article.Article(cvid_int, credential=load_credential(group_id))
         info = await a.get_info()
 
         # 获取作者信息（头像等）
@@ -227,7 +271,7 @@ async def get_article_info(cvid):
         author_face = None
         if author_mid:
             try:
-                u = user.User(uid=int(author_mid), credential=load_credential())
+                u = user.User(uid=int(author_mid), credential=load_credential(group_id))
                 author_info = await u.get_user_info()
                 author_face = author_info.get('face')
             except:
@@ -262,7 +306,7 @@ async def get_article_info(cvid):
                             opus_match = re.search(r'/opus/(\d+)', final_url)
                             if opus_match:
                                 opus_id = opus_match.group(1)
-                                return await get_opus_detail(opus_id)
+                                return await get_opus_detail(opus_id, group_id)
 
                         if resp.status == 200:
                             html = await resp.text()
@@ -311,9 +355,9 @@ async def get_article_info(cvid):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_live_room_info(room_id):
+async def get_live_room_info(room_id, group_id=None):
     try:
-        l = live.LiveRoom(int(room_id), credential=load_credential())
+        l = live.LiveRoom(int(room_id), credential=load_credential(group_id))
         info = await l.get_room_info()
         room_info = info.get('room_info', {})
         anchor_info = info.get('anchor_info', {}).get('base_info', {})
@@ -339,7 +383,7 @@ async def get_login_url():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def poll_login(qrcode_key):
+async def poll_login(qrcode_key, group_id=None):
     try:
         # 实例化并手动设置 key 以支持轮询
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
@@ -349,7 +393,7 @@ async def poll_login(qrcode_key):
         
         if event == login.QrCodeLoginEvents.DONE:
             credential = q.get_credential()
-            save_credential(credential)
+            save_credential(credential, group_id)
             return {"status": "success", "message": "登录成功"}
         elif event == login.QrCodeLoginEvents.SCAN:
             return {"status": "pending", "code": 86101, "message": "等待扫码"}
@@ -363,9 +407,9 @@ async def poll_login(qrcode_key):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_user_dynamic(uid):
+async def get_user_dynamic(uid, group_id=None):
     try:
-        u = user.User(uid=int(uid), credential=load_credential())
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
         # 使用新的 get_dynamics_new 接口
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
@@ -479,9 +523,9 @@ async def get_user_dynamic(uid):
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-async def get_user_live(uid):
+async def get_user_live(uid, group_id=None):
     try:
-        u = user.User(uid=int(uid), credential=load_credential())
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
         live_info = await u.get_live_info()
         
         # 兼容性处理：确保 JS 端需要的字段存在
@@ -500,9 +544,9 @@ async def get_user_live(uid):
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-async def get_dynamic_detail(dynamic_id):
+async def get_dynamic_detail(dynamic_id, group_id=None):
     try:
-        d = dynamic.Dynamic(int(dynamic_id), credential=load_credential())
+        d = dynamic.Dynamic(int(dynamic_id), credential=load_credential(group_id))
         info = await d.get_info()
 
         # 检查返回的数据是否有效
@@ -521,7 +565,7 @@ async def get_dynamic_detail(dynamic_id):
                 opus_match = re.search(r'/opus/(\d+)', jump_url)
                 if opus_match:
                     opus_id = opus_match.group(1)
-                    return await get_opus_detail(opus_id)
+                    return await get_opus_detail(opus_id, group_id)
 
             return {"status": "error", "message": f"动态 {dynamic_id} 的数据结构异常，可能已被删除"}
 
@@ -669,10 +713,10 @@ async def get_dynamic_detail(dynamic_id):
         error_detail = traceback.format_exc()
         return {"status": "error", "message": str(e), "detail": error_detail}
 
-async def get_ep_info(ep_id):
+async def get_ep_info(ep_id, group_id=None):
     try:
         # 使用Episode类获取EP信息
-        ep = bangumi.Episode(int(ep_id), credential=load_credential())
+        ep = bangumi.Episode(int(ep_id), credential=load_credential(group_id))
         info, _ = await ep.get_episode_info()  # 获取信息和数据类型，但只使用信息
 
         # 获取对应的番剧信息
@@ -701,10 +745,10 @@ async def get_ep_info(ep_id):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_media_info(media_id):
+async def get_media_info(media_id, group_id=None):
     try:
         # 使用media_id获取番剧信息
-        b = bangumi.Bangumi(media_id=int(media_id), credential=load_credential())
+        b = bangumi.Bangumi(media_id=int(media_id), credential=load_credential(group_id))
 
         # 获取番剧概览信息
         overview = await b.get_overview()
@@ -743,9 +787,9 @@ async def get_media_info(media_id):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_user_card(uid):
+async def get_user_card(uid, group_id=None):
     try:
-        u = user.User(uid=int(uid), credential=load_credential())
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
         user_info = await u.get_user_info()
         data = {
             "uid": user_info.get('mid', uid),
@@ -756,9 +800,9 @@ async def get_user_card(uid):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_user_info(uid):
+async def get_user_info(uid, group_id=None):
     try:
-        u = user.User(uid=int(uid), credential=load_credential())
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
 
         # 获取用户基本信息
         user_info = await u.get_user_info()
@@ -824,9 +868,9 @@ async def get_user_info(uid):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-async def get_my_followings(group_name=None):
+async def get_my_followings(group_name=None, group_id=None):
     try:
-        cred = load_credential()
+        cred = load_credential(group_id)
         if not cred:
             return {"status": "error", "message": "未登录，请先配置 cookies.json"}
         
@@ -948,24 +992,32 @@ async def main():
 
     command = sys.argv[1]
     
+    # Helper to get optional group_id from the last argument
+    # We assume standard call is: python script.py command [arg1] [group_id]
+    # or python script.py command [arg1] [arg2] [group_id]
+    
     if command == "video":
         bvid = sys.argv[2]
-        result = await get_video_info(bvid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_video_info(bvid, group_id)
         print(json.dumps(result, ensure_ascii=False))
         
     elif command == "bangumi":
         season_id = sys.argv[2]
-        result = await get_bangumi_info(season_id)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_bangumi_info(season_id, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "article":
         cvid = sys.argv[2]
-        result = await get_article_info(cvid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_article_info(cvid, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "live_room":
         room_id = sys.argv[2]
-        result = await get_live_room_info(room_id)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_live_room_info(room_id, group_id)
         print(json.dumps(result, ensure_ascii=False))
         
     elif command == "login_url":
@@ -974,54 +1026,66 @@ async def main():
         
     elif command == "login_check":
         key = sys.argv[2]
-        result = await poll_login(key)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await poll_login(key, group_id)
         print(json.dumps(result, ensure_ascii=False))
         
     elif command == "user_dynamic":
         uid = sys.argv[2]
-        result = await get_user_dynamic(uid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_user_dynamic(uid, group_id)
         print(json.dumps(result, ensure_ascii=False))
         
     elif command == "user_live":
         uid = sys.argv[2]
-        result = await get_user_live(uid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_user_live(uid, group_id)
         print(json.dumps(result, ensure_ascii=False))
         
     elif command == "dynamic_detail":
         did = sys.argv[2]
-        result = await get_dynamic_detail(did)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_dynamic_detail(did, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "opus":
         did = sys.argv[2]
-        result = await get_opus_detail(did)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_opus_detail(did, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "ep":
         ep_id = sys.argv[2]
-        result = await get_ep_info(ep_id)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_ep_info(ep_id, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "media":
         media_id = sys.argv[2]
-        result = await get_media_info(media_id)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_media_info(media_id, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "user_info":
         uid = sys.argv[2]
-        result = await get_user_info(uid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_user_info(uid, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "user_card":
         uid = sys.argv[2]
-        result = await get_user_card(uid)
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_user_card(uid, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     elif command == "my_followings":
         group_name = None
         if len(sys.argv) > 2:
             group_name = sys.argv[2]
-        result = await get_my_followings(group_name)
+            if group_name == "None" or group_name == "":
+                group_name = None
+        group_id = sys.argv[3] if len(sys.argv) > 3 else None
+        result = await get_my_followings(group_name, group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     else:

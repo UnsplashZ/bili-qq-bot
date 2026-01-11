@@ -170,6 +170,15 @@ while true; do
     fi
 done
 
+# 询问是否设置 WebSocket Token
+read -p "是否为 WebSocket 连接设置 Token？(留空则不设置) [token/回车跳过]: " ws_token
+if [ -z "$ws_token" ]; then
+    ws_token=""
+    echo -e "${YELLOW}跳过 Token 设置，WebSocket 连接将不需要身份验证。${NC}"
+else
+    echo -e "${GREEN}已设置 Token: $ws_token${NC}"
+fi
+
 # 生成 NapCat 配置文件
 echo "正在生成 NapCat 配置文件..."
 cat > "napcat/config/onebot11_$bot_qq.json" <<EOF
@@ -187,7 +196,7 @@ cat > "napcat/config/onebot11_$bot_qq.json" <<EOF
         "reportSelfMessage": false,
         "enableForcePushEvent": true,
         "messagePostFormat": "array",
-        "token": "",
+        "token": "$ws_token",
         "debug": false,
         "heartInterval": 30000
       }
@@ -269,6 +278,22 @@ if grep -q "^WS_URL=" config/.env; then
     sed -i "s/^WS_URL=.*/WS_URL=$escaped_ws_url/" config/.env
 else
     echo "WS_URL=$ws_url" >> config/.env
+fi
+
+# 设置 WS_TOKEN (使用前面询问的 token)
+if [ -n "$ws_token" ]; then
+    if grep -q "^WS_TOKEN=" config/.env; then
+        sed -i "s/^WS_TOKEN=.*/WS_TOKEN=$ws_token/" config/.env
+    else
+        echo "WS_TOKEN=$ws_token" >> config/.env
+    fi
+    echo "已配置 WS_TOKEN"
+else
+    # 如果token为空，确保.env中也为空或不存在
+    if grep -q "^WS_TOKEN=" config/.env; then
+        sed -i "s/^WS_TOKEN=.*/WS_TOKEN=/" config/.env
+    fi
+    echo "WS_TOKEN 留空"
 fi
 
 # 设置管理员 QQ

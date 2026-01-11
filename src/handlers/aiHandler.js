@@ -79,9 +79,7 @@ class AiHandler {
 
     // Check file size and trim if necessary
     checkSizeAndTrim(context, maxSize) {
-        // Optimization: Only check if context is large
-        if (context.length < 100) return;
-
+        // Always check size regardless of message count
         let jsonString = JSON.stringify(context);
         let currentSize = Buffer.byteLength(jsonString, 'utf8');
 
@@ -94,12 +92,12 @@ class AiHandler {
             // Remove chunks of messages to be faster
             const removeCount = Math.max(1, Math.floor(context.length * 0.1)); // Remove 10%
             context.splice(0, removeCount);
-            
+
             jsonString = JSON.stringify(context);
             currentSize = Buffer.byteLength(jsonString, 'utf8');
         }
-        
-        logger.info(`[AiHandler] Context trimmed to ${currentSize} bytes.`);
+
+        logger.info(`[AiHandler] Context trimmed to ${currentSize} bytes (${context.length} messages remaining).`);
     }
 
     // Save context for a specific group asynchronously with debounce
@@ -155,7 +153,7 @@ class AiHandler {
     async getReply(message, userId, groupId) {
         try {
             if (!config.aiApiKey) {
-                logger.warn('AI_API_KEY is not set. Skipping AI reply.');
+                logger.warn('[AiHandler] AI_API_KEY is not set. Skipping AI reply.');
                 return null;
             }
 
@@ -262,14 +260,14 @@ class AiHandler {
 
                 return reply;
             }
-            
-            logger.error('Unexpected AI API response structure:', response.data);
+
+            logger.error('[AiHandler] Unexpected AI API response structure:', response.data);
             return null;
         } catch (error) {
             if (error.response) {
-                logger.error(`AI API Error (Status ${error.response.status}):`, error.response.data);
+                logger.error(`[AiHandler] AI API Error (Status ${error.response.status}):`, error.response.data);
             } else {
-                logger.error('AI API Request Error:', error.message);
+                logger.error('[AiHandler] AI API Request Error:', error.message);
             }
             return null;
         }
