@@ -7,7 +7,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # 1. 检测系统环境
-echo -e "${GREEN}[1/9] 检测系统环境...${NC}"
+echo -e "${GREEN}[1/8] 检测系统环境...${NC}"
 
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}错误: 请使用 root 用户或 sudo 运行此脚本。${NC}"
@@ -81,18 +81,18 @@ fi
 check_and_install_dependencies
 
 # 2. 检测 Docker
-echo -e "${GREEN}[2/9] 检测 Docker 安装状态...${NC}"
+echo -e "${GREEN}[2/8] 检测 Docker 安装状态...${NC}"
 
 install_docker() {
     echo "未检测到 Docker。"
     echo "请选择安装源:"
-    echo "1) 国内镜像源 (推荐): bash <(curl -sSL https://xuanyuan.cloud/docker.sh)"
+    echo "1) 国内镜像源 (推荐): bash <(curl -sSL https://linuxmirrors.cn/docker.sh)"
     echo "2) 官方源: sudo wget -qO- https://get.docker.com/ | bash"
     read -p "请输入选项 [1/2]: " docker_choice
     
     case $docker_choice in
         1)
-            bash <(curl -sSL https://xuanyuan.cloud/docker.sh)
+            bash <(curl -sSL https://linuxmirrors.cn/docker.sh)
             ;;
         2)
             wget -qO- https://get.docker.com/ | bash
@@ -106,41 +106,33 @@ install_docker() {
 
 if ! command -v docker &> /dev/null; then
     install_docker
+    
+    # 安装后刷新环境
+    echo "正在刷新环境变量以识别 Docker..."
+    hash -r
+    
+    # 尝试 source 常用环境配置
+    [ -f /etc/profile ] && . /etc/profile
+    [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
+    [ -f ~/.bashrc ] && . ~/.bashrc
+    
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}错误: 安装 Docker 后仍无法识别 'docker' 命令。${NC}"
+        echo -e "${YELLOW}可能需要重新登录 SSH 会话才能生效。${NC}"
+        echo -e "${YELLOW}请重新登录后再次运行此脚本。${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}Docker 安装成功并已识别。${NC}"
+        docker --version
+    fi
 else
     echo "Docker 已安装。"
     docker --version
 fi
 
-# 3. 配置 Docker 镜像源
-echo -e "${GREEN}[3/9] 配置 Docker 镜像加速...${NC}"
-read -p "是否将 Docker 镜像源修改为 https://docker.1ms.run? [y/N] " configure_mirror
-if [[ "$configure_mirror" =~ ^[Yy]$ ]]; then
-    mkdir -p /etc/docker
-    if [ -f /etc/docker/daemon.json ]; then
-        echo -e "${YELLOW}警告: /etc/docker/daemon.json 已存在，正在备份为 daemon.json.bak${NC}"
-        cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
-    fi
-    
-    cat > /etc/docker/daemon.json <<EOF
-{
-  "registry-mirrors": ["https://docker.1ms.run"]
-}
-EOF
-    echo "正在重启 Docker 服务..."
-    if command -v systemctl &> /dev/null; then
-        systemctl restart docker
-    elif command -v service &> /dev/null; then
-        service docker restart
-    else
-        echo -e "${YELLOW}警告: 无法自动重启 Docker，请手动重启 Docker 服务以应用配置。${NC}"
-    fi
-    echo "Docker 镜像源配置完成。"
-else
-    echo "跳过 Docker 镜像源配置。"
-fi
 
-# 4. 设置安装目录
-echo -e "${GREEN}[4/9] 设置安装目录...${NC}"
+# 3. 设置安装目录
+echo -e "${GREEN}[3/8] 设置安装目录...${NC}"
 read -p "请输入安装目录 (留空则为当前目录): " install_dir
 if [ -z "$install_dir" ]; then
     install_dir=$(pwd)
@@ -152,14 +144,14 @@ else
 fi
 echo "当前工作目录: $install_dir"
 
-# 5. 创建目录结构
-echo -e "${GREEN}[5/9] 创建必要目录...${NC}"
+# 4. 创建目录结构
+echo -e "${GREEN}[4/8] 创建必要目录...${NC}"
 mkdir -p config data fonts/custom napcat/config napcat/qq logs
 echo "已创建: config, data, fonts/custom, napcat/config, napcat/qq, logs"
 echo -e "${YELLOW}提示: 如需使用自定义字体，请将字体文件放入 fonts/custom 目录${NC}"
 
-# 6. 配置 Bot QQ (NapCat 自动配置)
-echo -e "${GREEN}[6/9] 配置 Bot QQ...${NC}"
+# 5. 配置 Bot QQ (NapCat 自动配置)
+echo -e "${GREEN}[5/8] 配置 Bot QQ...${NC}"
 
 while true; do
     read -p "请输入 Bot 的 QQ 号 (必填): " bot_qq
@@ -211,10 +203,45 @@ cat > "napcat/config/onebot11_$bot_qq.json" <<EOF
 EOF
 echo "已创建 napcat/config/onebot11_$bot_qq.json"
 
-# 7. 配置 .env
-echo -e "${GREEN}[7/9] 配置环境变量 (.env)...${NC}"
+# 6. 配置 .env
+echo -e "${GREEN}[6/8] 生成配置文件...${NC}"
+
+# 确保 config 目录存在
+mkdir -p config
 
 SCRIPT_SOURCE_DIR=$(dirname "$(readlink -f "$0")")
+
+# --- MCP 配置逻辑 ---
+MCP_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
+
+download_mcp_example() {
+    echo "正在从远程仓库下载 mcp_servers.json.example..."
+    if command -v wget &> /dev/null; then
+        wget -q -O "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
+    elif command -v curl &> /dev/null; then
+        curl -s -L -o "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
+    else
+        echo -e "${YELLOW}警告: 无法下载 mcp_servers.json.example，MCP 功能可能需要手动配置。${NC}"
+        return 1
+    fi
+}
+
+if [ ! -f "config/mcp_servers.json.example" ]; then
+    if [ -f "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" ]; then
+        cp "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" "config/mcp_servers.json.example"
+        echo "已从本地模板复制 mcp_servers.json.example"
+    else
+        download_mcp_example
+    fi
+fi
+
+if [ ! -f "config/mcp_servers.json" ] && [ -f "config/mcp_servers.json.example" ]; then
+    cp "config/mcp_servers.json.example" "config/mcp_servers.json"
+    echo "已生成默认 config/mcp_servers.json"
+fi
+# --- End MCP 配置逻辑 ---
+
+# --- .env 配置逻辑 ---
 ENV_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
 
 # 下载函数 (.env.example)
@@ -314,8 +341,8 @@ fi
 
 echo -e "${YELLOW}提示: 您可以稍后编辑 config/.env 修改 AI 配置等其他选项。${NC}"
 
-# 8. 配置 docker-compose.yml
-echo -e "${GREEN}[8/9] 准备 Docker Compose...${NC}"
+# 7. 配置 docker-compose.yml
+echo -e "${GREEN}[7/8] 准备 Docker Compose...${NC}"
 
 COMPOSE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"
 HAS_LOCAL_TEMPLATE=false
@@ -372,13 +399,13 @@ if [ ! -f "docker-compose.yml" ]; then
      exit 1
 fi
 
-# 9. 启动运行
-echo -e "${GREEN}[9/9] 启动服务...${NC}"
+# 8. 启动运行
+echo -e "${GREEN}[8/8] 启动服务...${NC}"
 
-if command -v docker-compose &> /dev/null; then
-    CMD="docker-compose"
-elif docker compose version &> /dev/null; then
+if docker compose version &> /dev/null; then
     CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    CMD="docker-compose"
 else
     echo -e "${RED}错误: 未找到 docker-compose。${NC}"
     exit 1
@@ -410,8 +437,8 @@ if [ $? -eq 0 ]; then
         print $0
         fflush()
     }
-    /Login Success|登录成功/ {
-        print "\n\033[0;32m>>> 检测到登录成功！ <<<\033[0m"
+    /Login Success|登录成功|Server Started|WebSocket Server] Server Started/ {
+        print "\n\033[0;32m>>> 检测到登录成功或服务已就绪！ <<<\033[0m"
         exit 0
     }
     '
@@ -419,6 +446,7 @@ if [ $? -eq 0 ]; then
     echo "---------------------------------------------------"
     echo -e "${GREEN}部署全部完成！${NC}"
     echo "机器人服务已在后台运行。"
+    echo -e "${YELLOW}提示: 如需启用 MCP (Model Context Protocol) 扩展能力，请参考 config/mcp_servers.json.example 进行配置。${NC}"
     echo "如需查看机器人日志: docker logs -f bili-qq-bot"
 else
     echo -e "${RED}部署失败。${NC}"

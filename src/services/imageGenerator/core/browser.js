@@ -73,10 +73,65 @@ class BrowserManager {
                     '--memory-pressure-off',
                     '--max_old_space_size=4096'
                 ],
-                headless: "new"
+                headless: "new",
+                protocolTimeout: 60000 // 增加协议超时时间到 60s
             });
             logger.info('Puppeteer browser initialized');
+            
+            // 监听浏览器断开连接事件
+            this.browser.on('disconnected', () => {
+                logger.warn('Puppeteer browser disconnected! Resetting instance...');
+                this.browser = null;
+                this.pagePool.clear();
+            });
         }
+    }
+
+    /**
+     * 执行带重试机制的浏览器操作
+     * @param {Function} operation - 包含浏览器操作的异步函数
+     * @param {Number} maxRetries - 最大重试次数
+     * @returns {Promise<any>} 操作结果
+     */
+    async withRetry(operation, maxRetries = 1) {
+        let lastError;
+        
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                // 如果是重试，且浏览器已断开，重新初始化
+                if (attempt > 0 && !this.browser) {
+                    logger.info(`[Browser] Re-initializing browser for retry attempt ${attempt}...`);
+                    await this.init();
+                }
+                
+                return await operation();
+            } catch (error) {
+                lastError = error;
+                const isProtocolError = error.message && (
+                    error.message.includes('Protocol error') || 
+                    error.message.includes('Target closed') ||
+                    error.message.includes('Session closed')
+                );
+
+                if (isProtocolError && attempt < maxRetries) {
+                    logger.warn(`[Browser] Operation failed with protocol error (attempt ${attempt + 1}/${maxRetries + 1}). Retrying...`);
+                    // 如果是协议错误，强制重置浏览器
+                    if (this.browser) {
+                        try {
+                            await this.browser.close();
+                        } catch (e) { /* ignore */ }
+                        this.browser = null;
+                        this.pagePool.clear();
+                    }
+                    // 等待一小会儿再重试
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    // 如果不是协议错误，或者是最后一次尝试，则抛出异常
+                    throw error;
+                }
+            }
+        }
+        throw lastError;
     }
 
     /**

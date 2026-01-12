@@ -109,6 +109,43 @@ const config = {
         this.save();
     },
 
+    // Helper to append value to a group config array
+    appendGroupConfigArray: function(groupId, key, value) {
+        if (!groupId) return false;
+        if (!this.groupConfigs[groupId]) {
+            this.groupConfigs[groupId] = {};
+        }
+        
+        // Ensure it's an array
+        if (!Array.isArray(this.groupConfigs[groupId][key])) {
+            this.groupConfigs[groupId][key] = [];
+        }
+
+        const arr = this.groupConfigs[groupId][key];
+        if (!arr.includes(value)) {
+            arr.push(value);
+            this.save();
+            return true;
+        }
+        return false;
+    },
+
+    // Helper to remove value from a group config array
+    removeGroupConfigArray: function(groupId, key, value) {
+        if (!groupId || !this.groupConfigs[groupId]) return false;
+        
+        const arr = this.groupConfigs[groupId][key];
+        if (Array.isArray(arr)) {
+            const index = arr.indexOf(value);
+            if (index > -1) {
+                arr.splice(index, 1);
+                this.save();
+                return true;
+            }
+        }
+        return false;
+    },
+
     // Permission Checks
     isRootAdmin: function(userId) {
         return this.adminQQ && userId.toString() === this.adminQQ.toString();
