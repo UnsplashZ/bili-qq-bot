@@ -149,7 +149,8 @@ class SubscriptionService {
     removeUserSubscription(uid, groupId) {
         const sub = this.userSubs.find(s => s.uid === uid);
         if (!sub) return false;
-        sub.groupIds = sub.groupIds.filter(id => id !== groupId);
+        // 使用 String 转换进行比较，以兼容数字和字符串类型的 groupId
+        sub.groupIds = sub.groupIds.filter(id => String(id) !== String(groupId));
         if (sub.groupIds.length === 0) {
             this.userSubs = this.userSubs.filter(s => s.uid !== uid);
         }
@@ -196,7 +197,8 @@ class SubscriptionService {
     removeBangumiSubscription(seasonId, groupId) {
         const sub = this.bangumiSubs.find(s => s.seasonId === seasonId);
         if (!sub) return false;
-        sub.groupIds = sub.groupIds.filter(id => id !== groupId);
+        // 使用 String 转换进行比较，以兼容数字和字符串类型的 groupId
+        sub.groupIds = sub.groupIds.filter(id => String(id) !== String(groupId));
         if (sub.groupIds.length === 0) {
             this.bangumiSubs = this.bangumiSubs.filter(s => s.seasonId !== seasonId);
         }
@@ -211,7 +213,8 @@ class SubscriptionService {
 
         // Clean user subscriptions
         this.userSubs.forEach(sub => {
-            const idx = sub.groupIds.indexOf(strGroupId);
+            // 使用 findIndex + String 转换查找，兼容数字和字符串类型的 groupId
+            const idx = sub.groupIds.findIndex(id => String(id) === strGroupId);
             if (idx > -1) {
                 sub.groupIds.splice(idx, 1);
                 changed = true;
@@ -224,7 +227,8 @@ class SubscriptionService {
 
         // Clean bangumi subscriptions
         this.bangumiSubs.forEach(sub => {
-            const idx = sub.groupIds.indexOf(strGroupId);
+            // 使用 findIndex + String 转换查找，兼容数字和字符串类型的 groupId
+            const idx = sub.groupIds.findIndex(id => String(id) === strGroupId);
             if (idx > -1) {
                 sub.groupIds.splice(idx, 1);
                 changed = true;
