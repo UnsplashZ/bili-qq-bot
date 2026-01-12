@@ -1,6 +1,7 @@
 const biliApi = require('../services/biliApi');
 const imageGenerator = require('../services/imageGenerator');
 const aiHandler = require('./aiHandler');
+const vectorMemoryService = require('../services/vectorMemoryService');
 const logger = require('../utils/logger');
 const QRCode = require('qrcode');
 const subscriptionService = require('../services/subscriptionService');
@@ -543,6 +544,17 @@ class MessageHandler {
                     logger.error(`[MessageHandler] Failed to expand short link ${shortUrl}:`, e);
                 }
             }
+        }
+
+        // 3. Vector Memory Storage (Store all non-command user messages)
+        // Store after URL expansion to include full links
+        if (groupId && rawMessage && !rawMessage.trim().startsWith('/')) {
+             const cleanMsg = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
+             if (cleanMsg) {
+                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user').catch(e => {
+                     logger.error('[MessageHandler] Failed to save vector memory:', e);
+                 });
+             }
         }
 
         // Command: /订阅列表

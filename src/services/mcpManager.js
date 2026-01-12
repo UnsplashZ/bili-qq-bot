@@ -22,49 +22,96 @@ class McpManager {
             
             for (const [serverName, serverConfig] of Object.entries(config)) {
                 if (serverConfig.enabled === false) continue;
-
-                try {
-                    logger.info(`[McpManager] Connecting to ${serverName}...`);
-                    
-                    const transport = new StdioClientTransport({
-                        command: serverConfig.command,
-                        args: serverConfig.args || [],
-                        env: { ...process.env, ...(serverConfig.env || {}) }
-                    });
-
-                    const client = new Client({
-                        name: "NapCat-Bot",
-                        version: "1.0.0",
-                    }, {
-                        capabilities: {
-                            tools: {},
-                        }
-                    });
-
-                    await client.connect(transport);
-                    this.clients.set(serverName, client);
-                    
-                    // Cache tools
-                    const result = await client.listTools();
-                    for (const tool of result.tools) {
-                        const uniqueToolName = `${serverName}__${tool.name}`;
-                        this.toolsMap.set(uniqueToolName, {
-                            serverName,
-                            originalName: tool.name,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                        });
-                    }
-                    
-                    logger.info(`[McpManager] Connected to ${serverName}, loaded ${result.tools.length} tools.`);
-
-                } catch (e) {
-                    logger.error(`[McpManager] Failed to connect to ${serverName}:`, e);
-                }
+                this.connectToServer(serverName, serverConfig);
             }
         } catch (e) {
             logger.error('[McpManager] Failed to load config:', e);
         }
+    }
+
+    async connectToServer(serverName, serverConfig, retryCount = 0) {
+        const MAX_RETRIES = 5;
+        const RETRY_DELAY = 5000; // 5 seconds
+
+        try {
+            logger.info(`[McpManager] Connecting to ${serverName}... (Attempt ${retryCount + 1})`);
+            
+            const transport = new StdioClientTransport({
+                command: serverConfig.command,
+                args: serverConfig.args || [],
+                env: { ...process.env, ...(serverConfig.env || {}) }
+            });
+
+            // Handle transport errors (e.g. process exit)
+            transport.onerror = async (error) => {
+                logger.error(`[McpManager] Transport error for ${serverName}:`, error);
+                this.handleDisconnect(serverName, serverConfig);
+            };
+            
+            // Handle transport close
+            transport.onclose = async () => {
+                 logger.warn(`[McpManager] Transport closed for ${serverName}`);
+                 this.handleDisconnect(serverName, serverConfig);
+            };
+
+            const client = new Client({
+                name: "NapCat-Bot",
+                version: "1.0.0",
+            }, {
+                capabilities: {
+                    tools: {},
+                }
+            });
+
+            await client.connect(transport);
+            this.clients.set(serverName, client);
+            
+            // Cache tools
+            const result = await client.listTools();
+            for (const tool of result.tools) {
+                const uniqueToolName = `${serverName}__${tool.name}`;
+                this.toolsMap.set(uniqueToolName, {
+                    serverName,
+                    originalName: tool.name,
+                    description: tool.description,
+                    inputSchema: tool.inputSchema
+                });
+            }
+            
+            logger.info(`[McpManager] Connected to ${serverName}, loaded ${result.tools.length} tools.`);
+
+        } catch (e) {
+            logger.error(`[McpManager] Failed to connect to ${serverName}:`, e);
+            if (retryCount < MAX_RETRIES) {
+                logger.info(`[McpManager] Retrying connection to ${serverName} in ${RETRY_DELAY/1000}s...`);
+                setTimeout(() => {
+                    this.connectToServer(serverName, serverConfig, retryCount + 1);
+                }, RETRY_DELAY);
+            } else {
+                logger.error(`[McpManager] Max retries reached for ${serverName}. Connection failed.`);
+            }
+        }
+    }
+
+    async handleDisconnect(serverName, serverConfig) {
+        // Clean up existing client if exists
+        if (this.clients.has(serverName)) {
+            this.clients.delete(serverName);
+        }
+        
+        // Remove tools associated with this server
+        for (const [key, value] of this.toolsMap.entries()) {
+            if (value.serverName === serverName) {
+                this.toolsMap.delete(key);
+            }
+        }
+
+        logger.info(`[McpManager] Attempting to reconnect to ${serverName}...`);
+        // Start reconnection loop (reset retry count or use a separate logic)
+        // Here we start a new connection attempt loop
+        setTimeout(() => {
+             this.connectToServer(serverName, serverConfig, 0);
+        }, 5000);
     }
 
     getOpenAITools() {
