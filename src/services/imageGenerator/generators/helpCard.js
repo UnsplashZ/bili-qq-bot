@@ -10,29 +10,30 @@ const { generateUnifiedCSS } = require('../../../utils/designSystem');
  * @returns {Promise<String>} Base64编码的图片
  */
 async function generateHelpCard(type = 'user', groupId) {
-    await browserManager.init();
-    const page = await browserManager.createPage({
-        width: 1000,
-        height: 1500,
-        deviceScaleFactor: 1.5
-    });
+    return browserManager.withRetry(async () => {
+        await browserManager.init();
+        const page = await browserManager.createPage({
+            width: 1000,
+            height: 1500,
+            deviceScaleFactor: 1.5
+        });
 
-    try {
-        // Theme: auto switch by config
-        const isNight = isNightMode(groupId);
-        const themeClass = isNight ? 'theme-dark' : 'theme-light';
+        try {
+            // Theme: auto switch by config
+            const isNight = isNightMode(groupId);
+            const themeClass = isNight ? 'theme-dark' : 'theme-light';
 
-    const { css: customFontsCss, families: customFontFamilies } = getCustomFonts();
+            const { css: customFontsCss, families: customFontFamilies } = getCustomFonts();
 
-    // Unified Design System Integration
-    const colorData = {
-        themeClass,
-        badgeColor: '#FB7299',
-        gradientMix: isNight ? 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)' : 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)',
-        currentType: { label: '使用帮助', color: '#FB7299', icon: '💡' }
-    };
-    const viewport = { width: 1000, minWidth: 400 };
-    const baseCss = generateUnifiedCSS(colorData, viewport, { customFontsCss, customFontFamilies });
+            // Unified Design System Integration
+            const colorData = {
+                themeClass,
+                badgeColor: '#FB7299',
+                gradientMix: isNight ? 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)' : 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)',
+                currentType: { label: type === 'user' ? '使用帮助' : '管理面板', color: '#FB7299', icon: type === 'user' ? '💡' : '⚙️' }
+            };
+            const viewport = { width: 1000, minWidth: 400 };
+            const baseCss = generateUnifiedCSS(colorData, viewport, { customFontsCss, customFontFamilies });
 
     const style = `
         ${baseCss}
@@ -310,8 +311,12 @@ async function generateHelpCard(type = 'user', groupId) {
                         <span class="cmd-desc">开关Bot权限</span>
                     </div>
                     <div class="cmd-item">
-                        <span class="cmd-code">/设置 关注同步 &lt;开|关&gt; [分组]</span>
-                        <span class="cmd-desc">同步账户关注至群订阅(可指定分组)</span>
+                        <span class="cmd-code">/设置 关注同步 &lt;开|关&gt;</span>
+                        <span class="cmd-desc">开启/关闭关注同步功能</span>
+                    </div>
+                    <div class="cmd-item">
+                        <span class="cmd-code">/设置 关注同步 &lt;添加|删除&gt; &lt;分组&gt;</span>
+                        <span class="cmd-desc">管理同步的 B 站关注分组</span>
                     </div>
                     <div class="cmd-item">
                         <span class="cmd-code">/设置 黑名单 &lt;操作&gt;</span>
@@ -416,6 +421,7 @@ async function generateHelpCard(type = 'user', groupId) {
         // 确保页面在任何情况下都会被关闭
         await browserManager.closePage(page);
     }
+});
 }
 
 module.exports = { generateHelpCard };

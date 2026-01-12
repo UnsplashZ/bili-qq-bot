@@ -40,7 +40,8 @@ RUN fc-cache -fv
 # 4. 安装 Python 依赖 (全局安装)
 COPY requirements.txt .
 # Debian Bookworm 默认禁止全局 pip，需添加 --break-system-packages
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip3 install --no-cache-dir uv --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 6. 设置 Node.js 环境
 # 复制 package.json 和 lock 文件

@@ -4,6 +4,7 @@ const logger = require('./utils/logger');
 const messageHandler = require('./handlers/messageHandler');
 const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
+const mcpManager = require('./services/mcpManager');
 
 // WebSocket连接管理
 let ws = null;
@@ -138,4 +139,11 @@ process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 
 // 初始连接
-createWebSocketConnection();
+(async () => {
+    try {
+        await mcpManager.init();
+    } catch (e) {
+        logger.error('Failed to initialize MCP Manager:', e);
+    }
+    createWebSocketConnection();
+})();

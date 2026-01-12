@@ -212,9 +212,44 @@ EOF
 echo "已创建 napcat/config/onebot11_$bot_qq.json"
 
 # 7. 配置 .env
-echo -e "${GREEN}[7/9] 配置环境变量 (.env)...${NC}"
+echo -e "${GREEN}[7/9] 生成配置文件...${NC}"
+
+# 确保 config 目录存在
+mkdir -p config
 
 SCRIPT_SOURCE_DIR=$(dirname "$(readlink -f "$0")")
+
+# --- MCP 配置逻辑 ---
+MCP_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
+
+download_mcp_example() {
+    echo "正在从远程仓库下载 mcp_servers.json.example..."
+    if command -v wget &> /dev/null; then
+        wget -q -O "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
+    elif command -v curl &> /dev/null; then
+        curl -s -L -o "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
+    else
+        echo -e "${YELLOW}警告: 无法下载 mcp_servers.json.example，MCP 功能可能需要手动配置。${NC}"
+        return 1
+    fi
+}
+
+if [ ! -f "config/mcp_servers.json.example" ]; then
+    if [ -f "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" ]; then
+        cp "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" "config/mcp_servers.json.example"
+        echo "已从本地模板复制 mcp_servers.json.example"
+    else
+        download_mcp_example
+    fi
+fi
+
+if [ ! -f "config/mcp_servers.json" ] && [ -f "config/mcp_servers.json.example" ]; then
+    cp "config/mcp_servers.json.example" "config/mcp_servers.json"
+    echo "已生成默认 config/mcp_servers.json"
+fi
+# --- End MCP 配置逻辑 ---
+
+# --- .env 配置逻辑 ---
 ENV_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
 
 # 下载函数 (.env.example)
@@ -410,8 +445,8 @@ if [ $? -eq 0 ]; then
         print $0
         fflush()
     }
-    /Login Success|登录成功/ {
-        print "\n\033[0;32m>>> 检测到登录成功！ <<<\033[0m"
+    /Login Success|登录成功|Server Started|WebSocket Server] Server Started/ {
+        print "\n\033[0;32m>>> 检测到登录成功或服务已就绪！ <<<\033[0m"
         exit 0
     }
     '
@@ -419,6 +454,7 @@ if [ $? -eq 0 ]; then
     echo "---------------------------------------------------"
     echo -e "${GREEN}部署全部完成！${NC}"
     echo "机器人服务已在后台运行。"
+    echo -e "${YELLOW}提示: 如需启用 MCP (Model Context Protocol) 扩展能力，请参考 config/mcp_servers.json.example 进行配置。${NC}"
     echo "如需查看机器人日志: docker logs -f bili-qq-bot"
 else
     echo -e "${RED}部署失败。${NC}"

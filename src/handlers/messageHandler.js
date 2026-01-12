@@ -1194,29 +1194,61 @@ class MessageHandler {
                 return;
             }
 
-            // 8. 关注同步 (/设置 关注同步 <开|关> [B站分组名])
+            // 8. 关注同步 (/设置 关注同步 <开|关> 或 /设置 关注同步 <添加|删除> <B站分组名>)
             if (subCommand === '关注同步') {
                 const action = parts[2];
-                const groupName = parts[3]; // Optional group name
+                const groupName = parts[3]; 
 
                 if (action === '开') {
                     config.setGroupConfig(groupId, 'enableCookieSync', true);
-                    if (groupName) {
-                        config.setGroupConfig(groupId, 'cookieSyncGroupName', groupName);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已开启本群的关注列表同步功能，并绑定到B站分组：${groupName}。` } }]);
+                    const currentGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
+                    
+                    if (currentGroups.length === 0) {
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已开启关注同步功能。注意：当前未设置任何同步分组，请使用 /设置 关注同步 添加 <分组名> 来添加需要同步的分组。' } }]);
                     } else {
-                        // If no group name provided, default to syncing all (clear specific group config)
-                        config.setGroupConfig(groupId, 'cookieSyncGroupName', null);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已开启本群的关注列表同步功能。账户关注的所有用户将自动被视为本群订阅。' } }]);
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已开启关注同步功能。当前生效分组：${currentGroups.join(', ')}。` } }]);
                     }
-                    // Trigger refresh to ensure data is available
+                    // Trigger refresh
                     subscriptionService.refreshCookieFollowings();
+
                 } else if (action === '关') {
                     config.setGroupConfig(groupId, 'enableCookieSync', false);
-                    config.setGroupConfig(groupId, 'cookieSyncGroupName', null);
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已关闭本群的关注列表同步功能。' } }]);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已关闭关注同步功能。' } }]);
+
+                } else if (action === '添加') {
+                    if (!groupName) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请指定要添加的分组名。' } }]);
+                        return;
+                    }
+                    const added = config.appendGroupConfigArray(groupId, 'cookieSyncGroupNames', groupName);
+                    if (added) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已添加同步分组：${groupName}。` } }]);
+                        // Refresh if enabled
+                        if (config.getGroupConfig(groupId, 'enableCookieSync')) {
+                            subscriptionService.refreshCookieFollowings();
+                        }
+                    } else {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `分组 ${groupName} 已存在。` } }]);
+                    }
+
+                } else if (action === '删除') {
+                    if (!groupName) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请指定要删除的分组名。' } }]);
+                        return;
+                    }
+                    const removed = config.removeGroupConfigArray(groupId, 'cookieSyncGroupNames', groupName);
+                    if (removed) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已移除同步分组：${groupName}。` } }]);
+                         // Refresh if enabled
+                        if (config.getGroupConfig(groupId, 'enableCookieSync')) {
+                            subscriptionService.refreshCookieFollowings();
+                        }
+                    } else {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未找到分组 ${groupName}。` } }]);
+                    }
+
                 } else {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 关注同步 <开|关> [B站分组名]' } }]);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法:\n/设置 关注同步 <开|关>\n/设置 关注同步 <添加|删除> <B站分组名>' } }]);
                 }
                 return;
             }
