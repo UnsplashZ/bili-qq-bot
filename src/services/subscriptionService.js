@@ -19,7 +19,7 @@ class SubscriptionService {
         this.cookieFollowings = []; // In-memory cache of followings: [{ uid: number, name: string, face: string }]
         this.ws = null;
         this.checkInterval = config.subscriptionCheckInterval * 1000; // 从配置读取并转换为毫秒
-        this.cookieSyncInterval = 60 * 60 * 1000; // Check followings every 60 minutes
+        this.cookieSyncInterval = 4 * 60 * 60 * 1000; // Check followings every 4 hours
         this.loadSubscriptions();
         this.loadFollowers();
     }
@@ -149,7 +149,8 @@ class SubscriptionService {
     removeUserSubscription(uid, groupId) {
         const sub = this.userSubs.find(s => s.uid === uid);
         if (!sub) return false;
-        sub.groupIds = sub.groupIds.filter(id => id !== groupId);
+        // 使用 String 转换进行比较，以兼容数字和字符串类型的 groupId
+        sub.groupIds = sub.groupIds.filter(id => String(id) !== String(groupId));
         if (sub.groupIds.length === 0) {
             this.userSubs = this.userSubs.filter(s => s.uid !== uid);
         }
@@ -196,7 +197,8 @@ class SubscriptionService {
     removeBangumiSubscription(seasonId, groupId) {
         const sub = this.bangumiSubs.find(s => s.seasonId === seasonId);
         if (!sub) return false;
-        sub.groupIds = sub.groupIds.filter(id => id !== groupId);
+        // 使用 String 转换进行比较，以兼容数字和字符串类型的 groupId
+        sub.groupIds = sub.groupIds.filter(id => String(id) !== String(groupId));
         if (sub.groupIds.length === 0) {
             this.bangumiSubs = this.bangumiSubs.filter(s => s.seasonId !== seasonId);
         }
@@ -211,7 +213,8 @@ class SubscriptionService {
 
         // Clean user subscriptions
         this.userSubs.forEach(sub => {
-            const idx = sub.groupIds.indexOf(strGroupId);
+            // 使用 findIndex + String 转换查找，兼容数字和字符串类型的 groupId
+            const idx = sub.groupIds.findIndex(id => String(id) === strGroupId);
             if (idx > -1) {
                 sub.groupIds.splice(idx, 1);
                 changed = true;
@@ -224,7 +227,8 @@ class SubscriptionService {
 
         // Clean bangumi subscriptions
         this.bangumiSubs.forEach(sub => {
-            const idx = sub.groupIds.indexOf(strGroupId);
+            // 使用 findIndex + String 转换查找，兼容数字和字符串类型的 groupId
+            const idx = sub.groupIds.findIndex(id => String(id) === strGroupId);
             if (idx > -1) {
                 sub.groupIds.splice(idx, 1);
                 changed = true;
@@ -304,21 +308,28 @@ class SubscriptionService {
             for (const groupId in config.groupConfigs) {
                 if (config.getGroupConfig(groupId, 'enableCookieSync')) {
                     hasEnabledGroups = true;
-                    const groupName = config.getGroupConfig(groupId, 'cookieSyncGroupName'); // e.g. "SpecialGroup" or null for All
+                    // Changed from single value 'cookieSyncGroupName' to array 'cookieSyncGroupNames'
+                    const groupNames = config.getGroupConfig(groupId, 'cookieSyncGroupNames'); 
                     
-                    logger.info(`[SubscriptionService] Fetching followings for QQ Group ${groupId} (BiliGroup: ${groupName || 'ALL'})...`);
-                    
-                    // Call API with groupId to use that group's cookie
-                    const res = await biliApi.getMyFollowings(groupName, groupId);
-                    
-                    if (res.status === 'success' && res.data) {
-                        const tag = groupName || 'ALL';
-                        for (const u of res.data) {
-                            mergeUser(u, tag);
+                    if (!Array.isArray(groupNames) || groupNames.length === 0) {
+                        logger.info(`[SubscriptionService] QQ Group ${groupId} has sync enabled but no BiliGroups configured. Skipping.`);
+                        continue;
+                    }
+
+                    for (const groupName of groupNames) {
+                        logger.info(`[SubscriptionService] Fetching followings for QQ Group ${groupId} (BiliGroup: ${groupName})...`);
+                        
+                        // Call API with groupId to use that group's cookie
+                        const res = await biliApi.getMyFollowings(groupName, groupId);
+                        
+                        if (res.status === 'success' && res.data) {
+                            for (const u of res.data) {
+                                mergeUser(u, groupName);
+                            }
+                            logger.info(`[SubscriptionService] Fetched ${res.data.length} users for QQ Group ${groupId} (BiliGroup: ${groupName})`);
+                        } else {
+                            logger.warn(`[SubscriptionService] Failed to fetch followings for QQ Group ${groupId} (BiliGroup: ${groupName}): ${res.message}`);
                         }
-                        logger.info(`[SubscriptionService] Fetched ${res.data.length} users for QQ Group ${groupId}`);
-                    } else {
-                        logger.warn(`[SubscriptionService] Failed to fetch followings for QQ Group ${groupId}: ${res.message}`);
                     }
                 }
             }
@@ -553,8 +564,13 @@ class SubscriptionService {
         
         for (const groupId in config.groupConfigs) {
             if (config.getGroupConfig(groupId, 'enableCookieSync')) {
-                const target = config.getGroupConfig(groupId, 'cookieSyncGroupName'); // null/undefined means ALL
-                groupSyncRules.push({ groupId, target });
+                // Changed to array
+                const targets = config.getGroupConfig(groupId, 'cookieSyncGroupNames'); 
+                if (Array.isArray(targets) && targets.length > 0) {
+                    for (const target of targets) {
+                        groupSyncRules.push({ groupId, target });
+                    }
+                }
             }
         }
 
@@ -565,15 +581,10 @@ class SubscriptionService {
                 // Determine which QQ groups should subscribe to this user
                 const targetGroupIds = [];
                 for (const rule of groupSyncRules) {
-                    if (!rule.target) {
-                        // Rule wants ALL users
-                        targetGroupIds.push(rule.groupId);
-                    } else {
-                        // Rule wants specific group
-                        if (following.biliGroups && following.biliGroups.includes(rule.target)) {
-                            targetGroupIds.push(rule.groupId);
-                        }
-                    }
+                     // rule.target is a string (group name)
+                     if (following.biliGroups && following.biliGroups.includes(rule.target)) {
+                         targetGroupIds.push(rule.groupId);
+                     }
                 }
 
                 if (targetGroupIds.length > 0) {

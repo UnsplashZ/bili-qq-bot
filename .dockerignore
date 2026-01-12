@@ -14,6 +14,7 @@ yarn-error.log*
 .env
 config/.env
 config/config.json
+config/mcp_servers.json
 
 # Data & Logs (Runtime)
 data/
