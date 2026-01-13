@@ -56,6 +56,32 @@ const config = {
     // AI Vector Memory File Size Limit in Bytes (default 200MB)
     aiVectorMaxSize: configData.aiVectorMaxSize || 200 * 1024 * 1024,
 
+    // Vector Memory Configuration
+    // Similarity threshold for vector search (0-1, higher = stricter match)
+    aiVectorSimilarityThreshold: configData.aiVectorSimilarityThreshold !== undefined ? configData.aiVectorSimilarityThreshold : 0.4,
+
+    // Number of relevant memories to return in search
+    aiVectorSearchLimit: configData.aiVectorSearchLimit || 3,
+
+    // Minimum message length to save as memory (characters)
+    aiShortMessageThreshold: configData.aiShortMessageThreshold || 5,
+
+    // Maximum number of messages to keep in memory before safety trim
+    aiMemorySafetyLimit: configData.aiMemorySafetyLimit || 5000,
+
+    // Ratio of items to remove during trim (0-1, default 0.1 = 10%)
+    aiTrimRatio: configData.aiTrimRatio !== undefined ? configData.aiTrimRatio : 0.1,
+
+    // Performance Configuration
+    // Batch size for loading vectors (not used for now, reserved for future)
+    aiVectorBatchLoadSize: configData.aiVectorBatchLoadSize || 1000,
+
+    // Enable vector search caching for performance
+    aiEnableVectorCache: configData.aiEnableVectorCache !== false,
+
+    // Enable smart memory retention strategy (vs simple FIFO)
+    aiEnableSmartTrim: configData.aiEnableSmartTrim !== false,
+
     // Blacklist QQ numbers
     blacklistedQQs: configData.blacklistedQQs || [],
 
@@ -239,6 +265,17 @@ const config = {
             aiContextLimit: this.aiContextLimit,
             aiHistoryMaxSize: this.aiHistoryMaxSize,
             aiVectorMaxSize: this.aiVectorMaxSize,
+            // Vector Memory Configuration
+            aiVectorSimilarityThreshold: this.aiVectorSimilarityThreshold,
+            aiVectorSearchLimit: this.aiVectorSearchLimit,
+            aiShortMessageThreshold: this.aiShortMessageThreshold,
+            aiMemorySafetyLimit: this.aiMemorySafetyLimit,
+            aiTrimRatio: this.aiTrimRatio,
+            // Performance Configuration
+            aiVectorBatchLoadSize: this.aiVectorBatchLoadSize,
+            aiEnableVectorCache: this.aiEnableVectorCache,
+            aiEnableSmartTrim: this.aiEnableSmartTrim,
+            // Other Configuration
             blacklistedQQs: this.blacklistedQQs,
             enabledGroups: this.enabledGroups,
             linkCacheTimeout: this.linkCacheTimeout,

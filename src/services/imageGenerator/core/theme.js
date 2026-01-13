@@ -443,6 +443,9 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
                 word-wrap: break-word;
                 text-align: left;
+                max-height: 1800px;
+                overflow: hidden;
+                position: relative;
             }
             .text-content img {
                 max-width: 100%;
@@ -464,6 +467,16 @@ function generateCSS(colorData, viewport) {
                 background: linear-gradient(to bottom, transparent, var(--card-bg));
                 pointer-events: none;
             }
+            .text-content::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 120px;
+                background: linear-gradient(to bottom, transparent, var(--color-card-bg));
+                pointer-events: none;
+            }
 
             /* Article Mode Specifics */
             .container.article-mode .card {
@@ -479,6 +492,19 @@ function generateCSS(colorData, viewport) {
                 margin-bottom: 24px;
                 word-wrap: break-word;
                 text-align: left;
+                max-height: 3000px;
+                overflow: hidden;
+                position: relative;
+            }
+            .article-body::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 160px;
+                background: linear-gradient(to bottom, transparent, var(--color-card-bg));
+                pointer-events: none;
             }
             .article-body img {
                 max-width: 100%;
@@ -714,17 +740,18 @@ function generateCSS(colorData, viewport) {
             .single-image {
                 margin-top: 20px;
                 width: 100%;
-                object-fit: contain;
+                max-height: 1500px;
+                object-fit: cover;
                 border-radius: var(--radius-lg);
                 display: block;
-                height: auto;
                 box-shadow: var(--shadow-md);
             }
 
             .dynamic-image {
                 margin-top: 24px;
                 width: 100%;
-                height: auto;
+                max-height: 1500px;
+                object-fit: cover;
                 border-radius: var(--radius-lg);
                 display: block;
                 box-shadow: var(--shadow-md);

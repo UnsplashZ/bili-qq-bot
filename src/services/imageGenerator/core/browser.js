@@ -10,7 +10,7 @@ class BrowserManager {
         this.browser = null;
         this.pagePool = new Set(); // 页面池，追踪所有活跃页面
         this.maxPages = 5; // 最大同时打开页面数
-        this.pageTimeout = 30000; // 页面超时时间（30秒）
+        this.pageTimeout = 60000; // 页面超时时间（60秒）
         this.pageTimeouts = new Map(); // 页面超时定时器
         this.cleanupInterval = null; // 定期清理定时器
         this.startCleanupMonitor();
@@ -170,6 +170,16 @@ class BrowserManager {
             clearTimeout(timeoutId);
             this.pageTimeouts.delete(page);
         }
+    }
+
+    /**
+     * 重新设置页面超时
+     * 用于在长时间操作前后重置超时计时
+     * @param {Page} page - Puppeteer页面实例
+     */
+    resetPageTimeout(page) {
+        this.clearPageTimeout(page);
+        this.setupPageTimeout(page);
     }
 
     /**

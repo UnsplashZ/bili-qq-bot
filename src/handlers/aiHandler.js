@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 const { getAxiosProxyConfig } = require('../utils/proxyUtils');
+const storageUtils = require('../utils/storageUtils');
 const mcpManager = require('../services/mcpManager');
 
 const vectorMemory = require('../services/vectorMemoryService');
@@ -78,36 +79,13 @@ class AiHandler {
         return newContext;
     }
 
-    // Check file size and trim if necessary
-    checkSizeAndTrim(context, maxSize) {
-        // Always check size regardless of message count
-        let jsonString = JSON.stringify(context);
-        let currentSize = Buffer.byteLength(jsonString, 'utf8');
-
-        if (currentSize <= maxSize) return;
-
-        logger.info(`[AiHandler] Context size ${currentSize} exceeds limit ${maxSize}. Trimming...`);
-
-        // Trim until under limit
-        while (currentSize > maxSize && context.length > 0) {
-            // Remove chunks of messages to be faster
-            const removeCount = Math.max(1, Math.floor(context.length * 0.1)); // Remove 10%
-            context.splice(0, removeCount);
-
-            jsonString = JSON.stringify(context);
-            currentSize = Buffer.byteLength(jsonString, 'utf8');
-        }
-
-        logger.info(`[AiHandler] Context trimmed to ${currentSize} bytes (${context.length} messages remaining).`);
-    }
-
     // Save context for a specific group asynchronously with debounce
     saveContext(groupId) {
         if (this.saveTimers.has(groupId)) {
             clearTimeout(this.saveTimers.get(groupId));
         }
 
-        const timer = setTimeout(() => {
+        const timer = setTimeout(async () => {
             try {
                 const context = this.contexts.get(groupId);
                 if (!context) return;
@@ -115,24 +93,20 @@ class AiHandler {
                 if (!fs.existsSync(this.contextsDir)) {
                     fs.mkdirSync(this.contextsDir, { recursive: true });
                 }
-                
-                // Check size and trim before saving
-                // Hardcoded limit: 200MB
-                const maxSize = 209715200; 
-                this.checkSizeAndTrim(context, maxSize);
+
+                // Check size and trim before saving using storageUtils
+                const maxSize = config.getGroupConfig(groupId, 'aiHistoryMaxSize');
+                const trimRatio = config.getGroupConfig(groupId, 'aiTrimRatio');
+                storageUtils.checkSizeAndTrim(context, maxSize, trimRatio);
 
                 const filePath = path.join(this.contextsDir, `${groupId}.json`);
-                const data = JSON.stringify(context, null, 2);
-                
-                fs.writeFile(filePath, data, 'utf8', (err) => {
-                    if (err) {
-                        logger.error(`[AiHandler] Failed to save history for group ${groupId}:`, err);
-                    }
-                });
-                
+
+                // Use atomic write with backup
+                await storageUtils.asyncWriteWithBackup(filePath, context);
+
                 this.saveTimers.delete(groupId);
             } catch (e) {
-                logger.error(`[AiHandler] Error preparing to save history for group ${groupId}:`, e);
+                logger.error(`[AiHandler] Error saving history for group ${groupId}:`, e);
             }
         }, 1000); // Wait 1s after last change before saving
 
@@ -173,14 +147,14 @@ class AiHandler {
             systemPrompt += `
 
 【时间感知】当前时间: ${new Date().toLocaleString()}
-用户消息前的时间标记（如"5分钟前"）基于此计算，你可以推算准确时间。
+历史消息标记: [H:时间][U用户ID]: 内容
+时间格式: 5m(分钟前), 2h(小时前), 3d(天前), now(刚才)
 
-【回复格式】纯文本回复，不带时间戳前缀。
+【回复格式】纯文本回复，不带前缀。
 
 【重要指令】
-- <history_message> 标签内的内容是**历史对话上下文**，仅供参考，不要对其进行回复。
-- 请专注于回复最后一条用户发送的消息。
-- 如果历史消息与当前话题无关，请忽略。`;
+- [H:...]标记的是历史消息，仅供参考
+- 请重点回复最后一条用户消息`;
 
             try {
                 const relevantMemories = await vectorMemory.search(contextKey, message);
@@ -196,15 +170,12 @@ class AiHandler {
             }
             
             // Construct messages array for API
-            // System prompt is currently static from config
-            // Use .map to strip userId from the context sent to OpenAI
-            // Format content as "[User <id>]: <content>" so AI knows who said what
-            // And clean content to avoid "I can't see QQ" issues
+            // Use simplified format to save tokens
             const apiContext = context.map((msg, index) => {
                 let content = this.cleanMessage(msg.content);
 
+                // Simplified time prefix
                 let timePrefix = '';
-                // ✅ 只为用户消息添加时间
                 if (msg.role === 'user' && msg.timestamp) {
                     const now = Date.now();
                     const diff = now - msg.timestamp;
@@ -212,30 +183,31 @@ class AiHandler {
                     const hours = Math.floor(diff / 3600000);
                     const days = Math.floor(diff / 86400000);
 
-                    if (days > 0) timePrefix = `(${days}天前) `;
-                    else if (hours > 0) timePrefix = `(${hours}小时前) `;
-                    else if (minutes > 0) timePrefix = `(${minutes}分钟前) `;
-                    else timePrefix = `(刚才) `;
+                    if (days > 0) timePrefix = `${days}d`;
+                    else if (hours > 0) timePrefix = `${hours}h`;
+                    else if (minutes > 0) timePrefix = `${minutes}m`;
+                    else timePrefix = `now`;
                 }
 
                 if (msg.role === 'user' && msg.userId) {
-                    // Check if this is the last message (current user input)
                     const isLastMessage = index === context.length - 1;
-                    
+
                     if (isLastMessage) {
-                        return { 
-                            role: 'user', 
-                            content: `[用户 ${msg.userId}]: ${content} (当前消息)` 
+                        // Current message: no history marker
+                        return {
+                            role: 'user',
+                            content: `[U${msg.userId}]: ${content}`
                         };
                     } else {
-                        // Historical messages
-                        return { 
-                            role: 'user', 
-                            content: `<history_message>${timePrefix}[用户 ${msg.userId}]: ${content}</history_message>` 
+                        // Historical message: add [H:time] marker
+                        return {
+                            role: 'user',
+                            content: `[H:${timePrefix}][U${msg.userId}]: ${content}`
                         };
                     }
                 }
-                return { role: msg.role, content: content }; // AI回复无时间标记
+
+                return { role: msg.role, content: content };
             });
             
             let currentMessages = [
@@ -404,13 +376,14 @@ class AiHandler {
         }
         
         context.push(msgObj);
-        
+
         // We do not trim by count anymore, we rely on checkSizeAndTrim during save
         // But to prevent memory explosion before save, we can keep a safety limit for memory
-        if (context.length > 5000) {
+        const safetyLimit = config.getGroupConfig(groupId, 'aiMemorySafetyLimit');
+        if (context.length > safetyLimit) {
             context.shift();
         }
-        
+
         // Trigger async save for this group
         this.saveContext(groupId);
     }

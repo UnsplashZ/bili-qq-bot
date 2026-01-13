@@ -1,6 +1,16 @@
 {
   "_comment": "此文件仅作为示例展示字段，请勿直接修改此文件。程序运行时会自动生成并使用 config/config.json",
   "aiContextLimit": 10,
+  "aiHistoryMaxSize": 209715200,
+  "aiVectorMaxSize": 209715200,
+  "aiVectorSimilarityThreshold": 0.4,
+  "aiVectorSearchLimit": 3,
+  "aiShortMessageThreshold": 5,
+  "aiMemorySafetyLimit": 5000,
+  "aiTrimRatio": 0.1,
+  "aiVectorBatchLoadSize": 1000,
+  "aiEnableVectorCache": true,
+  "aiEnableSmartTrim": true,
   "blacklistedQQs": [],
   "enabledGroups": [],
   "linkCacheTimeout": 600,
@@ -18,5 +28,13 @@
     "dynamic": true,
     "user": true
   },
-  "showId": true
+  "showId": true,
+  "groupConfigs": {
+    "_example_group_id": {
+      "_comment": "群级配置示例，每个群可以有独立配置",
+      "aiContextLimit": 15,
+      "aiProbability": 0.2,
+      "admins": ["123456789"]
+    }
+  }
 }

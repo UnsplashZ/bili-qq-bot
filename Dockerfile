@@ -1,6 +1,6 @@
 # 使用 Node.js 20 (Debian Bookworm) 作为基础镜像
 # Slim 版本较小，但包含了运行 Puppeteer 所需的大部分系统库的基础
-FROM docker.1ms.run/library/node:20-bookworm-slim
+FROM node:20-bookworm-slim
 
 # 设置工作目录
 WORKDIR /app
