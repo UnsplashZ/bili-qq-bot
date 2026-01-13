@@ -696,6 +696,9 @@ function generateCSS(colorData, viewport) {
                 gap: 12px;
                 margin-top: 20px;
             }
+            .images-grid.cols-2 {
+                grid-template-columns: repeat(2, 1fr);
+            }
 
             .images-grid img {
                 width: 100%;
@@ -711,7 +714,6 @@ function generateCSS(colorData, viewport) {
             .single-image {
                 margin-top: 20px;
                 width: 100%;
-                max-height: 500px;
                 object-fit: contain;
                 border-radius: var(--radius-lg);
                 display: block;

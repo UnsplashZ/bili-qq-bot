@@ -65,6 +65,9 @@ const config = {
     // Link processing cache timeout in seconds
     linkCacheTimeout: parseInt(configData.linkCacheTimeout || 600),
 
+    // Data persistence cache TTL in seconds (default 3600s / 1 hour)
+    dataCacheTTL: parseInt(process.env.DATA_CACHE_TTL || '3600'),
+
     // Subscription check interval in seconds
     subscriptionCheckInterval: parseInt(configData.subscriptionCheckInterval || 60),
 

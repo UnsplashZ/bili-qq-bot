@@ -243,6 +243,7 @@ async def get_opus_detail(opus_id, group_id=None):
                 return result
             # If article fetch fails (e.g. 404), fallback to dynamic detail
             
+        # Fallback to dynamic detail
         return await get_dynamic_detail(opus_id, group_id)
     except Exception as e:
         import traceback
@@ -707,6 +708,44 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         except Exception:
             # ignore enrichment errors
             pass
+
+        # 尝试补充Opus内容图片（针对文章类型动态图片缺失的情况）
+        try:
+            md = info.get('modules', {}).get('module_dynamic', {})
+            major = md.get('major', {})
+            if major.get('type') == 'DYNAMIC_TYPE_ARTICLE' and not (major.get('opus') or {}).get('pics'):
+                # 需要通过Opus API获取详细内容
+                opus_id = info.get('id_str')
+                if opus_id:
+                     o = opus.Opus(int(opus_id), credential=load_credential(group_id))
+                     opus_info = await o.get_info()
+                     
+                     item = opus_info.get('item', {})
+                     opus_modules = item.get('modules', [])
+                     
+                     images = []
+                     for mod in opus_modules:
+                         if mod.get('module_type') == 'MODULE_TYPE_CONTENT':
+                             paragraphs = mod.get('module_content', {}).get('paragraphs', [])
+                             for p in paragraphs:
+                                 if p.get('para_type') == 2: # Image
+                                     pics = p.get('pic', {}).get('pics', [])
+                                     for pic in pics:
+                                         if pic.get('url'):
+                                             images.append({'url': pic['url']})
+                     
+                     if images:
+                         if 'opus' not in major:
+                             major['opus'] = {}
+                         major['opus']['pics'] = images
+                         # 更新数据结构
+                         md['major'] = major
+                         info['modules']['module_dynamic'] = md
+                         if isinstance(info.get('item'), dict):
+                             info['item']['modules'] = info['modules']
+        except Exception:
+            pass
+
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
         import traceback
