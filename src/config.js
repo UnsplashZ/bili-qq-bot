@@ -20,6 +20,7 @@ const config = {
     // --- Environment Variables (.env) ---
     // NapCat WebSocket URL
     wsUrl: process.env.WS_URL || 'ws://localhost:3001',
+    wsToken: process.env.WS_TOKEN || '',
     
     // AI Config (Static)
     aiApiUrl: process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions',
