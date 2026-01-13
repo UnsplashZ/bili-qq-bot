@@ -7,7 +7,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     fonts-symbola \
@@ -19,11 +18,11 @@ RUN apt-get update && apt-get install -y \
 COPY fonts/ /usr/share/fonts/truetype/
 RUN fc-cache -fv
 
-# 3. Python 环境
-RUN python3 -m venv /app/venv
+# 3. Python 环境 (Github Action 环境通常在海外，直接使用官方 PyPI)
 COPY requirements.txt .
-# 使用官方 PyPI 源
-RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
+# Debian Bookworm 默认禁止全局 pip，需添加 --break-system-packages
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages \
+    && pip3 install --no-cache-dir uv --break-system-packages
 
 # 4. Node 环境
 COPY package.json package-lock.json ./

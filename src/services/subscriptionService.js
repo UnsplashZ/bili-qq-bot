@@ -621,90 +621,118 @@ class SubscriptionService {
             // Try to use the first group's credential
             const groupId = sub.groupIds.length > 0 ? sub.groupIds[0] : null;
             const res = await biliApi.getUserDynamic(sub.uid, groupId);
-            logger.info(`[CheckDynamic] API response status: ${res.status}`);
-
-            if (res.status === 'success' && res.data) {
-                const dynamicId = res.data.id;
-                const dynamicType = res.data.type; // 获取动态类型
-                const dynamicTime = res.data.pub_ts || 0; // 获取动态发布时间戳
-                logger.info(`[CheckDynamic] Got dynamic ID: ${dynamicId}, Type: ${dynamicType}, Time: ${dynamicTime}, LastID: ${sub.lastId}, LastTime: ${sub.lastTime}`);
-
-                // 过滤掉自动发布的直播推荐动态 (DYNAMIC_TYPE_LIVE_RCMD 或 MAJOR_TYPE_LIVE_RCMD)
-                // 这种动态通常在开始直播时自动发送，我们使用 checkUserLive 单独处理直播通知，避免重复
-                const isLiveDynamic = dynamicType === 'DYNAMIC_TYPE_LIVE_RCMD' || 
-                    (res.data.modules && res.data.modules.module_dynamic && 
-                     res.data.modules.module_dynamic.major && 
-                     res.data.modules.module_dynamic.major.type === 'MAJOR_TYPE_LIVE_RCMD');
-
-                if (isLiveDynamic) {
-                    logger.info(`[CheckDynamic] Skipping LIVE_RCMD dynamic ${dynamicId} to avoid duplicate notification.`);
-                    // 仍然更新状态，以免下次检查时被视为新动态（虽然 checkUserLive 会处理，但为了状态一致性）
-                    if (!force && dynamicTime > (sub.lastDynamicTime || 0)) {
-                        sub.lastDynamicId = dynamicId;
-                        sub.lastDynamicTime = dynamicTime;
-                        this.saveSubscriptions(); // Save state
-                    }
-                    return; // Skip processing this dynamic
-                }
-
-                // 确保 sub.lastDynamicTime 存在
-                if (!sub.lastDynamicTime) sub.lastDynamicTime = 0;
-
-                // 核心逻辑：ID 变化 且 时间比上次更新
-                // 如果 lastId 为空（首次），直接更新状态不推送，或者根据需求推送
-                // 这里逻辑：首次运行只记录状态，不推送（避免刷屏）
-                if (sub.lastDynamicId || force) {
-                    if (sub.lastDynamicId !== dynamicId || force) {
-                        // 只有当新动态的时间 晚于 记录的时间时，才推送
-                        // 这样可以防止：UP主删了最新动态，获取到的是旧动态（时间较早），从而避免重复推送旧动态
-                        // force 模式下忽略时间检查
-                        if (dynamicTime > sub.lastDynamicTime || force) {
-                            logger.info(`[CheckDynamic] New dynamic detected, generating image...`);
-                             // New dynamic found - get dynamic details and generate image
-                            try {
-                                // Optimization: Use the data directly from getUserDynamic since it now contains full modules
-                                const dynamicDetail = {
-                                    status: 'success',
-                                    data: res.data
-                                };
-
-                                if (dynamicDetail.status === 'success') {
-                                    logger.info(`[CheckDynamic] Generating preview card for dynamic ${dynamicId}...`);
-                                    await this.notifyGroupsWithImage(sub.groupIds, dynamicDetail, 'dynamic', `https://t.bilibili.com/${dynamicId}`);
-                                    logger.info(`[CheckDynamic] Notification sent successfully for dynamic ${dynamicId}`);
-                                } else {
-                                    logger.warn(`[CheckDynamic] Dynamic detail status not success, falling back to text`);
-                                    // Fallback to text notification if image generation fails
-                                    this.notifyGroups(sub.groupIds, `动态预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${dynamicId}`);
-                                }
-                            } catch (e) {
-                                logger.error(`[CheckDynamic] Error generating/sending image for dynamic ${dynamicId}:`, e);
-                                logger.error(`[CheckDynamic] Error stack:`, e.stack);
-                                // Fallback to text notification
-                                this.notifyGroups(sub.groupIds, `动态预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${dynamicId}`);
-                            }
-                        } else {
-                            logger.info(`[CheckDynamic] Ignored old dynamic for ${sub.uid}: ID=${dynamicId}, Time=${dynamicTime} <= LastTime=${sub.lastDynamicTime}`);
-                        }
-                    } else {
-                        logger.info(`[CheckDynamic] No new dynamic, ID unchanged: ${dynamicId}`);
-                    }
-                } else {
-                    logger.info(`[CheckDynamic] First check for UID ${sub.uid}, recording state without notification`);
-                }
-
-                // 无论是否推送，只要获取到了最新的数据，就更新状态
-                // 注意：如果是因为删动态导致回退到了旧动态，这里更新状态后：
-                // lastId 变成了旧 ID，lastTime 变成了旧时间。
-                // 下次如果 UP 主发了新动态，时间肯定比旧时间晚，能正常推送。
-                if (!force) {
-                    sub.lastDynamicId = dynamicId;
-                    sub.lastDynamicTime = dynamicTime;
-                    logger.info(`[CheckDynamic] Updated state: LastDynamicID=${sub.lastDynamicId}, LastDynamicTime=${sub.lastDynamicTime}`);
+            
+            let dynamics = [];
+            const status = (res.status || '').trim();
+            if (status === 'success') {
+                if (Array.isArray(res.data)) {
+                    dynamics = res.data;
+                } else if (res.data) {
+                    dynamics = [res.data];
                 }
             } else {
-                logger.error(`[CheckDynamic] Failed to get dynamic for UID ${sub.uid}: status=${res.status}, message=${res.message || 'N/A'}`);
+                logger.error(`[CheckDynamic] Failed to get dynamic for UID ${sub.uid}: status=${JSON.stringify(res.status)}, message=${res.message || 'N/A'}`);
+                return;
             }
+
+            if (dynamics.length === 0) {
+                logger.info(`[CheckDynamic] No dynamics found for ${sub.uid}`);
+                return;
+            }
+
+            // 按时间正序排序 (旧 -> 新)
+            dynamics.sort((a, b) => (a.pub_ts || 0) - (b.pub_ts || 0));
+            
+            // 如果是首次运行（无 lastDynamicTime），且不是强制模式
+            // 直接更新到最新状态，不推送
+            if (!sub.lastDynamicTime && !force) {
+                const latest = dynamics[dynamics.length - 1];
+                sub.lastDynamicId = latest.id;
+                sub.lastDynamicTime = latest.pub_ts || 0;
+                logger.info(`[CheckDynamic] First check for UID ${sub.uid}, recording state without notification. LastTime=${sub.lastDynamicTime}`);
+                return;
+            }
+
+            // 确保 lastDynamicTime 存在
+            if (!sub.lastDynamicTime) sub.lastDynamicTime = 0;
+
+            let latestProcessedTime = sub.lastDynamicTime;
+            let latestProcessedId = sub.lastDynamicId;
+            let hasUpdates = false;
+
+            // 待推送列表
+            let dynamicsToPush = [];
+
+            if (force) {
+                // 强制模式：只推送最新的一条
+                dynamicsToPush.push(dynamics[dynamics.length - 1]);
+            } else {
+                // 正常模式：找出所有比 lastDynamicTime 新的动态
+                for (const dynamic of dynamics) {
+                    if ((dynamic.pub_ts || 0) > sub.lastDynamicTime) {
+                        dynamicsToPush.push(dynamic);
+                    }
+                }
+            }
+
+            if (dynamicsToPush.length === 0) {
+                 logger.info(`[CheckDynamic] No new dynamics for ${sub.uid}. LastTime=${sub.lastDynamicTime}`);
+            }
+
+            for (const dynamic of dynamicsToPush) {
+                const dynamicId = dynamic.id;
+                const dynamicType = dynamic.type;
+                const dynamicTime = dynamic.pub_ts || 0;
+
+                // 过滤直播推荐动态
+                const isLiveDynamic = dynamicType === 'DYNAMIC_TYPE_LIVE_RCMD' || 
+                    (dynamic.modules && dynamic.modules.module_dynamic && 
+                     dynamic.modules.module_dynamic.major && 
+                     dynamic.modules.module_dynamic.major.type === 'MAJOR_TYPE_LIVE_RCMD');
+
+                if (isLiveDynamic) {
+                    logger.info(`[CheckDynamic] Skipping LIVE_RCMD dynamic ${dynamicId}`);
+                    // 仍然更新状态
+                    if (dynamicTime > latestProcessedTime) {
+                        latestProcessedTime = dynamicTime;
+                        latestProcessedId = dynamicId;
+                        hasUpdates = true;
+                    }
+                    continue;
+                }
+
+                logger.info(`[CheckDynamic] Processing new dynamic: ${dynamicId}, Time: ${dynamicTime}`);
+
+                try {
+                    const dynamicDetail = {
+                        status: 'success',
+                        data: dynamic
+                    };
+                    
+                    logger.info(`[CheckDynamic] Generating preview card for dynamic ${dynamicId}...`);
+                    await this.notifyGroupsWithImage(sub.groupIds, dynamicDetail, 'dynamic', `https://t.bilibili.com/${dynamicId}`);
+                    logger.info(`[CheckDynamic] Notification sent successfully for dynamic ${dynamicId}`);
+                    
+                    // 成功推送后，更新状态
+                    if (dynamicTime > latestProcessedTime) {
+                        latestProcessedTime = dynamicTime;
+                        latestProcessedId = dynamicId;
+                        hasUpdates = true;
+                    }
+
+                } catch (e) {
+                    logger.error(`[CheckDynamic] Error processing dynamic ${dynamicId}:`, e);
+                    this.notifyGroups(sub.groupIds, `动态预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${dynamicId}`);
+                }
+            }
+
+            // 保存状态
+            if (hasUpdates && !force) {
+                sub.lastDynamicId = latestProcessedId;
+                sub.lastDynamicTime = latestProcessedTime;
+                logger.info(`[CheckDynamic] State updated for ${sub.uid}: LastTime=${sub.lastDynamicTime}`);
+            }
+
         } catch (e) {
             logger.error(`[CheckDynamic] Exception while checking dynamic for UID ${sub.uid}:`, e);
             logger.error(`[CheckDynamic] Exception stack:`, e.stack);

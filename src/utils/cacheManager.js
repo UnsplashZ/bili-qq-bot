@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const logger = require('./logger');
+const config = require('../config');
 
 class CacheManager {
     constructor() {
@@ -26,9 +27,20 @@ class CacheManager {
         await this.initPromise;
         try {
             const filePath = path.join(this.cacheDir, `${key}.json`);
+            
+            // Check TTL
+            const stats = await fs.stat(filePath);
+            const now = new Date();
+            const ageSeconds = (now - stats.mtime) / 1000;
+            
+            if (config.dataCacheTTL && ageSeconds > config.dataCacheTTL) {
+                logger.info(`Cache expired for ${key} (age: ${ageSeconds.toFixed(0)}s), deleting...`);
+                await fs.unlink(filePath);
+                return null;
+            }
+
             const data = await fs.readFile(filePath, 'utf8');
             // Update mtime to indicate recent access (LRU-like behavior)
-            const now = new Date();
             // Use utimes to update access and modification time
             // We ignore errors here as it's not critical
             fs.utimes(filePath, now, now).catch(() => {});
