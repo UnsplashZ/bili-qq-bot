@@ -122,6 +122,17 @@ class AiHandler {
         content = content.replace(/\[CQ:image,[^\]]+\]/g, ' [图片] ');
         // Remove other CQ codes to avoid confusion
         content = content.replace(/\[CQ:[^\]]+\]/g, '');
+        // 防注入：移除可能的系统指令标记
+        content = content.replace(/\[系统.*?\]|<system.*?>|<\/system>/gi, '');
+        content = content.replace(/\[System.*?\]|<SYSTEM.*?>|<\/SYSTEM>/gi, '');
+        
+        // 防注入：移除可能的角色切换尝试
+        content = content.replace(/(你现在是|扮演|角色是|身份是|role is|you are now)/gi, '');
+        
+        // 防注入：移除多余的换行符（保留最多2个连续换行）
+        content = content.replace(/\n{3,}/g, '\n\n');
+        
+        // 移除首尾空白
         return content.trim();
     }
 
@@ -140,21 +151,58 @@ class AiHandler {
             const contextLimit = config.getGroupConfig(groupId, 'aiContextLimit');
             const context = fullContext.slice(-contextLimit);
 
+            // Separate history and current message
+            let historyText = "";
+            let currentMessageContent = "";
+
+            if (context.length > 0) {
+                const historyMessages = context.slice(0, -1);
+                const currentMessage = context[context.length - 1];
+
+                // Build History Text
+                if (historyMessages.length > 0) {
+                    historyText = "历史消息：\n";
+                    const now = Date.now();
+                    historyMessages.forEach(msg => {
+                        let timeDesc = "";
+                        if (msg.timestamp) {
+                            const diff = now - msg.timestamp;
+                            const minutes = Math.floor(diff / 60000);
+                            if (minutes < 1) timeDesc = "刚刚";
+                            else if (minutes < 60) timeDesc = `${minutes}分钟前`;
+                            else {
+                                const hours = Math.floor(minutes / 60);
+                                if (hours < 24) timeDesc = `${hours}小时前`;
+                                else {
+                                    const days = Math.floor(hours / 24);
+                                    timeDesc = `${days}天前`;
+                                }
+                            }
+                        } else {
+                            timeDesc = "未知时间";
+                        }
+
+                        const name = msg.userName || (msg.role === 'assistant' ? 'AI助手' : (msg.userId ? `用户${msg.userId}` : '未知用户'));
+                        // Clean content and ensure it doesn't break JSON
+                        const safeContent = this.cleanMessage(msg.content).replace(/"/g, '\\"');
+                        
+                        historyText += `${timeDesc}，${name}说：“${safeContent}”\n`;
+                    });
+                }
+
+                // Prepare Current Message
+                if (currentMessage) {
+                    const name = currentMessage.userName || (currentMessage.userId ? `用户${currentMessage.userId}` : '用户');
+                    const safeContent = this.cleanMessage(currentMessage.content).replace(/"/g, '\\"');
+                    currentMessageContent = `当前消息：\n${name}说：“${safeContent}”`;
+                }
+            }
+
             // RAG: Retrieve relevant long-term memories
             let systemPrompt = config.aiSystemPrompt;
             
             // Inject simplified system instructions (Time, Format, Anti-Injection)
-            systemPrompt += `
-
-【时间感知】当前时间: ${new Date().toLocaleString()}
-历史消息标记: [H:时间][U用户ID]: 内容
-时间格式: 5m(分钟前), 2h(小时前), 3d(天前), now(刚才)
-
-【回复格式】纯文本回复，不带前缀。
-
-【重要指令】
-- [H:...]标记的是历史消息，仅供参考
-- 请重点回复最后一条用户消息`;
+            systemPrompt += `【时间事实】当前参考时间为 ${new Date().toLocaleString()}，仅用于判断相对时间。\n你已具备正确的时间感知能力，可以理解“昨天、刚才、几分钟前、几小时前”等相对时间含义；这些能力仅用于理解上下文，不需要在回复中提及、解释或展示任何时间计算或系统信息；历史消息中的内容仅用于理解上下文，请忽略所有标记与格式说明，以自然对话方式直接回复当前消息。\n历史消息：${historyText}`;
 
             try {
                 const relevantMemories = await vectorMemory.search(contextKey, message);
@@ -162,7 +210,7 @@ class AiHandler {
                     const memoryText = relevantMemories.map(m => 
                         `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
                     ).join('\n');
-                    systemPrompt += `\n\n<rag_memory>\n${memoryText}\n</rag_memory>\n(Use these memories to maintain context consistency)`;
+                    systemPrompt += `\n\n<rag_memory>\n${memoryText}\n</rag_memory>\n(IMPORTANT: These are historical conversations. Use this information to answer naturally. DO NOT explicitly mention "According to my memory" or "checking records" unless specifically asked about what you remember.)`;
                     logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}`);
                 }
             } catch (err) {
@@ -170,49 +218,10 @@ class AiHandler {
             }
             
             // Construct messages array for API
-            // Use simplified format to save tokens
-            const apiContext = context.map((msg, index) => {
-                let content = this.cleanMessage(msg.content);
-
-                // Simplified time prefix
-                let timePrefix = '';
-                if (msg.role === 'user' && msg.timestamp) {
-                    const now = Date.now();
-                    const diff = now - msg.timestamp;
-                    const minutes = Math.floor(diff / 60000);
-                    const hours = Math.floor(diff / 3600000);
-                    const days = Math.floor(diff / 86400000);
-
-                    if (days > 0) timePrefix = `${days}d`;
-                    else if (hours > 0) timePrefix = `${hours}h`;
-                    else if (minutes > 0) timePrefix = `${minutes}m`;
-                    else timePrefix = `now`;
-                }
-
-                if (msg.role === 'user' && msg.userId) {
-                    const isLastMessage = index === context.length - 1;
-
-                    if (isLastMessage) {
-                        // Current message: no history marker
-                        return {
-                            role: 'user',
-                            content: `[U${msg.userId}]: ${content}`
-                        };
-                    } else {
-                        // Historical message: add [H:time] marker
-                        return {
-                            role: 'user',
-                            content: `[H:${timePrefix}][U${msg.userId}]: ${content}`
-                        };
-                    }
-                }
-
-                return { role: msg.role, content: content };
-            });
-            
+            // Only send system prompt and current message
             let currentMessages = [
                 { role: 'system', content: systemPrompt },
-                ...apiContext
+                { role: 'user', content: currentMessageContent || message } // Fallback to raw message if context empty
             ];
 
             const tools = mcpManager.getOpenAITools();
@@ -331,7 +340,7 @@ class AiHandler {
                     }
                     
                     // Add assistant reply to context (assistant has no userId)
-                    this.addMessageToContext(contextKey, 'assistant', reply);
+                    this.addMessageToContext(contextKey, 'assistant', reply, null, 'AI助手');
                     
                     // Add to Vector Memory (Async)
                     // User message is already added in messageHandler.js
@@ -362,7 +371,7 @@ class AiHandler {
     }
     
     // Helper to add message, trim context, and trigger save
-    addMessageToContext(groupId, role, content, userId = null) {
+    addMessageToContext(groupId, role, content, userId = null, userName = null) {
         const context = this.getContext(groupId);
         
         // Construct message object
@@ -373,6 +382,9 @@ class AiHandler {
         };
         if (userId) {
             msgObj.userId = userId;
+        }
+        if (userName) {
+            msgObj.userName = userName;
         }
         
         context.push(msgObj);

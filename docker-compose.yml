@@ -19,8 +19,8 @@ services:
       - bot_network
 
   bili-qq-bot:
-    image: unsplash/bili-qq-bot:latest
-    # build: .
+    # image: unsplash/bili-qq-bot:latest
+    build: .
     container_name: bili-qq-bot
     restart: always
     depends_on:

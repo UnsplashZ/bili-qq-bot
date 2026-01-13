@@ -494,7 +494,9 @@ class MessageHandler {
 
         // Record message for AI context
         if (rawMessage) {
-            aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId);
+            const sender = messageData.sender || {};
+            const userName = sender.card || sender.nickname || `用户${userId}`;
+            aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId, userName);
         }
 
         // Check for JSON message (Mini Program) and extract URL (before cache check)
@@ -640,16 +642,19 @@ class MessageHandler {
                     const showId = config.getGroupConfig(groupId, 'showId');
 
                     const enableSync = config.getGroupConfig(groupId, 'enableCookieSync');
-                    const syncGroup = config.getGroupConfig(groupId, 'cookieSyncGroupName');
+                    const syncGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
 
                     if (!enableSync) {
                         data.accountFollows = [];
                         data.accountFollowsTitle = '';
-                    } else if (syncGroup) {
-                        data.accountFollows = data.accountFollows.filter(u => u.biliGroups && u.biliGroups.includes(syncGroup));
-                        data.accountFollowsTitle = `关注列表 - ${syncGroup}`;
+                    } else if (syncGroups.length > 0) {
+                        data.accountFollows = data.accountFollows.filter(u => 
+                            u.biliGroups && u.biliGroups.some(g => syncGroups.includes(g))
+                        );
+                        data.accountFollowsTitle = `关注列表 - ${syncGroups.join(' & ')}`;
                     } else {
-                        data.accountFollowsTitle = '账户关注列表';
+                        data.accountFollows = [];
+                        data.accountFollowsTitle = '关注列表 (未配置分组)';
                     }
 
                     if (data.users.length === 0 && data.bangumis.length === 0 && (!data.accountFollows || data.accountFollows.length === 0)) {
