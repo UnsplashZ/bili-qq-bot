@@ -709,20 +709,23 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             # ignore enrichment errors
             pass
 
-        # 尝试补充Opus内容图片（针对文章类型动态图片缺失的情况）
+        # 尝试补充Opus内容图片（针对文章类型和Opus类型动态图片缺失的情况）
         try:
-            md = info.get('modules', {}).get('module_dynamic', {})
+            # 处理info可能是{'item': {...}}的情况
+            item = info.get('item', {})
+            md = item.get('modules', {}).get('module_dynamic', {})
             major = md.get('major', {})
-            if major.get('type') == 'DYNAMIC_TYPE_ARTICLE' and not (major.get('opus') or {}).get('pics'):
+
+            if major.get('type') in ['DYNAMIC_TYPE_ARTICLE', 'MAJOR_TYPE_OPUS'] and not (major.get('opus') or {}).get('pics'):
                 # 需要通过Opus API获取详细内容
-                opus_id = info.get('id_str')
+                opus_id = item.get('id_str', info.get('id_str'))
                 if opus_id:
                      o = opus.Opus(int(opus_id), credential=load_credential(group_id))
                      opus_info = await o.get_info()
-                     
-                     item = opus_info.get('item', {})
-                     opus_modules = item.get('modules', [])
-                     
+
+                     opus_item = opus_info.get('item', {})
+                     opus_modules = opus_item.get('modules', [])
+
                      images = []
                      for mod in opus_modules:
                          if mod.get('module_type') == 'MODULE_TYPE_CONTENT':
@@ -733,17 +736,18 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                                      for pic in pics:
                                          if pic.get('url'):
                                              images.append({'url': pic['url']})
-                     
+
                      if images:
                          if 'opus' not in major:
                              major['opus'] = {}
                          major['opus']['pics'] = images
                          # 更新数据结构
                          md['major'] = major
-                         info['modules']['module_dynamic'] = md
-                         if isinstance(info.get('item'), dict):
-                             info['item']['modules'] = info['modules']
-        except Exception:
+                         item['modules']['module_dynamic'] = md
+                         info['item'] = item
+        except Exception as e:
+            # 静默处理Opus图片获取失败（可能是风控等原因）
+            # 不影响主流程，继续返回基础数据
             pass
 
         return {"status": "success", "type": "dynamic", "data": info}

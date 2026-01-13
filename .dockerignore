@@ -38,7 +38,6 @@ docker-compose.yml
 .dockerignore
 setup.sh
 Dockerfile
-scripts/
 docs/
 
 # Tests & Coverage

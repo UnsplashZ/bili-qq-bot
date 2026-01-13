@@ -149,6 +149,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | 变量名 | 说明 | 示例 / 默认值 |
 | :--- | :--- | :--- |
 | `WS_URL` | NapCat 的 WebSocket 地址 | `ws://napcat:3001` (Docker) / `ws://localhost:3001` (本地) |
+| `WS_TOKEN` | WebSocket 连接 Token (可选，留空则不启用身份验证) | 需与 NapCat 配置一致 |
 | `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
 | `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
 | `AI_API_URL` | AI 接口地址 (OpenAI 兼容) | `https://api.openai.com/v1/chat/completions` |
@@ -158,11 +159,13 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `AI_SYSTEM_PROMPT` | AI 人设提示词 | `你是一个可爱的猫娘...` |
 | `AI_EMBEDDING_API_URL` | 向量嵌入接口地址 (用于记忆) | `https://api.openai.com/v1/embeddings` |
 | `AI_EMBEDDING_API_KEY` | 向量嵌入密钥 (留空则同上) | `sk-xxxxxxxx` |
+| `AI_EMBEDDING_MODEL` | 向量嵌入模型名称 | `text-embedding-3-small` |
 | `AI_CHAT_PROXY` | AI 聊天接口代理地址 (可选) | `http://127.0.0.1:7890` |
 | `AI_EMBEDDING_PROXY` | AI 嵌入接口代理地址 (可选) | `http://127.0.0.1:7890` |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
+| `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
 
 ### 2. 动态配置 (config.json)
 这些配置随bot运行自动创建，支持热更新（通过 `/设置` 相关指令），无需手动修改：
