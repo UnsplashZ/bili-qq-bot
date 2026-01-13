@@ -27,7 +27,7 @@ function createWebSocketConnection() {
     }
 
     logger.info(`Attempting to connect to NapCat WebSocket (attempt ${reconnectCount + 1})...`);
-    ws = new WebSocket(config.wsUrl);
+    ws = new WebSocket(`${config.wsUrl}?access_token=${config.wsToken}`);
 
     ws.on('open', function open() {
         logger.info('Connected to NapCat WebSocket');

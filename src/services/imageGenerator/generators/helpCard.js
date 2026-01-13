@@ -248,10 +248,6 @@ async function generateHelpCard(type = 'user', groupId) {
                         <span class="cmd-code">/订阅列表</span>
                         <span class="cmd-desc">查看本群订阅 & 账户关注</span>
                     </div>
-                    <div class="cmd-item">
-                        <span class="cmd-code">/菜单</span>
-                        <span class="cmd-desc">显示此菜单</span>
-                    </div>
                 </div>
             </div>
 
@@ -282,6 +278,24 @@ async function generateHelpCard(type = 'user', groupId) {
             </div>
 
             <div class="section">
+                <div class="section-title">控制面板</div>
+                <div class="cmd-list">
+                    <div class="cmd-item">
+                        <span class="cmd-code">/菜单</span>
+                        <span class="cmd-desc">显示用户帮助菜单</span>
+                    </div>
+                    <div class="cmd-item">
+                        <span class="cmd-code">/设置 帮助</span>
+                        <span class="cmd-desc">显示管理配置面板</span>
+                    </div>
+                    <div class="cmd-item">
+                        <span class="cmd-code">/AI 帮助</span>
+                        <span class="cmd-desc">显示AI配置面板</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
                 <div class="section-title">支持解析</div>
                 <div class="link-list">
                     <div class="link-item"><span class="icon">📺</span> 视频 (BV/av)</div>
@@ -293,10 +307,6 @@ async function generateHelpCard(type = 'user', groupId) {
                     <div class="link-item"><span class="icon">🔗</span> 短链 (b23.tv)</div>
                     <div class="link-item"><span class="icon">📦</span> 小程序分享</div>
                 </div>
-            </div>
-
-            <div class="footer" style="margin-top: 20px; font-weight: bold; color: var(--color-subtext); display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                <div>管理员请发送 <span style="font-family: monospace; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">/设置 帮助</span> 查看管理面板</div>
             </div>
         `;
     } else if (type === 'admin') {
@@ -345,24 +355,12 @@ async function generateHelpCard(type = 'user', groupId) {
                 <div class="section-title">系统菜单<span class="cmd-tag tag-root">Root</span></div>
                 <div class="cmd-list">
                     <div class="cmd-item">
-                        <span class="cmd-code">/设置 AI上下文 &lt;条数&gt;</span>
-                        <span class="cmd-desc">设置 AI 上下文限制</span>
-                    </div>
-                    <div class="cmd-item">
-                        <span class="cmd-code">/设置 AI概率 &lt;0-1&gt;</span>
-                        <span class="cmd-desc">设置 AI 随机回复概率</span>
-                    </div>
-                    <div class="cmd-item">
                         <span class="cmd-code">/设置 登录</span>
                         <span class="cmd-desc">获取二维码 (支持自动验证)</span>
                     </div>
                     <div class="cmd-item">
                         <span class="cmd-code">/设置 验证 &lt;key&gt;</span>
                         <span class="cmd-desc">手动验证登录状态 (超时可用)</span>
-                    </div>
-                    <div class="cmd-item">
-                        <span class="cmd-code">/管理 新对话 [群号]</span>
-                        <span class="cmd-desc">重置 AI 对话记忆</span>
                     </div>
                     <div class="cmd-item">
                         <span class="cmd-code">/管理 &lt;群列表|清理&gt;</span>
@@ -397,9 +395,9 @@ async function generateHelpCard(type = 'user', groupId) {
 
                 ${contentHtml}
 
-                <div class="footer" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <div class="footer" style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
                     <div style="font-size: 14px; opacity: 0.8; font-weight: normal;">输入指令（不带参数）即可获取指令帮助</div>
-                    <div>由 NapCat & Puppeteer 驱动</div>
+                    <div style="font-size: 14px; font-weight: normal;">由 NapCat & Puppeteer 驱动</div>
                 </div>
             </div>
         </div>

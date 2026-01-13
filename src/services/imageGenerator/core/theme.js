@@ -59,6 +59,16 @@ function calculateViewport(type, data) {
         } else {
             baseWidth = 800;
         }
+
+        // 动态调整宽度以适应长用户名
+        const module_author = modules.module_author || {};
+        const authorName = module_author.name || '';
+        if (authorName.length > 10) {
+            // 基础宽度假设只能容纳约10个字符（考虑头像、右侧装饰等占用）
+            // 每个额外字符增加约 35px 宽度 (30px 字体 + 间距)
+            const extraWidth = (authorName.length - 10) * 35;
+            baseWidth += extraWidth;
+        }
     } else if (type === 'video' || type === 'live') {
         baseWidth = 1000;
     } else if (type === 'bangumi') {
@@ -67,6 +77,12 @@ function calculateViewport(type, data) {
         baseWidth = 1080;
     } else if (type === 'user') {
         baseWidth = 900;
+        const info = data.data || {};
+        const name = info.name || '';
+        if (name.length > 10) {
+            const extraWidth = (name.length - 10) * 40;
+            baseWidth += extraWidth;
+        }
     }
 
     return {
@@ -336,6 +352,7 @@ function generateCSS(colorData, viewport) {
                 align-items: center;
                 gap: 10px;
                 letter-spacing: 0.3px;
+                white-space: nowrap;
             }
 
             .user-level {
@@ -443,6 +460,9 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
                 word-wrap: break-word;
                 text-align: left;
+                max-height: 1800px;
+                overflow: hidden;
+                position: relative;
             }
             .text-content img {
                 max-width: 100%;
@@ -464,6 +484,16 @@ function generateCSS(colorData, viewport) {
                 background: linear-gradient(to bottom, transparent, var(--card-bg));
                 pointer-events: none;
             }
+            .text-content::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 120px;
+                background: linear-gradient(to bottom, transparent, var(--color-card-bg));
+                pointer-events: none;
+            }
 
             /* Article Mode Specifics */
             .container.article-mode .card {
@@ -479,6 +509,19 @@ function generateCSS(colorData, viewport) {
                 margin-bottom: 24px;
                 word-wrap: break-word;
                 text-align: left;
+                max-height: 3000px;
+                overflow: hidden;
+                position: relative;
+            }
+            .article-body::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 160px;
+                background: linear-gradient(to bottom, transparent, var(--color-card-bg));
+                pointer-events: none;
             }
             .article-body img {
                 max-width: 100%;
@@ -696,6 +739,9 @@ function generateCSS(colorData, viewport) {
                 gap: 12px;
                 margin-top: 20px;
             }
+            .images-grid.cols-2 {
+                grid-template-columns: repeat(2, 1fr);
+            }
 
             .images-grid img {
                 width: 100%;
@@ -711,18 +757,18 @@ function generateCSS(colorData, viewport) {
             .single-image {
                 margin-top: 20px;
                 width: 100%;
-                max-height: 500px;
-                object-fit: contain;
+                max-height: 1500px;
+                object-fit: cover;
                 border-radius: var(--radius-lg);
                 display: block;
-                height: auto;
                 box-shadow: var(--shadow-md);
             }
 
             .dynamic-image {
                 margin-top: 24px;
                 width: 100%;
-                height: auto;
+                max-height: 1500px;
+                object-fit: cover;
                 border-radius: var(--radius-lg);
                 display: block;
                 box-shadow: var(--shadow-md);

@@ -80,7 +80,7 @@ function renderUserContent(data, show_id) {
                     ${pendantImage ? `<img class="avatar-frame" src="${pendantImage}" style="width: 160%; height: 160%;">` : ''}
                 </div>
                 <div class="user-info" style="width: 100%;">
-                    <div class="user-name" style="font-size: 36px; font-weight: bold; color: var(--color-text); display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                    <div class="user-name" style="font-size: 36px; font-weight: bold; color: var(--color-text); display: flex; align-items: center; justify-content: center; gap: 12px; white-space: nowrap;">
                         ${name}
                         <span class="user-level lv${level}">Lv${level}</span>
                         ${vipLabel ? `<span style="font-size: 16px; background: var(--color-primary); color: white; padding: 4px 8px; border-radius: 4px; vertical-align: middle;">${vipLabel}</span>` : ''}

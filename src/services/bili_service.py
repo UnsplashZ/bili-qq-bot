@@ -243,6 +243,7 @@ async def get_opus_detail(opus_id, group_id=None):
                 return result
             # If article fetch fails (e.g. 404), fallback to dynamic detail
             
+        # Fallback to dynamic detail
         return await get_dynamic_detail(opus_id, group_id)
     except Exception as e:
         import traceback
@@ -413,68 +414,42 @@ async def get_user_dynamic(uid, group_id=None):
         # 使用新的 get_dynamics_new 接口
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and 'items' in dynamics and len(dynamics['items']) > 0:
-            latest = None
-            max_ts = -1
-            
-            # Check top 5 items to find the latest by timestamp (handling pinned posts)
-            for item in dynamics['items'][:5]:
-                ts = 0
-                try:
-                    if 'modules' in item and 'module_author' in item['modules']:
-                        ts = int(item['modules']['module_author'].get('pub_ts', 0))
-                except:
-                    pass
-                
-                if ts > max_ts:
-                    max_ts = ts
-                    latest = item
-
-            if not latest and len(dynamics['items']) > 0:
-                latest = dynamics['items'][0]
-
-            if not latest:
-                 return {"status": "success", "data": None}
-            
-            # 获取发布时间 (pub_time)
-            # 不同的动态类型，时间字段位置可能不同，通常在 modules.module_author.pub_ts
-            pub_ts = 0
-            if 'modules' in latest and 'module_author' in latest['modules']:
-                pub_ts = latest['modules']['module_author'].get('pub_ts', 0)
-            
             # 获取作者扩展信息：等级、头像框、动态卡片（若可用）
+            # 这些信息对于所有动态都是通用的（基于当前用户状态）
             author_level = 0
             pendant_url = None
             card_url = None
             decoration_card = None
             card_number = None
-            fan_color = None  # 初始化 fan_color
+            fan_color = None
+            
             try:
                 info = await u.get_user_info()
                 author_level = info.get('level', 0)
             except:
                 author_level = 0
+                
             try:
                 profile = await u.get_user_profile()
                 # 头像挂件/头像框
-                # 常见结构：profile['pendant']['image'] 或 profile['decorate']['pendant']['image']
                 pendant_url = (
                     (profile.get('pendant') or {}).get('image') or
                     ((profile.get('decorate') or {}).get('pendant') or {}).get('image')
                 )
-                # 动态卡片（购买的装扮卡片）
-                # 常见结构：profile['decorate']['card_url'] 或 profile['decorate_card']['image']
+                # 动态卡片
                 card_url = (
                     (profile.get('decorate') or {}).get('card_url') or
                     (profile.get('decorate_card') or {}).get('image')
                 )
             except:
                 pass
-            # 从动态本身的作者模块尝试补充头像框
+
+            # 尝试从第一条动态补充信息 (如果 API 没返回)
+            first_item_ma = (dynamics['items'][0].get('modules') or {}).get('module_author') or {}
             try:
-                ma = (latest.get('modules') or {}).get('module_author') or {}
-                pendant_url = pendant_url or ((ma.get('pendant') or {}).get('image'))
-                if 'decoration_card' in ma and ma['decoration_card']:
-                    decoration_card = ma['decoration_card']
+                pendant_url = pendant_url or ((first_item_ma.get('pendant') or {}).get('image'))
+                if 'decoration_card' in first_item_ma and first_item_ma['decoration_card']:
+                    decoration_card = first_item_ma['decoration_card']
                     card_number = (
                         decoration_card.get('card_number') or
                         decoration_card.get('fan_card_no') or
@@ -482,42 +457,54 @@ async def get_user_dynamic(uid, group_id=None):
                         decoration_card.get('serial') or
                         None
                     )
-                    # 获取粉丝牌颜色信息
                     fan_info = decoration_card.get('fan', {})
                     fan_color = fan_info.get('color') if fan_info else None
             except:
                 pass
+            
+            # 颜色计算
             card_focus_color = None
             avatar_focus_color = None
             try:
                 src = card_url or ((decoration_card or {}).get('card_url'))
                 card_focus_color = await get_image_focus_color(src) if src else None
             except:
-                card_focus_color = None
+                pass
             try:
-                author_face_url = ma.get('face') or (latest.get('author') or {}).get('face') or ''
+                author_face_url = first_item_ma.get('face') or (dynamics['items'][0].get('author') or {}).get('face') or ''
                 avatar_focus_color = await get_image_focus_color(author_face_url) if author_face_url else None
             except:
-                avatar_focus_color = None
-            
-            return {"status": "success", "data": {
-                "id": latest.get('id_str'),
-                "type": latest.get('type'),
-                "modules": latest.get('modules'),
-                "orig": latest.get('orig'), # 转发动态的原始内容
-                "pub_ts": pub_ts,  # 新增发布时间戳
-                "author": {
-                    "level": author_level,
-                    "pendant_url": pendant_url,
-                    "card_url": card_url,
-                    "decoration_card": decoration_card,
-                    "card_number": card_number,
-                    "card_focus_color": card_focus_color,
-                    "fan_color": fan_color,
-                    "avatar_focus_color": avatar_focus_color
-                }
-            }}
-        return {"status": "success", "data": None}
+                pass
+
+            author_info = {
+                "level": author_level,
+                "pendant_url": pendant_url,
+                "card_url": card_url,
+                "decoration_card": decoration_card,
+                "card_number": card_number,
+                "card_focus_color": card_focus_color,
+                "fan_color": fan_color,
+                "avatar_focus_color": avatar_focus_color
+            }
+
+            result_items = []
+            # 返回前 5 条动态，让 JS 端处理过滤
+            for item in dynamics['items'][:5]:
+                pub_ts = 0
+                if 'modules' in item and 'module_author' in item['modules']:
+                    pub_ts = item['modules']['module_author'].get('pub_ts', 0)
+                
+                result_items.append({
+                    "id": item.get('id_str'),
+                    "type": item.get('type'),
+                    "modules": item.get('modules'),
+                    "orig": item.get('orig'),
+                    "pub_ts": pub_ts,
+                    "author": author_info
+                })
+
+            return {"status": "success", "data": result_items}
+        return {"status": "success", "data": []}
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -568,6 +555,37 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                     return await get_opus_detail(opus_id, group_id)
 
             return {"status": "error", "message": f"动态 {dynamic_id} 的数据结构异常，可能已被删除"}
+
+        # 修复话题显示问题：将独立的话题字段追加到文本内容中
+        try:
+            md = modules.get('module_dynamic') or {}
+            topic_info = md.get('topic')
+            if topic_info and topic_info.get('name'):
+                topic_name = topic_info.get('name')
+                desc_obj = md.get('desc')
+                if desc_obj:
+                    text = desc_obj.get('text', '')
+                    # 如果文本中没有包含该话题（简单判断），则追加到末尾
+                    if f"{topic_name}" not in text:
+                         desc_obj['text'] = text + f" #{topic_name}#"
+                         
+                         # 同时追加到 rich_text_nodes 以支持富文本渲染
+                         nodes = desc_obj.get('rich_text_nodes')
+                         if isinstance(nodes, list):
+                             # 添加一个空格节点作为分隔
+                             nodes.append({
+                                 "text": " ",
+                                 "type": "RICH_TEXT_NODE_TYPE_TEXT",
+                                 "orig_text": " "
+                             })
+                             # 添加话题节点
+                             nodes.append({
+                                 "text": f"{topic_name}",
+                                 "type": "RICH_TEXT_NODE_TYPE_TOPIC",
+                                 "orig_text": f"#{topic_name}#"
+                             })
+        except:
+            pass
 
         author_module = modules.get('module_author') or {}
         author_uid = author_module.get('mid') or author_module.get('uid')
@@ -707,6 +725,48 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         except Exception:
             # ignore enrichment errors
             pass
+
+        # 尝试补充Opus内容图片（针对文章类型和Opus类型动态图片缺失的情况）
+        try:
+            # 处理info可能是{'item': {...}}的情况
+            item = info.get('item', {})
+            md = item.get('modules', {}).get('module_dynamic', {})
+            major = md.get('major', {})
+
+            if major.get('type') in ['DYNAMIC_TYPE_ARTICLE', 'MAJOR_TYPE_OPUS'] and not (major.get('opus') or {}).get('pics'):
+                # 需要通过Opus API获取详细内容
+                opus_id = item.get('id_str', info.get('id_str'))
+                if opus_id:
+                     o = opus.Opus(int(opus_id), credential=load_credential(group_id))
+                     opus_info = await o.get_info()
+
+                     opus_item = opus_info.get('item', {})
+                     opus_modules = opus_item.get('modules', [])
+
+                     images = []
+                     for mod in opus_modules:
+                         if mod.get('module_type') == 'MODULE_TYPE_CONTENT':
+                             paragraphs = mod.get('module_content', {}).get('paragraphs', [])
+                             for p in paragraphs:
+                                 if p.get('para_type') == 2: # Image
+                                     pics = p.get('pic', {}).get('pics', [])
+                                     for pic in pics:
+                                         if pic.get('url'):
+                                             images.append({'url': pic['url']})
+
+                     if images:
+                         if 'opus' not in major:
+                             major['opus'] = {}
+                         major['opus']['pics'] = images
+                         # 更新数据结构
+                         md['major'] = major
+                         item['modules']['module_dynamic'] = md
+                         info['item'] = item
+        except Exception as e:
+            # 静默处理Opus图片获取失败（可能是风控等原因）
+            # 不影响主流程，继续返回基础数据
+            pass
+
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
         import traceback

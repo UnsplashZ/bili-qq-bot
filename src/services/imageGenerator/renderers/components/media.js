@@ -11,14 +11,19 @@ const ICONS = require('../icons');
 function renderMediaHtml(images, videoCard, isOrig) {
     if (images.length === 1) {
          const style = isOrig
-            ? 'width: 100%; height: auto; object-fit: contain; max-height: 1000px; margin-top: 10px;'
+            ? 'width: 100%; height: auto; object-fit: contain; margin-top: 10px;'
             : 'width: 100%; height: auto; margin-top: 20px;';
          const cls = isOrig ? 'single-image' : 'dynamic-image';
          return `<img class="${cls}" src="${images[0]}" style="${style}">`;
     } else if (images.length > 1) {
+         const maxImages = 9;
+         const displayImages = images.slice(0, maxImages);
+         const count = displayImages.length;
+         // 2, 4 use 2 columns; 3, 5+ use 3 columns (default)
+         const gridClass = (count === 2 || count === 4) ? 'cols-2' : '';
          return `
-            <div class="images-grid" ${isOrig ? 'style="margin-top:10px;"' : ''}>
-                ${images.map(src => `<img src="${src}" style="width: 100%; height: 100%; object-fit: cover; aspect-ratio: 1/1; ${(!isOrig) ? 'margin-top: 10px;' : ''}">`).join('')}
+            <div class="images-grid ${gridClass}" ${isOrig ? 'style="margin-top:10px;"' : ''}>
+                ${displayImages.map(src => `<img src="${src}" style="width: 100%; height: 100%; object-fit: cover; aspect-ratio: 1/1; ${(!isOrig) ? 'margin-top: 10px;' : ''}">`).join('')}
             </div>`;
     } else if (videoCard) {
         if (videoCard.isLiveRcmd) {
