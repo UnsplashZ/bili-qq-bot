@@ -25,7 +25,7 @@ function renderArticleContent(data) {
                 </div>
             </div>
             <div class="title">${escapeHtml(info.title)}</div>
-            <div class="text-content truncated" ${info.html_content ? 'style="white-space: normal;"' : ''}>${info.html_content || escapeHtml(info.summary || '')}</div>
+            <div class="text-content" ${info.html_content ? 'style="white-space: normal;"' : ''}>${info.html_content || escapeHtml(info.summary || '')}</div>
             <div class="stats" style="margin-top: 20px;">
                 <span class="stat-item">${ICONS.share} ${formatNumber(info.stats?.share)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.stats?.like)}</span>
