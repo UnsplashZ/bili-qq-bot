@@ -79,17 +79,23 @@ class AiHandler {
 
                         const name = msg.userName || (msg.role === 'assistant' ? 'AI助手' : (msg.userId ? `用户${msg.userId}` : '未知用户'));
                         // Clean content and ensure it doesn't break JSON
-                        const safeContent = this.cleanMessage(msg.content).replace(/"/g, '\\"');
-                        
-                        historyText += `${timeDesc}，${name}说：“${safeContent}”\n`;
+                        // Properly escape backslashes first, then quotes
+                        const safeContent = this.cleanMessage(msg.content)
+                            .replace(/\\/g, '\\\\')
+                            .replace(/"/g, '\\"');
+
+                        historyText += `${timeDesc}，${name}说："${safeContent}"\n`;
                     });
                 }
 
                 // Prepare Current Message
                 if (currentMessage) {
                     const name = currentMessage.userName || (currentMessage.userId ? `用户${currentMessage.userId}` : '用户');
-                    const safeContent = this.cleanMessage(currentMessage.content).replace(/"/g, '\\"');
-                    currentMessageContent = `当前消息：\n${name}说：“${safeContent}”`;
+                    // Properly escape backslashes first, then quotes
+                    const safeContent = this.cleanMessage(currentMessage.content)
+                        .replace(/\\/g, '\\\\')
+                        .replace(/"/g, '\\"');
+                    currentMessageContent = `当前消息：\n${name}说："${safeContent}"`;
                 }
             }
 
@@ -121,9 +127,11 @@ class AiHandler {
 
             const tools = mcpManager.getOpenAITools();
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
-            
+
             let loopCount = 0;
             const MAX_LOOPS = 10;
+            let emptyContentRetries = 0;
+            const MAX_EMPTY_RETRIES = 2;
 
             while (loopCount < MAX_LOOPS) {
                 const requestPayload = {
@@ -184,8 +192,7 @@ class AiHandler {
                                 if (queryText) {
                                     try {
                                         logger.info(`[AiHandler] Enhancing MCP search with local VectorMemory for: "${queryText}"`);
-                                        // Use a slightly lower threshold implicitly by asking for results, 
-                                        // vectorMemory.search has hardcoded 0.4 threshold which is reasonable.
+                                        // Use vectorMemory.search which uses the configured threshold
                                         const vectorResults = await vectorMemory.search(contextKey, queryText, 5);
                                         
                                         if (vectorResults.length > 0) {
@@ -220,8 +227,10 @@ class AiHandler {
                     if (!reply) {
                         // 如果在工具调用循环中收到空内容，可能是模型在执行完工具后没有生成最终回复
                         // 尝试添加一个系统提示，强制模型基于工具结果生成回复
-                        if (loopCount > 0) {
-                            logger.warn('[AiHandler] Received empty content after tool execution. Forcing summary generation...');
+                        // 但限制重试次数以避免无限循环
+                        if (loopCount > 0 && emptyContentRetries < MAX_EMPTY_RETRIES) {
+                            emptyContentRetries++;
+                            logger.warn(`[AiHandler] Received empty content after tool execution (retry ${emptyContentRetries}/${MAX_EMPTY_RETRIES}). Forcing summary generation...`);
                             currentMessages.push({
                                 role: 'user',
                                 content: "请根据上述工具调用的结果，回答我的问题。"
@@ -229,8 +238,8 @@ class AiHandler {
                             loopCount++;
                             continue;
                         }
-                        
-                        logger.warn('[AiHandler] Received empty content with no tool calls');
+
+                        logger.warn('[AiHandler] Received empty content with no tool calls or max retries reached');
                         return null;
                     }
                     

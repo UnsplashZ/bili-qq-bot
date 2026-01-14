@@ -70,6 +70,9 @@ const config = {
     // Maximum number of messages to keep in memory before safety trim
     aiMemorySafetyLimit: configData.aiMemorySafetyLimit || 5000,
 
+    // Maximum number of vector memories to keep in memory before eviction
+    aiVectorMemoryLimit: configData.aiVectorMemoryLimit || 10000,
+
     // Ratio of items to remove during trim (0-1, default 0.1 = 10%)
     aiTrimRatio: configData.aiTrimRatio !== undefined ? configData.aiTrimRatio : 0.1,
 
@@ -271,6 +274,7 @@ const config = {
             aiVectorSearchLimit: this.aiVectorSearchLimit,
             aiShortMessageThreshold: this.aiShortMessageThreshold,
             aiMemorySafetyLimit: this.aiMemorySafetyLimit,
+            aiVectorMemoryLimit: this.aiVectorMemoryLimit,
             aiTrimRatio: this.aiTrimRatio,
             // Performance Configuration
             aiVectorBatchLoadSize: this.aiVectorBatchLoadSize,

@@ -4,6 +4,7 @@ const biliApi = require('../../services/biliApi');
 const imageGenerator = require('../../services/imageGenerator');
 const config = require('../../config');
 const logger = require('../../utils/logger');
+const notificationHistory = require('../../utils/notificationHistory');
 
 class UpdateChecker {
     constructor() {
@@ -152,7 +153,7 @@ class UpdateChecker {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
                         // Fallback text
                         const msg = `${sub.name} 发布了新${typeLabel}：\nhttps://t.bilibili.com/${cardId}`;
-                        this.notifyGroups(sub.groupIds, msg);
+                        this.notifyGroups(sub.groupIds, msg, cardId);
                     }
                 }
 
@@ -195,10 +196,9 @@ class UpdateChecker {
                          user: { name: sub.name, face: res.data.face },
                          url: roomUrl
                      };
-                     const base64 = await imageGenerator.generatePreviewCard(liveInfo, 'live');
-                     this.notifyGroupsWithImage(sub.groupIds, base64, roomUrl, `${sub.name} 开播了！`);
+                     await this.notifyGroupsWithImage(sub.groupIds, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg);
+                    this.notifyGroups(sub.groupIds, msg, `live_${sub.uid}`);
                 }
             }
 
@@ -227,13 +227,12 @@ class UpdateChecker {
             if (newEp.id !== sub.lastEpId) {
                 // New Episode
                 const msg = `番剧 ${sub.title} 更新了！\n${newEp.index_show}\nhttps://www.bilibili.com/bangumi/play/ep${newEp.id}`;
-                
+
                 try {
                     // Generate preview
-                    const base64 = await imageGenerator.generatePreviewCard(res.data, 'bangumi');
-                    this.notifyGroupsWithImage(sub.groupIds, base64, `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
+                    await this.notifyGroupsWithImage(sub.groupIds, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg);
+                    this.notifyGroups(sub.groupIds, msg, newEp.id);
                 }
 
                 subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
@@ -243,11 +242,22 @@ class UpdateChecker {
         }
     }
 
-    notifyGroups(groupIds, text) {
+    notifyGroups(groupIds, text, dedupKey = null) {
         if (!this.ws) return;
         groupIds.forEach(gid => {
+            // Check for deduplication if key is provided
+            if (dedupKey && notificationHistory.has(gid, dedupKey)) {
+                logger.info(`[UpdateChecker] Skipping duplicate text notification for group ${gid} (key: ${dedupKey})`);
+                return;
+            }
+
             if (config.isGroupEnabled(gid)) {
                 notificationService.sendGroupMessage(this.ws, gid, [{ type: 'text', data: { text } }]);
+                
+                // Record notification history if key provided
+                if (dedupKey) {
+                    notificationHistory.add(gid, dedupKey);
+                }
             }
         });
     }
@@ -255,10 +265,34 @@ class UpdateChecker {
     async notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText = '') {
         if (!this.ws || !groupIds || groupIds.length === 0) return;
 
+        // Deduplication Logic
+        // Determine unique ID based on data
+        let dedupId = null;
+        if (data && data.id) dedupId = data.id; // dynamic id
+        else if (data && data.ep_id) dedupId = data.ep_id; // bangumi ep id (if available)
+        else if (type === 'live' && data && data.id) dedupId = `live_${data.id}`; // live room/user id
+        
+        // Filter out groups that already received this notification
+        const pendingGroupIds = [];
+        if (dedupId) {
+            for (const gid of groupIds) {
+                if (notificationHistory.has(gid, dedupId)) {
+                    logger.info(`[UpdateChecker] Skipping duplicate notification for group ${gid} (ID: ${dedupId})`);
+                } else {
+                    pendingGroupIds.push(gid);
+                }
+            }
+        } else {
+            // Fallback: process all if no ID found (shouldn't happen for std types)
+            pendingGroupIds.push(...groupIds);
+        }
+
+        if (pendingGroupIds.length === 0) return;
+
         // Group by config signature to handle Night Mode / Show ID differences
         const groupsByConfig = new Map(); // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
 
-        for (const groupId of groupIds) {
+        for (const groupId of pendingGroupIds) {
             if (!config.isGroupEnabled(groupId)) continue;
 
             const isNight = imageGenerator.isNightMode(groupId);
@@ -311,13 +345,18 @@ class UpdateChecker {
                         { type: 'image', data: { file: `base64://${base64Image}` } },
                         { type: 'text', data: { text: textMsg } }
                     ]);
+                    
+                    // Record history
+                    if (dedupId) {
+                        notificationHistory.add(gid, dedupId);
+                    }
                 });
                 
             } catch (e) {
                 logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e);
                 // Fallback to text for these groups
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl;
-                this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`);
+                this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`, dedupId);
             }
         }
     }

@@ -99,7 +99,14 @@ class MessageHandler {
                 }
             } catch (e) {
                 logger.warn('[MessageHandler] Failed to parse JSON message:', e);
-                logger.warn('[MessageHandler] JSON raw data:', jsonMsg.data.data.substring(0, 500));
+                // Safely log raw data with error handling
+                try {
+                    if (jsonMsg && jsonMsg.data && jsonMsg.data.data) {
+                        logger.warn('[MessageHandler] JSON raw data:', jsonMsg.data.data.substring(0, 500));
+                    }
+                } catch (logErr) {
+                    logger.warn('[MessageHandler] Could not log JSON raw data:', logErr.message);
+                }
             }
         }
 
@@ -171,7 +178,7 @@ class MessageHandler {
         }
 
         // Check for AI Reply
-        const isAt = messageData.message.some(m => m.type === 'at' && m.data.qq == messageData.self_id);
+        const isAt = messageData.message.some(m => m.type === 'at' && m.data.qq === messageData.self_id);
 
         if (aiHandler.shouldReply(rawMessage, isAt, groupId)) {
             const reply = await aiHandler.getReply(rawMessage, userId, groupId);

@@ -172,6 +172,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `aiContextLimit` | AI 上下文保留条数 (发送给 API 的消息数) | `10` |
 | `aiHistoryMaxSize` | AI 历史对话文件大小限制 (字节) | `209715200` (200MB) |
 | `aiVectorMaxSize` | AI 向量记忆文件大小限制 (字节) | `209715200` (200MB) |
+| `aiVectorMemoryLimit` | 内存中向量记忆条数上限 (防止内存溢出) | `10000` |
 | `aiVectorSimilarityThreshold` | 向量搜索相似度阈值 (0-1，越高越严格) | `0.4` |
 | `aiVectorSearchLimit` | 返回的相关记忆数量 | `3` |
 | `aiShortMessageThreshold` | 短消息过滤阈值 (字符数) | `5` |

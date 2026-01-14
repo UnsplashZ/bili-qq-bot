@@ -67,8 +67,29 @@ class VectorMemoryService {
         }
 
         if (oldestGroupId) {
+            // Save pending changes before eviction to prevent data loss
+            if (this.saveTimers.has(oldestGroupId)) {
+                clearTimeout(this.saveTimers.get(oldestGroupId));
+                this.saveTimers.delete(oldestGroupId);
+
+                // Synchronously save the memory data
+                const memory = this.memories.get(oldestGroupId);
+                if (memory) {
+                    try {
+                        const filePath = path.join(this.dataDir, `${oldestGroupId}.json`);
+                        // Use synchronous write to ensure data is saved before eviction
+                        storageUtils.writeWithBackup(filePath, memory);
+                        logger.info(`[VectorMemory] Saved pending changes for group ${oldestGroupId} before eviction`);
+                    } catch (e) {
+                        logger.error(`[VectorMemory] Failed to save before eviction for group ${oldestGroupId}:`, e);
+                    }
+                }
+            }
+
             this.groupCache.delete(oldestGroupId);
-            logger.debug(`[VectorMemory] Evicted group ${oldestGroupId} from L2 cache`);
+            // Also remove from L1 cache (memories) to prevent memory leak
+            this.memories.delete(oldestGroupId);
+            logger.debug(`[VectorMemory] Evicted group ${oldestGroupId} from caches`);
         }
     }
 
@@ -80,7 +101,7 @@ class VectorMemoryService {
     }
 
     // Load memories for a group (Lazy load)
-    loadGroupMemory(groupId) {
+    async loadGroupMemory(groupId) {
         if (this.memories.has(groupId)) {
             this.updateCacheAccess(groupId);
             return this.memories.get(groupId);
@@ -90,21 +111,13 @@ class VectorMemoryService {
         try {
             if (fs.existsSync(filePath)) {
                 // Check file size and log if large
-                const stats = fs.statSync(filePath);
+                const stats = await fs.promises.stat(filePath);
                 if (stats.size > 1024 * 1024) { // > 1MB
                     logger.info(`[VectorMemory] Loading large file (${(stats.size / 1024 / 1024).toFixed(1)}MB) for group ${groupId}`);
                 }
 
                 const startTime = Date.now();
-                const content = fs.readFileSync(filePath, 'utf8');
-
-                if (!content || content.trim() === '') {
-                    this.memories.set(groupId, []);
-                    this.initGroupCache(groupId);
-                    return [];
-                }
-
-                const data = JSON.parse(content);
+                const data = await storageUtils.safeReadJSON(filePath, []);
                 const loadTime = Date.now() - startTime;
 
                 if (loadTime > 100) {
@@ -211,7 +224,7 @@ class VectorMemoryService {
                 return;
             }
 
-            const memory = this.loadGroupMemory(groupId);
+            const memory = await this.loadGroupMemory(groupId);
 
             // Check for duplicates (only check recent memories for performance)
             const duplicateThreshold = 0.95;
@@ -248,10 +261,11 @@ class VectorMemoryService {
 
             logger.info(`[VectorMemory] Added new memory (importance: ${this.calculateImportance(text, role).toFixed(1)})`);
 
-            // Keep max vectors based on file size limit (default 200MB)
-            // We check size during saveGroupMemory, but here we can prevent in-memory bloat
-            if (memory.length > 10000) {
+            // Keep max vectors based on memory limit config to prevent in-memory bloat
+            const memoryLimit = config.getGroupConfig(groupId, 'aiVectorMemoryLimit');
+            if (memory.length > memoryLimit) {
                 memory.shift();
+                logger.debug(`[VectorMemory] Memory limit (${memoryLimit}) reached, removed oldest entry`);
             }
 
             this.saveGroupMemory(groupId);
@@ -381,7 +395,7 @@ class VectorMemoryService {
             const queryVector = await this.getEmbedding(queryText);
             if (!queryVector) return [];
 
-            const memory = this.loadGroupMemory(groupId);
+            const memory = await this.loadGroupMemory(groupId);
             if (memory.length === 0) return [];
 
             const scored = memory.map(m => ({
