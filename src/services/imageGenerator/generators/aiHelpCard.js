@@ -213,7 +213,7 @@ async function generateAIHelpCard(groupId) {
                     ${style}
                 </head>
                 <body class="${themeClass}">
-                    <div class="container">
+                    <div class="container" style="background: ${colorData.gradientMix}">
                         <div class="card">
                             <div class="header">
                                 <h1 class="title">AI 配置面板</h1>
@@ -281,12 +281,13 @@ async function generateAIHelpCard(groupId) {
             await page.setContent(html, { waitUntil: 'networkidle0' });
 
             const element = await page.$('.container');
-            const screenshot = await element.screenshot({
-                encoding: 'base64',
-                type: 'png'
+            const buffer = await element.screenshot({
+                type: 'webp',
+                quality: 80,
+                omitBackground: true
             });
 
-            return screenshot;
+            return buffer.toString('base64');
 
         } catch (error) {
             throw error;

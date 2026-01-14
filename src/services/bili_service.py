@@ -493,9 +493,25 @@ async def get_user_dynamic(uid, group_id=None):
                 pub_ts = 0
                 if 'modules' in item and 'module_author' in item['modules']:
                     pub_ts = item['modules']['module_author'].get('pub_ts', 0)
-                
+
+                # Construct desc object for backward compatibility with old API format
+                desc = {
+                    "dynamic_id_str": item.get('id_str'),
+                    "type": item.get('type'),
+                    "timestamp": pub_ts,
+                    "user_profile": {
+                        "info": {
+                            "face": (item.get('modules', {}).get('module_author', {}).get('face', ''))
+                        }
+                    }
+                }
+
                 result_items.append({
-                    "id": item.get('id_str'),
+                    "desc": desc,  # Old API compatibility
+                    "card": item.get('card'),  # Original card string (if exists)
+                    "extend_json": item.get('extend_json'),  # Original extend_json (if exists)
+                    # New API fields
+                    "id_str": item.get('id_str'),
                     "type": item.get('type'),
                     "modules": item.get('modules'),
                     "orig": item.get('orig'),
@@ -503,8 +519,8 @@ async def get_user_dynamic(uid, group_id=None):
                     "author": author_info
                 })
 
-            return {"status": "success", "data": result_items}
-        return {"status": "success", "data": []}
+            return {"status": "success", "data": {"cards": result_items}}
+        return {"status": "success", "data": {"cards": []}}
     except Exception as e:
         import traceback
         traceback.print_exc()
