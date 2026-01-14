@@ -56,7 +56,7 @@ function renderOrigContent(origItemRaw) {
             </div>
             <div class="orig-content">
                 ${o_title ? `<div class="orig-title">${o_title}</div>` : ''}
-                ${o_text ? `<div class="orig-text truncated">${o_text}</div>` : ''}
+                ${o_text ? `<div class="orig-text">${o_text}</div>` : ''}
                 ${o_voteHtml}
                 ${o_mediaHtml}
             </div>
@@ -187,7 +187,7 @@ function renderDynamicContent(data) {
                 </div>
             </div>
             ${title ? `<div class="title">${title}</div>` : ''}
-            <div class="text-content truncated">${text}</div>
+            <div class="text-content">${text}</div>
             ${voteHtml}
             ${origHtml}
             ${mediaHtml}

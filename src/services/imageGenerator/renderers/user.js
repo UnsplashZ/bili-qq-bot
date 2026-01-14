@@ -93,7 +93,7 @@ function renderUserContent(data, show_id) {
                             <span style="background: var(--color-card-bg); color: var(--color-subtext); padding: 2px 6px; font-size: 16px;">${medalLevel}</span>
                         </div>
                     </div>` : ''}
-                    ${sign ? `<div class="text-content" style="text-align: center; margin-top: 16px; color: var(--color-subtext); font-size: 18px; line-height: 1.5; padding: 0 20px;">"${sign}"</div>` : ''}
+                    ${sign ? `<div class="text-content" style="text-align: center; margin-top: 8px; color: var(--color-subtext); font-size: 18px; line-height: 1.5; padding: 0 20px;">"${sign}"</div>` : ''}
                 </div>
             </div>
 

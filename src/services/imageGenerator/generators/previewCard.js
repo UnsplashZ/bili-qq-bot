@@ -112,6 +112,16 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
                 }));
             });
 
+            // Detect truncation after images are loaded
+            await page.evaluate(() => {
+                const elements = document.querySelectorAll('.text-content, .orig-text, .article-body');
+                elements.forEach(el => {
+                    if (el.scrollHeight > el.clientHeight) {
+                        el.classList.add('truncated');
+                    }
+                });
+            });
+
             const element = await page.$('.container');
             if (!element) throw new Error('Container element not found');
 

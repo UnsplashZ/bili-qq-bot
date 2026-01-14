@@ -460,7 +460,7 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
                 word-wrap: break-word;
                 text-align: left;
-                max-height: 1800px;
+                max-height: 2500px;
                 overflow: hidden;
                 position: relative;
             }
@@ -469,11 +469,6 @@ function generateCSS(colorData, viewport) {
                 height: auto;
                 border-radius: var(--radius-sm);
             }
-            .text-content.truncated {
-                max-height: 2500px;
-                overflow: hidden;
-                position: relative;
-            }
             .text-content.truncated::after {
                 content: '';
                 position: absolute;
@@ -481,16 +476,6 @@ function generateCSS(colorData, viewport) {
                 left: 0;
                 width: 100%;
                 height: 160px;
-                background: linear-gradient(to bottom, transparent, var(--card-bg));
-                pointer-events: none;
-            }
-            .text-content::after {
-                content: '';
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                height: 120px;
                 background: linear-gradient(to bottom, transparent, var(--color-card-bg));
                 pointer-events: none;
             }
@@ -513,7 +498,7 @@ function generateCSS(colorData, viewport) {
                 overflow: hidden;
                 position: relative;
             }
-            .article-body::after {
+            .article-body.truncated::after {
                 content: '';
                 position: absolute;
                 bottom: 0;
@@ -640,11 +625,8 @@ function generateCSS(colorData, viewport) {
                 color: var(--color-subtext);
                 line-height: 1.7;
                 white-space: pre-wrap;
-            }
-            .orig-text.truncated {
                 max-height: 800px;
                 overflow: hidden;
-                position: relative;
             }
             .orig-text.truncated::after {
                 content: '';
@@ -672,18 +654,12 @@ function generateCSS(colorData, viewport) {
             }
 
             .video-stats {
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.2));
-                backdrop-filter: blur(12px);
-                -webkit-backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.4);
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+                background: transparent;
                 border-radius: var(--radius-md);
             }
 
             .theme-dark .video-stats {
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+                background: transparent;
             }
 
             .action-bar {
