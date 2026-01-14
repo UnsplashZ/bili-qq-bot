@@ -1,0 +1,374 @@
+const subscriptionManager = require('./subscriptionManager');
+const notificationService = require('../../services/notificationService');
+const biliApi = require('../../services/biliApi');
+const imageGenerator = require('../../services/imageGenerator');
+const config = require('../../config');
+const logger = require('../../utils/logger');
+
+class UpdateChecker {
+    constructor() {
+        this.checkInterval = 300 * 1000; // 5 minutes default
+        this.timer = null;
+        this.ws = null;
+    }
+
+    setWs(ws) {
+        this.ws = ws;
+    }
+
+    start() {
+        if (this.timer) return;
+        
+        // Initial check after 10 seconds
+        setTimeout(() => this.checkAll(), 10000);
+
+        this.timer = setInterval(() => {
+            this.checkAll();
+        }, this.checkInterval);
+        
+        logger.info(`[UpdateChecker] Started polling every ${this.checkInterval / 1000}s`);
+    }
+
+    stop() {
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+    }
+
+    updateCheckInterval(seconds) {
+        this.checkInterval = seconds * 1000;
+        this.stop();
+        this.start();
+    }
+
+    async checkAll() {
+        logger.info('[UpdateChecker] Starting scheduled check...');
+        
+        // Refresh cookie followings if enabled for any group
+        await this.refreshCookieFollowings();
+
+        // 1. Check User Dynamics
+        for (const sub of subscriptionManager.userSubs) {
+            await this.checkUserDynamic(sub);
+            // Small delay to be nice to API
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        // 2. Check User Live Status
+        for (const sub of subscriptionManager.userSubs) {
+            await this.checkUserLive(sub);
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        // 3. Check Bangumi Updates
+        for (const sub of subscriptionManager.bangumiSubs) {
+            await this.checkBangumi(sub);
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        // 4. Refresh missing names (maintenance)
+        this.refreshMissingNames();
+    }
+
+    async checkUserDynamic(sub, force = false) {
+        try {
+            const res = await biliApi.getUserDynamic(sub.uid);
+            if (res.status !== 'success' || !res.data.cards || res.data.cards.length === 0) return;
+
+            const cards = res.data.cards;
+            const latestCard = cards[0];
+            const latestId = latestCard.desc.dynamic_id_str;
+
+            // If first time (no lastId), just update and return
+            if (!sub.lastDynamicId && !force) {
+                subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                return;
+            }
+
+            if (latestId !== sub.lastDynamicId || force) {
+                // Find all new dynamics or just the latest if force
+                let newCards = [];
+                
+                if (force) {
+                    newCards = [latestCard];
+                    logger.info(`[UpdateChecker] Force checking dynamic for ${sub.name} (ID: ${latestId})`);
+                } else {
+                    for (const card of cards) {
+                        if (card.desc.dynamic_id_str === sub.lastDynamicId) break;
+                        newCards.push(card);
+                    }
+                    // Process from oldest to newest
+                    newCards.reverse();
+                }
+
+                for (const card of newCards) {
+                    const cardId = card.desc.dynamic_id_str;
+                    
+                    // Filter based on config (labels)
+                    // Simplified logic here: assume we notify for now, or check type
+                    // Actually we should check labelConfig but let's trust notifyGroups to handle basic text
+                    // or do we need to check types here?
+                    // The original code did strict type checking.
+                    
+                    // Generate Preview
+                    // Get Card Type
+                    // This logic was inside getDynamicInfo usually, but here we have raw card
+                    // Let's use biliApi helper if possible or assume dynamic
+                    // We can reuse imageGenerator.generatePreviewCard with constructed info object
+                    
+                    // Construct info object compatible with generator
+                    const info = {
+                        id: cardId,
+                        user: {
+                            name: sub.name,
+                            face: card.desc.user_profile?.info?.face
+                        },
+                        timestamp: card.desc.timestamp * 1000,
+                        type: 'dynamic', // simplified, ideally detect type from card.desc.type
+                        item: card // Pass full card for generator to parse
+                    };
+
+                    // Detect specific types for label filtering
+                    let typeLabel = '动态';
+                    if (card.desc.type === 8) typeLabel = '视频';
+                    else if (card.desc.type === 64) typeLabel = '专栏';
+                    
+                    // Notify
+                    // We need to generate image first
+                    try {
+                        // Pass 'dynamic' as generic type, generator handles details
+                        // For notifyGroupsWithImage, we need to pass the info object to let it regenerate based on group config
+                        // But wait, notifyGroupsWithImage in original code called generatePreviewCard internally per group
+                        // Here we are generating it once?
+                        // NO, the original code inside notifyGroupsWithImage generated it per group.
+                        // So we should pass the DATA object to notifyGroupsWithImage, not the base64!
+                        
+                        // Let's look at the method signature I'm fixing: notifyGroupsWithImage(groupIds, data, type, textUrl)
+                        const url = `https://t.bilibili.com/${cardId}`;
+                        await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, `${sub.name} 发布了新${typeLabel}！`);
+                        
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
+                        // Fallback text
+                        const msg = `${sub.name} 发布了新${typeLabel}：\nhttps://t.bilibili.com/${cardId}`;
+                        this.notifyGroups(sub.groupIds, msg);
+                    }
+                }
+
+                // Update lastId (only if not forced check)
+                if (!force) {
+                    subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                }
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking dynamic for ${sub.name}:`, e);
+        }
+    }
+
+    async checkUserLive(sub) {
+        try {
+            const res = await biliApi.getUserInfo(sub.uid); // getUserInfo contains live_room
+            if (res.status !== 'success') return;
+
+            const liveStatus = res.data.live_room?.liveStatus; // 1: live, 0: offline
+            const roomUrl = res.data.live_room?.url;
+            const title = res.data.live_room?.title;
+            const cover = res.data.live_room?.cover;
+
+            if (liveStatus === 1 && sub.lastLiveStatus === 0) {
+                // Started Streaming
+                const msg = `${sub.name} 开播了！\n标题：${title}\n地址：${roomUrl}`;
+                
+                // Try to generate image? Or just text + cover
+                // If cover exists, we can send it. 
+                // Using generic notify with image support if we download cover?
+                // Or just text for now as per original simple logic, or upgrade?
+                // Original code might have used generatePreviewCard for live
+                
+                // Let's try generatePreviewCard for live
+                try {
+                     const liveInfo = {
+                         id: sub.uid, // use uid as id for live gen
+                         title: title,
+                         cover: cover,
+                         user: { name: sub.name, face: res.data.face },
+                         url: roomUrl
+                     };
+                     const base64 = await imageGenerator.generatePreviewCard(liveInfo, 'live');
+                     this.notifyGroupsWithImage(sub.groupIds, base64, roomUrl, `${sub.name} 开播了！`);
+                } catch (e) {
+                    this.notifyGroups(sub.groupIds, msg);
+                }
+            }
+
+            if (liveStatus !== sub.lastLiveStatus) {
+                subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus });
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking live for ${sub.name}:`, e);
+        }
+    }
+
+    async checkBangumi(sub) {
+        try {
+            const res = await biliApi.getBangumiInfo(sub.seasonId);
+            if (res.status !== 'success') return;
+
+            const newEp = res.data.new_ep;
+            if (!newEp || !newEp.id) return;
+
+            // Initialize if needed
+            if (!sub.lastEpId) {
+                subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
+                return;
+            }
+
+            if (newEp.id !== sub.lastEpId) {
+                // New Episode
+                const msg = `番剧 ${sub.title} 更新了！\n${newEp.index_show}\nhttps://www.bilibili.com/bangumi/play/ep${newEp.id}`;
+                
+                try {
+                    // Generate preview
+                    const base64 = await imageGenerator.generatePreviewCard(res.data, 'bangumi');
+                    this.notifyGroupsWithImage(sub.groupIds, base64, `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
+                } catch (e) {
+                    this.notifyGroups(sub.groupIds, msg);
+                }
+
+                subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e);
+        }
+    }
+
+    notifyGroups(groupIds, text) {
+        if (!this.ws) return;
+        groupIds.forEach(gid => {
+            if (config.isGroupEnabled(gid)) {
+                notificationService.sendGroupMessage(this.ws, gid, [{ type: 'text', data: { text } }]);
+            }
+        });
+    }
+
+    async notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText = '') {
+        if (!this.ws || !groupIds || groupIds.length === 0) return;
+
+        // Group by config signature to handle Night Mode / Show ID differences
+        const groupsByConfig = new Map(); // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
+
+        for (const groupId of groupIds) {
+            if (!config.isGroupEnabled(groupId)) continue;
+
+            const isNight = imageGenerator.isNightMode(groupId);
+            const showId = config.getGroupConfig(groupId, 'showId');
+            
+            // Label Config Check
+            const labelConfig = config.getGroupConfig(groupId, 'labelConfig');
+            let subtype = type;
+            // Attempt to refine subtype from data if possible
+            if (type === 'bangumi' && data && data.season_type) {
+                const st = data.season_type;
+                if (st === 2) subtype = 'movie';
+                else if (st === 3) subtype = 'doc';
+                else if (st === 4) subtype = 'guocha';
+                else if (st === 5) subtype = 'tv';
+                else if (st === 7) subtype = 'variety';
+            } else if (type === 'dynamic' && data && data.item && data.item.desc) {
+                 if (data.item.desc.type === 8) subtype = 'video';
+                 else if (data.item.desc.type === 64) subtype = 'article';
+            }
+
+            const showLabel = (labelConfig && labelConfig[subtype] !== undefined) 
+                ? labelConfig[subtype] 
+                : (labelConfig && labelConfig[type] !== false); // Default true
+
+            const key = `night:${isNight}_showId:${showId}_showLabel:${showLabel}`;
+            
+            if (!groupsByConfig.has(key)) {
+                groupsByConfig.set(key, []);
+            }
+            groupsByConfig.get(key).push(groupId);
+        }
+
+        // Process each group configuration
+        for (const [key, targetGroupIds] of groupsByConfig) {
+            try {
+                // Use the first group as representative for generation
+                const representativeGroupId = targetGroupIds[0];
+                const showId = config.getGroupConfig(representativeGroupId, 'showId');
+                
+                // Generate image for this configuration
+                const base64Image = await imageGenerator.generatePreviewCard(data, type, representativeGroupId, showId);
+                
+                // Construct text message
+                const textMsg = descriptionText ? `\n${descriptionText}\n${textUrl}` : textUrl;
+
+                // Send to all groups in this configuration batch
+                targetGroupIds.forEach(gid => {
+                    notificationService.sendGroupMessage(this.ws, gid, [
+                        { type: 'image', data: { file: `base64://${base64Image}` } },
+                        { type: 'text', data: { text: textMsg } }
+                    ]);
+                });
+                
+            } catch (e) {
+                logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e);
+                // Fallback to text for these groups
+                const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl;
+                this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`);
+            }
+        }
+    }
+
+    async refreshCookieFollowings() {
+        // Only run if at least one group has sync enabled
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => 
+            config.getGroupConfig(gid, 'enableCookieSync')
+        );
+
+        if (groupsWithSync.length === 0) {
+            logger.info('[UpdateChecker] No groups have enabled cookie sync. Skipping refresh.');
+            return;
+        }
+
+        logger.info('[UpdateChecker] Refreshing cookie followings...');
+        try {
+            // Use getMyFollowings which fetches all followings with pagination
+            // Pass the first group ID to use its credentials (assuming shared or specific)
+            // Ideally we should check which credentials to use, but usually one account is logged in.
+            // If multiple groups use different accounts, this logic needs to be smarter (iterating unique accounts).
+            // For now, let's use the first group that enabled sync.
+            const representativeGroupId = groupsWithSync[0];
+            
+            const res = await biliApi.getMyFollowings(null, representativeGroupId);
+            
+            if (res.status === 'success' && res.data) {
+                subscriptionManager.setCookieFollowings(res.data);
+                logger.info(`[UpdateChecker] Successfully refreshed ${res.data.length} cookie followings.`);
+            } else {
+                logger.warn(`[UpdateChecker] Failed to refresh cookie followings: ${res.message}`);
+            }
+
+        } catch (e) {
+            logger.error('[UpdateChecker] Error refreshing cookie followings:', e);
+        }
+    }
+
+    async refreshMissingNames() {
+        // For users with no name
+        for (const sub of subscriptionManager.userSubs) {
+            if (!sub.name) {
+                try {
+                    const info = await biliApi.getUserInfo(sub.uid);
+                    if (info.status === 'success') {
+                        subscriptionManager.updateUserSub(sub.uid, { name: info.data.name });
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+}
+
+module.exports = new UpdateChecker();

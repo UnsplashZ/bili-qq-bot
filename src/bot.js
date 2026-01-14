@@ -34,8 +34,8 @@ function createWebSocketConnection() {
         reconnectCount = 0; // 重置重连计数
 
         // 设置WebSocket并启动订阅服务
-        subscriptionService.setWs(ws);
-        subscriptionService.start();
+        // subscriptionService.setWs(ws); // 已移除，ws 在 start 中传入
+        subscriptionService.start(ws);
     });
 
     ws.on('message', function incoming(data) {
@@ -70,7 +70,8 @@ function createWebSocketConnection() {
         logger.warn(`Disconnected from NapCat (Code: ${code}, Reason: ${reason || 'N/A'})`);
 
         // 清除WebSocket引用，停止订阅检查
-        subscriptionService.setWs(null);
+        // subscriptionService.setWs(null); // setWs method no longer exists in Facade
+        subscriptionService.stop();
 
         // 如果不是手动关闭，则尝试重连
         if (!isManualClose) {

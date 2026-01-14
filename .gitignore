@@ -24,12 +24,10 @@ config/mcp_servers.json
 
 # Data (Runtime)
 data/cookies*
-data/subscriptions.json
-data/subfollowers.json
+data/subscriptions*
+data/subfollowers*
 data/contexts/*
 data/vectors/*
-!data/contexts/.gitkeep
-!data/vectors/.gitkeep
 data/cache/*
 napcat/*
 
