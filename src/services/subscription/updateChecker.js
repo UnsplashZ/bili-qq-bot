@@ -119,15 +119,17 @@ class UpdateChecker {
                     // We can reuse imageGenerator.generatePreviewCard with constructed info object
                     
                     // Construct info object compatible with generator
+                    // The renderer expects { data: { item: { modules: ... } } }
                     const info = {
-                        id: cardId,
-                        user: {
-                            name: sub.name,
-                            face: card.desc.user_profile?.info?.face
-                        },
-                        timestamp: card.desc.timestamp * 1000,
-                        type: 'dynamic', // simplified, ideally detect type from card.desc.type
-                        item: card // Pass full card for generator to parse
+                        type: 'dynamic',
+                        data: {
+                            item: {
+                                modules: card.modules,
+                                orig: card.orig,
+                                id_str: card.id_str || card.desc.dynamic_id_str,
+                                type: card.type || card.desc.type
+                            }
+                        }
                     };
 
                     // Detect specific types for label filtering
@@ -189,14 +191,28 @@ class UpdateChecker {
                 
                 // Let's try generatePreviewCard for live
                 try {
-                     const liveInfo = {
-                         id: sub.uid, // use uid as id for live gen
-                         title: title,
-                         cover: cover,
-                         user: { name: sub.name, face: res.data.face },
-                         url: roomUrl
+                     // Build data structure matching what the live renderer expects
+                     const liveData = {
+                         data: {
+                             room_info: {
+                                 room_id: sub.uid,
+                                 title: title,
+                                 cover: cover,
+                                 live_status: 1 // 1 = live
+                             },
+                             anchor_info: {
+                                 base_info: {
+                                     uname: sub.name,
+                                     face: res.data.face
+                                 }
+                             },
+                             watched_show: {
+                                 text_large: '',
+                                 num: 0
+                             }
+                         }
                      };
-                     await this.notifyGroupsWithImage(sub.groupIds, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
+                     await this.notifyGroupsWithImage(sub.groupIds, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
                     this.notifyGroups(sub.groupIds, msg, `live_${sub.uid}`);
                 }
@@ -229,8 +245,8 @@ class UpdateChecker {
                 const msg = `番剧 ${sub.title} 更新了！\n${newEp.index_show}\nhttps://www.bilibili.com/bangumi/play/ep${newEp.id}`;
 
                 try {
-                    // Generate preview
-                    await this.notifyGroupsWithImage(sub.groupIds, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
+                    // Generate preview (pass full res object, not res.data)
+                    await this.notifyGroupsWithImage(sub.groupIds, res, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
                 } catch (e) {
                     this.notifyGroups(sub.groupIds, msg, newEp.id);
                 }

@@ -7,8 +7,11 @@ class AiCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
 
-        // ========== /AI 指令入口 ==========
-        if (rawMessage.startsWith('/AI ') || rawMessage.trim() === '/AI' || rawMessage.trim() === '/AI帮助') {
+        // ========== /AI 指令入口 (支持大小写) ==========
+        const msgLower = rawMessage.trim().toLowerCase();
+        if (rawMessage.startsWith('/AI ') || rawMessage.startsWith('/ai ') ||
+            rawMessage.trim() === '/AI' || rawMessage.trim() === '/ai' ||
+            rawMessage.trim() === '/AI帮助' || rawMessage.trim() === '/ai帮助') {
             const parts = rawMessage.trim().split(/\s+/);
             const subCommand = parts[1] || '帮助';
 
