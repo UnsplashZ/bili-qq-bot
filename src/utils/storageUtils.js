@@ -242,10 +242,68 @@ function safeReadJSONSync(filePath, defaultValue = []) {
     }
 }
 
+/**
+ * Synchronous atomic file write with backup protection
+ * Uses tmp file → verification → rename pattern to prevent data loss
+ * 
+ * @param {string} filePath - Target file path
+ * @param {*} data - Data to write (will be JSON.stringify'd)
+ * @param {boolean} createBackup - Whether to create a .bak backup, default true
+ * @returns {boolean} True if write succeeded
+ */
+function writeWithBackup(filePath, data, createBackup = true) {
+    const backupPath = `${filePath}.bak`;
+    const tempPath = `${filePath}.tmp`;
+
+    try {
+        // Ensure directory exists
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        // Step 1: Create backup if file exists and backup is enabled
+        if (createBackup && fs.existsSync(filePath)) {
+            try {
+                fs.copyFileSync(filePath, backupPath);
+            } catch (backupError) {
+                logger.warn('[StorageUtils] Failed to create backup (non-fatal):', backupError.message);
+            }
+        }
+
+        // Step 2: Write to temporary file
+        const jsonString = JSON.stringify(data, null, 2);
+        fs.writeFileSync(tempPath, jsonString, 'utf8');
+
+        // Step 3: Validate the written data (Basic read-back)
+        const verifyContent = fs.readFileSync(tempPath, 'utf8');
+        JSON.parse(verifyContent); // Just ensure it parses
+
+        // Step 4: Atomic replace via rename
+        fs.renameSync(tempPath, filePath);
+
+        return true;
+
+    } catch (error) {
+        logger.error('[StorageUtils] Sync write failed:', error);
+
+        // Clean up temp file if it exists
+        try {
+            if (fs.existsSync(tempPath)) {
+                fs.unlinkSync(tempPath);
+            }
+        } catch (cleanupError) {
+            logger.warn('[StorageUtils] Failed to clean up temp file:', cleanupError.message);
+        }
+        throw error;
+    }
+}
+
 module.exports = {
     calculateBufferSize,
     checkSizeAndTrim,
     asyncWriteWithBackup,
+    writeWithBackup,
     safeReadJSON,
     safeReadJSONSync
 };
