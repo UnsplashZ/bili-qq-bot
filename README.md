@@ -54,7 +54,7 @@
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-浅色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
     <td align="center"><img src="docs/images/管理菜单-浅色模式.webp" height="400" /><br /><b>管理菜单</b></td>
-    <td align="center"><img src="docs/images/AI-浅色模式.webp" height="400" /><br /><b>AI功能菜单</b></td>
+    <td align="center"><img src="docs/images/AI帮助菜单-浅色模式.png" height="400" /><br /><b>AI功能菜单</b></td>
   </tr>
 </table>
 
@@ -85,7 +85,7 @@
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-深色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
     <td align="center"><img src="docs/images/管理菜单-深色模式.webp" height="400" /><br /><b>管理菜单</b></td>
-    <td align="center"><img src="docs/images/AI-深色模式.webp" height="400" /><br /><b>AI功能菜单</b></td>
+    <td align="center"><img src="docs/images/AI帮助菜单-深色模式.png" height="400" /><br /><b>AI功能菜单</b></td>
   </tr>
 </table>
 
