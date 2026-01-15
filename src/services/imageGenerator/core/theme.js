@@ -461,6 +461,7 @@ function generateCSS(colorData, viewport) {
                 font-weight: 700;
                 margin-bottom: 16px;
                 color: var(--color-text);
+                max-height: 1800px;
                 line-height: 1.5;
                 letter-spacing: 0.5px;
             }
@@ -500,7 +501,7 @@ function generateCSS(colorData, viewport) {
                 bottom: 0;
                 left: 0;
                 width: 100%;
-                height: 160px;
+                height: 120px;
                 background: linear-gradient(to bottom, transparent, var(--color-card-bg));
                 pointer-events: none;
             }
@@ -652,6 +653,7 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
                 max-height: 800px;
                 overflow: hidden;
+                position: relative;
             }
             .orig-text.truncated::after {
                 content: '';

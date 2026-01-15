@@ -67,7 +67,7 @@ function renderBangumiContent(data) {
                 <span class="status-prefix">${statusText}</span>
                 ${metaSuffix ? `<span class="status-meta">${metaSuffix}</span>` : ''}
             </div>
-            <div class="stats video-stats">
+            <div class="stats">
                 <span class="stat-item">${ICONS.view} ${formatNumber(info.stat?.views)}</span>
                 <span class="stat-item">${ICONS.heart} ${formatNumber(info.stat?.follow)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.stat?.danmakus)}</span>
