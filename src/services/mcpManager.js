@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js');
+const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const logger = require('../utils/logger');
 
 class McpManager {
@@ -36,11 +38,18 @@ class McpManager {
         try {
             logger.info(`[McpManager] Connecting to ${serverName}... (Attempt ${retryCount + 1})`);
             
-            const transport = new StdioClientTransport({
-                command: serverConfig.command,
-                args: serverConfig.args || [],
-                env: { ...process.env, ...(serverConfig.env || {}) }
-            });
+            let transport;
+            if (serverConfig.type === 'streamable_http') {
+                transport = new StreamableHTTPClientTransport(new URL(serverConfig.url));
+            } else if (serverConfig.type === 'sse') {
+                transport = new SSEClientTransport(new URL(serverConfig.url));
+            } else {
+                transport = new StdioClientTransport({
+                    command: serverConfig.command,
+                    args: serverConfig.args || [],
+                    env: { ...process.env, ...(serverConfig.env || {}) }
+                });
+            }
 
             // Handle transport errors (e.g. process exit)
             transport.onerror = async (error) => {
