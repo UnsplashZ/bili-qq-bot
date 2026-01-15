@@ -179,36 +179,61 @@ function calculateColors(type, data, currentType, isNight) {
         addColor(avatarFocus);
     }
 
+    // 辅助色
+    const lightBlue = '#87CEEB';
+    const pink = '#FB7299';
+
+    // 颜色补全：0种时用类型默认色，1+种时都添加浅蓝和粉色
     if (colors.length === 0) {
         addColor(currentType.color);
     }
-    if (colors.length === 1) {
-        addColor(adjustBrightness(colors[0], -10));
+    // 无论提取到几种颜色（1、2或更多），都补全为：基础色 + 浅蓝色 + 粉色
+    if (colors.length > 0) {
+        addColor(lightBlue);
+        addColor(pink);
     }
-    if (colors.length === 2) {
-        addColor(adjustBrightness(colors[0], 12));
+
+    // 生成混合渐变效果
+    // 核心：基础色线性渐变 + 粉色/浅蓝光斑叠加
+
+    // 通用：粉色光斑（右上）
+    const pinkSpots = `radial-gradient(ellipse 80% 60% at 85% 15%, ${hexToRgba(pink, 0.4)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 75% 25%, ${hexToRgba(pink, 0.25)} 0%, transparent 50%)`;
+
+    // 通用：浅蓝光斑（左下）
+    const blueSpots = `radial-gradient(ellipse 80% 60% at 15% 85%, ${hexToRgba(lightBlue, 0.35)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 25% 75%, ${hexToRgba(lightBlue, 0.2)} 0%, transparent 50%)`;
+
+    // 基础色线性渐变（从左上到右下）
+    const stops = colors.map((c, i) => `${c} ${Math.round(i * 100 / (colors.length - 1))}%`).join(', ');
+    const baseGradient = `linear-gradient(135deg, ${stops})`;
+
+    // 组合所有渐变层
+    const gradientMix = `${baseGradient}, ${pinkSpots}, ${blueSpots}`;
+
+    if (isNight) {
+        // 深色模式：更浓郁
+        return {
+            badgeColor,
+            themeClass,
+            gradientMix,
+            badgeBg: '#23272D',
+            badgeTextColor: badgeColor,
+            badgeShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+            badgeBorder: '1px solid rgba(255, 255, 255, 0.1)',
+            currentType
+        };
+    } else {
+        // 浅色模式
+        return {
+            badgeColor,
+            themeClass,
+            gradientMix,
+            badgeBg: `linear-gradient(135deg, ${badgeColor}, ${adjustBrightness(badgeColor, -10)})`,
+            badgeTextColor: '#fff',
+            badgeShadow: `0 8px 24px ${hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`,
+            badgeBorder: 'none',
+            currentType
+        };
     }
-    const stops = colors.map((c, i) => {
-        const pct = colors.length > 1 ? Math.round(i * 100 / (colors.length - 1)) : 100;
-        return `${c} ${pct}%`;
-    });
-    const gradientMix = `linear-gradient(135deg, ${stops.join(', ')})`;
-
-    const badgeBg = isNight ? '#23272D' : `linear-gradient(135deg, ${badgeColor}, ${adjustBrightness(badgeColor, -10)})`;
-    const badgeTextColor = isNight ? badgeColor : '#fff';
-    const badgeShadow = isNight ? '0 4px 12px rgba(0, 0, 0, 0.4)' : `0 8px 24px ${hexToRgba(currentType.color, 0.40)}, var(--shadow-sm)`;
-    const badgeBorder = isNight ? '1px solid rgba(255, 255, 255, 0.1)' : 'none';
-
-    return {
-        badgeColor,
-        themeClass,
-        gradientMix,
-        badgeBg,
-        badgeTextColor,
-        badgeShadow,
-        badgeBorder,
-        currentType
-    };
 }
 
 /**
@@ -307,8 +332,8 @@ function generateCSS(colorData, viewport) {
                 position: absolute;
                 top: 50%;
                 left: 50%;
-                width: 64px;
-                height: 64px;
+                width: 72px;
+                height: 72px;
                 transform: translate(-50%, -50%);
                 border-radius: 50%;
                 border: 3px solid var(--color-card-bg);
@@ -641,21 +666,16 @@ function generateCSS(colorData, viewport) {
 
             .stats {
                 display: flex;
-                gap: 28px;
-                font-size: 28px;
+                gap: 24px;
+                font-size: 26px;
                 color: var(--color-subtext);
                 align-items: center;
-                margin-bottom: 12px;
-                background: var(--color-soft-bg);
-                padding: 16px 20px;
-                border-radius: var(--radius-md);
-                width: fit-content;
-                box-shadow: var(--shadow-sm);
+                margin: 16px 0 12px 0;
+                width: 100%;
             }
 
             .video-stats {
                 background: transparent;
-                border-radius: var(--radius-md);
             }
 
             .theme-dark .video-stats {
@@ -666,7 +686,7 @@ function generateCSS(colorData, viewport) {
                 display: flex;
                 align-items: center;
                 gap: 48px;
-                margin-top: 24px;
+                margin-top: 20px;
                 padding-top: 20px;
                 border-top: 1px solid var(--color-border);
                 width: 100%;
@@ -691,7 +711,7 @@ function generateCSS(colorData, viewport) {
             .stat-item {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 8px;
                 font-weight: 600;
                 color: var(--color-subtext);
                 white-space: nowrap;
@@ -699,8 +719,8 @@ function generateCSS(colorData, viewport) {
 
             .stat-item svg {
                 fill: var(--color-subtext);
-                width: 32px;
-                height: 32px;
+                width: 30px;
+                height: 30px;
             }
 
             .globe-icon {

@@ -38,7 +38,7 @@ const DESIGN_SYSTEM = {
 
 // 统一的CSS生成函数
 function generateUnifiedCSS(colorData, viewport, options = {}) {
-    const { currentType, badgeColor, badgeBg, badgeTextColor, badgeShadow, badgeBorder } = colorData;
+    const { currentType, badgeColor, badgeBg, badgeTextColor, badgeShadow, badgeBorder, gradientMix } = colorData;
     const { minWidth = 400, width = 1200 } = viewport;
     const { customFontsCss = '', customFontFamilies = [] } = options;
 
@@ -57,6 +57,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 --color-border: rgba(0, 0, 0, 0.08);
                 --color-soft-bg: #F0F2F5;
                 --color-soft-bg-2: #EDEFF3;
+                --gradient-mix: ${gradientMix};
 
                 /* 强调色 */
                 --color-primary: ${currentType?.color || '#FB7299'};
@@ -92,7 +93,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
 
             /* 深色主题 */
             .theme-dark {
-                --color-bg: rgba(0, 0, 0, 0.9);
+                --color-bg: rgba(0, 0, 0, 0.85);
                 --color-card-bg: rgba(23, 27, 33, 0.75);
                 --color-text: #E8EAED;
                 --color-subtext: #A8ADB4;
@@ -133,7 +134,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 transition: background-color .3s ease;
             }
 
-            /* 统一卡片样式 */
+            /* 统一卡片样式 - 毛玻璃效果 */
             .card {
                 position: relative;
                 background: var(--color-card-bg);
@@ -142,27 +143,45 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 box-shadow: var(--shadow-card);
                 border: 1px solid var(--color-border);
                 transition: background-color .3s ease, box-shadow .3s ease, border-color .3s ease;
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
+                backdrop-filter: blur(24px) saturate(180%);
+                -webkit-backdrop-filter: blur(24px) saturate(180%);
                 padding: var(--spacing-card);
                 width: 100%;
                 box-sizing: border-box;
             }
 
-            /* 统一渐变背景 */
+            /* 毛玻璃高光边框效果 */
+            .card::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: var(--radius-lg);
+                padding: 1px;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.05) 100%);
+                -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                -webkit-mask-composite: xor;
+                mask-composite: exclude;
+                pointer-events: none;
+            }
+
+            .theme-dark .card::before {
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.02) 100%);
+            }
+
+            /* 统一渐变背景 - 增强版 */
             .container.gradient-bg { position: relative; }
             .container.gradient-bg::before {
                 content: '';
                 position: absolute;
                 inset: 0;
                 background: var(--gradient-mix);
-                opacity: 0.18;
+                opacity: 0.35;
                 z-index: 0;
                 border-radius: var(--radius-container);
             }
             @supports (backdrop-filter: blur(2px)) {
                 .container.gradient-bg::before {
-                    backdrop-filter: blur(2px);
+                    backdrop-filter: blur(4px);
                 }
             }
             .container.gradient-bg > * {
@@ -170,7 +189,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 z-index: 1;
             }
 
-            /* 统一 Type Badge 样式 */
+            /* 统一 Type Badge 样式 - 与卡片一致的毛玻璃效果 */
             .type-badge {
                 display: inline-flex;
                 align-items: center;
@@ -188,6 +207,27 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 text-shadow: ${colorData?.themeClass === 'theme-dark' ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.2)'};
                 letter-spacing: 1px;
                 line-height: 1;
+                backdrop-filter: blur(24px) saturate(180%);
+                -webkit-backdrop-filter: blur(24px) saturate(180%);
+                position: relative;
+            }
+
+            /* 标签高光边框效果 - 与卡片一致 */
+            .type-badge::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: var(--radius-lg);
+                padding: 1px;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.05) 100%);
+                -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                -webkit-mask-composite: xor;
+                mask-composite: exclude;
+                pointer-events: none;
+            }
+
+            .theme-dark .type-badge::before {
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.02) 100%);
             }
 
             /* 统一标题样式 */

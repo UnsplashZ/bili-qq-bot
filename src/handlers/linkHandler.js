@@ -54,7 +54,8 @@ class LinkHandler {
             for (const match of matches) {
                 const id = linkType.extractId(match);
                 // Cache key includes groupId to allow same link in different groups
-                const cacheKey = groupId ? `${linkType.type}_${id}_${groupId}` : `${linkType.type}_${id}`;
+                // Use | as separator to avoid conflict with underscores in IDs or GroupIDs (e.g. private_xxxx)
+                const cacheKey = groupId ? `${linkType.type}|${id}|${groupId}` : `${linkType.type}|${id}`;
                 links.push({
                     type: linkType.type,
                     id: id,
@@ -72,10 +73,20 @@ class LinkHandler {
         if (this.linkCache.has(cacheKey)) {
             const cachedTime = this.linkCache.get(cacheKey);
 
-            // Parse groupId from cacheKey: type_id_groupId
-            // Use lastIndexOf to safely extract groupId even if id contains underscores
-            const lastUnderscoreIndex = cacheKey.lastIndexOf('_');
-            const groupId = lastUnderscoreIndex !== -1 ? cacheKey.substring(lastUnderscoreIndex + 1) : null;
+            // Parse groupId from cacheKey: type|id|groupId
+            // Use lastIndexOf to safely extract groupId
+            const lastSeparatorIndex = cacheKey.lastIndexOf('|');
+            // If separator not found (index -1), check if it might be old format (underscore)
+            // But for simplicity and correctness with new format, we strictly look for |
+            // If no | found, it might be a key without groupId, or old key. 
+            // For backward compatibility with running memory, we could check _, but since it's just cache, letting it expire is fine.
+            
+            let groupId = null;
+            if (lastSeparatorIndex !== -1) {
+                groupId = cacheKey.substring(lastSeparatorIndex + 1);
+            } else {
+                 // Fallback for global cache keys without groupId (type|id) -> groupId remains null
+            }
 
             // Get timeout for this group
             const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
@@ -102,9 +113,9 @@ class LinkHandler {
     cleanupExpiredCache() {
         const now = Date.now();
         for (const [key, time] of this.linkCache.entries()) {
-            // Use lastIndexOf to safely extract groupId even if id contains underscores
-            const lastUnderscoreIndex = key.lastIndexOf('_');
-            const groupId = lastUnderscoreIndex !== -1 ? key.substring(lastUnderscoreIndex + 1) : null;
+            // Use lastIndexOf to safely extract groupId
+            const lastSeparatorIndex = key.lastIndexOf('|');
+            const groupId = lastSeparatorIndex !== -1 ? key.substring(lastSeparatorIndex + 1) : null;
 
             const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
             const timeout = (timeoutSeconds || 300) * 1000;

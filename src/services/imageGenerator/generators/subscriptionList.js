@@ -59,9 +59,22 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 border: 1px solid var(--color-border);
                 padding: 28px;
                 overflow: hidden;
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
+                backdrop-filter: blur(24px) saturate(180%);
+                -webkit-backdrop-filter: blur(24px) saturate(180%);
                 position: relative;
+            }
+
+            .container::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: var(--radius-container);
+                padding: 1px;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.05) 100%);
+                -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                -webkit-mask-composite: xor;
+                mask-composite: exclude;
+                pointer-events: none;
             }
             .header {
                 text-align: center;
