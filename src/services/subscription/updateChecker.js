@@ -81,6 +81,19 @@ class UpdateChecker {
             if (res.status !== 'success' || !res.data.cards || res.data.cards.length === 0) return;
 
             const cards = res.data.cards;
+
+            // Sort cards by ID descending to handle sticky posts (which might be old but at top)
+            // ensuring the first card is truly the latest one in time.
+            cards.sort((a, b) => {
+                try {
+                    const idA = BigInt(a.desc.dynamic_id_str);
+                    const idB = BigInt(b.desc.dynamic_id_str);
+                    return idA < idB ? 1 : idA > idB ? -1 : 0;
+                } catch (e) {
+                    return 0;
+                }
+            });
+
             const latestCard = cards[0];
             const latestId = latestCard.desc.dynamic_id_str;
 
@@ -100,6 +113,13 @@ class UpdateChecker {
                 } else {
                     for (const card of cards) {
                         if (card.desc.dynamic_id_str === sub.lastDynamicId) break;
+                        // Prevent re-pushing old dynamics if the last seen dynamic was deleted
+                        // If we encounter a dynamic ID smaller (older) than our last seen ID, stop.
+                        try {
+                            if (BigInt(card.desc.dynamic_id_str) < BigInt(sub.lastDynamicId)) break;
+                        } catch (e) {
+                            // Fallback for non-numeric IDs if any, though unlikely for Bilibili
+                        }
                         newCards.push(card);
                     }
                     // Process from oldest to newest
