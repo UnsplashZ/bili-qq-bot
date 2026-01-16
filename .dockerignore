@@ -50,3 +50,7 @@ LICENSE
 check_data_structure.js
 *.md
 
+# Fonts (已复制到系统字体目录)
+fonts/
+!fonts/mi/
+

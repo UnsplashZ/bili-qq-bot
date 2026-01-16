@@ -20,22 +20,32 @@ RUN set -eux; \
 # - python3, python3-pip: 用于运行 B 站脚本
 # - fonts-noto-cjk, fonts-noto-color-emoji: 用于 Puppeteer 截图中文和 Emoji (关键！)
 # - chromium: 系统浏览器
-RUN apt-get update && apt-get install -y \
+# - --no-install-recommends: 不安装推荐包，减少体积
+# - autoremove + clean: 清理无用包和缓存
+# - rm doc/man: 删除文档和手册页
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     fonts-symbola \
     chromium \
+    && apt-get autoremove -y \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* \
+    && fc-cache -fv
 
 # 3. 安装字体 (Noto CJK 默认安装，MiSans 可选)
 # 将 fonts 目录下的所有内容复制到字体目录
 # 如果 fonts/mi 存在，会被复制到 /usr/share/fonts/truetype/mi
 # 如果不存在，也不会报错
 COPY fonts/ /usr/share/fonts/truetype/
-RUN fc-cache -fv
+# 精简 Noto 字体：删除不需要的变体以减少体积
+# 只保留 CJK 基础字体，删除其他不需要的变体
+RUN rm -rf /usr/share/fonts/truetype/noto/NotoSans*.ttf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
+    && rm -rf /usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc \
+    && fc-cache -fv
 
 # 4. 安装 Python 依赖 (全局安装)
 COPY requirements.txt .
@@ -52,7 +62,8 @@ COPY package.json package-lock.json ./
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-RUN npm config set registry https://registry.npmmirror.com && npm ci
+RUN npm config set registry https://registry.npmmirror.com && npm ci \
+    && npm cache clean --force
 
 # 7. 复制项目源代码
 COPY . .
