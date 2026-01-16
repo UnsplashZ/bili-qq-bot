@@ -14,6 +14,11 @@ class SubscriptionService {
     get cookieFollowings() { return subscriptionManager.cookieFollowings; }
     set cookieFollowings(val) { subscriptionManager.setCookieFollowings(val); }
 
+    // Ensure subscriptions are loaded (for direct access to userSubs/bangumiSubs)
+    async ensureLoaded() {
+        await subscriptionManager._ensureSubscriptionsLoaded();
+    }
+
     start(ws) {
         updateChecker.setWs(ws);
         updateChecker.start();
@@ -32,28 +37,31 @@ class SubscriptionService {
         return await subscriptionManager.addUserSubscription(uid, groupId);
     }
 
-    removeUserSubscription(uid, groupId) {
-        return subscriptionManager.removeUserSubscription(uid, groupId);
+    async removeUserSubscription(uid, groupId) {
+        return await subscriptionManager.removeUserSubscription(uid, groupId);
     }
 
     async addBangumiSubscription(seasonId, groupId) {
         return await subscriptionManager.addBangumiSubscription(seasonId, groupId);
     }
 
-    removeBangumiSubscription(seasonId, groupId) {
-        return subscriptionManager.removeBangumiSubscription(seasonId, groupId);
+    async removeBangumiSubscription(seasonId, groupId) {
+        return await subscriptionManager.removeBangumiSubscription(seasonId, groupId);
     }
 
-    reloadSubscriptions() {
-        subscriptionManager.loadSubscriptions();
+    async reloadSubscriptions() {
+        // Reset loading state and reload
+        subscriptionManager._loaded = false;
+        subscriptionManager._loadingPromise = null;
+        await subscriptionManager._ensureSubscriptionsLoaded();
     }
 
-    getSubscriptionsByGroup(groupId) {
-        return subscriptionManager.getSubscriptionsByGroup(groupId);
+    async getSubscriptionsByGroup(groupId) {
+        return await subscriptionManager.getSubscriptionsByGroup(groupId);
     }
 
-    removeAllGroupSubscriptions(groupId) {
-        return subscriptionManager.removeAllGroupSubscriptions(groupId);
+    async removeAllGroupSubscriptions(groupId) {
+        return await subscriptionManager.removeAllGroupSubscriptions(groupId);
     }
 
     async refreshCookieFollowings() {
@@ -62,10 +70,13 @@ class SubscriptionService {
 
     // Manual check trigger (e.g. for testing or commands)
     async checkSubscriptionNow(uid, groupId) {
+        // Ensure subscriptions are loaded before checking
+        await subscriptionManager._ensureSubscriptionsLoaded();
+
         // This is a bit tricky as updateChecker checks everyone.
         // We can implement a single check in updateChecker or just return current state?
         // The original method checked immediately.
-        
+
         // Let's implement a single check logic reusing UpdateChecker's methods
         // But UpdateChecker methods are designed for loop.
         // We can create a temporary sub object and call checkUserDynamic
@@ -74,9 +85,9 @@ class SubscriptionService {
             // Force check to generate card immediately
             // CRITICAL: Create a temporary sub object with ONLY the current group ID
             // This prevents the "Check Now" command from broadcasting to ALL subscribed groups
-            const tempSub = { 
-                ...sub, 
-                groupIds: [groupId] 
+            const tempSub = {
+                ...sub,
+                groupIds: [groupId]
             };
             await updateChecker.checkUserDynamic(tempSub, true);
             return true;

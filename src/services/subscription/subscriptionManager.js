@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const logger = require('../../utils/logger');
 const biliApi = require('../../services/biliApi');
@@ -9,65 +9,116 @@ class SubscriptionManager {
         this.userSubs = []; // [{ uid, name, groupIds: [], lastDynamicId, lastLiveStatus, type: 'user' }]
         this.bangumiSubs = []; // [{ seasonId, title, groupIds: [], lastEpId, type: 'bangumi' }]
         this.cookieFollowings = []; // [{ uid, name, face, sign, biliGroups: [] }]
-        
+
         this.dataDir = path.join(process.cwd(), 'data');
         this.subFile = path.join(this.dataDir, 'subscriptions.json');
         this.followersFile = path.join(this.dataDir, 'subfollowers.json');
 
-        this.init();
+        // 异步加载状态管理
+        this._loaded = false;
+        this._loadingPromise = null;
+        this._followersLoaded = false;
+        this._followersLoadingPromise = null;
     }
 
-    init() {
-        if (!fs.existsSync(this.dataDir)) {
-            fs.mkdirSync(this.dataDir, { recursive: true });
+    /**
+     * 确保目录存在（异步）
+     */
+    async _ensureDir() {
+        try {
+            await fs.mkdir(this.dataDir, { recursive: true });
+        } catch (error) {
+            if (error.code !== 'EEXIST') {
+                throw error;
+            }
         }
-        this.loadSubscriptions();
-        this.loadFollowers();
     }
 
-    // Load subscriptions from file
-    loadSubscriptions() {
-        // Check for .bak file if main file is missing or empty
-        if (!fs.existsSync(this.subFile)) {
-             const bakFile = this.subFile + '.bak';
-             if (fs.existsSync(bakFile)) {
-                 try {
-                     fs.copyFileSync(bakFile, this.subFile);
-                     logger.info('[SubscriptionManager] Restored subscriptions from backup.');
-                 } catch (e) {
-                     logger.error('[SubscriptionManager] Failed to restore backup:', e);
-                 }
-             }
-        }
+    /**
+     * 确保订阅数据已加载（异步懒加载）
+     */
+    async _ensureSubscriptionsLoaded() {
+        if (this._loaded) return;
+        if (this._loadingPromise) return this._loadingPromise;
 
-        if (fs.existsSync(this.subFile)) {
+        this._loadingPromise = (async () => {
             try {
-                const content = fs.readFileSync(this.subFile, 'utf8');
-                if (!content || content.trim() === '') {
-                     this.userSubs = [];
-                     this.bangumiSubs = [];
-                     return;
+                await this._ensureDir();
+                await this._loadSubscriptions();
+                this._loaded = true;
+            } catch (error) {
+                // Reset loading state on failure to allow retry
+                this._loadingPromise = null;
+                logger.error('[SubscriptionManager] Failed to load subscriptions, state reset for retry:', error);
+                throw error;
+            }
+        })();
+
+        return this._loadingPromise;
+    }
+
+    /**
+     * 确保粉丝数据已加载（异步懒加载）
+     */
+    async _ensureFollowersLoaded() {
+        if (this._followersLoaded) return;
+        if (this._followersLoadingPromise) return this._followersLoadingPromise;
+
+        this._followersLoadingPromise = (async () => {
+            try {
+                await this._ensureDir();
+                await this._loadFollowers();
+                this._followersLoaded = true;
+            } catch (error) {
+                // Reset loading state on failure to allow retry
+                this._followersLoadingPromise = null;
+                logger.error('[SubscriptionManager] Failed to load followers, state reset for retry:', error);
+                throw error;
+            }
+        })();
+
+        return this._followersLoadingPromise;
+    }
+
+    /**
+     * 异步加载订阅数据
+     */
+    async _loadSubscriptions() {
+        // 检查 .bak 文件
+        const bakFile = this.subFile + '.bak';
+        if (!await this._fileExists(this.subFile)) {
+            if (await this._fileExists(bakFile)) {
+                try {
+                    await fs.copyFile(bakFile, this.subFile);
+                    logger.info('[SubscriptionManager] Restored subscriptions from backup.');
+                } catch (e) {
+                    logger.error('[SubscriptionManager] Failed to restore backup:', e);
                 }
-                
+            }
+        }
+
+        if (await this._fileExists(this.subFile)) {
+            try {
+                const content = await fs.readFile(this.subFile, 'utf8');
+                if (!content || content.trim() === '') {
+                    this.userSubs = [];
+                    this.bangumiSubs = [];
+                    return;
+                }
+
                 const data = JSON.parse(content);
-                
-                // Compatibility handling for old format (which was array of mixed types)
-                // New format: { users: [], bangumis: [] } or mixed array?
-                // Let's assume mixed array for backward compatibility if root is array
+
+                // 兼容性处理
                 if (Array.isArray(data)) {
-                    // Check if it's the specific bugged format "[]" string or empty array
                     if (data.length === 0) {
-                         this.userSubs = [];
-                         this.bangumiSubs = [];
+                        this.userSubs = [];
+                        this.bangumiSubs = [];
                     } else {
-                         this.userSubs = data.filter(item => item.type === 'user' || !item.type); // Default to user
-                         this.bangumiSubs = data.filter(item => item.type === 'bangumi');
-                         // Normalize old format where type might be missing
-                         this.userSubs.forEach(u => u.type = 'user');
+                        this.userSubs = data.filter(item => item.type === 'user' || !item.type);
+                        this.bangumiSubs = data.filter(item => item.type === 'bangumi');
+                        this.userSubs.forEach(u => u.type = 'user');
                     }
                 } else {
-                    // Structured format
-                    // IMPORTANT: JSON keys are "users" and "bangumis" based on user's file content
                     this.userSubs = data.users || data.userSubs || [];
                     this.bangumiSubs = data.bangumis || data.bangumiSubs || [];
                 }
@@ -80,32 +131,13 @@ class SubscriptionManager {
         }
     }
 
-    // Save subscriptions to file
-    saveSubscriptions() {
-        try {
-            // Save as mixed array for backward compatibility if needed, or structured?
-            // Let's save as structured object for clarity, but if previous code expected array root, we might break it?
-            // The original service used `this.subscriptions` which was a mixed array.
-            // Let's verify how we want to persist. 
-            // If we change format, we must ensure `load` handles it. `load` above handles both.
-            // To be safe and cleaner, let's use structured object { users, bangumis }
-            const data = {
-                users: this.userSubs,
-                bangumis: this.bangumiSubs
-            };
-            
-            // Use atomic write with backup
-            storageUtils.writeWithBackup(this.subFile, data);
-        } catch (e) {
-            logger.error('[SubscriptionManager] Failed to save subscriptions:', e);
-        }
-    }
-
-    // Load followers cache
-    loadFollowers() {
-        if (fs.existsSync(this.followersFile)) {
+    /**
+     * 异步加载粉丝数据
+     */
+    async _loadFollowers() {
+        if (await this._fileExists(this.followersFile)) {
             try {
-                const data = JSON.parse(fs.readFileSync(this.followersFile, 'utf8'));
+                const data = await storageUtils.safeReadJSON(this.followersFile, []);
                 this.cookieFollowings = Array.isArray(data) ? data : [];
                 logger.info(`[SubscriptionManager] Loaded ${this.cookieFollowings.length} followers from cache.`);
             } catch (e) {
@@ -115,30 +147,66 @@ class SubscriptionManager {
         }
     }
 
-    // Save followers cache
-    saveFollowers() {
+    /**
+     * 检查文件是否存在（异步）
+     */
+    async _fileExists(filePath) {
         try {
-            storageUtils.writeWithBackup(this.followersFile, this.cookieFollowings);
-        } catch (e) {
-            logger.error('[SubscriptionManager] Failed to save followers:', e);
+            await fs.access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * 异步保存订阅数据
+     */
+    async _saveSubscriptions() {
+        try {
+            const data = {
+                users: this.userSubs,
+                bangumis: this.bangumiSubs
+            };
+            await storageUtils.asyncWriteWithBackup(this.subFile, data);
+            logger.debug('[SubscriptionManager] Subscriptions saved successfully.');
+        } catch (error) {
+            logger.error('[SubscriptionManager] Failed to save subscriptions:', error);
+            throw error; // Re-throw to let caller handle
+        }
+    }
+
+    /**
+     * 异步保存粉丝数据
+     */
+    async _saveFollowers() {
+        try {
+            await storageUtils.asyncWriteWithBackup(this.followersFile, this.cookieFollowings);
+            logger.debug('[SubscriptionManager] Followers saved successfully.');
+        } catch (error) {
+            logger.error('[SubscriptionManager] Failed to save followers:', error);
+            throw error; // Re-throw to let caller handle
         }
     }
 
     setCookieFollowings(followings) {
         this.cookieFollowings = followings;
-        this.saveFollowers();
+        // Fire-and-forget save with error handling
+        this._saveFollowers().catch(err => {
+            logger.error('[SubscriptionManager] Failed to save followers after setCookieFollowings:', err);
+        });
     }
 
     // Add User Subscription
     async addUserSubscription(uid, groupId) {
+        await this._ensureSubscriptionsLoaded();
         let sub = this.userSubs.find(s => s.uid == uid);
         const gid = String(groupId); // Normalize group ID
-        
+
         if (sub) {
             if (!sub.groupIds.some(id => String(id) === gid)) {
-                sub.groupIds.push(groupId); // Store original type if possible, or string?
-                // Let's keep it mixed or whatever comes in, but checking is string-based
-                this.saveSubscriptions();
+                sub.groupIds.push(groupId);
+                await this._saveSubscriptions();
             }
             return sub.name;
         }
@@ -164,13 +232,14 @@ class SubscriptionManager {
         };
 
         this.userSubs.push(newSub);
-        this.saveSubscriptions();
+        await this._saveSubscriptions();
         logger.info(`[SubscriptionManager] Added user sub: ${newSub.name} (${uid}) for group ${groupId}`);
         return newSub.name;
     }
 
     // Remove User Subscription
-    removeUserSubscription(uid, groupId) {
+    async removeUserSubscription(uid, groupId) {
+        await this._ensureSubscriptionsLoaded();
         const index = this.userSubs.findIndex(s => s.uid == uid);
         const gid = String(groupId);
         if (index > -1) {
@@ -181,7 +250,7 @@ class SubscriptionManager {
                 if (sub.groupIds.length === 0) {
                     this.userSubs.splice(index, 1);
                 }
-                this.saveSubscriptions();
+                await this._saveSubscriptions();
                 return true;
             }
         }
@@ -190,12 +259,13 @@ class SubscriptionManager {
 
     // Add Bangumi Subscription
     async addBangumiSubscription(seasonId, groupId) {
+        await this._ensureSubscriptionsLoaded();
         let sub = this.bangumiSubs.find(s => s.seasonId == seasonId);
         const gid = String(groupId);
         if (sub) {
             if (!sub.groupIds.some(id => String(id) === gid)) {
                 sub.groupIds.push(groupId);
-                this.saveSubscriptions();
+                await this._saveSubscriptions();
             }
             return sub.title;
         }
@@ -214,13 +284,14 @@ class SubscriptionManager {
         };
 
         this.bangumiSubs.push(newSub);
-        this.saveSubscriptions();
+        await this._saveSubscriptions();
         logger.info(`[SubscriptionManager] Added bangumi sub: ${newSub.title} (${seasonId}) for group ${groupId}`);
         return newSub.title;
     }
 
     // Remove Bangumi Subscription
-    removeBangumiSubscription(seasonId, groupId) {
+    async removeBangumiSubscription(seasonId, groupId) {
+        await this._ensureSubscriptionsLoaded();
         const index = this.bangumiSubs.findIndex(s => s.seasonId == seasonId);
         const gid = String(groupId);
         if (index > -1) {
@@ -231,7 +302,7 @@ class SubscriptionManager {
                 if (sub.groupIds.length === 0) {
                     this.bangumiSubs.splice(index, 1);
                 }
-                this.saveSubscriptions();
+                await this._saveSubscriptions();
                 return true;
             }
         }
@@ -239,8 +310,8 @@ class SubscriptionManager {
     }
 
     // Get all subscriptions for a group
-    getSubscriptionsByGroup(groupId) {
-        // Ensure groupId is compared as the same type (number or string)
+    async getSubscriptionsByGroup(groupId) {
+        await this._ensureSubscriptionsLoaded();
         const gid = String(groupId);
         const users = this.userSubs.filter(s => s.groupIds.some(id => String(id) === gid));
         const bangumis = this.bangumiSubs.filter(s => s.groupIds.some(id => String(id) === gid));
@@ -248,10 +319,11 @@ class SubscriptionManager {
     }
 
     // Remove all subscriptions for a group (Clean command)
-    removeAllGroupSubscriptions(groupId) {
+    async removeAllGroupSubscriptions(groupId) {
+        await this._ensureSubscriptionsLoaded();
         let changed = false;
         const gid = String(groupId);
-        
+
         // Clean users
         for (let i = this.userSubs.length - 1; i >= 0; i--) {
             const sub = this.userSubs[i];
@@ -279,24 +351,26 @@ class SubscriptionManager {
         }
 
         if (changed) {
-            this.saveSubscriptions();
+            await this._saveSubscriptions();
         }
         return changed;
     }
 
-    updateUserSub(uid, updates) {
+    async updateUserSub(uid, updates) {
+        await this._ensureSubscriptionsLoaded();
         const sub = this.userSubs.find(s => s.uid == uid);
         if (sub) {
             Object.assign(sub, updates);
-            this.saveSubscriptions();
+            await this._saveSubscriptions();
         }
     }
 
-    updateBangumiSub(seasonId, updates) {
+    async updateBangumiSub(seasonId, updates) {
+        await this._ensureSubscriptionsLoaded();
         const sub = this.bangumiSubs.find(s => s.seasonId == seasonId);
         if (sub) {
             Object.assign(sub, updates);
-            this.saveSubscriptions();
+            await this._saveSubscriptions();
         }
     }
 }

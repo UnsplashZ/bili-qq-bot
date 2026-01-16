@@ -23,9 +23,12 @@ class AdminCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已重置群 ${targetGid} 的 AI 对话记忆。` } }]);
                 return true;
             } else if (subCommand === '群列表' || subCommand === 'list') {
+                 // Ensure subscriptions are loaded before accessing
+                 await subscriptionService.ensureLoaded();
+
                  // Gather stats
                  const stats = new Map(); // groupId -> { hasConfig, hasSubs, hasBlacklist }
-                 
+
                  // 1. Check Configs
                  if (config.groupConfigs) {
                      Object.keys(config.groupConfigs).forEach(gid => {
@@ -76,7 +79,7 @@ class AdminCommand {
                 }
 
                 // 2. Remove Subscriptions
-                const subsRemoved = subscriptionService.removeAllGroupSubscriptions(targetGid);
+                const subsRemoved = await subscriptionService.removeAllGroupSubscriptions(targetGid);
 
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `群 ${targetGid} 清理完成。\n配置删除: ${configRemoved?'是':'否'}\n订阅移除: ${subsRemoved?'是':'否'}` } }]);
                 return true;

@@ -45,7 +45,10 @@ class UpdateChecker {
 
     async checkAll() {
         logger.info('[UpdateChecker] Starting scheduled check...');
-        
+
+        // Ensure subscriptions are loaded before checking
+        await subscriptionManager._ensureSubscriptionsLoaded();
+
         // Refresh cookie followings if enabled for any group
         await this.refreshCookieFollowings();
 
@@ -69,7 +72,7 @@ class UpdateChecker {
         }
 
         // 4. Refresh missing names (maintenance)
-        this.refreshMissingNames();
+        await this.refreshMissingNames();
     }
 
     async checkUserDynamic(sub, force = false) {
@@ -83,7 +86,7 @@ class UpdateChecker {
 
             // If first time (no lastId), just update and return
             if (!sub.lastDynamicId && !force) {
-                subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
                 return;
             }
 
@@ -161,7 +164,7 @@ class UpdateChecker {
 
                 // Update lastId (only if not forced check)
                 if (!force) {
-                    subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                    await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
                 }
             }
         } catch (e) {
@@ -219,7 +222,7 @@ class UpdateChecker {
             }
 
             if (liveStatus !== sub.lastLiveStatus) {
-                subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus });
+                await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking live for ${sub.name}:`, e);
@@ -236,7 +239,7 @@ class UpdateChecker {
 
             // Initialize if needed
             if (!sub.lastEpId) {
-                subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
+                await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
                 return;
             }
 
@@ -251,7 +254,7 @@ class UpdateChecker {
                     this.notifyGroups(sub.groupIds, msg, newEp.id);
                 }
 
-                subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
+                await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e);
@@ -418,7 +421,7 @@ class UpdateChecker {
                 try {
                     const info = await biliApi.getUserInfo(sub.uid);
                     if (info.status === 'success') {
-                        subscriptionManager.updateUserSub(sub.uid, { name: info.data.name });
+                        await subscriptionManager.updateUserSub(sub.uid, { name: info.data.name });
                     }
                 } catch (e) {}
             }

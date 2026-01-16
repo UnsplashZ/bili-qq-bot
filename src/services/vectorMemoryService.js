@@ -16,6 +16,7 @@ class VectorMemoryService {
         // L2 Cache: Group-level LRU cache (max 3 active groups)
         this.groupCache = new Map(); // groupId -> {lastAccess: timestamp, queryCache: Map}
         this.maxCachedGroups = 3;
+        this.maxQueryCacheSize = 20; // Max queries per group
 
         // Debounced save timers
         this.saveTimers = new Map(); // groupId -> timer
@@ -41,7 +42,7 @@ class VectorMemoryService {
         if (!cache) {
             cache = {
                 lastAccess: Date.now(),
-                queryCache: new Map() // query text -> results
+                queryCache: new Map() // Use Map for LRU behavior
             };
             this.groupCache.set(groupId, cache);
 
@@ -51,6 +52,12 @@ class VectorMemoryService {
             }
         } else {
             cache.lastAccess = Date.now();
+            // Also touch queryCache to maintain LRU order within query cache
+            if (cache.queryCache instanceof Map) {
+                // Re-set to move to end (LRU)
+                const entries = Array.from(cache.queryCache.entries());
+                cache.queryCache = new Map(entries);
+            }
         }
     }
 
@@ -261,11 +268,13 @@ class VectorMemoryService {
 
             logger.info(`[VectorMemory] Added new memory (importance: ${this.calculateImportance(text, role).toFixed(1)})`);
 
-            // Keep max vectors based on memory limit config to prevent in-memory bloat
+            // Keep max vectors based on memory limit to prevent in-memory bloat
+            // Use batch delete for efficiency
             const memoryLimit = config.getGroupConfig(groupId, 'aiVectorMemoryLimit');
             if (memory.length > memoryLimit) {
-                memory.shift();
-                logger.debug(`[VectorMemory] Memory limit (${memoryLimit}) reached, removed oldest entry`);
+                const toRemove = memory.length - memoryLimit;
+                memory.splice(0, toRemove);
+                logger.debug(`[VectorMemory] Memory limit (${memoryLimit}) reached, removed ${toRemove} oldest entries`);
             }
 
             this.saveGroupMemory(groupId);
@@ -437,8 +446,10 @@ class VectorMemoryService {
             if (config.aiEnableVectorCache) {
                 const cache = this.groupCache.get(groupId);
                 if (cache) {
-                    // Limit query cache to 20 entries per group
-                    if (cache.queryCache.size >= 20) {
+                    // Limit query cache size using LRU eviction
+                    // Map maintains insertion order, so we can use it as LRU cache
+                    if (cache.queryCache.size >= this.maxQueryCacheSize) {
+                        // Delete the first (oldest) entry
                         const firstKey = cache.queryCache.keys().next().value;
                         cache.queryCache.delete(firstKey);
                     }

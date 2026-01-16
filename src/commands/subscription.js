@@ -36,15 +36,15 @@ class SubscriptionCommand {
                     await subscriptionService.refreshCookieFollowings();
 
                     // 2. Fetch Subscriptions & Followings
-                    let { users: groupUserSubs, bangumis: groupBangumiSubs } = subscriptionService.getSubscriptionsByGroup(groupId);
+                    let { users: groupUserSubs, bangumis: groupBangumiSubs } = await subscriptionService.getSubscriptionsByGroup(groupId);
                     logger.info(`[SubscriptionCommand] Found ${groupUserSubs.length} users and ${groupBangumiSubs.length} bangumis for group ${groupId}`);
-                    
+
                     if (groupUserSubs.length === 0 && groupBangumiSubs.length === 0) {
                         // Attempt to reload from disk in case memory is stale
                         logger.info('[SubscriptionCommand] No subscriptions found, attempting to reload from disk...');
                         try {
-                            subscriptionService.reloadSubscriptions();
-                            const res = subscriptionService.getSubscriptionsByGroup(groupId);
+                            await subscriptionService.reloadSubscriptions();
+                            const res = await subscriptionService.getSubscriptionsByGroup(groupId);
                             groupUserSubs = res.users;
                             groupBangumiSubs = res.bangumis;
                             logger.info(`[SubscriptionCommand] After reload: Found ${groupUserSubs.length} users and ${groupBangumiSubs.length} bangumis`);
@@ -197,10 +197,10 @@ class SubscriptionCommand {
                 // Check if input is a number (UID)
                 if (!/^\d+$/.test(input)) {
                     // Try to resolve name to UID from current group subscriptions
-                    const { users } = subscriptionService.getSubscriptionsByGroup(groupId);
+                    const { users } = await subscriptionService.getSubscriptionsByGroup(groupId);
                     // Try exact match first
                     let userSub = users.find(s => s.name === input);
-                    
+
                     if (!userSub) {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未在本群找到用户名为 "${input}" 的订阅。请尝试使用 UID 或检查用户名是否完全正确。` } }]);
                         return true;
@@ -208,7 +208,7 @@ class SubscriptionCommand {
                     uidToRemove = userSub.uid;
                 }
 
-                const result = subscriptionService.removeUserSubscription(uidToRemove, groupId);
+                const result = await subscriptionService.removeUserSubscription(uidToRemove, groupId);
                 if (result) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已取消订阅用户 ${uidToRemove}。` } }]);
                 } else {
@@ -308,7 +308,7 @@ class SubscriptionCommand {
             const parts = rawMessage.split(' ');
             if (parts.length === 2) {
                 const seasonId = parts[1];
-                const result = subscriptionService.removeBangumiSubscription(seasonId, groupId);
+                const result = await subscriptionService.removeBangumiSubscription(seasonId, groupId);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: result ? `已取消订阅番剧 ${seasonId}。` : `未找到番剧 ${seasonId} 的订阅。` } }]);
             } else {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /取消订阅番剧 <season_id>' } }]);
@@ -330,10 +330,10 @@ class SubscriptionCommand {
                 // Check if input is a number (UID)
                 if (!/^\d+$/.test(input)) {
                     // Try to resolve name to UID from current group subscriptions
-                    const { users } = subscriptionService.getSubscriptionsByGroup(groupId);
+                    const { users } = await subscriptionService.getSubscriptionsByGroup(groupId);
                     // Try exact match first
                     let userSub = users.find(s => s.name === input);
-                    
+
                     if (!userSub) {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `未在本群找到用户名为 "${input}" 的订阅。请尝试使用 UID 或检查用户名是否完全正确。` } }]);
                         return true;
