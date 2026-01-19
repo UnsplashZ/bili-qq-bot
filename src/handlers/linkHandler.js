@@ -28,6 +28,9 @@ class LinkHandler {
         // Regex for User (space.bilibili.com/xxxx)
         this.userRegex = /(?:space\.bilibili\.com\/|(?:https?:\/\/)?[^/]*bilibili\.com\/space\/)([0-9]+)/;
         
+        // Regex for Short Links (b23.tv/xxxx)
+        this.shortLinkRegex = /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/;
+        
         // Link processing cache
         this.linkCache = new Map();
     }
