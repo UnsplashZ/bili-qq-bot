@@ -421,9 +421,9 @@ async function generateHelpCard(type = 'user', groupId) {
     await page.setContent(html);
     const container = await page.$('.container');
     const buffer = await container.screenshot({
-        type: 'webp',
+        type: 'jpeg',
         quality: 80,
-        omitBackground: true
+        omitBackground: false
     });
 
         return buffer.toString('base64');

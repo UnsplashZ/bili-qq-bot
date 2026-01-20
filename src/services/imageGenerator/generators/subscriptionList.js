@@ -319,9 +319,9 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
     await page.setContent(html);
     const wrapper = await page.$('#wrapper');
     const buffer = await wrapper.screenshot({
-        type: 'webp',
+        type: 'jpeg',
         quality: 80,
-        omitBackground: true
+        omitBackground: false
     });
 
         return buffer.toString('base64');

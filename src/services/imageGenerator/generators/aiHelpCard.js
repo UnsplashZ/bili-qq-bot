@@ -296,9 +296,9 @@ async function generateAIHelpCard(groupId) {
 
             const element = await page.$('.container');
             const buffer = await element.screenshot({
-                type: 'webp',
+                type: 'jpeg',
                 quality: 80,
-                omitBackground: true
+                omitBackground: false
             });
 
             return buffer.toString('base64');

@@ -12,11 +12,13 @@ class VectorMemoryService {
 
         // L1 Cache: Vector data (existing)
         this.memories = new Map(); // groupId -> [{text, role, vector, timestamp, importance, accessCount}]
+        this.maxL1MemoryBytes = 200 * 1024 * 1024; // 200MB 总内存限制
 
         // L2 Cache: Group-level LRU cache (max 3 active groups)
         this.groupCache = new Map(); // groupId -> {lastAccess: timestamp, queryCache: Map}
         this.maxCachedGroups = 3;
         this.maxQueryCacheSize = 20; // Max queries per group
+        this.queryTTL = 5 * 60 * 1000; // 查询缓存 5 分钟过期
 
         // Debounced save timers
         this.saveTimers = new Map(); // groupId -> timer
@@ -112,6 +114,13 @@ class VectorMemoryService {
         if (this.memories.has(groupId)) {
             this.updateCacheAccess(groupId);
             return this.memories.get(groupId);
+        }
+
+        // 加载前检查 L1 缓存总内存使用量
+        const currentMemory = this.calculateTotalL1Memory();
+        if (currentMemory > this.maxL1MemoryBytes) {
+            logger.warn(`[VectorMemory] L1 cache exceeds ${(this.maxL1MemoryBytes/1024/1024).toFixed(0)}MB (current: ${(currentMemory/1024/1024).toFixed(1)}MB), forcing eviction`);
+            this.evictLRUGroup();
         }
 
         const filePath = path.join(this.dataDir, `${groupId}.json`);
@@ -392,12 +401,20 @@ class VectorMemoryService {
                 limit = config.getGroupConfig(groupId, 'aiVectorSearchLimit');
             }
 
-            // Check L3 query cache if enabled
+            // Check L3 query cache if enabled (with TTL)
             if (config.aiEnableVectorCache) {
                 const cache = this.groupCache.get(groupId);
                 if (cache && cache.queryCache.has(queryText)) {
-                    logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
-                    return cache.queryCache.get(queryText);
+                    const cached = cache.queryCache.get(queryText);
+                    // 检查是否过期
+                    if (cached.expires > Date.now()) {
+                        logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
+                        return cached.results;
+                    } else {
+                        // 过期则删除
+                        cache.queryCache.delete(queryText);
+                        logger.debug(`[VectorMemory] L3 cache expired for query: "${queryText.substring(0, 20)}..."`);
+                    }
                 }
             }
 
@@ -442,7 +459,7 @@ class VectorMemoryService {
                 score: r.score
             }));
 
-            // Cache results in L3 if enabled
+            // Cache results in L3 if enabled (with TTL)
             if (config.aiEnableVectorCache) {
                 const cache = this.groupCache.get(groupId);
                 if (cache) {
@@ -453,7 +470,11 @@ class VectorMemoryService {
                         const firstKey = cache.queryCache.keys().next().value;
                         cache.queryCache.delete(firstKey);
                     }
-                    cache.queryCache.set(queryText, cleanResults);
+                    // 存储结果时添加过期时间戳
+                    cache.queryCache.set(queryText, {
+                        results: cleanResults,
+                        expires: Date.now() + this.queryTTL
+                    });
                     logger.debug(`[VectorMemory] Cached query result for: "${queryText.substring(0, 20)}..."`);
                 }
             }
@@ -463,6 +484,31 @@ class VectorMemoryService {
             logger.error('[VectorMemory] Error searching memory:', e);
             return [];
         }
+    }
+
+    // 计算 L1 缓存总内存占用（估算）
+    calculateTotalL1Memory() {
+        let total = 0;
+        for (const [_, memory] of this.memories) {
+            // 使用 storageUtils 计算内存占用
+            total += storageUtils.calculateBufferSize(memory);
+        }
+        return total;
+    }
+
+    // 获取缓存统计信息（用于监控和调试）
+    getCacheStats() {
+        const l1Memory = this.calculateTotalL1Memory();
+        return {
+            l1CachedGroups: this.memories.size,
+            l1MemoryMB: (l1Memory / 1024 / 1024).toFixed(2),
+            l1MaxMemoryMB: (this.maxL1MemoryBytes / 1024 / 1024).toFixed(0),
+            l2CachedGroups: this.groupCache.size,
+            l2MaxGroups: this.maxCachedGroups,
+            queryTTLMinutes: this.queryTTL / 1000 / 60,
+            maxQueryCacheSize: this.maxQueryCacheSize,
+            pendingSaves: this.saveTimers.size
+        };
     }
 }
 

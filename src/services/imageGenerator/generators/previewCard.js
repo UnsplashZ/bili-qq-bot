@@ -126,8 +126,9 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
             if (!element) throw new Error('Container element not found');
 
             const imageBuffer = await element.screenshot({
-                type: 'png',
-                omitBackground: true
+                type: 'jpeg',
+                quality: 85,
+                omitBackground: false
             });
 
             return imageBuffer.toString('base64');

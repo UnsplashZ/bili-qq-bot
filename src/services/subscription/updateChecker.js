@@ -10,6 +10,7 @@ class UpdateChecker {
     constructor() {
         this.checkInterval = 300 * 1000; // 5 minutes default
         this.timer = null;
+        this.initTimer = null;
         this.ws = null;
     }
 
@@ -21,7 +22,10 @@ class UpdateChecker {
         if (this.timer) return;
         
         // Initial check after 10 seconds
-        setTimeout(() => this.checkAll(), 10000);
+        this.initTimer = setTimeout(() => {
+            this.checkAll();
+            this.initTimer = null;
+        }, 10000);
 
         this.timer = setInterval(() => {
             this.checkAll();
@@ -31,6 +35,10 @@ class UpdateChecker {
     }
 
     stop() {
+        if (this.initTimer) {
+            clearTimeout(this.initTimer);
+            this.initTimer = null;
+        }
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
