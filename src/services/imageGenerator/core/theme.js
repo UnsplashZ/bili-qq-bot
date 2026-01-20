@@ -88,7 +88,7 @@ function calculateViewport(type, data) {
     return {
         width: baseWidth,
         height: 1200,
-        deviceScaleFactor: 1.1,
+        deviceScaleFactor: 1,
         minWidth: minWidth
     };
 }

@@ -14,7 +14,7 @@ async function generateAIHelpCard(groupId) {
         const page = await browserManager.createPage({
             width: 1000,
             height: 1500,
-            deviceScaleFactor: 1.5
+            deviceScaleFactor: 1
         });
 
         try {
@@ -296,9 +296,8 @@ async function generateAIHelpCard(groupId) {
 
             const element = await page.$('.container');
             const buffer = await element.screenshot({
-                type: 'jpeg',
-                quality: 80,
-                omitBackground: false
+                type: 'png',
+                omitBackground: true
             });
 
             return buffer.toString('base64');

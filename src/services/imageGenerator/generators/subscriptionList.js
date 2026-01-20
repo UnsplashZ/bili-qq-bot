@@ -13,7 +13,7 @@ const { generateUnifiedCSS } = require('../../../utils/designSystem');
  */
 async function generateSubscriptionList(data, groupId, show_id = true, title = '订阅列表') {
     await browserManager.init();
-    const page = await browserManager.createPage({ width: 880, height: 1000, deviceScaleFactor: 2 });
+    const page = await browserManager.createPage({ width: 880, height: 1000, deviceScaleFactor: 1 });
 
     try {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -319,9 +319,8 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
     await page.setContent(html);
     const wrapper = await page.$('#wrapper');
     const buffer = await wrapper.screenshot({
-        type: 'jpeg',
-        quality: 80,
-        omitBackground: false
+        type: 'png',
+        omitBackground: true
     });
 
         return buffer.toString('base64');

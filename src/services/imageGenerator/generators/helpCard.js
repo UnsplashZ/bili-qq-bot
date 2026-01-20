@@ -15,7 +15,7 @@ async function generateHelpCard(type = 'user', groupId) {
         const page = await browserManager.createPage({
             width: 1000,
             height: 1500,
-            deviceScaleFactor: 1.5
+            deviceScaleFactor: 1
         });
 
         try {
@@ -421,9 +421,8 @@ async function generateHelpCard(type = 'user', groupId) {
     await page.setContent(html);
     const container = await page.$('.container');
     const buffer = await container.screenshot({
-        type: 'jpeg',
-        quality: 80,
-        omitBackground: false
+        type: 'png',
+        omitBackground: true
     });
 
         return buffer.toString('base64');
