@@ -303,6 +303,7 @@ class App {
 
     // 默认加载 UP 主订阅
     this.loadSubscriptions(groupId, 'users');
+    this.updateBilibiliStatus(groupId);
   }
 
   async saveGroupConfig(groupId) {
@@ -880,6 +881,40 @@ class App {
 
   // ========== Bilibili Login Methods ==========
 
+  async updateBilibiliStatus(groupId) {
+    try {
+      const response = await api.getBilibiliStatus(groupId);
+      if (!response.success) return;
+
+      const data = response.data;
+      const statusEl = document.getElementById('biliLoginStatus');
+      const uidEl = document.getElementById('biliAccountUid');
+      const btnEl = document.getElementById('groupBiliLoginBtn');
+
+      if (!statusEl || !uidEl || !btnEl) return;
+
+      if (data.logged_in) {
+        statusEl.textContent = '已登录';
+        statusEl.style.color = '#4caf50';
+        statusEl.style.fontWeight = 'bold';
+
+        uidEl.textContent = `UID: ${data.uid} | ${data.name}`;
+        uidEl.classList.remove('hidden');
+
+        btnEl.textContent = '切换账号';
+      } else {
+        statusEl.textContent = '未登录';
+        statusEl.style.color = '';
+        statusEl.style.fontWeight = '';
+
+        uidEl.classList.add('hidden');
+        btnEl.textContent = '登录/重新登录';
+      }
+    } catch (error) {
+      console.error('Failed to update Bilibili status:', error);
+    }
+  }
+
   showBilibiliLoginModal(groupId) {
     this.currentLoginGroupId = groupId;
 
@@ -900,6 +935,7 @@ class App {
     // Bind modal close buttons
     document.getElementById('closeBilibiliLoginBtn').onclick = () => {
       this.hideBilibiliLoginModal();
+            this.updateBilibiliStatus(this.currentLoginGroupId);
     };
     document.getElementById('cancelBilibiliLoginBtn').onclick = () => {
       this.hideBilibiliLoginModal();
@@ -943,11 +979,19 @@ class App {
       const qrcodeWrapper = qrcodeContainer.querySelector('.qrcode-wrapper');
       qrcodeWrapper.innerHTML = '';
 
-      new QRCode(qrcodeWrapper, {
-        text: response.data.qrcodeUrl,
-        width: 256,
-        height: 256
-      });
+      // Allow browser layout cycle before generating QR code
+      setTimeout(() => {
+        new QRCode(qrcodeWrapper, {
+          text: response.data.qrcodeUrl,
+          width: 256,
+          height: 256
+        });
+
+        // Check if QR code was generated successfully
+        if (qrcodeWrapper.children.length === 0) {
+          console.warn('QR Code generation failed: Container might still be hidden or have 0 dimensions');
+        }
+      }, 50);
 
       // Update progress text
       const loginProgress = document.getElementById('loginProgress');

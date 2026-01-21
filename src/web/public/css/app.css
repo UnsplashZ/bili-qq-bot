@@ -755,6 +755,11 @@ input[type="checkbox"] {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   margin-bottom: 1rem;
+  min-height: 256px;
+  min-width: 256px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .qrcode-wrapper img {

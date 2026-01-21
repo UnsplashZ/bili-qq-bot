@@ -98,6 +98,10 @@ class API {
   }
 
   // Bilibili 登录和关注
+  async getBilibiliStatus(groupId) {
+    return this.request('GET', `/bilibili/status?groupId=${groupId}`);
+  }
+
   async getLoginQrcode() {
     return this.request('GET', '/bilibili/login/qrcode');
   }

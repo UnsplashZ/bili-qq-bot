@@ -1094,6 +1094,33 @@ async def get_following_groups(group_id=None):
         return {"status": "error", "message": str(e)}
 
 # Command dispatcher
+
+async def check_cookie(group_id=None):
+    try:
+        credential = load_credential(group_id)
+        if not credential:
+            return {"status": "success", "data": {"logged_in": False}}
+        
+        # Get self info to verify cookie
+        info = await user.get_self_info(credential)
+        return {
+            "status": "success",
+            "data": {
+                "logged_in": True,
+                "uid": info.get('mid'),
+                "name": info.get('name'),
+                "face": info.get('face')
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "success",
+            "data": {
+                "logged_in": False,
+                "message": str(e)
+            }
+        }
+
 async def main():
     if len(sys.argv) < 2:
         print(json.dumps({"status": "error", "message": "No command provided"}))
@@ -1200,6 +1227,12 @@ async def main():
     elif command == "following_groups":
         group_id = sys.argv[2] if len(sys.argv) > 2 else None
         result = await get_following_groups(group_id)
+        print(json.dumps(result, ensure_ascii=False))
+
+
+    elif command == "check_cookie":
+        group_id = sys.argv[2] if len(sys.argv) > 2 else None
+        result = await check_cookie(group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     else:

@@ -198,4 +198,28 @@ router.post('/followings/subscribe', async (req, res, next) => {
   }
 });
 
+
+// 获取当前登录状态
+router.get('/status', async (req, res, next) => {
+  try {
+    const { groupId } = req.query;
+    const result = await biliApi.getCredentialStatus(groupId);
+
+    if (result.status === 'success') {
+      res.json({
+        success: true,
+        data: result.data
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: result.message || '获取状态失败'
+      });
+    }
+  } catch (error) {
+    logger.error('[WebUI] Failed to check login status:', error);
+    next(error);
+  }
+});
+
 module.exports = router;

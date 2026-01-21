@@ -200,6 +200,12 @@ class BiliApi {
         if (groupId) args.push(groupId);
         return this.runCommand('following_groups', args);
     }
+
+    async getCredentialStatus(groupId) {
+        const args = [];
+        if (groupId) args.push(groupId);
+        return this.runCommand('check_cookie', args);
+    }
 }
 
 module.exports = new BiliApi();
