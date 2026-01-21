@@ -1060,6 +1060,39 @@ async def get_my_followings(group_name=None, group_id=None):
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
+async def get_following_groups(group_id=None):
+    """获取关注分组列表"""
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+
+        # 获取自己的 UID
+        self_info = await user.get_self_info(credential=cred)
+        my_uid = self_info['mid']
+
+        # 获取关注分组列表
+        groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
+        groups = await groups_api.result
+
+        if not groups:
+            return {"status": "success", "data": []}
+
+        # 格式化返回
+        result = []
+        for g in groups:
+            result.append({
+                'tagid': g.get('tagid'),
+                'name': g.get('name'),
+                'count': g.get('count', 0)
+            })
+
+        return {"status": "success", "data": result}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
 # Command dispatcher
 async def main():
     if len(sys.argv) < 2:
@@ -1162,6 +1195,11 @@ async def main():
                 group_name = None
         group_id = sys.argv[3] if len(sys.argv) > 3 else None
         result = await get_my_followings(group_name, group_id)
+        print(json.dumps(result, ensure_ascii=False))
+
+    elif command == "following_groups":
+        group_id = sys.argv[2] if len(sys.argv) > 2 else None
+        result = await get_following_groups(group_id)
         print(json.dumps(result, ensure_ascii=False))
 
     else:
