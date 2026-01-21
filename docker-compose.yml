@@ -19,8 +19,8 @@ services:
       - bot_network
 
   bili-qq-bot:
-    image: unsplash/bili-qq-bot:latest
-    # build: .
+    # image: unsplash/bili-qq-bot:latest
+    build: .
     container_name: bili-qq-bot
     restart: always
     depends_on:
@@ -34,6 +34,8 @@ services:
       - ./fonts/custom:/app/fonts/custom
       # 映射此目录以将生成的图片写入 NapCat 可访问的位置
       - ./napcat/qq:/app/.config/QQ
+    ports:
+      - "3100:3100" # Bot WebUI
     networks:
       - bot_network
 
