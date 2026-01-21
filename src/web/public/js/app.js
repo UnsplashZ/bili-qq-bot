@@ -690,13 +690,11 @@ class App {
 
     // Sync modal footer buttons
     document.getElementById('saveSyncGroupsBtn').addEventListener('click', () => {
-      // TODO: Implement save sync groups logic in later tasks
-      showToast('群组同步功能即将实现', 'info');
+      this.saveSyncGroups();
     });
 
     document.getElementById('batchSubscribeUsersBtn').addEventListener('click', () => {
-      // TODO: Implement batch subscribe users logic in later tasks
-      showToast('批量订阅功能即将实现', 'info');
+      this.batchSubscribe();
     });
   }
 
@@ -1052,7 +1050,10 @@ class App {
     // Default to Tab 1 (groups)
     this.switchSyncTab('groups');
 
-    // 填充群组选择器
+    // Load following groups for Tab 1
+    await this.loadFollowingGroups();
+
+    // 填充群组选择器（for Tab 2）
     const select = document.getElementById('targetGroupSelect');
     select.innerHTML = '<option value="">请选择群组</option>';
     this.state.groups.forEach(group => {
@@ -1062,7 +1063,7 @@ class App {
       select.appendChild(option);
     });
 
-    // 加载关注列表
+    // 加载关注列表（for Tab 2）
     await this.loadFollowings();
   }
 
@@ -1104,15 +1105,80 @@ class App {
     }
   }
 
-  async loadFollowings() {
-    const container = document.getElementById('followingsUserGrid');
+  async loadFollowingGroups() {
+    const container = document.getElementById('followingGroupsList');
     container.innerHTML = '<p class="empty-hint">加载中...</p>';
 
     try {
-      const response = await api.getFollowings();
+      const response = await api.getFollowingGroups(this.currentSyncGroupId);
 
       if (!response.success || !response.data || response.data.length === 0) {
-        container.innerHTML = '<p class="empty-hint">暂无关注数据。请先登录 Bilibili 账号。</p>';
+        container.innerHTML = '<p class="empty-hint">暂无分组数据。请先登录 Bilibili 账号并刷新关注列表。</p>';
+        return;
+      }
+
+      // Get current configured group names from group config
+      const group = this.state.groups.find(g => g.groupId === this.currentSyncGroupId);
+      const currentConfig = (group && group.config && group.config.cookieSyncGroupNames) || [];
+
+      // Render group list
+      const groups = response.data;
+      const html = groups.map(group => `
+        <label class="group-item">
+          <input type="checkbox" value="${group.name}"
+                 ${currentConfig.includes(group.name) ? 'checked' : ''}>
+          <span class="group-name">${group.name}</span>
+          <span class="group-count">(${group.count}人)</span>
+        </label>
+      `).join('');
+
+      container.innerHTML = html;
+
+      // Update current sync groups text
+      const currentText = document.getElementById('currentSyncGroupsText');
+      if (currentText) {
+        currentText.textContent = currentConfig.length > 0 ? currentConfig.join(', ') : '无';
+      }
+
+    } catch (error) {
+      container.innerHTML = `<p class="empty-hint">加载失败: ${error.message}</p>`;
+      showToast('加载关注分组失败: ' + error.message, 'error');
+    }
+  }
+
+  async loadFollowings() {
+    const container = document.getElementById('followingsUserGrid');
+    const cacheInfo = document.getElementById('cacheLastRefreshTime');
+
+    container.innerHTML = '<p class="empty-hint">加载中...</p>';
+
+    try {
+      const response = await api.getFollowings(null, this.currentSyncGroupId);
+
+      // Update cache info
+      if (response.cache && cacheInfo) {
+        const lastUpdate = response.cache.lastUpdate
+          ? new Date(response.cache.lastUpdate).toLocaleString('zh-CN')
+          : '从未';
+        const canRefresh = response.cache.canRefresh;
+        const cooldownRemaining = response.cache.cooldownRemaining || 0;
+
+        let statusText = lastUpdate;
+        if (!canRefresh && cooldownRemaining > 0) {
+          statusText += ` (冷却中: ${Math.ceil(cooldownRemaining / 1000)}秒)`;
+        }
+
+        cacheInfo.textContent = statusText;
+
+        // Enable/disable refresh button based on cooldown
+        const refreshBtn = document.getElementById('refreshFollowingsListBtn');
+        if (refreshBtn) {
+          refreshBtn.disabled = !canRefresh;
+        }
+      }
+
+      if (!response.success || !response.data || response.data.length === 0) {
+        container.innerHTML = '<p class="empty-hint">暂无关注数据。请先登录 Bilibili 账号并刷新关注列表。</p>';
         return;
       }
 
@@ -1130,6 +1196,7 @@ class App {
 
     if (!this.followings || this.followings.length === 0) {
       container.innerHTML = '<p class="empty-hint">暂无关注数据</p>';
+      this.updateSelectedCount();
       return;
     }
 
@@ -1158,14 +1225,19 @@ class App {
         }
         // 更新卡片选中状态
         this.updateCardSelection(card);
+        this.updateSelectedCount();
       });
 
       // Checkbox 变化时更新卡片状态
       const checkbox = card.querySelector('.following-checkbox');
       checkbox.addEventListener('change', () => {
         this.updateCardSelection(card);
+        this.updateSelectedCount();
       });
     });
+
+    // Initialize selected count
+    this.updateSelectedCount();
   }
 
   updateCardSelection(card) {
@@ -1180,17 +1252,35 @@ class App {
   async refreshFollowings() {
     try {
       showToast('正在刷新关注列表...', 'info');
-      const response = await api.refreshFollowings();
+
+      // Disable refresh button during refresh
+      const refreshBtn = document.getElementById('refreshFollowingsListBtn');
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+      }
+
+      const response = await api.refreshFollowings(this.currentSyncGroupId);
 
       if (response.success) {
         showToast('关注列表刷新成功', 'success');
-        this.followings = response.data || [];
-        this.renderFollowings();
+        // Reload followings to get fresh data and update cache info
+        await this.loadFollowings();
       } else {
         throw new Error(response.message || '刷新失败');
       }
     } catch (error) {
-      showToast('刷新关注列表失败: ' + error.message, 'error');
+      // Check if it's a cooldown error (HTTP 429)
+      if (error.message.includes('冷却') || error.message.includes('cooldown')) {
+        showToast('刷新过于频繁，请稍后再试: ' + error.message, 'warning');
+      } else {
+        showToast('刷新关注列表失败: ' + error.message, 'error');
+      }
+
+      // Re-enable button after cooldown check
+      const refreshBtn = document.getElementById('refreshFollowingsListBtn');
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+      }
     }
   }
 
@@ -1201,16 +1291,49 @@ class App {
       const card = checkbox.closest('.following-card');
       this.updateCardSelection(card);
     });
+
+    // Update selected count
+    this.updateSelectedCount();
+  }
+
+  updateSelectedCount() {
+    const checkedCount = document.querySelectorAll('.following-checkbox:checked').length;
+    const totalCount = document.querySelectorAll('.following-checkbox').length;
+    const countText = document.getElementById('selectedUserCount');
+    if (countText) {
+      countText.textContent = checkedCount;
+    }
+  }
+
+  async saveSyncGroups() {
+    try {
+      // Collect selected group names
+      const checkboxes = document.querySelectorAll('#followingGroupsList input[type="checkbox"]:checked');
+      const selectedGroups = Array.from(checkboxes).map(cb => cb.value);
+
+      // Save to group config
+      await api.updateGroupConfig(this.currentSyncGroupId, {
+        cookieSyncGroupNames: selectedGroups
+      });
+
+      showToast('分组同步配置已保存', 'success');
+
+      // Update current sync groups text
+      const currentText = document.getElementById('currentSyncGroupsText');
+      if (currentText) {
+        currentText.textContent = selectedGroups.length > 0 ? selectedGroups.join(', ') : '无';
+      }
+
+      // Reload groups to update state
+      await this.loadGroups();
+
+    } catch (error) {
+      showToast('保存配置失败: ' + error.message, 'error');
+    }
   }
 
   async batchSubscribe() {
-    const groupId = document.getElementById('targetGroupSelect').value;
-
-    if (!groupId) {
-      showToast('请先选择要添加订阅的群组', 'error');
-      return;
-    }
-
+    // Collect selected UIDs
     const checkboxes = document.querySelectorAll('.following-checkbox:checked');
     const uids = Array.from(checkboxes).map(cb => cb.dataset.uid);
 
@@ -1219,24 +1342,40 @@ class App {
       return;
     }
 
-    if (!confirm(`确定要为群组 ${groupId} 添加 ${uids.length} 个订阅吗？`)) {
+    if (!confirm(`确定要为群组 ${this.currentSyncGroupId} 添加 ${uids.length} 个订阅吗？`)) {
       return;
     }
 
     try {
       showToast(`正在添加 ${uids.length} 个订阅...`, 'info');
-      const response = await api.batchSubscribeFollowings(groupId, uids);
+
+      const response = await api.batchSubscribeFollowings(this.currentSyncGroupId, uids);
 
       if (response.success) {
-        showToast(response.message, 'success');
+        const result = response.data || {};
+        const successCount = result.success || 0;
+        const failCount = result.failed || 0;
+        const skipCount = result.skipped || 0;
+
+        let message = `批量订阅完成！成功: ${successCount}`;
+        if (skipCount > 0) {
+          message += `，跳过已订阅: ${skipCount}`;
+        }
+        if (failCount > 0) {
+          message += `，失败: ${failCount}`;
+        }
+
+        showToast(message, failCount > 0 ? 'warning' : 'success');
+
+        // Close modal
         this.hideFollowingSyncModal();
 
-        // 刷新群组数据
+        // Refresh group data
         await this.loadGroups();
 
-        // 如果当前选中的就是这个群组，刷新面板
-        if (this.state.selectedGroupId === groupId) {
-          this.selectGroup(groupId);
+        // If current selected group is this group, refresh the subscriptions view
+        if (this.state.selectedGroupId === this.currentSyncGroupId) {
+          this.selectGroup(this.currentSyncGroupId);
         }
       } else {
         throw new Error(response.message || '批量订阅失败');
