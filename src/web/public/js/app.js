@@ -10,6 +10,9 @@ class App {
     this.currentQrcodeKey = null;
     this.loginCheckInterval = null;
 
+    // Following sync state
+    this.currentSyncGroupId = null;
+
     this.init();
   }
 
@@ -295,7 +298,7 @@ class App {
 
     // 绑定从关注同步按钮
     document.getElementById('syncFromFollowingBtn').addEventListener('click', () => {
-      this.showFollowingSyncModal();
+      this.showFollowingSyncModal(groupId);
     });
 
     // 默认加载 UP 主订阅
@@ -981,9 +984,40 @@ class App {
 
   // ========== Following Sync Methods ==========
 
-  async showFollowingSyncModal() {
+  async showFollowingSyncModal(groupId) {
+    // Save current group ID
+    this.currentSyncGroupId = groupId;
+
+    // Show modal
     const modal = document.getElementById('followingSyncModal');
     modal.classList.remove('hidden');
+
+    // Set modal title with group name
+    const group = this.state.groups.find(g => g.groupId === groupId);
+    const groupNameSpan = document.getElementById('syncModalGroupName');
+    if (group && groupNameSpan) {
+      groupNameSpan.textContent = `群组 ${groupId}`;
+    }
+
+    // Default to Tab 1 (groups)
+    this.switchSyncTab('groups');
+
+    // Bind close button event
+    document.getElementById('closeFollowingSyncModalBtn').addEventListener('click', () => {
+      this.hideFollowingSyncModal();
+    });
+
+    // Bind tab switch events
+    document.querySelectorAll('.sync-tabs .tab-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const tabName = e.target.getAttribute('data-sync-tab');
+        this.switchSyncTab(tabName);
+      });
+    });
+
+    // Bind footer button events (TODO: implement in later tasks)
+    // document.getElementById('saveSyncGroupsBtn').addEventListener('click', () => { ... });
+    // document.getElementById('batchSubscribeUsersBtn').addEventListener('click', () => { ... });
 
     // 填充群组选择器
     const select = document.getElementById('targetGroupSelect');
@@ -1002,6 +1036,39 @@ class App {
   hideFollowingSyncModal() {
     const modal = document.getElementById('followingSyncModal');
     modal.classList.add('hidden');
+  }
+
+  switchSyncTab(tabName) {
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.sync-tabs .tab-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+
+    // Add active class to the clicked button
+    const activeBtn = document.querySelector(`[data-sync-tab="${tabName}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // Hide all tab contents
+    document.querySelectorAll('.sync-tab-content').forEach(content => {
+      content.classList.add('hidden');
+    });
+
+    // Show the corresponding tab content
+    const activeContent = document.getElementById(
+      tabName === 'groups' ? 'syncGroupsTab' : 'syncUsersTab'
+    );
+    if (activeContent) activeContent.classList.remove('hidden');
+
+    // Switch footer buttons
+    const saveBtn = document.getElementById('saveSyncGroupsBtn');
+    const batchBtn = document.getElementById('batchSubscribeUsersBtn');
+    if (tabName === 'groups') {
+      saveBtn.classList.remove('hidden');
+      batchBtn.classList.add('hidden');
+    } else {
+      saveBtn.classList.add('hidden');
+      batchBtn.classList.remove('hidden');
+    }
   }
 
   async loadFollowings() {
