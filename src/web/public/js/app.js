@@ -648,6 +648,37 @@ class App {
         window.location.reload();
       }
     });
+
+    // ========== Following Sync Modal Events ==========
+
+    // Sync modal close button
+    document.getElementById('closeFollowingSyncModalBtn').addEventListener('click', () => {
+      this.hideFollowingSyncModal();
+    });
+
+    // Sync modal tab switching (using event delegation)
+    const syncTabsContainer = document.querySelector('.sync-tabs');
+    if (syncTabsContainer) {
+      syncTabsContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tab-btn')) {
+          const tabName = e.target.getAttribute('data-sync-tab');
+          if (tabName) {
+            this.switchSyncTab(tabName);
+          }
+        }
+      });
+    }
+
+    // Sync modal footer buttons
+    document.getElementById('saveSyncGroupsBtn').addEventListener('click', () => {
+      // TODO: Implement save sync groups logic in later tasks
+      showToast('群组同步功能即将实现', 'info');
+    });
+
+    document.getElementById('batchSubscribeUsersBtn').addEventListener('click', () => {
+      // TODO: Implement batch subscribe users logic in later tasks
+      showToast('批量订阅功能即将实现', 'info');
+    });
   }
 
   showGlobalConfigModal() {
@@ -1001,23 +1032,6 @@ class App {
 
     // Default to Tab 1 (groups)
     this.switchSyncTab('groups');
-
-    // Bind close button event
-    document.getElementById('closeFollowingSyncModalBtn').addEventListener('click', () => {
-      this.hideFollowingSyncModal();
-    });
-
-    // Bind tab switch events
-    document.querySelectorAll('.sync-tabs .tab-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const tabName = e.target.getAttribute('data-sync-tab');
-        this.switchSyncTab(tabName);
-      });
-    });
-
-    // Bind footer button events (TODO: implement in later tasks)
-    // document.getElementById('saveSyncGroupsBtn').addEventListener('click', () => { ... });
-    // document.getElementById('batchSubscribeUsersBtn').addEventListener('click', () => { ... });
 
     // 填充群组选择器
     const select = document.getElementById('targetGroupSelect');
