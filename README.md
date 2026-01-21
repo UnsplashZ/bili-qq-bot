@@ -11,6 +11,7 @@
 - [🚀 一键快速部署](#一键快速部署)
 - [⚙️ 配置说明](#配置说明)
 - [💬 指令列表](#指令列表)
+- [🖥️ WebUI 管理后台](#webui-管理后台)
 - [🛠️ 其他部署方式](#其他部署方式)
 - [📂 项目结构](#项目结构)
 - [📝 待办计划](#待办计划-roadmap)
@@ -43,6 +44,12 @@
     *   支持概率回复和 `@机器人` 触发
 
 *   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、直播、番剧更新
+
+*   🖥️ **WebUI 管理后台**：提供可视化管理界面，轻松管理群组权限和订阅
+    *   群组管理：启用/禁用群组、管理员列表、黑名单管理
+    *   订阅管理：查看、添加、删除 UP 主和番剧订阅，带头像和封面预览
+    *   HTTP Basic Auth 认证，支持内网访问或 SSH 隧道访问
+    *   现代化 UI 设计，Bilibili 蓝配色，响应式布局
 
 *   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体
 
@@ -160,7 +167,13 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `AI_CHAT_PROXY` | AI 聊天接口代理地址 (可选) | `http://127.0.0.1:7890` |
 | `AI_EMBEDDING_PROXY` | AI 嵌入接口代理地址 (可选) | `http://127.0.0.1:7890` |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
+| `PUPPETEER_EXECUTABLE_PATH` | Puppeteer Chrome 可执行文件路径 (本地开发用，可选) | 留空自动检测 |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
+| `WEBUI_ENABLED` | 是否启用 WebUI 管理后台 | `true` |
+| `WEBUI_PORT` | WebUI 监听端口 | `3100` |
+| `WEBUI_HOST` | WebUI 监听地址 (127.0.0.1 = 仅本地，0.0.0.0 = 所有IP) | `127.0.0.1` |
+| `WEBUI_USERNAME` | WebUI 登录用户名 | `root` |
+| `WEBUI_PASSWORD` | WebUI 登录密码 (**必须设置，否则认证将被禁用**) | 留空则禁用认证 |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
 
@@ -262,6 +275,75 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 | `/管理 群列表` | (无) | 查看当前已配置的群组状态 | **全局** |
 
 </details>
+
+## WebUI 管理后台
+
+本项目提供了一个可视化的 Web 管理界面，可以方便地管理群组权限和订阅，无需通过 QQ 指令操作。
+
+### 访问方式
+
+**本地访问 (默认配置):**
+```bash
+http://127.0.0.1:3100
+```
+
+**远程访问 (通过 SSH 隧道):**
+```bash
+# 在本地终端执行
+ssh -L 3100:127.0.0.1:3100 user@your-server-ip
+
+# 然后在浏览器访问
+http://localhost:3100
+```
+
+**Docker 部署访问:**
+```bash
+# docker-compose.yml 已配置端口映射 3100:3100
+http://your-server-ip:3100
+```
+
+### 功能特性
+
+- **群组管理**
+  - 查看所有群组列表及状态
+  - 启用/禁用群组响应
+  - 管理群组管理员（添加/删除）
+  - 管理群组黑名单（添加/删除）
+
+- **订阅管理**
+  - 查看 UP 主订阅列表（带头像和名称）
+  - 查看番剧订阅列表（带封面和标题）
+  - 添加/删除 UP 主订阅
+  - 添加/删除番剧订阅
+
+- **安全认证**
+  - HTTP Basic Auth 认证
+  - 配置用户名和密码通过 `.env` 文件
+  - 未设置密码时认证将被禁用（不推荐）
+
+### 配置示例
+
+在 `.env` 文件中配置：
+
+```env
+# 启用 WebUI
+WEBUI_ENABLED=true
+
+# 监听端口
+WEBUI_PORT=3100
+
+# 监听地址 (127.0.0.1 = 仅本地, 0.0.0.0 = 所有IP)
+WEBUI_HOST=127.0.0.1
+
+# 登录凭证
+WEBUI_USERNAME=root
+WEBUI_PASSWORD=your_secure_password_here
+```
+
+**安全建议:**
+- 生产环境务必设置强密码
+- 使用 `127.0.0.1` 限制仅本地访问，通过 SSH 隧道远程访问
+- 如需公网访问，建议配合反向代理（Nginx/Caddy）并启用 HTTPS
 
 ## 其他部署方式
 

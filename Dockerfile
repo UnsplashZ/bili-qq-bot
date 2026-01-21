@@ -71,8 +71,8 @@ COPY . .
 # 创建必要的目录
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
-# 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
-# EXPOSE 3000
+# 暴露端口
+EXPOSE 3100
 
 # 启动命令
 CMD ["npm", "start"]
