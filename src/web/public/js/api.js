@@ -106,6 +106,13 @@ class API {
     return this.request('POST', '/bilibili/login/check', { qrcodeKey, groupId });
   }
 
+  async getFollowingGroups(groupId) {
+    const params = new URLSearchParams();
+    if (groupId) params.append('groupId', groupId);
+    const query = params.toString();
+    return this.request('GET', `/bilibili/following-groups${query ? '?' + query : ''}`);
+  }
+
   async getFollowings(groupName, groupId) {
     const params = new URLSearchParams();
     if (groupName) params.append('groupName', groupName);
@@ -114,8 +121,8 @@ class API {
     return this.request('GET', `/bilibili/followings${query ? '?' + query : ''}`);
   }
 
-  async refreshFollowings() {
-    return this.request('POST', '/bilibili/followings/refresh');
+  async refreshFollowings(groupId) {
+    return this.request('POST', '/bilibili/followings/refresh', { groupId });
   }
 
   async batchSubscribeFollowings(groupId, uids) {
