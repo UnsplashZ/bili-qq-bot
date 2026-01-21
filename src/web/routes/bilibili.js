@@ -167,7 +167,8 @@ router.post('/followings/subscribe', async (req, res, next) => {
 
     const results = {
       success: [],
-      failed: []
+      failed: [],
+      skipped: []
     };
 
     // 逐个添加订阅
@@ -177,13 +178,18 @@ router.post('/followings/subscribe', async (req, res, next) => {
         results.success.push(uid);
       } catch (e) {
         logger.error(`[WebUI] Failed to subscribe user ${uid}:`, e);
-        results.failed.push({ uid, error: e.message });
+        // Check if error indicates user is already subscribed
+        if (e.message && (e.message.includes('已订阅') || e.message.includes('already subscribed'))) {
+          results.skipped.push(uid);
+        } else {
+          results.failed.push({ uid, error: e.message });
+        }
       }
     }
 
     res.json({
       success: true,
-      message: `成功添加 ${results.success.length} 个订阅${results.failed.length > 0 ? `，失败 ${results.failed.length} 个` : ''}`,
+      message: `成功添加 ${results.success.length} 个订阅${results.skipped.length > 0 ? `，跳过 ${results.skipped.length} 个` : ''}${results.failed.length > 0 ? `，失败 ${results.failed.length} 个` : ''}`,
       data: results
     });
   } catch (error) {

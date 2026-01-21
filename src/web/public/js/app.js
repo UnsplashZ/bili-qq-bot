@@ -1055,13 +1055,15 @@ class App {
 
     // 填充群组选择器（for Tab 2）
     const select = document.getElementById('targetGroupSelect');
-    select.innerHTML = '<option value="">请选择群组</option>';
-    this.state.groups.forEach(group => {
-      const option = document.createElement('option');
-      option.value = group.groupId;
-      option.textContent = `群组 ${group.groupId}`;
-      select.appendChild(option);
-    });
+    if (select) {
+      select.innerHTML = '<option value="">请选择群组</option>';
+      this.state.groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = group.groupId;
+        option.textContent = `群组 ${group.groupId}`;
+        select.appendChild(option);
+      });
+    }
 
     // 加载关注列表（for Tab 2）
     await this.loadFollowings();
@@ -1353,9 +1355,9 @@ class App {
 
       if (response.success) {
         const result = response.data || {};
-        const successCount = result.success || 0;
-        const failCount = result.failed || 0;
-        const skipCount = result.skipped || 0;
+        const successCount = (result.success && result.success.length) || 0;
+        const failCount = (result.failed && result.failed.length) || 0;
+        const skipCount = (result.skipped && result.skipped.length) || 0;
 
         let message = `批量订阅完成！成功: ${successCount}`;
         if (skipCount > 0) {

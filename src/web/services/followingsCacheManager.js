@@ -22,18 +22,18 @@ class FollowingsCacheManager {
     return elapsed >= this.cache.cooldownMs;
   }
 
-  // 获取下次可刷新的剩余秒数
-  getNextRefreshIn() {
+  // 获取下次可刷新的剩余毫秒数
+  getCooldownRemaining() {
     if (!this.cache.lastRefresh) return 0;
     const elapsed = Date.now() - this.cache.lastRefresh;
     const remaining = this.cache.cooldownMs - elapsed;
-    return Math.max(0, Math.floor(remaining / 1000));
+    return Math.max(0, remaining);
   }
 
   // 刷新数据
   async refresh(groupId) {
     if (!this.canRefresh()) {
-      const minutes = Math.ceil(this.getNextRefreshIn() / 60);
+      const minutes = Math.ceil(this.getCooldownRemaining() / 60000);
       throw new Error(`刷新过于频繁，请 ${minutes} 分钟后再试`);
     }
 
@@ -53,11 +53,11 @@ class FollowingsCacheManager {
     return {
       data: this.cache.data,
       cache: {
-        lastRefresh: this.cache.lastRefresh
+        lastUpdate: this.cache.lastRefresh
           ? new Date(this.cache.lastRefresh).toISOString()
           : null,
         canRefresh: this.canRefresh(),
-        nextRefreshIn: this.getNextRefreshIn()
+        cooldownRemaining: this.getCooldownRemaining()
       }
     };
   }
