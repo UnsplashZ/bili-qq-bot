@@ -146,7 +146,7 @@ router.put('/:groupId/config', (req, res, next) => {
     // 允许更新的配置项
     const allowedKeys = [
       'nightMode', 'labelConfig', 'showId', 'linkCacheTimeout',
-      'aiContextLimit', 'aiProbability'
+      'aiContextLimit', 'aiProbability', 'blacklistedQQs'
     ];
 
     Object.keys(updates).forEach(key => {

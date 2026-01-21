@@ -360,13 +360,10 @@ class App {
     container.innerHTML = `
       <div class="subscription-list">
         ${users.map(user => `
-          <div class="subscription-item">
-            <div class="subscription-info">
-              <img src="${user.face}" alt="${user.name}" class="user-avatar">
-              <div class="subscription-details">
-                <div class="subscription-name">${user.name}</div>
-                <div class="subscription-uid">UID: ${user.uid}</div>
-              </div>
+          <div class="list-item">
+            <div class="subscription-details">
+              <div class="subscription-name">${user.name}</div>
+              <div class="subscription-uid">UID: ${user.uid}</div>
             </div>
             <button class="btn-icon btn-danger" onclick="app.removeUserSub('${groupId}', '${user.uid}')" title="取消订阅">×</button>
           </div>
@@ -390,13 +387,10 @@ class App {
     container.innerHTML = `
       <div class="subscription-list">
         ${bangumi.map(item => `
-          <div class="subscription-item">
-            <div class="subscription-info">
-              <img src="${item.cover}" alt="${item.title}" class="bangumi-cover">
-              <div class="subscription-details">
-                <div class="subscription-name">${item.title}</div>
-                <div class="subscription-uid">Season ID: ${item.season_id}</div>
-              </div>
+          <div class="list-item">
+            <div class="subscription-details">
+              <div class="subscription-name">${item.title}</div>
+              <div class="subscription-uid">Season ID: ${item.season_id}</div>
             </div>
             <button class="btn-icon btn-danger" onclick="app.removeBangumiSub('${groupId}', '${item.season_id}')" title="取消订阅">×</button>
           </div>
@@ -428,7 +422,7 @@ class App {
   }
 
   showAddBangumiSubDialog(groupId) {
-    const seasonId = prompt('请输入要订阅的番剧 Season ID:');
+    const seasonId = prompt('请输入番剧链接或 Season ID (如: ss12345 或完整链接):');
     if (seasonId && seasonId.trim()) {
       this.addBangumiSub(groupId, seasonId.trim());
     }
@@ -462,7 +456,7 @@ class App {
     try {
       const group = this.state.groups.find(g => g.groupId === groupId);
       const newBlacklist = [...group.blacklist, userId];
-      await api.updateGroupConfig(groupId, { blacklist: newBlacklist });
+      await api.updateGroupConfig(groupId, { blacklistedQQs: newBlacklist });
       showToast('黑名单添加成功', 'success');
       await this.loadGroups();
       this.selectGroup(groupId);
@@ -477,7 +471,7 @@ class App {
     try {
       const group = this.state.groups.find(g => g.groupId === groupId);
       const newBlacklist = group.blacklist.filter(id => id !== userId);
-      await api.updateGroupConfig(groupId, { blacklist: newBlacklist });
+      await api.updateGroupConfig(groupId, { blacklistedQQs: newBlacklist });
       showToast('黑名单已移除', 'success');
       await this.loadGroups();
       this.selectGroup(groupId);
@@ -578,6 +572,16 @@ class App {
       this.saveGlobalConfig();
     });
 
+    // 全局深色模式选择变化
+    document.getElementById('globalNightMode').addEventListener('change', (e) => {
+      const timeContainer = document.getElementById('globalNightModeTimeContainer');
+      if (e.target.value === 'schedule') {
+        timeContainer.classList.remove('hidden');
+      } else {
+        timeContainer.classList.add('hidden');
+      }
+    });
+
     // 退出登录
     document.getElementById('logoutBtn').addEventListener('click', () => {
       if (confirm('确定要退出登录吗？')) {
@@ -616,6 +620,17 @@ class App {
       // 默认深色模式
       if (config.nightMode) {
         document.getElementById('globalNightMode').value = config.nightMode.mode || 'off';
+
+        // 显示/隐藏定时时间输入框
+        const timeContainer = document.getElementById('globalNightModeTimeContainer');
+        if (config.nightMode.mode === 'schedule') {
+          timeContainer.classList.remove('hidden');
+          if (config.nightMode.start && config.nightMode.end) {
+            document.getElementById('globalNightModeTime').value = `${config.nightMode.start}-${config.nightMode.end}`;
+          }
+        } else {
+          timeContainer.classList.add('hidden');
+        }
       }
 
       // 默认标签配置
@@ -658,6 +673,23 @@ class App {
       // 默认深色模式
       const nightMode = document.getElementById('globalNightMode').value;
       config.nightMode = { mode: nightMode };
+
+      if (nightMode === 'schedule') {
+        const timeInput = document.getElementById('globalNightModeTime').value;
+        if (timeInput) {
+          const [start, end] = timeInput.split('-');
+          if (start && end) {
+            config.nightMode.start = start.trim();
+            config.nightMode.end = end.trim();
+          } else {
+            showToast('定时时间格式错误，请使用格式：22:00-07:00', 'error');
+            return;
+          }
+        } else {
+          showToast('请输入定时时间', 'error');
+          return;
+        }
+      }
 
       // 默认标签配置
       config.labelConfig = {
