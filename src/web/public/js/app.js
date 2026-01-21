@@ -431,5 +431,5 @@ class App {
 
 // 启动应用
 document.addEventListener('DOMContentLoaded', () => {
-  const app = new App();
+  window.app = new App();
 });

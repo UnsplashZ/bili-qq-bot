@@ -12,24 +12,60 @@ router.get('/:groupId', async (req, res, next) => {
 
     await subscriptionManager._ensureSubscriptionsLoaded();
 
-    const userSubs = subscriptionManager.userSubs
+    // 获取 UP 主订阅，并补充头像信息
+    const userSubsPromises = subscriptionManager.userSubs
       .filter(sub => sub.groupIds.includes(groupIdNum))
-      .map(sub => ({
-        uid: sub.uid,
-        name: sub.name,
-        lastDynamicId: sub.lastDynamicId,
-        lastLiveStatus: sub.lastLiveStatus,
-        lastCheckTime: sub.lastCheckTime
-      }));
+      .map(async (sub) => {
+        try {
+          const userInfo = await biliApi.getUserInfo(sub.uid, groupIdNum);
+          return {
+            uid: sub.uid,
+            name: sub.name,
+            face: userInfo?.face || `https://i0.hdslb.com/bfs/face/member/noface.jpg`,
+            lastDynamicId: sub.lastDynamicId,
+            lastLiveStatus: sub.lastLiveStatus,
+            lastCheckTime: sub.lastCheckTime
+          };
+        } catch (error) {
+          logger.warn(`[WebUI] Failed to get user info for ${sub.uid}:`, error.message);
+          return {
+            uid: sub.uid,
+            name: sub.name,
+            face: `https://i0.hdslb.com/bfs/face/member/noface.jpg`,
+            lastDynamicId: sub.lastDynamicId,
+            lastLiveStatus: sub.lastLiveStatus,
+            lastCheckTime: sub.lastCheckTime
+          };
+        }
+      });
 
-    const bangumiSubs = subscriptionManager.bangumiSubs
+    // 获取番剧订阅，并补充封面信息
+    const bangumiSubsPromises = subscriptionManager.bangumiSubs
       .filter(sub => sub.groupIds.includes(groupIdNum))
-      .map(sub => ({
-        seasonId: sub.seasonId,
-        title: sub.title,
-        lastEpId: sub.lastEpId,
-        lastCheckTime: sub.lastCheckTime
-      }));
+      .map(async (sub) => {
+        try {
+          const bangumiInfo = await biliApi.getBangumiInfo(sub.seasonId, groupIdNum);
+          return {
+            season_id: sub.seasonId,
+            title: sub.title,
+            cover: bangumiInfo?.cover || `https://i0.hdslb.com/bfs/bangumi/image/placeholder.jpg`,
+            lastEpId: sub.lastEpId,
+            lastCheckTime: sub.lastCheckTime
+          };
+        } catch (error) {
+          logger.warn(`[WebUI] Failed to get bangumi info for ${sub.seasonId}:`, error.message);
+          return {
+            season_id: sub.seasonId,
+            title: sub.title,
+            cover: `https://i0.hdslb.com/bfs/bangumi/image/placeholder.jpg`,
+            lastEpId: sub.lastEpId,
+            lastCheckTime: sub.lastCheckTime
+          };
+        }
+      });
+
+    const userSubs = await Promise.all(userSubsPromises);
+    const bangumiSubs = await Promise.all(bangumiSubsPromises);
 
     res.json({
       success: true,

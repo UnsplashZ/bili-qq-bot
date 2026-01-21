@@ -28,14 +28,15 @@ router.get('/', async (req, res, next) => {
     });
 
     const groups = Array.from(groupIds).map(groupId => {
+      const groupIdNum = parseInt(groupId);
       const groupConfig = config.groupConfigs[groupId] || {};
 
-      // 统计订阅数
+      // 统计订阅数 - 确保类型匹配
       const userSubs = subscriptionManager.userSubs.filter(sub =>
-        sub.groupIds.includes(parseInt(groupId))
+        sub.groupIds.some(id => parseInt(id) === groupIdNum || id.toString() === groupId)
       ).length;
       const bangumiSubs = subscriptionManager.bangumiSubs.filter(sub =>
-        sub.groupIds.includes(parseInt(groupId))
+        sub.groupIds.some(id => parseInt(id) === groupIdNum || id.toString() === groupId)
       ).length;
 
       return {
