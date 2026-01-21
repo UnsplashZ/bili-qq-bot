@@ -89,7 +89,7 @@ router.post('/:groupId/user', async (req, res, next) => {
 
     // 直接调用 subscriptionManager，它会自动获取用户信息
     try {
-      await subscriptionManager.subscribeUser(parseGroupId(groupId), uid);
+      await subscriptionManager.addUserSubscription(uid, parseGroupId(groupId));
 
       // 获取订阅后的用户信息用于返回
       const sub = subscriptionManager.userSubs.find(s => s.uid === uid);
@@ -119,7 +119,7 @@ router.post('/:groupId/user', async (req, res, next) => {
 router.delete('/:groupId/user/:uid', async (req, res, next) => {
   try {
     const { groupId, uid } = req.params;
-    await subscriptionManager.unsubscribeUser(parseGroupId(groupId), uid);
+    await subscriptionManager.removeUserSubscription(uid, parseGroupId(groupId));
 
     res.json({
       success: true,
@@ -164,7 +164,7 @@ router.post('/:groupId/bangumi', async (req, res, next) => {
 
     // 直接调用 subscriptionManager，它会自动获取番剧信息
     try {
-      await subscriptionManager.subscribeBangumi(parseGroupId(groupId), seasonId);
+      await subscriptionManager.addBangumiSubscription(seasonId, parseGroupId(groupId));
 
       // 获取订阅后的番剧信息用于返回
       const sub = subscriptionManager.bangumiSubs.find(s => s.seasonId === seasonId);
@@ -194,7 +194,7 @@ router.post('/:groupId/bangumi', async (req, res, next) => {
 router.delete('/:groupId/bangumi/:seasonId', async (req, res, next) => {
   try {
     const { groupId, seasonId } = req.params;
-    await subscriptionManager.unsubscribeBangumi(parseGroupId(groupId), seasonId);
+    await subscriptionManager.removeBangumiSubscription(seasonId, parseGroupId(groupId));
 
     res.json({
       success: true,
