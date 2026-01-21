@@ -194,6 +194,12 @@ class BiliApi {
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('my_followings', args);
     }
+
+    async getFollowingGroups(groupId) {
+        const args = [];
+        if (groupId) args.push(groupId);
+        return this.runCommand('following_groups', args);
+    }
 }
 
 module.exports = new BiliApi();

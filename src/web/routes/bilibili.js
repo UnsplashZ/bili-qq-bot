@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const biliApi = require('../../services/biliApi');
 const subscriptionService = require('../../services/subscriptionService');
+const followingsCacheManager = require('../services/followingsCacheManager');
 const logger = require('../../utils/logger');
 
 // 获取登录二维码 URL
@@ -70,36 +71,40 @@ router.post('/login/check', async (req, res, next) => {
   }
 });
 
+// 获取关注分组列表
+router.get('/following-groups', async (req, res, next) => {
+  try {
+    const { groupId } = req.query;
+
+    const result = await biliApi.getFollowingGroups(groupId);
+
+    if (result.status === 'success') {
+      res.json({
+        success: true,
+        data: result.data || []
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: result.message || '获取关注分组失败'
+      });
+    }
+  } catch (error) {
+    logger.error('[WebUI] Failed to get following groups:', error);
+    next(error);
+  }
+});
+
 // 获取账号关注列表
 router.get('/followings', async (req, res, next) => {
   try {
-    const { groupName, groupId } = req.query;
-
-    // 先尝试从缓存获取
-    let followings = subscriptionService.cookieFollowings || [];
-
-    // 如果缓存为空或者指定了 groupName，则重新获取
-    if (followings.length === 0 || groupName) {
-      try {
-        const result = await biliApi.getMyFollowings(groupName, groupId);
-
-        if (result.status === 'success' && result.data) {
-          followings = result.data;
-          // 更新缓存
-          if (!groupName) {
-            subscriptionService.cookieFollowings = followings;
-          }
-        } else {
-          logger.warn('[WebUI] Failed to get followings:', result.message);
-        }
-      } catch (e) {
-        logger.error('[WebUI] Error getting followings:', e);
-      }
-    }
+    // 使用 followingsCacheManager 获取缓存数据和元信息
+    const cachedData = followingsCacheManager.getData();
 
     res.json({
       success: true,
-      data: followings
+      data: cachedData.data,
+      cache: cachedData.cache
     });
   } catch (error) {
     logger.error('[WebUI] Failed to get followings:', error);
@@ -110,13 +115,38 @@ router.get('/followings', async (req, res, next) => {
 // 刷新关注列表
 router.post('/followings/refresh', async (req, res, next) => {
   try {
-    await subscriptionService.refreshCookieFollowings();
+    const { groupId } = req.body;
 
-    res.json({
-      success: true,
-      message: '关注列表刷新成功',
-      data: subscriptionService.cookieFollowings || []
-    });
+    try {
+      // 使用 followingsCacheManager 刷新
+      const result = await followingsCacheManager.refresh(groupId);
+
+      if (result.status === 'success') {
+        // 获取更新后的缓存数据
+        const cachedData = followingsCacheManager.getData();
+
+        res.json({
+          success: true,
+          message: '关注列表刷新成功',
+          data: cachedData.data,
+          cache: cachedData.cache
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          message: result.message || '刷新失败'
+        });
+      }
+    } catch (error) {
+      // 处理冷却时间错误
+      if (error.message && error.message.includes('刷新过于频繁')) {
+        return res.status(429).json({
+          success: false,
+          message: error.message
+        });
+      }
+      throw error;
+    }
   } catch (error) {
     logger.error('[WebUI] Failed to refresh followings:', error);
     next(error);
