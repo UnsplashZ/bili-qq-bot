@@ -602,52 +602,6 @@ class App {
       }
     });
 
-    // Bilibili 登录按钮
-    document.getElementById('bilibiliLoginBtn').addEventListener('click', () => {
-      this.showBilibiliLoginModal();
-    });
-
-    document.getElementById('closeBilibiliLoginBtn').addEventListener('click', () => {
-      this.hideBilibiliLoginModal();
-    });
-
-    document.getElementById('cancelBilibiliLoginBtn').addEventListener('click', () => {
-      this.hideBilibiliLoginModal();
-    });
-
-    document.getElementById('getQrcodeBtn').addEventListener('click', () => {
-      this.getLoginQrcode();
-    });
-
-    // 关注同步按钮
-    document.getElementById('followingSyncBtn').addEventListener('click', () => {
-      this.showFollowingSyncModal();
-    });
-
-    document.getElementById('closeFollowingSyncBtn').addEventListener('click', () => {
-      this.hideFollowingSyncModal();
-    });
-
-    document.getElementById('cancelFollowingSyncBtn').addEventListener('click', () => {
-      this.hideFollowingSyncModal();
-    });
-
-    document.getElementById('refreshFollowingsBtn').addEventListener('click', () => {
-      this.refreshFollowings();
-    });
-
-    document.getElementById('selectAllFollowingsBtn').addEventListener('click', () => {
-      this.selectAllFollowings(true);
-    });
-
-    document.getElementById('unselectAllFollowingsBtn').addEventListener('click', () => {
-      this.selectAllFollowings(false);
-    });
-
-    document.getElementById('batchSubscribeBtn').addEventListener('click', () => {
-      this.batchSubscribe();
-    });
-
     // 退出登录
     document.getElementById('logoutBtn').addEventListener('click', () => {
       if (confirm('确定要退出登录吗？')) {
