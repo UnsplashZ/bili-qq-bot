@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bili QQ Bot 管理后台</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <h1 class="header-title">Bili QQ Bot 管理后台</h1>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="globalConfigBtn">全局配置</button>
+        <button class="btn btn-secondary" id="logoutBtn">退出登录</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="main-container">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <input type="text" class="search-input" id="groupSearch" placeholder="搜索群组...">
+      </div>
+      <div class="group-list" id="groupList">
+        <!-- Group cards will be inserted here -->
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+      <div class="empty-state" id="emptyState">
+        <p>请选择一个群组</p>
+      </div>
+      <div class="group-panel hidden" id="groupPanel">
+        <!-- Group details will be inserted here -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
