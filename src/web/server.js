@@ -39,8 +39,8 @@ class WebUIServer {
     this.app.use('/api/subscriptions', subscriptionsRouter);
     this.app.use('/api/config', configRouter);
 
-    // SPA fallback
-    this.app.get('*', (req, res) => {
+    // SPA fallback - 对于非 API 路由，返回 index.html
+    this.app.get('/', (req, res) => {
       res.sendFile(path.join(__dirname, 'public', 'index.html'));
     });
 
