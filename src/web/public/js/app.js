@@ -90,6 +90,10 @@ class App {
     emptyState.classList.add('hidden');
     panel.classList.remove('hidden');
 
+    const config = group.config || {};
+    const nightMode = config.nightMode || { mode: 'off' };
+    const labelConfig = config.labelConfig || {};
+
     panel.innerHTML = `
       <h2>群组详情 - ${group.groupId}</h2>
 
@@ -98,6 +102,53 @@ class App {
         <button class="btn btn-primary" id="toggleGroupBtn">
           ${group.enabled ? '禁用群组' : '启用群组'}
         </button>
+      </div>
+
+      <div class="management-section">
+        <h3>群组配置</h3>
+
+        <div class="config-item">
+          <label>深色模式</label>
+          <select id="nightModeSelect" class="config-select">
+            <option value="off" ${nightMode.mode === 'off' ? 'selected' : ''}>关闭</option>
+            <option value="on" ${nightMode.mode === 'on' ? 'selected' : ''}>开启</option>
+            <option value="schedule" ${nightMode.mode === 'schedule' ? 'selected' : ''}>定时</option>
+          </select>
+        </div>
+
+        ${nightMode.mode === 'schedule' ? `
+        <div class="config-item">
+          <label>定时时间</label>
+          <input type="text" id="nightModeTime" class="config-input"
+                 value="${nightMode.start || '22:00'}-${nightMode.end || '07:00'}"
+                 placeholder="22:00-07:00">
+        </div>
+        ` : ''}
+
+        <div class="config-item">
+          <label>显示 UID</label>
+          <input type="checkbox" id="showIdCheck" ${config.showId !== false ? 'checked' : ''}>
+        </div>
+
+        <div class="config-item">
+          <label>链接缓存时间 (秒)</label>
+          <input type="number" id="linkCacheInput" class="config-input"
+                 value="${config.linkCacheTimeout || 600}" min="0">
+        </div>
+
+        <div class="config-section">
+          <h4>标签显示配置</h4>
+          <div class="config-grid">
+            <label><input type="checkbox" id="labelVideo" ${labelConfig.video !== false ? 'checked' : ''}> 视频</label>
+            <label><input type="checkbox" id="labelLive" ${labelConfig.live !== false ? 'checked' : ''}> 直播</label>
+            <label><input type="checkbox" id="labelDynamic" ${labelConfig.dynamic !== false ? 'checked' : ''}> 动态</label>
+            <label><input type="checkbox" id="labelArticle" ${labelConfig.article !== false ? 'checked' : ''}> 专栏</label>
+            <label><input type="checkbox" id="labelBangumi" ${labelConfig.bangumi !== false ? 'checked' : ''}> 番剧</label>
+            <label><input type="checkbox" id="labelUser" ${labelConfig.user !== false ? 'checked' : ''}> 用户</label>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="saveConfigBtn">保存配置</button>
       </div>
 
       <div class="management-section">
@@ -149,6 +200,16 @@ class App {
       this.toggleGroup(groupId, group.enabled);
     });
 
+    // 绑定保存配置按钮
+    document.getElementById('saveConfigBtn').addEventListener('click', () => {
+      this.saveGroupConfig(groupId);
+    });
+
+    // 绑定深色模式变化
+    document.getElementById('nightModeSelect').addEventListener('change', () => {
+      this.renderGroupPanel(groupId);
+    });
+
     // 绑定添加管理员按钮
     document.getElementById('addAdminBtn').addEventListener('click', () => {
       this.showAddAdminDialog(groupId);
@@ -170,6 +231,43 @@ class App {
 
     // 默认加载 UP 主订阅
     this.loadSubscriptions(groupId, 'users');
+  }
+
+  async saveGroupConfig(groupId) {
+    try {
+      const nightModeSelect = document.getElementById('nightModeSelect').value;
+      const nightModeConfig = { mode: nightModeSelect };
+
+      if (nightModeSelect === 'schedule') {
+        const timeInput = document.getElementById('nightModeTime').value;
+        const [start, end] = timeInput.split('-');
+        nightModeConfig.start = start;
+        nightModeConfig.end = end;
+      }
+
+      const labelConfig = {
+        video: document.getElementById('labelVideo').checked,
+        live: document.getElementById('labelLive').checked,
+        dynamic: document.getElementById('labelDynamic').checked,
+        article: document.getElementById('labelArticle').checked,
+        bangumi: document.getElementById('labelBangumi').checked,
+        user: document.getElementById('labelUser').checked
+      };
+
+      const config = {
+        nightMode: nightModeConfig,
+        labelConfig: labelConfig,
+        showId: document.getElementById('showIdCheck').checked,
+        linkCacheTimeout: parseInt(document.getElementById('linkCacheInput').value)
+      };
+
+      await api.updateGroupConfig(groupId, config);
+      showToast('配置已保存', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('保存失败: ' + error.message, 'error');
+    }
   }
 
   async loadSubscriptions(groupId, type) {
