@@ -29,6 +29,7 @@ data/subfollowers*
 data/contexts/*
 data/vectors/*
 data/cache/*
+data/*.json
 napcat/*
 
 # Project Logs
