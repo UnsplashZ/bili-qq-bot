@@ -489,6 +489,10 @@ class App {
       await api.subscribeUser(groupId, uid);
       showToast('订阅成功', 'success');
       await this.loadGroups();
+
+      // Update tab header counts
+      this.updateSubscriptionCounts(groupId);
+
       this.loadSubscriptions(groupId, 'users');
     } catch (error) {
       showToast('订阅失败: ' + error.message, 'error');
@@ -502,6 +506,10 @@ class App {
       await api.unsubscribeUser(groupId, uid);
       showToast('取消订阅成功', 'success');
       await this.loadGroups();
+
+      // Update tab header counts
+      this.updateSubscriptionCounts(groupId);
+
       this.loadSubscriptions(groupId, 'users');
     } catch (error) {
       showToast('取消订阅失败: ' + error.message, 'error');
@@ -513,6 +521,10 @@ class App {
       await api.subscribeBangumi(groupId, seasonId);
       showToast('订阅成功', 'success');
       await this.loadGroups();
+
+      // Update tab header counts
+      this.updateSubscriptionCounts(groupId);
+
       this.loadSubscriptions(groupId, 'bangumi');
     } catch (error) {
       showToast('订阅失败: ' + error.message, 'error');
@@ -526,6 +538,10 @@ class App {
       await api.unsubscribeBangumi(groupId, seasonId);
       showToast('取消订阅成功', 'success');
       await this.loadGroups();
+
+      // Update tab header counts
+      this.updateSubscriptionCounts(groupId);
+
       this.loadSubscriptions(groupId, 'bangumi');
     } catch (error) {
       showToast('取消订阅失败: ' + error.message, 'error');
@@ -744,6 +760,21 @@ class App {
       this.hideGlobalConfigModal();
     } catch (error) {
       showToast('保存失败: ' + error.message, 'error');
+    }
+  }
+
+  updateSubscriptionCounts(groupId) {
+    const group = this.state.groups.find(g => g.groupId === groupId);
+    if (!group) return;
+
+    const usersTab = document.querySelector('[data-tab="users"]');
+    const bangumiTab = document.querySelector('[data-tab="bangumi"]');
+
+    if (usersTab) {
+      usersTab.textContent = `UP主订阅 (${group.subscriptions.users})`;
+    }
+    if (bangumiTab) {
+      bangumiTab.textContent = `番剧订阅 (${group.subscriptions.bangumi})`;
     }
   }
 
