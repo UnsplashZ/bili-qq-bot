@@ -142,30 +142,93 @@
   <div class="modal-overlay hidden" id="followingSyncModal">
     <div class="modal-content modal-large">
       <div class="modal-header">
-        <h2>关注同步</h2>
-        <button class="btn-icon" id="closeFollowingSyncBtn">×</button>
+        <h2>从关注同步 - <span id="syncModalGroupName"></span></h2>
+        <button class="btn-icon" id="closeFollowingSyncModalBtn">×</button>
       </div>
+
       <div class="modal-body">
-        <div class="sync-controls">
-          <button class="btn btn-primary" id="refreshFollowingsBtn">刷新关注列表</button>
-          <button class="btn btn-secondary" id="selectAllFollowingsBtn">全选</button>
-          <button class="btn btn-secondary" id="unselectAllFollowingsBtn">取消全选</button>
+        <!-- 两个 Tab 切换 -->
+        <div class="sync-tabs">
+          <button class="tab-btn active" data-sync-tab="groups">
+            按分组同步
+          </button>
+          <button class="tab-btn" data-sync-tab="users">
+            按用户选择
+          </button>
         </div>
 
-        <div class="group-selector">
-          <label>选择要添加订阅的群组:</label>
-          <select id="targetGroupSelect" class="config-select">
-            <option value="">请选择群组</option>
-          </select>
+        <!-- Tab 1: 分组列表 -->
+        <div class="sync-tab-content" id="syncGroupsTab">
+          <p class="hint-text">
+            勾选分组后，系统将自动同步这些分组的关注用户订阅
+          </p>
+
+          <div class="groups-list" id="followingGroupsList">
+            <!-- 动态生成 -->
+            <!--
+            <label class="group-item">
+              <input type="checkbox" value="特别关注" />
+              <span class="group-name">特别关注</span>
+              <span class="group-count">(15人)</span>
+            </label>
+            -->
+          </div>
+
+          <div class="current-sync-groups">
+            <strong>当前已配置：</strong>
+            <span id="currentSyncGroupsText">无</span>
+          </div>
         </div>
 
-        <div class="followings-list" id="followingsList">
-          <p class="empty-hint">加载中...</p>
+        <!-- Tab 2: 用户列表 -->
+        <div class="sync-tab-content hidden" id="syncUsersTab">
+          <!-- 缓存信息和控制栏 -->
+          <div class="cache-controls">
+            <div class="cache-info">
+              <span>上次刷新: </span>
+              <span id="cacheLastRefreshTime">从未</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="refreshFollowingsListBtn">
+              刷新列表
+            </button>
+          </div>
+
+          <!-- 用户选择控制 -->
+          <div class="user-controls">
+            <button class="btn btn-secondary btn-sm" id="selectAllUsersBtn">全选</button>
+            <button class="btn btn-secondary btn-sm" id="unselectAllUsersBtn">取消全选</button>
+            <span class="selected-count">已选: <strong id="selectedUserCount">0</strong></span>
+          </div>
+
+          <!-- 用户卡片网格 -->
+          <div class="followings-grid" id="followingsUserGrid">
+            <!-- 动态生成 -->
+            <!--
+            <label class="following-card">
+              <input type="checkbox" class="following-checkbox" data-uid="123456" />
+              <img class="following-avatar" src="..." />
+              <div class="following-info">
+                <div class="following-name">UP主名称</div>
+                <div class="following-uid">UID: 123456</div>
+              </div>
+            </label>
+            -->
+          </div>
         </div>
       </div>
+
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="cancelFollowingSyncBtn">取消</button>
-        <button class="btn btn-primary" id="batchSubscribeBtn">批量订阅</button>
+        <button class="btn btn-secondary" id="cancelSyncModalBtn">取消</button>
+
+        <!-- Tab 1 显示 -->
+        <button class="btn btn-primary" id="saveSyncGroupsBtn">
+          保存配置
+        </button>
+
+        <!-- Tab 2 显示 -->
+        <button class="btn btn-primary hidden" id="batchSubscribeUsersBtn">
+          批量订阅
+        </button>
       </div>
     </div>
   </div>
