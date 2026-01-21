@@ -602,6 +602,52 @@ class App {
       }
     });
 
+    // Bilibili 登录按钮
+    document.getElementById('bilibiliLoginBtn').addEventListener('click', () => {
+      this.showBilibiliLoginModal();
+    });
+
+    document.getElementById('closeBilibiliLoginBtn').addEventListener('click', () => {
+      this.hideBilibiliLoginModal();
+    });
+
+    document.getElementById('cancelBilibiliLoginBtn').addEventListener('click', () => {
+      this.hideBilibiliLoginModal();
+    });
+
+    document.getElementById('getQrcodeBtn').addEventListener('click', () => {
+      this.getLoginQrcode();
+    });
+
+    // 关注同步按钮
+    document.getElementById('followingSyncBtn').addEventListener('click', () => {
+      this.showFollowingSyncModal();
+    });
+
+    document.getElementById('closeFollowingSyncBtn').addEventListener('click', () => {
+      this.hideFollowingSyncModal();
+    });
+
+    document.getElementById('cancelFollowingSyncBtn').addEventListener('click', () => {
+      this.hideFollowingSyncModal();
+    });
+
+    document.getElementById('refreshFollowingsBtn').addEventListener('click', () => {
+      this.refreshFollowings();
+    });
+
+    document.getElementById('selectAllFollowingsBtn').addEventListener('click', () => {
+      this.selectAllFollowings(true);
+    });
+
+    document.getElementById('unselectAllFollowingsBtn').addEventListener('click', () => {
+      this.selectAllFollowings(false);
+    });
+
+    document.getElementById('batchSubscribeBtn').addEventListener('click', () => {
+      this.batchSubscribe();
+    });
+
     // 退出登录
     document.getElementById('logoutBtn').addEventListener('click', () => {
       if (confirm('确定要退出登录吗？')) {
@@ -788,6 +834,262 @@ class App {
         card.style.display = 'none';
       }
     });
+  }
+
+  // ========== Bilibili Login Methods ==========
+
+  showBilibiliLoginModal() {
+    const modal = document.getElementById('bilibiliLoginModal');
+    modal.classList.remove('hidden');
+    // Reset UI
+    document.getElementById('loginStatus').classList.remove('hidden');
+    document.getElementById('qrcodeContainer').classList.add('hidden');
+    if (this.loginCheckInterval) {
+      clearInterval(this.loginCheckInterval);
+      this.loginCheckInterval = null;
+    }
+  }
+
+  hideBilibiliLoginModal() {
+    const modal = document.getElementById('bilibiliLoginModal');
+    modal.classList.add('hidden');
+    if (this.loginCheckInterval) {
+      clearInterval(this.loginCheckInterval);
+      this.loginCheckInterval = null;
+    }
+  }
+
+  async getLoginQrcode() {
+    try {
+      const response = await api.getLoginQrcode();
+
+      if (!response.success) {
+        throw new Error(response.message || '获取二维码失败');
+      }
+
+      // 显示二维码
+      document.getElementById('loginStatus').classList.add('hidden');
+      const qrcodeContainer = document.getElementById('qrcodeContainer');
+      qrcodeContainer.classList.remove('hidden');
+
+      const qrcodeImage = document.getElementById('qrcodeImage');
+      qrcodeImage.src = response.data.qrcodeUrl;
+
+      // 保存 key 并开始轮询
+      this.currentQrcodeKey = response.data.qrcodeKey;
+      this.startLoginPolling();
+
+    } catch (error) {
+      showToast('获取二维码失败: ' + error.message, 'error');
+    }
+  }
+
+  startLoginPolling() {
+    if (this.loginCheckInterval) {
+      clearInterval(this.loginCheckInterval);
+    }
+
+    // 每 2 秒检查一次登录状态
+    this.loginCheckInterval = setInterval(async () => {
+      try {
+        const response = await api.checkLogin(this.currentQrcodeKey);
+
+        if (response.success && response.data) {
+          if (response.data.logged_in) {
+            // 登录成功
+            clearInterval(this.loginCheckInterval);
+            this.loginCheckInterval = null;
+
+            showToast('登录成功！', 'success');
+            this.hideBilibiliLoginModal();
+
+            // 自动刷新关注列表
+            try {
+              await api.refreshFollowings();
+              showToast('已自动刷新关注列表', 'success');
+            } catch (e) {
+              console.error('Failed to refresh followings:', e);
+            }
+          } else if (response.data.expired) {
+            // 二维码过期
+            clearInterval(this.loginCheckInterval);
+            this.loginCheckInterval = null;
+            showToast('二维码已过期，请重新获取', 'error');
+            document.getElementById('qrcodeContainer').classList.add('hidden');
+            document.getElementById('loginStatus').classList.remove('hidden');
+          }
+        }
+      } catch (error) {
+        console.error('Login check error:', error);
+      }
+    }, 2000);
+  }
+
+  // ========== Following Sync Methods ==========
+
+  async showFollowingSyncModal() {
+    const modal = document.getElementById('followingSyncModal');
+    modal.classList.remove('hidden');
+
+    // 填充群组选择器
+    const select = document.getElementById('targetGroupSelect');
+    select.innerHTML = '<option value="">请选择群组</option>';
+    this.state.groups.forEach(group => {
+      const option = document.createElement('option');
+      option.value = group.groupId;
+      option.textContent = `群组 ${group.groupId}`;
+      select.appendChild(option);
+    });
+
+    // 加载关注列表
+    await this.loadFollowings();
+  }
+
+  hideFollowingSyncModal() {
+    const modal = document.getElementById('followingSyncModal');
+    modal.classList.add('hidden');
+  }
+
+  async loadFollowings() {
+    const container = document.getElementById('followingsList');
+    container.innerHTML = '<p class="empty-hint">加载中...</p>';
+
+    try {
+      const response = await api.getFollowings();
+
+      if (!response.success || !response.data || response.data.length === 0) {
+        container.innerHTML = '<p class="empty-hint">暂无关注数据。请先登录 Bilibili 账号。</p>';
+        return;
+      }
+
+      this.followings = response.data;
+      this.renderFollowings();
+
+    } catch (error) {
+      container.innerHTML = `<p class="empty-hint">加载失败: ${error.message}</p>`;
+      showToast('加载关注列表失败: ' + error.message, 'error');
+    }
+  }
+
+  renderFollowings() {
+    const container = document.getElementById('followingsList');
+
+    if (!this.followings || this.followings.length === 0) {
+      container.innerHTML = '<p class="empty-hint">暂无关注数据</p>';
+      return;
+    }
+
+    container.innerHTML = this.followings.map(following => `
+      <div class="following-card" data-uid="${following.uid}">
+        <input type="checkbox" class="following-checkbox" data-uid="${following.uid}">
+        <img src="${following.face || 'https://via.placeholder.com/48'}"
+             alt="${following.name}"
+             class="following-avatar"
+             onerror="this.src='https://via.placeholder.com/48'">
+        <div class="following-info">
+          <div class="following-name">${following.name}</div>
+          <div class="following-uid">UID: ${following.uid}</div>
+          ${following.sign ? `<div class="following-sign">${following.sign}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    // 绑定卡片点击事件
+    container.querySelectorAll('.following-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        // 如果点击的不是 checkbox，则切换 checkbox 状态
+        if (e.target.tagName !== 'INPUT') {
+          const checkbox = card.querySelector('.following-checkbox');
+          checkbox.checked = !checkbox.checked;
+        }
+        // 更新卡片选中状态
+        this.updateCardSelection(card);
+      });
+
+      // Checkbox 变化时更新卡片状态
+      const checkbox = card.querySelector('.following-checkbox');
+      checkbox.addEventListener('change', () => {
+        this.updateCardSelection(card);
+      });
+    });
+  }
+
+  updateCardSelection(card) {
+    const checkbox = card.querySelector('.following-checkbox');
+    if (checkbox.checked) {
+      card.classList.add('selected');
+    } else {
+      card.classList.remove('selected');
+    }
+  }
+
+  async refreshFollowings() {
+    try {
+      showToast('正在刷新关注列表...', 'info');
+      const response = await api.refreshFollowings();
+
+      if (response.success) {
+        showToast('关注列表刷新成功', 'success');
+        this.followings = response.data || [];
+        this.renderFollowings();
+      } else {
+        throw new Error(response.message || '刷新失败');
+      }
+    } catch (error) {
+      showToast('刷新关注列表失败: ' + error.message, 'error');
+    }
+  }
+
+  selectAllFollowings(select) {
+    const checkboxes = document.querySelectorAll('.following-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = select;
+      const card = checkbox.closest('.following-card');
+      this.updateCardSelection(card);
+    });
+  }
+
+  async batchSubscribe() {
+    const groupId = document.getElementById('targetGroupSelect').value;
+
+    if (!groupId) {
+      showToast('请先选择要添加订阅的群组', 'error');
+      return;
+    }
+
+    const checkboxes = document.querySelectorAll('.following-checkbox:checked');
+    const uids = Array.from(checkboxes).map(cb => cb.dataset.uid);
+
+    if (uids.length === 0) {
+      showToast('请至少选择一个UP主', 'error');
+      return;
+    }
+
+    if (!confirm(`确定要为群组 ${groupId} 添加 ${uids.length} 个订阅吗？`)) {
+      return;
+    }
+
+    try {
+      showToast(`正在添加 ${uids.length} 个订阅...`, 'info');
+      const response = await api.batchSubscribeFollowings(groupId, uids);
+
+      if (response.success) {
+        showToast(response.message, 'success');
+        this.hideFollowingSyncModal();
+
+        // 刷新群组数据
+        await this.loadGroups();
+
+        // 如果当前选中的就是这个群组，刷新面板
+        if (this.state.selectedGroupId === groupId) {
+          this.selectGroup(groupId);
+        }
+      } else {
+        throw new Error(response.message || '批量订阅失败');
+      }
+    } catch (error) {
+      showToast('批量订阅失败: ' + error.message, 'error');
+    }
   }
 }
 

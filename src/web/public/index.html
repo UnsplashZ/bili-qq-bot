@@ -12,6 +12,8 @@
     <div class="header-content">
       <h1 class="header-title">Bili QQ Bot 管理后台</h1>
       <div class="header-actions">
+        <button class="btn btn-secondary" id="bilibiliLoginBtn">B站登录</button>
+        <button class="btn btn-secondary" id="followingSyncBtn">关注同步</button>
         <button class="btn btn-secondary" id="globalConfigBtn">全局配置</button>
         <button class="btn btn-secondary" id="logoutBtn">退出登录</button>
       </div>
@@ -105,6 +107,67 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="cancelModalBtn">取消</button>
         <button class="btn btn-primary" id="saveGlobalConfigBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bilibili Login Modal -->
+  <div class="modal-overlay hidden" id="bilibiliLoginModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Bilibili 账号登录</h2>
+        <button class="btn-icon" id="closeBilibiliLoginBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="login-status" id="loginStatus">
+          <p class="info-text">使用 Bilibili 手机 APP 扫描二维码登录</p>
+          <button class="btn btn-primary" id="getQrcodeBtn">获取登录二维码</button>
+        </div>
+        <div class="qrcode-container hidden" id="qrcodeContainer">
+          <div class="qrcode-wrapper">
+            <img id="qrcodeImage" src="" alt="登录二维码">
+          </div>
+          <p class="qrcode-hint">请使用 Bilibili APP 扫描二维码</p>
+          <div class="login-progress" id="loginProgress">
+            <div class="spinner"></div>
+            <p>等待扫码...</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelBilibiliLoginBtn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Following Sync Modal -->
+  <div class="modal-overlay hidden" id="followingSyncModal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2>关注同步</h2>
+        <button class="btn-icon" id="closeFollowingSyncBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="sync-controls">
+          <button class="btn btn-primary" id="refreshFollowingsBtn">刷新关注列表</button>
+          <button class="btn btn-secondary" id="selectAllFollowingsBtn">全选</button>
+          <button class="btn btn-secondary" id="unselectAllFollowingsBtn">取消全选</button>
+        </div>
+
+        <div class="group-selector">
+          <label>选择要添加订阅的群组:</label>
+          <select id="targetGroupSelect" class="config-select">
+            <option value="">请选择群组</option>
+          </select>
+        </div>
+
+        <div class="followings-list" id="followingsList">
+          <p class="empty-hint">加载中...</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelFollowingSyncBtn">取消</button>
+        <button class="btn btn-primary" id="batchSubscribeBtn">批量订阅</button>
       </div>
     </div>
   </div>

@@ -5,6 +5,7 @@ const authMiddleware = require('./middleware/auth');
 const groupsRouter = require('./routes/groups');
 const subscriptionsRouter = require('./routes/subscriptions');
 const configRouter = require('./routes/config');
+const bilibiliRouter = require('./routes/bilibili');
 
 class WebUIServer {
   constructor(config) {
@@ -38,6 +39,7 @@ class WebUIServer {
     this.app.use('/api/groups', groupsRouter);
     this.app.use('/api/subscriptions', subscriptionsRouter);
     this.app.use('/api/config', configRouter);
+    this.app.use('/api/bilibili', bilibiliRouter);
 
     // SPA fallback - 对于非 API 路由，返回 index.html
     this.app.get('/', (req, res) => {

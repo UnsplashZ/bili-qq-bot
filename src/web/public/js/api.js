@@ -96,6 +96,31 @@ class API {
   async removeGlobalBlacklist(userId) {
     return this.request('DELETE', `/config/blacklist/${userId}`);
   }
+
+  // Bilibili 登录和关注
+  async getLoginQrcode() {
+    return this.request('GET', '/bilibili/login/qrcode');
+  }
+
+  async checkLogin(qrcodeKey, groupId) {
+    return this.request('POST', '/bilibili/login/check', { qrcodeKey, groupId });
+  }
+
+  async getFollowings(groupName, groupId) {
+    const params = new URLSearchParams();
+    if (groupName) params.append('groupName', groupName);
+    if (groupId) params.append('groupId', groupId);
+    const query = params.toString();
+    return this.request('GET', `/bilibili/followings${query ? '?' + query : ''}`);
+  }
+
+  async refreshFollowings() {
+    return this.request('POST', '/bilibili/followings/refresh');
+  }
+
+  async batchSubscribeFollowings(groupId, uids) {
+    return this.request('POST', '/bilibili/followings/subscribe', { groupId, uids });
+  }
 }
 
 const api = new API();
