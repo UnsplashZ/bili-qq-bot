@@ -656,6 +656,25 @@ class App {
       this.hideFollowingSyncModal();
     });
 
+    // Refresh followings button
+    document.getElementById('refreshFollowingsListBtn').addEventListener('click', () => {
+      this.refreshFollowings();
+    });
+
+    // Select all/unselect all
+    document.getElementById('selectAllUsersBtn').addEventListener('click', () => {
+      this.selectAllFollowings(true);
+    });
+
+    document.getElementById('unselectAllUsersBtn').addEventListener('click', () => {
+      this.selectAllFollowings(false);
+    });
+
+    // Cancel button
+    document.getElementById('cancelSyncModalBtn').addEventListener('click', () => {
+      this.hideFollowingSyncModal();
+    });
+
     // Sync modal tab switching (using event delegation)
     const syncTabsContainer = document.querySelector('.sync-tabs');
     if (syncTabsContainer) {
@@ -1086,7 +1105,7 @@ class App {
   }
 
   async loadFollowings() {
-    const container = document.getElementById('followingsList');
+    const container = document.getElementById('followingsUserGrid');
     container.innerHTML = '<p class="empty-hint">加载中...</p>';
 
     try {
@@ -1107,7 +1126,7 @@ class App {
   }
 
   renderFollowings() {
-    const container = document.getElementById('followingsList');
+    const container = document.getElementById('followingsUserGrid');
 
     if (!this.followings || this.followings.length === 0) {
       container.innerHTML = '<p class="empty-hint">暂无关注数据</p>';
