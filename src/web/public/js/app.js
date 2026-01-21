@@ -5,6 +5,11 @@ class App {
       selectedGroupId: null
     };
 
+    // Bilibili login state
+    this.currentLoginGroupId = null;
+    this.currentQrcodeKey = null;
+    this.loginCheckInterval = null;
+
     this.init();
   }
 
@@ -285,7 +290,7 @@ class App {
 
     // 绑定 Bilibili 登录按钮
     document.getElementById('groupBiliLoginBtn').addEventListener('click', () => {
-      this.showBilibiliLoginModal();
+      this.showBilibiliLoginModal(groupId);
     });
 
     // 绑定从关注同步按钮
@@ -824,44 +829,80 @@ class App {
 
   // ========== Bilibili Login Methods ==========
 
-  showBilibiliLoginModal() {
+  showBilibiliLoginModal(groupId) {
+    this.currentLoginGroupId = groupId;
+
     const modal = document.getElementById('bilibiliLoginModal');
     modal.classList.remove('hidden');
+
     // Reset UI
     document.getElementById('loginStatus').classList.remove('hidden');
     document.getElementById('qrcodeContainer').classList.add('hidden');
+
+    // Clear previous QR code and interval
     if (this.loginCheckInterval) {
       clearInterval(this.loginCheckInterval);
       this.loginCheckInterval = null;
     }
+    this.currentQrcodeKey = null;
+
+    // Bind modal close buttons
+    document.getElementById('closeBilibiliLoginBtn').onclick = () => {
+      this.hideBilibiliLoginModal();
+    };
+    document.getElementById('cancelBilibiliLoginBtn').onclick = () => {
+      this.hideBilibiliLoginModal();
+    };
+
+    // Bind get QR code button
+    document.getElementById('getQrcodeBtn').onclick = () => {
+      this.getLoginQrcode();
+    };
   }
 
   hideBilibiliLoginModal() {
     const modal = document.getElementById('bilibiliLoginModal');
     modal.classList.add('hidden');
+
+    // Clean up interval
     if (this.loginCheckInterval) {
       clearInterval(this.loginCheckInterval);
       this.loginCheckInterval = null;
     }
+
+    this.currentQrcodeKey = null;
+    this.currentLoginGroupId = null;
   }
 
   async getLoginQrcode() {
     try {
+      showToast('正在获取二维码...', 'info');
       const response = await api.getLoginQrcode();
 
       if (!response.success) {
         throw new Error(response.message || '获取二维码失败');
       }
 
-      // 显示二维码
+      // Hide status and show QR code container
       document.getElementById('loginStatus').classList.add('hidden');
       const qrcodeContainer = document.getElementById('qrcodeContainer');
       qrcodeContainer.classList.remove('hidden');
 
-      const qrcodeImage = document.getElementById('qrcodeImage');
-      qrcodeImage.src = response.data.qrcodeUrl;
+      // Clear previous QR code and generate new one
+      const qrcodeWrapper = qrcodeContainer.querySelector('.qrcode-wrapper');
+      qrcodeWrapper.innerHTML = '';
 
-      // 保存 key 并开始轮询
+      new QRCode(qrcodeWrapper, {
+        text: response.data.qrcodeUrl,
+        width: 256,
+        height: 256
+      });
+
+      // Update progress text
+      const loginProgress = document.getElementById('loginProgress');
+      loginProgress.querySelector('p').textContent = '等待扫码...';
+
+      // Save key and start polling
       this.currentQrcodeKey = response.data.qrcodeKey;
       this.startLoginPolling();
 
@@ -875,32 +916,59 @@ class App {
       clearInterval(this.loginCheckInterval);
     }
 
-    // 每 2 秒检查一次登录状态
+    // Check login status every 2 seconds
     this.loginCheckInterval = setInterval(async () => {
       try {
-        const response = await api.checkLogin(this.currentQrcodeKey);
+        const response = await api.checkLogin(this.currentQrcodeKey, this.currentLoginGroupId);
 
         if (response.success && response.data) {
-          if (response.data.logged_in) {
-            // 登录成功
+          const status = response.data;
+
+          // Update progress text based on status
+          const loginProgress = document.getElementById('loginProgress');
+
+          if (status.code === 0) {
+            // Login successful
             clearInterval(this.loginCheckInterval);
             this.loginCheckInterval = null;
 
             showToast('登录成功！', 'success');
             this.hideBilibiliLoginModal();
 
-            // 自动刷新关注列表
-            try {
-              await api.refreshFollowings();
-              showToast('已自动刷新关注列表', 'success');
-            } catch (e) {
-              console.error('Failed to refresh followings:', e);
+            // Refresh group data and update panel
+            await this.loadGroups();
+            if (this.state.selectedGroupId === this.currentLoginGroupId) {
+              this.selectGroup(this.currentLoginGroupId);
             }
-          } else if (response.data.expired) {
-            // 二维码过期
+
+          } else if (status.code === 86101) {
+            // QR code not scanned yet
+            loginProgress.querySelector('p').textContent = '等待扫码...';
+
+          } else if (status.code === 86090) {
+            // QR code scanned, waiting for confirmation
+            loginProgress.querySelector('p').textContent = '已扫码，请在手机上确认...';
+
+          } else if (status.code === 86038) {
+            // QR code expired
             clearInterval(this.loginCheckInterval);
             this.loginCheckInterval = null;
+
             showToast('二维码已过期，请重新获取', 'error');
+
+            // Show get QR code button again
+            document.getElementById('qrcodeContainer').classList.add('hidden');
+            document.getElementById('loginStatus').classList.remove('hidden');
+
+          } else {
+            // Other error
+            clearInterval(this.loginCheckInterval);
+            this.loginCheckInterval = null;
+
+            const errorMsg = status.message || `登录失败 (code: ${status.code})`;
+            showToast(errorMsg, 'error');
+
+            // Show get QR code button again
             document.getElementById('qrcodeContainer').classList.add('hidden');
             document.getElementById('loginStatus').classList.remove('hidden');
           }
