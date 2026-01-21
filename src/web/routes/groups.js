@@ -28,16 +28,34 @@ router.get('/', async (req, res, next) => {
     });
 
     const groups = Array.from(groupIds).map(groupId => {
-      const groupIdNum = parseInt(groupId);
       const groupConfig = config.groupConfigs[groupId] || {};
 
-      // 统计订阅数 - 确保类型匹配
-      const userSubs = subscriptionManager.userSubs.filter(sub =>
-        sub.groupIds.some(id => parseInt(id) === groupIdNum || id.toString() === groupId)
-      ).length;
-      const bangumiSubs = subscriptionManager.bangumiSubs.filter(sub =>
-        sub.groupIds.some(id => parseInt(id) === groupIdNum || id.toString() === groupId)
-      ).length;
+      // 统计订阅数 - 支持数字ID和字符串ID（如 private_xxxxx）
+      const userSubs = subscriptionManager.userSubs.filter(sub => {
+        return sub.groupIds.some(id => {
+          // 如果都能转换为数字，按数字比较
+          const idNum = parseInt(id);
+          const groupIdNum = parseInt(groupId);
+          if (!isNaN(idNum) && !isNaN(groupIdNum)) {
+            return idNum === groupIdNum;
+          }
+          // 否则按字符串比较
+          return id.toString() === groupId.toString();
+        });
+      }).length;
+
+      const bangumiSubs = subscriptionManager.bangumiSubs.filter(sub => {
+        return sub.groupIds.some(id => {
+          // 如果都能转换为数字，按数字比较
+          const idNum = parseInt(id);
+          const groupIdNum = parseInt(groupId);
+          if (!isNaN(idNum) && !isNaN(groupIdNum)) {
+            return idNum === groupIdNum;
+          }
+          // 否则按字符串比较
+          return id.toString() === groupId.toString();
+        });
+      }).length;
 
       return {
         groupId,

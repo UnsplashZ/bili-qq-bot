@@ -422,7 +422,7 @@ class App {
   }
 
   showAddBangumiSubDialog(groupId) {
-    const seasonId = prompt('请输入番剧链接或 Season ID (如: ss12345 或完整链接):');
+    const seasonId = prompt('请输入番剧链接或 ID (支持 ss/md/ep 格式，如: ss12345 或完整链接):');
     if (seasonId && seasonId.trim()) {
       this.addBangumiSub(groupId, seasonId.trim());
     }
