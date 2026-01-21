@@ -205,8 +205,30 @@ class App {
         <button class="btn btn-secondary" id="addBlacklistBtn">+ 添加黑名单</button>
       </div>
 
+      <div class="management-section bili-account-section">
+        <h3>🅱️ Bilibili 账号</h3>
+        <div class="bili-account-info">
+          <div class="account-status">
+            <span class="status-label">登录状态：</span>
+            <span class="status-value" id="biliLoginStatus">未登录</span>
+            <span class="account-uid hidden" id="biliAccountUid"></span>
+          </div>
+          <div class="account-actions">
+            <button class="btn btn-primary btn-sm" id="groupBiliLoginBtn">
+              登录/重新登录
+            </button>
+            <span class="last-login-time" id="lastLoginTime"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="subscriptions-section">
-        <h3>订阅管理</h3>
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>订阅管理</h3>
+          <button class="btn btn-secondary" id="syncFromFollowingBtn">
+            从关注同步
+          </button>
+        </div>
         <div class="subscription-tabs">
           <button class="tab-btn active" data-tab="users">UP主订阅 (${group.subscriptions.users})</button>
           <button class="tab-btn" data-tab="bangumi">番剧订阅 (${group.subscriptions.bangumi})</button>
@@ -259,6 +281,16 @@ class App {
         e.target.classList.add('active');
         this.loadSubscriptions(groupId, e.target.dataset.tab);
       });
+    });
+
+    // 绑定 Bilibili 登录按钮
+    document.getElementById('groupBiliLoginBtn').addEventListener('click', () => {
+      this.showBilibiliLoginModal();
+    });
+
+    // 绑定从关注同步按钮
+    document.getElementById('syncFromFollowingBtn').addEventListener('click', () => {
+      this.showFollowingSyncModal();
     });
 
     // 默认加载 UP 主订阅
