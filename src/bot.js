@@ -5,6 +5,7 @@ const messageHandler = require('./handlers/messageHandler');
 const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
 const mcpManager = require('./services/mcpManager');
+const WebUIServer = require('./web/server');
 
 // WebSocket连接管理
 let ws = null;
@@ -146,5 +147,16 @@ process.on('SIGTERM', gracefulShutdown);
     } catch (e) {
         logger.error('Failed to initialize MCP Manager:', e);
     }
+
+    // 启动 WebUI Server
+    if (config.webuiEnabled !== false) {
+        try {
+            const webui = new WebUIServer(config);
+            webui.start();
+        } catch (e) {
+            logger.error('Failed to start WebUI server:', e);
+        }
+    }
+
     createWebSocketConnection();
 })();

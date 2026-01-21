@@ -47,6 +47,13 @@ const config = {
     // Path sent to NapCat (where NapCat looks for the file inside ITS container)
     napcatReadPath: process.env.NAPCAT_READ_PATH || '/app/.config/QQ/tmp/',
 
+    // WebUI Config
+    webuiEnabled: process.env.WEBUI_ENABLED !== 'false',
+    webuiPort: parseInt(process.env.WEBUI_PORT || '3100'),
+    webuiHost: process.env.WEBUI_HOST || '127.0.0.1',
+    webuiUsername: process.env.WEBUI_USERNAME || 'root',
+    webuiPassword: process.env.WEBUI_PASSWORD || '',
+
     // --- Dynamic Configuration (config.json) ---
     // AI Context Limit (Number of messages sent to API)
     aiContextLimit: configData.aiContextLimit || 10,
