@@ -116,14 +116,13 @@ class App {
           </select>
         </div>
 
-        ${nightMode.mode === 'schedule' ? `
-        <div class="config-item">
+        <div class="config-item ${nightMode.mode === 'schedule' ? '' : 'hidden'}" id="nightModeTimeContainer">
           <label>定时时间</label>
           <input type="text" id="nightModeTime" class="config-input"
                  value="${nightMode.start || '22:00'}-${nightMode.end || '07:00'}"
                  placeholder="22:00-07:00">
+          <p class="config-hint">格式：开始时间-结束时间，例如 22:00-07:00</p>
         </div>
-        ` : ''}
 
         <div class="config-item">
           <label>显示 UID</label>
@@ -233,9 +232,14 @@ class App {
       this.saveAiConfig(groupId);
     });
 
-    // 绑定深色模式变化
-    document.getElementById('nightModeSelect').addEventListener('change', () => {
-      this.renderGroupPanel(groupId);
+    // 绑定深色模式变化 - 只切换时间输入框显示，不重新渲染整个面板
+    document.getElementById('nightModeSelect').addEventListener('change', (e) => {
+      const timeContainer = document.getElementById('nightModeTimeContainer');
+      if (e.target.value === 'schedule') {
+        timeContainer.classList.remove('hidden');
+      } else {
+        timeContainer.classList.add('hidden');
+      }
     });
 
     // 绑定添加管理员按钮
