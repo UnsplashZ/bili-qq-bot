@@ -509,6 +509,13 @@ body {
   color: var(--text-primary);
 }
 
+.config-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 .config-select,
 .config-input {
   width: 100%;

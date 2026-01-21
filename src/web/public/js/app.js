@@ -152,6 +152,29 @@ class App {
       </div>
 
       <div class="management-section">
+        <h3>AI 功能配置</h3>
+
+        <div class="config-item">
+          <label>AI 上下文消息数</label>
+          <input type="number" id="aiContextLimit" class="config-input"
+                 value="${config.aiContextLimit || 10}" min="1" max="50"
+                 placeholder="默认: 10">
+          <p class="config-hint">控制 AI 记忆的消息条数，越多消耗越大（1-50）</p>
+        </div>
+
+        <div class="config-item">
+          <label>AI 随机回复概率</label>
+          <input type="number" id="aiProbability" class="config-input"
+                 value="${config.aiProbability !== undefined ? config.aiProbability : 0.1}"
+                 min="0" max="1" step="0.1"
+                 placeholder="默认: 0.1">
+          <p class="config-hint">AI 主动插话的概率，0 = 不主动，1 = 总是回复（0-1）</p>
+        </div>
+
+        <button class="btn btn-primary" id="saveAiConfigBtn">保存 AI 配置</button>
+      </div>
+
+      <div class="management-section">
         <h3>管理员列表 (${group.admins.length})</h3>
         <div class="list-container">
           ${group.admins.length > 0
@@ -203,6 +226,11 @@ class App {
     // 绑定保存配置按钮
     document.getElementById('saveConfigBtn').addEventListener('click', () => {
       this.saveGroupConfig(groupId);
+    });
+
+    // 绑定保存 AI 配置按钮
+    document.getElementById('saveAiConfigBtn').addEventListener('click', () => {
+      this.saveAiConfig(groupId);
     });
 
     // 绑定深色模式变化
@@ -263,6 +291,36 @@ class App {
 
       await api.updateGroupConfig(groupId, config);
       showToast('配置已保存', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('保存失败: ' + error.message, 'error');
+    }
+  }
+
+  async saveAiConfig(groupId) {
+    try {
+      const aiContextLimit = parseInt(document.getElementById('aiContextLimit').value);
+      const aiProbability = parseFloat(document.getElementById('aiProbability').value);
+
+      // 验证输入
+      if (isNaN(aiContextLimit) || aiContextLimit < 1 || aiContextLimit > 50) {
+        showToast('AI 上下文消息数必须在 1-50 之间', 'error');
+        return;
+      }
+
+      if (isNaN(aiProbability) || aiProbability < 0 || aiProbability > 1) {
+        showToast('AI 随机回复概率必须在 0-1 之间', 'error');
+        return;
+      }
+
+      const config = {
+        aiContextLimit: aiContextLimit,
+        aiProbability: aiProbability
+      };
+
+      await api.updateGroupConfig(groupId, config);
+      showToast('AI 配置已保存', 'success');
       await this.loadGroups();
       this.selectGroup(groupId);
     } catch (error) {
