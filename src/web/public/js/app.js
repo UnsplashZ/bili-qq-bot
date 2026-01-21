@@ -92,18 +92,55 @@ class App {
 
     panel.innerHTML = `
       <h2>群组详情 - ${group.groupId}</h2>
+
       <div class="group-info">
         <p><strong>状态:</strong> ${group.enabled ? '已启用' : '已禁用'}</p>
-        <p><strong>管理员:</strong> ${group.admins.length} 人</p>
-        <p><strong>黑名单:</strong> ${group.blacklist.length} 人</p>
         <button class="btn btn-primary" id="toggleGroupBtn">
           ${group.enabled ? '禁用群组' : '启用群组'}
         </button>
       </div>
+
+      <div class="management-section">
+        <h3>管理员列表 (${group.admins.length})</h3>
+        <div class="list-container">
+          ${group.admins.length > 0
+            ? group.admins.map(admin => `
+                <div class="list-item">
+                  <span class="user-id">${admin}</span>
+                  <button class="btn-icon btn-danger" onclick="app.removeAdmin('${groupId}', '${admin}')" title="移除管理员">×</button>
+                </div>
+              `).join('')
+            : '<p class="empty-hint">暂无管理员</p>'
+          }
+        </div>
+        <button class="btn btn-secondary" id="addAdminBtn">+ 添加管理员</button>
+      </div>
+
+      <div class="management-section">
+        <h3>黑名单 (${group.blacklist.length})</h3>
+        <div class="list-container">
+          ${group.blacklist.length > 0
+            ? group.blacklist.map(user => `
+                <div class="list-item">
+                  <span class="user-id">${user}</span>
+                  <button class="btn-icon btn-danger" onclick="app.removeBlacklist('${groupId}', '${user}')" title="移除黑名单">×</button>
+                </div>
+              `).join('')
+            : '<p class="empty-hint">暂无黑名单用户</p>'
+          }
+        </div>
+        <button class="btn btn-secondary" id="addBlacklistBtn">+ 添加黑名单</button>
+      </div>
+
       <div class="subscriptions-section">
         <h3>订阅管理</h3>
-        <p><strong>UP主订阅:</strong> ${group.subscriptions.users} 个</p>
-        <p><strong>番剧订阅:</strong> ${group.subscriptions.bangumi} 个</p>
+        <div class="subscription-tabs">
+          <button class="tab-btn active" data-tab="users">UP主订阅 (${group.subscriptions.users})</button>
+          <button class="tab-btn" data-tab="bangumi">番剧订阅 (${group.subscriptions.bangumi})</button>
+        </div>
+        <div class="tab-content">
+          <div id="subscriptions-loading">加载中...</div>
+        </div>
       </div>
     `;
 
@@ -111,6 +148,234 @@ class App {
     document.getElementById('toggleGroupBtn').addEventListener('click', () => {
       this.toggleGroup(groupId, group.enabled);
     });
+
+    // 绑定添加管理员按钮
+    document.getElementById('addAdminBtn').addEventListener('click', () => {
+      this.showAddAdminDialog(groupId);
+    });
+
+    // 绑定添加黑名单按钮
+    document.getElementById('addBlacklistBtn').addEventListener('click', () => {
+      this.showAddBlacklistDialog(groupId);
+    });
+
+    // 绑定订阅标签切换
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        this.loadSubscriptions(groupId, e.target.dataset.tab);
+      });
+    });
+
+    // 默认加载 UP 主订阅
+    this.loadSubscriptions(groupId, 'users');
+  }
+
+  async loadSubscriptions(groupId, type) {
+    const container = document.querySelector('.tab-content');
+    container.innerHTML = '<div class="loading">加载中...</div>';
+
+    try {
+      const response = await api.getSubscriptions(groupId);
+      const subscriptions = response.data;
+
+      if (type === 'users') {
+        this.renderUserSubscriptions(groupId, subscriptions.users);
+      } else {
+        this.renderBangumiSubscriptions(groupId, subscriptions.bangumi);
+      }
+    } catch (error) {
+      container.innerHTML = `<p class="empty-hint">加载失败: ${error.message}</p>`;
+    }
+  }
+
+  renderUserSubscriptions(groupId, users) {
+    const container = document.querySelector('.tab-content');
+
+    if (users.length === 0) {
+      container.innerHTML = `
+        <p class="empty-hint">暂无 UP 主订阅</p>
+        <button class="btn btn-primary" onclick="app.showAddUserSubDialog('${groupId}')">+ 添加 UP 主订阅</button>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="subscription-list">
+        ${users.map(user => `
+          <div class="subscription-item">
+            <div class="subscription-info">
+              <img src="${user.face}" alt="${user.name}" class="user-avatar">
+              <div class="subscription-details">
+                <div class="subscription-name">${user.name}</div>
+                <div class="subscription-uid">UID: ${user.uid}</div>
+              </div>
+            </div>
+            <button class="btn-icon btn-danger" onclick="app.removeUserSub('${groupId}', '${user.uid}')" title="取消订阅">×</button>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="app.showAddUserSubDialog('${groupId}')">+ 添加 UP 主订阅</button>
+    `;
+  }
+
+  renderBangumiSubscriptions(groupId, bangumi) {
+    const container = document.querySelector('.tab-content');
+
+    if (bangumi.length === 0) {
+      container.innerHTML = `
+        <p class="empty-hint">暂无番剧订阅</p>
+        <button class="btn btn-primary" onclick="app.showAddBangumiSubDialog('${groupId}')">+ 添加番剧订阅</button>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="subscription-list">
+        ${bangumi.map(item => `
+          <div class="subscription-item">
+            <div class="subscription-info">
+              <img src="${item.cover}" alt="${item.title}" class="bangumi-cover">
+              <div class="subscription-details">
+                <div class="subscription-name">${item.title}</div>
+                <div class="subscription-uid">Season ID: ${item.season_id}</div>
+              </div>
+            </div>
+            <button class="btn-icon btn-danger" onclick="app.removeBangumiSub('${groupId}', '${item.season_id}')" title="取消订阅">×</button>
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="app.showAddBangumiSubDialog('${groupId}')">+ 添加番剧订阅</button>
+    `;
+  }
+
+  showAddAdminDialog(groupId) {
+    const userId = prompt('请输入要添加的管理员 QQ 号:');
+    if (userId && userId.trim()) {
+      this.addAdmin(groupId, userId.trim());
+    }
+  }
+
+  showAddBlacklistDialog(groupId) {
+    const userId = prompt('请输入要添加到黑名单的 QQ 号:');
+    if (userId && userId.trim()) {
+      this.addBlacklist(groupId, userId.trim());
+    }
+  }
+
+  showAddUserSubDialog(groupId) {
+    const uid = prompt('请输入要订阅的 UP 主 UID:');
+    if (uid && uid.trim()) {
+      this.addUserSub(groupId, uid.trim());
+    }
+  }
+
+  showAddBangumiSubDialog(groupId) {
+    const seasonId = prompt('请输入要订阅的番剧 Season ID:');
+    if (seasonId && seasonId.trim()) {
+      this.addBangumiSub(groupId, seasonId.trim());
+    }
+  }
+
+  async addAdmin(groupId, userId) {
+    try {
+      await api.addGroupAdmin(groupId, userId);
+      showToast('管理员添加成功', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('添加失败: ' + error.message, 'error');
+    }
+  }
+
+  async removeAdmin(groupId, userId) {
+    if (!confirm(`确定要移除管理员 ${userId} 吗？`)) return;
+
+    try {
+      await api.removeGroupAdmin(groupId, userId);
+      showToast('管理员已移除', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('移除失败: ' + error.message, 'error');
+    }
+  }
+
+  async addBlacklist(groupId, userId) {
+    try {
+      const group = this.state.groups.find(g => g.groupId === groupId);
+      const newBlacklist = [...group.blacklist, userId];
+      await api.updateGroupConfig(groupId, { blacklist: newBlacklist });
+      showToast('黑名单添加成功', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('添加失败: ' + error.message, 'error');
+    }
+  }
+
+  async removeBlacklist(groupId, userId) {
+    if (!confirm(`确定要移除黑名单用户 ${userId} 吗？`)) return;
+
+    try {
+      const group = this.state.groups.find(g => g.groupId === groupId);
+      const newBlacklist = group.blacklist.filter(id => id !== userId);
+      await api.updateGroupConfig(groupId, { blacklist: newBlacklist });
+      showToast('黑名单已移除', 'success');
+      await this.loadGroups();
+      this.selectGroup(groupId);
+    } catch (error) {
+      showToast('移除失败: ' + error.message, 'error');
+    }
+  }
+
+  async addUserSub(groupId, uid) {
+    try {
+      await api.subscribeUser(groupId, uid);
+      showToast('订阅成功', 'success');
+      await this.loadGroups();
+      this.loadSubscriptions(groupId, 'users');
+    } catch (error) {
+      showToast('订阅失败: ' + error.message, 'error');
+    }
+  }
+
+  async removeUserSub(groupId, uid) {
+    if (!confirm(`确定要取消订阅该 UP 主吗？`)) return;
+
+    try {
+      await api.unsubscribeUser(groupId, uid);
+      showToast('取消订阅成功', 'success');
+      await this.loadGroups();
+      this.loadSubscriptions(groupId, 'users');
+    } catch (error) {
+      showToast('取消订阅失败: ' + error.message, 'error');
+    }
+  }
+
+  async addBangumiSub(groupId, seasonId) {
+    try {
+      await api.subscribeBangumi(groupId, seasonId);
+      showToast('订阅成功', 'success');
+      await this.loadGroups();
+      this.loadSubscriptions(groupId, 'bangumi');
+    } catch (error) {
+      showToast('订阅失败: ' + error.message, 'error');
+    }
+  }
+
+  async removeBangumiSub(groupId, seasonId) {
+    if (!confirm(`确定要取消订阅该番剧吗？`)) return;
+
+    try {
+      await api.unsubscribeBangumi(groupId, seasonId);
+      showToast('取消订阅成功', 'success');
+      await this.loadGroups();
+      this.loadSubscriptions(groupId, 'bangumi');
+    } catch (error) {
+      showToast('取消订阅失败: ' + error.message, 'error');
+    }
   }
 
   async toggleGroup(groupId, currentlyEnabled) {
