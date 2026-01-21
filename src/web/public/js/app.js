@@ -112,14 +112,14 @@ class App {
           <select id="nightModeSelect" class="config-select">
             <option value="off" ${nightMode.mode === 'off' ? 'selected' : ''}>关闭</option>
             <option value="on" ${nightMode.mode === 'on' ? 'selected' : ''}>开启</option>
-            <option value="schedule" ${nightMode.mode === 'schedule' ? 'selected' : ''}>定时</option>
+            <option value="timed" ${nightMode.mode === 'timed' ? 'selected' : ''}>定时</option>
           </select>
         </div>
 
-        <div class="config-item ${nightMode.mode === 'schedule' ? '' : 'hidden'}" id="nightModeTimeContainer">
+        <div class="config-item ${nightMode.mode === 'timed' ? '' : 'hidden'}" id="nightModeTimeContainer">
           <label>定时时间</label>
           <input type="text" id="nightModeTime" class="config-input"
-                 value="${nightMode.start || '22:00'}-${nightMode.end || '07:00'}"
+                 value="${nightMode.startTime || '22:00'}-${nightMode.endTime || '07:00'}"
                  placeholder="22:00-07:00">
           <p class="config-hint">格式：开始时间-结束时间，例如 22:00-07:00</p>
         </div>
@@ -235,7 +235,7 @@ class App {
     // 绑定深色模式变化 - 只切换时间输入框显示，不重新渲染整个面板
     document.getElementById('nightModeSelect').addEventListener('change', (e) => {
       const timeContainer = document.getElementById('nightModeTimeContainer');
-      if (e.target.value === 'schedule') {
+      if (e.target.value === 'timed') {
         timeContainer.classList.remove('hidden');
       } else {
         timeContainer.classList.add('hidden');
@@ -270,11 +270,11 @@ class App {
       const nightModeSelect = document.getElementById('nightModeSelect').value;
       const nightModeConfig = { mode: nightModeSelect };
 
-      if (nightModeSelect === 'schedule') {
+      if (nightModeSelect === 'timed') {
         const timeInput = document.getElementById('nightModeTime').value;
         const [start, end] = timeInput.split('-');
-        nightModeConfig.start = start;
-        nightModeConfig.end = end;
+        nightModeConfig.startTime = start;
+        nightModeConfig.endTime = end;
       }
 
       const labelConfig = {
@@ -595,7 +595,7 @@ class App {
     // 全局深色模式选择变化
     document.getElementById('globalNightMode').addEventListener('change', (e) => {
       const timeContainer = document.getElementById('globalNightModeTimeContainer');
-      if (e.target.value === 'schedule') {
+      if (e.target.value === 'timed') {
         timeContainer.classList.remove('hidden');
       } else {
         timeContainer.classList.add('hidden');
@@ -643,10 +643,10 @@ class App {
 
         // 显示/隐藏定时时间输入框
         const timeContainer = document.getElementById('globalNightModeTimeContainer');
-        if (config.nightMode.mode === 'schedule') {
+        if (config.nightMode.mode === 'timed') {
           timeContainer.classList.remove('hidden');
-          if (config.nightMode.start && config.nightMode.end) {
-            document.getElementById('globalNightModeTime').value = `${config.nightMode.start}-${config.nightMode.end}`;
+          if (config.nightMode.startTime && config.nightMode.endTime) {
+            document.getElementById('globalNightModeTime').value = `${config.nightMode.startTime}-${config.nightMode.endTime}`;
           }
         } else {
           timeContainer.classList.add('hidden');
@@ -694,13 +694,13 @@ class App {
       const nightMode = document.getElementById('globalNightMode').value;
       config.nightMode = { mode: nightMode };
 
-      if (nightMode === 'schedule') {
+      if (nightMode === 'timed') {
         const timeInput = document.getElementById('globalNightModeTime').value;
         if (timeInput) {
           const [start, end] = timeInput.split('-');
           if (start && end) {
-            config.nightMode.start = start.trim();
-            config.nightMode.end = end.trim();
+            config.nightMode.startTime = start.trim();
+            config.nightMode.endTime = end.trim();
           } else {
             showToast('定时时间格式错误，请使用格式：22:00-07:00', 'error');
             return;
