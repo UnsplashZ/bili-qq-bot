@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const config = require('../../config');
+const logger = require('../../utils/logger');
 
 // 获取全局配置
 router.get('/', (req, res, next) => {
@@ -106,6 +107,65 @@ router.delete('/blacklist/:userId', (req, res, next) => {
       });
     }
   } catch (error) {
+    next(error);
+  }
+});
+
+// 获取全局默认配置（用于 WebUI）
+router.get('/global', (req, res, next) => {
+  try {
+    const globalConfig = {
+      subscriptionCheckInterval: config.subscriptionCheckInterval,
+      nightMode: config.nightMode,
+      labelConfig: config.labelConfig,
+      showId: config.showId,
+      linkCacheTimeout: config.linkCacheTimeout,
+      aiContextLimit: config.aiContextLimit,
+      aiProbability: config.aiProbability
+    };
+
+    res.json({
+      success: true,
+      data: globalConfig
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新全局默认配置（用于 WebUI）
+router.put('/global', (req, res, next) => {
+  try {
+    const updates = req.body;
+
+    // 允许更新的配置项
+    const allowedKeys = [
+      'subscriptionCheckInterval',
+      'nightMode',
+      'labelConfig',
+      'showId',
+      'linkCacheTimeout',
+      'aiContextLimit',
+      'aiProbability'
+    ];
+
+    Object.keys(updates).forEach(key => {
+      if (allowedKeys.includes(key)) {
+        config[key] = updates[key];
+      }
+    });
+
+    // 保存配置到文件
+    config.save();
+
+    logger.info('[WebUI] Global config updated:', updates);
+
+    res.json({
+      success: true,
+      message: '全局配置已更新'
+    });
+  } catch (error) {
+    logger.error('[WebUI] Failed to update global config:', error);
     next(error);
   }
 });

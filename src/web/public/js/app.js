@@ -561,7 +561,21 @@ class App {
 
     // 全局配置按钮
     document.getElementById('globalConfigBtn').addEventListener('click', () => {
-      showToast('全局配置功能待实现', 'info');
+      this.showGlobalConfigModal();
+    });
+
+    // 模态框关闭按钮
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      this.hideGlobalConfigModal();
+    });
+
+    document.getElementById('cancelModalBtn').addEventListener('click', () => {
+      this.hideGlobalConfigModal();
+    });
+
+    // 保存全局配置按钮
+    document.getElementById('saveGlobalConfigBtn').addEventListener('click', () => {
+      this.saveGlobalConfig();
     });
 
     // 退出登录
@@ -570,6 +584,131 @@ class App {
         window.location.reload();
       }
     });
+  }
+
+  showGlobalConfigModal() {
+    const modal = document.getElementById('globalConfigModal');
+    modal.classList.remove('hidden');
+    this.loadGlobalConfig();
+  }
+
+  hideGlobalConfigModal() {
+    const modal = document.getElementById('globalConfigModal');
+    modal.classList.add('hidden');
+  }
+
+  async loadGlobalConfig() {
+    try {
+      const response = await fetch('/api/config/global');
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || '加载全局配置失败');
+      }
+
+      const config = data.data;
+
+      // 订阅轮询间隔
+      if (config.subscriptionCheckInterval) {
+        document.getElementById('globalSubscriptionInterval').value = config.subscriptionCheckInterval;
+      }
+
+      // 默认深色模式
+      if (config.nightMode) {
+        document.getElementById('globalNightMode').value = config.nightMode.mode || 'off';
+      }
+
+      // 默认标签配置
+      if (config.labelConfig) {
+        document.getElementById('globalLabelVideo').checked = config.labelConfig.video !== false;
+        document.getElementById('globalLabelLive').checked = config.labelConfig.live !== false;
+        document.getElementById('globalLabelDynamic').checked = config.labelConfig.dynamic !== false;
+        document.getElementById('globalLabelArticle').checked = config.labelConfig.article !== false;
+        document.getElementById('globalLabelBangumi').checked = config.labelConfig.bangumi !== false;
+        document.getElementById('globalLabelUser').checked = config.labelConfig.user !== false;
+      }
+
+      // 默认 AI 配置
+      if (config.aiContextLimit) {
+        document.getElementById('globalAiContext').value = config.aiContextLimit;
+      }
+      if (config.aiProbability !== undefined) {
+        document.getElementById('globalAiProbability').value = config.aiProbability;
+      }
+    } catch (error) {
+      showToast('加载全局配置失败: ' + error.message, 'error');
+    }
+  }
+
+  async saveGlobalConfig() {
+    try {
+      const config = {};
+
+      // 订阅轮询间隔
+      const interval = document.getElementById('globalSubscriptionInterval').value;
+      if (interval) {
+        const intervalNum = parseInt(interval);
+        if (isNaN(intervalNum) || intervalNum < 10 || intervalNum > 3600) {
+          showToast('订阅轮询间隔必须在 10-3600 秒之间', 'error');
+          return;
+        }
+        config.subscriptionCheckInterval = intervalNum;
+      }
+
+      // 默认深色模式
+      const nightMode = document.getElementById('globalNightMode').value;
+      config.nightMode = { mode: nightMode };
+
+      // 默认标签配置
+      config.labelConfig = {
+        video: document.getElementById('globalLabelVideo').checked,
+        live: document.getElementById('globalLabelLive').checked,
+        dynamic: document.getElementById('globalLabelDynamic').checked,
+        article: document.getElementById('globalLabelArticle').checked,
+        bangumi: document.getElementById('globalLabelBangumi').checked,
+        user: document.getElementById('globalLabelUser').checked
+      };
+
+      // 默认 AI 配置
+      const aiContext = document.getElementById('globalAiContext').value;
+      if (aiContext) {
+        const aiContextNum = parseInt(aiContext);
+        if (isNaN(aiContextNum) || aiContextNum < 1 || aiContextNum > 50) {
+          showToast('AI 上下文消息数必须在 1-50 之间', 'error');
+          return;
+        }
+        config.aiContextLimit = aiContextNum;
+      }
+
+      const aiProb = document.getElementById('globalAiProbability').value;
+      if (aiProb) {
+        const aiProbNum = parseFloat(aiProb);
+        if (isNaN(aiProbNum) || aiProbNum < 0 || aiProbNum > 1) {
+          showToast('AI 随机回复概率必须在 0-1 之间', 'error');
+          return;
+        }
+        config.aiProbability = aiProbNum;
+      }
+
+      const response = await fetch('/api/config/global', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || '保存全局配置失败');
+      }
+
+      showToast('全局配置已保存', 'success');
+      this.hideGlobalConfigModal();
+    } catch (error) {
+      showToast('保存失败: ' + error.message, 'error');
+    }
   }
 
   filterGroups(query) {

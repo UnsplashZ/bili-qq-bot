@@ -44,6 +44,65 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- Global Config Modal -->
+  <div class="modal-overlay hidden" id="globalConfigModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>全局配置</h2>
+        <button class="btn-icon" id="closeModalBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-item">
+          <label>订阅轮询间隔 (秒)</label>
+          <input type="number" id="globalSubscriptionInterval" class="config-input"
+                 placeholder="默认: 60" min="10" max="3600">
+          <p class="config-hint">检查订阅更新的时间间隔（10-3600秒）</p>
+        </div>
+
+        <div class="config-section">
+          <h4>默认深色模式设置</h4>
+          <div class="config-item">
+            <select id="globalNightMode" class="config-select">
+              <option value="off">关闭</option>
+              <option value="on">开启</option>
+              <option value="schedule">定时</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>默认标签显示配置</h4>
+          <div class="config-grid">
+            <label><input type="checkbox" id="globalLabelVideo"> 视频</label>
+            <label><input type="checkbox" id="globalLabelLive"> 直播</label>
+            <label><input type="checkbox" id="globalLabelDynamic"> 动态</label>
+            <label><input type="checkbox" id="globalLabelArticle"> 专栏</label>
+            <label><input type="checkbox" id="globalLabelBangumi"> 番剧</label>
+            <label><input type="checkbox" id="globalLabelUser"> 用户</label>
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>默认 AI 配置</h4>
+          <div class="config-item">
+            <label>AI 上下文消息数</label>
+            <input type="number" id="globalAiContext" class="config-input"
+                   placeholder="默认: 10" min="1" max="50">
+          </div>
+          <div class="config-item">
+            <label>AI 随机回复概率</label>
+            <input type="number" id="globalAiProbability" class="config-input"
+                   placeholder="默认: 0.1" min="0" max="1" step="0.1">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelModalBtn">取消</button>
+        <button class="btn btn-primary" id="saveGlobalConfigBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="/js/utils.js"></script>
   <script src="/js/api.js"></script>
