@@ -12,6 +12,11 @@ class FollowingsCacheManager {
     };
 
     this.cacheFile = path.join(process.cwd(), 'data', 'followings-cache.json');
+    
+    // Concurrency control
+    this.refreshing = false;
+    this.refreshPromise = null;
+
     this.loadCache();
   }
 
@@ -32,20 +37,35 @@ class FollowingsCacheManager {
 
   // 刷新数据
   async refresh(groupId) {
+    if (this.refreshing) {
+      return this.refreshPromise;
+    }
+
     if (!this.canRefresh()) {
       const minutes = Math.ceil(this.getCooldownRemaining() / 60000);
       throw new Error(`刷新过于频繁，请 ${minutes} 分钟后再试`);
     }
 
-    const result = await biliApi.getMyFollowings(null, groupId);
+    this.refreshing = true;
 
-    if (result.status === 'success') {
-      this.cache.data = result.data || [];
-      this.cache.lastRefresh = Date.now();
-      await this.saveCache();
-    }
+    this.refreshPromise = (async () => {
+      try {
+        const result = await biliApi.getMyFollowings(null, groupId);
 
-    return result;
+        if (result.status === 'success') {
+          this.cache.data = result.data || [];
+          this.cache.lastRefresh = Date.now();
+          await this.saveCache();
+        }
+
+        return result;
+      } finally {
+        this.refreshing = false;
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 
   // 获取数据（带缓存信息）
@@ -64,11 +84,18 @@ class FollowingsCacheManager {
 
   // 持久化缓存
   async saveCache() {
+    const tempFile = this.cacheFile + '.tmp';
     try {
-      await fs.writeFile(this.cacheFile, JSON.stringify(this.cache, null, 2));
+      await fs.writeFile(tempFile, JSON.stringify(this.cache, null, 2));
+      await fs.rename(tempFile, this.cacheFile);
       logger.info('[FollowingsCacheManager] Cache saved');
     } catch (e) {
       logger.error('[FollowingsCacheManager] Failed to save cache:', e);
+      try {
+        await fs.unlink(tempFile);
+      } catch (cleanupErr) {
+        // Ignore if file doesn't exist
+      }
     }
   }
 
