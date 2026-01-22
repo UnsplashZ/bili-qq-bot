@@ -1314,45 +1314,80 @@ class App {
     const container = document.getElementById('followingsUserGrid');
 
     if (!this.followings || this.followings.length === 0) {
-      container.innerHTML = '<p class="empty-hint">暂无关注数据</p>';
+      container.textContent = '';
+      const emptyHint = document.createElement('p');
+      emptyHint.className = 'empty-hint';
+      emptyHint.textContent = '暂无关注数据';
+      container.appendChild(emptyHint);
       this.updateSelectedCount();
       return;
     }
 
-    container.innerHTML = this.followings.map(following => `
-      <div class="following-card" data-uid="${following.uid}">
-        <input type="checkbox" class="following-checkbox" data-uid="${following.uid}">
-        <img src="${following.face || 'https://via.placeholder.com/48'}"
-             alt="${following.name}"
-             class="following-avatar"
-             onerror="this.src='https://via.placeholder.com/48'">
-        <div class="following-info">
-          <div class="following-name">${following.name}</div>
-          <div class="following-uid">UID: ${following.uid}</div>
-          ${following.sign ? `<div class="following-sign">${following.sign}</div>` : ''}
-        </div>
-      </div>
-    `).join('');
+    // Clear container
+    container.textContent = '';
 
-    // 绑定卡片点击事件
-    container.querySelectorAll('.following-card').forEach(card => {
+    // Create following cards
+    this.followings.forEach(following => {
+      const card = document.createElement('div');
+      card.className = 'following-card';
+      card.dataset.uid = following.uid;
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'following-checkbox';
+      checkbox.dataset.uid = following.uid;
+
+      const avatar = document.createElement('img');
+      avatar.src = following.face || 'https://via.placeholder.com/48';
+      avatar.alt = following.name;
+      avatar.className = 'following-avatar';
+      avatar.onerror = function() {
+        this.src = 'https://via.placeholder.com/48';
+      };
+
+      const info = document.createElement('div');
+      info.className = 'following-info';
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'following-name';
+      nameDiv.textContent = following.name;
+
+      const uidDiv = document.createElement('div');
+      uidDiv.className = 'following-uid';
+      uidDiv.textContent = 'UID: ' + following.uid;
+
+      info.appendChild(nameDiv);
+      info.appendChild(uidDiv);
+
+      if (following.sign) {
+        const signDiv = document.createElement('div');
+        signDiv.className = 'following-sign';
+        signDiv.textContent = following.sign;
+        info.appendChild(signDiv);
+      }
+
+      card.appendChild(checkbox);
+      card.appendChild(avatar);
+      card.appendChild(info);
+
+      // Bind card click event
       card.addEventListener('click', (e) => {
-        // 如果点击的不是 checkbox，则切换 checkbox 状态
+        // If not clicking checkbox, toggle checkbox state
         if (e.target.tagName !== 'INPUT') {
-          const checkbox = card.querySelector('.following-checkbox');
           checkbox.checked = !checkbox.checked;
         }
-        // 更新卡片选中状态
+        // Update card selection state
         this.updateCardSelection(card);
         this.updateSelectedCount();
       });
 
-      // Checkbox 变化时更新卡片状态
-      const checkbox = card.querySelector('.following-checkbox');
+      // Checkbox change event
       checkbox.addEventListener('change', () => {
         this.updateCardSelection(card);
         this.updateSelectedCount();
       });
+
+      container.appendChild(card);
     });
 
     // Initialize selected count
