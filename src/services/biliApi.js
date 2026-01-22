@@ -191,96 +191,197 @@ class BiliApi {
     }
 
     async getVideoInfo(bvid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/video', { bvid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getVideoInfo: ${error.message}`);
+            }
+        }
         const args = [bvid];
         if (groupId) args.push(groupId);
         return this.runCommand('video', args);
     }
 
     async getLoginUrl() {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/login_url', {});
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getLoginUrl: ${error.message}`);
+            }
+        }
         return this.runCommand('login_url');
     }
 
     async checkLogin(key, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/login_check', { qrcode_key: key, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for checkLogin: ${error.message}`);
+            }
+        }
         const args = [key];
         if (groupId) args.push(groupId);
         return this.runCommand('login_check', args);
     }
 
     async getUserDynamic(uid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/user_dynamic', { uid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getUserDynamic: ${error.message}`);
+            }
+        }
         const args = [uid];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('user_dynamic', args);
     }
 
     async getUserLive(uid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/user_live', { uid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getUserLive: ${error.message}`);
+            }
+        }
         const args = [uid];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('user_live', args);
     }
 
     async getDynamicInfo(dynamicId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/dynamic_detail', { dynamic_id: dynamicId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getDynamicInfo: ${error.message}`);
+            }
+        }
         const args = [dynamicId];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('dynamic_detail', args);
     }
 
     async getArticleInfo(cvid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/article', { cvid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getArticleInfo: ${error.message}`);
+            }
+        }
         const args = [cvid];
         if (groupId) args.push(groupId);
         return this.runCommand('article', args);
     }
 
     async getBangumiInfo(seasonId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/bangumi', { season_id: seasonId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getBangumiInfo: ${error.message}`);
+            }
+        }
         const args = [seasonId];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('bangumi', args);
     }
 
     async getLiveRoomInfo(roomId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/live_room', { room_id: roomId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getLiveRoomInfo: ${error.message}`);
+            }
+        }
         const args = [roomId];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('live_room', args);
     }
 
     async getOpusInfo(opusId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/opus', { opus_id: opusId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getOpusInfo: ${error.message}`);
+            }
+        }
         const args = [opusId];
         if (groupId) args.push(groupId);
         return this.runCommand('opus', args);
     }
 
     async getUserInfo(uid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/user_info', { uid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getUserInfo: ${error.message}`);
+            }
+        }
         const args = [uid];
         if (groupId) args.push(groupId);
         return this.runCommandWithRetry('user_info', args);
     }
 
     async getUserCard(uid, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/user_card', { uid, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getUserCard: ${error.message}`);
+            }
+        }
         const args = [uid];
         if (groupId) args.push(groupId);
         return this.runCommand('user_card', args);
     }
 
     async getEpInfo(epId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/ep', { ep_id: epId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getEpInfo: ${error.message}`);
+            }
+        }
         const args = [epId];
         if (groupId) args.push(groupId);
         return this.runCommand('ep', args);
     }
 
     async getMediaInfo(mediaId, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/media', { media_id: mediaId, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getMediaInfo: ${error.message}`);
+            }
+        }
         const args = [mediaId];
         if (groupId) args.push(groupId);
         return this.runCommand('media', args);
     }
 
     async getMyFollowings(groupName, groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/my_followings', { group_name: groupName, group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getMyFollowings: ${error.message}`);
+            }
+        }
         const args = [];
         if (groupName) {
             args.push(groupName);
         } else {
-            // If groupName is skipped but groupId is present, we need to handle position.
-            // Python script: group_name = sys.argv[2], group_id = sys.argv[3]
-            // If we only have 1 arg in python, it's group_name.
-            // If we want to pass group_id but no group_name, we must pass "None" or "" for group_name.
             if (groupId) {
                 args.push("None");
             }
@@ -290,19 +391,24 @@ class BiliApi {
     }
 
     async getFollowingGroups(groupId) {
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/following_groups', { group_id: groupId });
+            } catch (error) {
+                logger.warn(`[BiliApi] FastAPI call failed for getFollowingGroups: ${error.message}`);
+            }
+        }
         const args = [];
         if (groupId) args.push(groupId);
         return this.runCommand('following_groups', args);
     }
 
     async getCredentialStatus(groupId) {
-        // Dual Track: Try FastAPI first
         if (this.useFastAPI && this.fastAPIReady) {
             try {
                 return await this.callFastAPI('/api/check_cookie', { group_id: groupId });
             } catch (error) {
-                logger.warn(`FastAPI call failed for getCredentialStatus: ${error.message}. Falling back to spawn.`);
-                // Continue to fallback
+                logger.warn(`[BiliApi] FastAPI call failed for getCredentialStatus: ${error.message}. Falling back to spawn.`);
             }
         }
 
