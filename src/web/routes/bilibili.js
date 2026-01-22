@@ -16,7 +16,7 @@ router.get('/login/qrcode', async (req, res, next) => {
         success: true,
         data: {
           qrcodeUrl: result.data.url,
-          qrcodeKey: result.data.qrcode_key
+          qrcodeKey: result.data.key
         }
       });
     } else {
