@@ -9,6 +9,100 @@ class BiliApi {
         this.scriptPath = config.biliScriptPath;
         this.retryDelay = 10000; // 10秒重试延迟
         this.maxRetries = 1; // 最多重试1次
+
+        // FastAPI configuration
+        this.useFastAPI = process.env.USE_FASTAPI !== 'false';
+        this.fastAPIUrl = process.env.FASTAPI_URL || 'http://127.0.0.1:8765';
+        this.pythonProcess = null;
+        this.fastAPIReady = false;
+
+        if (this.useFastAPI) {
+            this.startFastAPIService();
+        }
+    }
+
+    async startFastAPIService() {
+        if (this.pythonProcess) return;
+
+        try {
+            const scriptDir = path.dirname(this.scriptPath);
+            const fastApiScript = path.join(scriptDir, 'bili_fastapi.py');
+            
+            logger.info(`Starting FastAPI service from ${fastApiScript}...`);
+            
+            // Spawn the FastAPI process
+            this.pythonProcess = spawn(this.pythonPath, [fastApiScript]);
+
+            this.pythonProcess.stdout.on('data', (data) => {
+                // Log stdout only if debug is needed, otherwise it might be too noisy
+                // logger.debug(`FastAPI: ${data}`);
+            });
+
+            this.pythonProcess.stderr.on('data', (data) => {
+                // Determine if it's an error or just info logging from uvicorn
+                const log = data.toString();
+                if (log.toLowerCase().includes('error')) {
+                    logger.error(`FastAPI Error: ${log}`);
+                }
+            });
+
+            this.pythonProcess.on('close', (code) => {
+                logger.warn(`FastAPI service exited with code ${code}`);
+                this.pythonProcess = null;
+                this.fastAPIReady = false;
+            });
+
+            // Start polling for readiness
+            this.waitForFastAPIReady();
+        } catch (error) {
+            logger.error(`Failed to start FastAPI service: ${error.message}`);
+        }
+    }
+
+    async waitForFastAPIReady() {
+        let attempts = 0;
+        const maxAttempts = 30; // Wait up to 30 seconds
+        
+        logger.info('Waiting for FastAPI service to be ready...');
+
+        while (attempts < maxAttempts) {
+            try {
+                const response = await fetch(`${this.fastAPIUrl}/health`);
+                if (response.ok) {
+                    this.fastAPIReady = true;
+                    logger.info('FastAPI service is ready');
+                    return;
+                }
+            } catch (e) {
+                // Service not ready yet
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+        }
+        
+        logger.error('FastAPI service failed to start within timeout');
+    }
+
+    async callFastAPI(endpoint, data) {
+        if (!this.fastAPIReady) {
+            throw new Error('FastAPI service not ready');
+        }
+
+        const response = await fetch(`${this.fastAPIUrl}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
+        }
+
+        return await response.json();
     }
 
     async runCommand(command, args = []) {
@@ -202,6 +296,16 @@ class BiliApi {
     }
 
     async getCredentialStatus(groupId) {
+        // Dual Track: Try FastAPI first
+        if (this.useFastAPI && this.fastAPIReady) {
+            try {
+                return await this.callFastAPI('/api/check_cookie', { group_id: groupId });
+            } catch (error) {
+                logger.warn(`FastAPI call failed for getCredentialStatus: ${error.message}. Falling back to spawn.`);
+                // Continue to fallback
+            }
+        }
+
         const args = [];
         if (groupId) args.push(groupId);
         return this.runCommand('check_cookie', args);
