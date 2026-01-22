@@ -1226,13 +1226,23 @@ class App {
 
   async loadFollowingGroups() {
     const container = document.getElementById('followingGroupsList');
-    container.innerHTML = '<p class="empty-hint">加载中...</p>';
+    
+    // Clear and show loading message
+    container.textContent = '';
+    const loadingP = document.createElement('p');
+    loadingP.className = 'empty-hint';
+    loadingP.textContent = '加载中...';
+    container.appendChild(loadingP);
 
     try {
       const response = await api.getFollowingGroups(this.currentSyncGroupId);
 
       if (!response.success || !response.data || response.data.length === 0) {
-        container.innerHTML = '<p class="empty-hint">暂无分组数据。请先登录 Bilibili 账号并刷新关注列表。</p>';
+        container.textContent = '';
+        const emptyP = document.createElement('p');
+        emptyP.className = 'empty-hint';
+        emptyP.textContent = '暂无分组数据。请先登录 Bilibili 账号并刷新关注列表。';
+        container.appendChild(emptyP);
         return;
       }
 
@@ -1240,18 +1250,31 @@ class App {
       const group = this.state.groups.find(g => g.groupId === this.currentSyncGroupId);
       const currentConfig = (group && group.config && group.config.cookieSyncGroupNames) || [];
 
-      // Render group list
+      // Render group list using safe DOM APIs
+      container.textContent = '';
       const groups = response.data;
-      const html = groups.map(group => `
-        <label class="group-item">
-          <input type="checkbox" value="${group.name}"
-                 ${currentConfig.includes(group.name) ? 'checked' : ''}>
-          <span class="group-name">${group.name}</span>
-          <span class="group-count">(${group.count}人)</span>
-        </label>
-      `).join('');
+      groups.forEach(group => {
+        const label = document.createElement('label');
+        label.className = 'group-item';
 
-      container.innerHTML = html;
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = group.name;
+        checkbox.checked = currentConfig.includes(group.name);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'group-name';
+        nameSpan.textContent = group.name;
+
+        const countSpan = document.createElement('span');
+        countSpan.className = 'group-count';
+        countSpan.textContent = `(${group.count}人)`;
+
+        label.appendChild(checkbox);
+        label.appendChild(nameSpan);
+        label.appendChild(countSpan);
+        container.appendChild(label);
+      });
 
       // Update current sync groups text
       const currentText = document.getElementById('currentSyncGroupsText');
@@ -1260,7 +1283,11 @@ class App {
       }
 
     } catch (error) {
-      container.innerHTML = `<p class="empty-hint">加载失败: ${error.message}</p>`;
+      container.textContent = '';
+      const errorP = document.createElement('p');
+      errorP.className = 'empty-hint';
+      errorP.textContent = `加载失败: ${error.message}`;
+      container.appendChild(errorP);
       showToast('加载关注分组失败: ' + error.message, 'error');
     }
   }
