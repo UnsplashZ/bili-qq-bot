@@ -54,3 +54,7 @@ check_data_structure.js
 fonts/
 !fonts/mi/
 
+
+# Python Cache
+__pycache__/
+*.pyc

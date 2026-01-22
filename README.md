@@ -49,7 +49,6 @@
     *   群组管理：启用/禁用群组、管理员列表、黑名单管理
     *   订阅管理：查看、添加、删除 UP 主和番剧订阅，带头像和封面预览
     *   HTTP Basic Auth 认证，支持内网访问或 SSH 隧道访问
-    *   现代化 UI 设计，Bilibili 蓝配色，响应式布局
 
 *   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体
 
@@ -87,7 +86,6 @@
 </details>
 
 ### 🌙 深色模式
-#### *预览图关闭了左上角标签功能*
 <table align="center">
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-深色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
