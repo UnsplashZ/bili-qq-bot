@@ -453,6 +453,8 @@ WEBUI_PASSWORD=your_secure_password_here
         *   `designSystem.js`: 统一设计系统与主题配置
         *   `proxyUtils.js`: 代理配置工具
 *   `scripts/`: Python 脚本
+    *   `bili_fastapi.py`: FastAPI 后端服务入口
+
     *   `bili_service.py`: Bilibili API 调用服务 (基于 bilibili-api-python)
 
 </details>
