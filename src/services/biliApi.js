@@ -86,6 +86,15 @@ class BiliApi {
             throw new Error('FastAPI service not ready');
         }
 
+        // Ensure ID fields are strings to satisfy Pydantic validation
+        const idFields = ['group_id', 'uid', 'room_id', 'season_id', 'dynamic_id', 'bvid', 'cvid', 'opus_id', 'ep_id', 'media_id'];
+        
+        for (const key of Object.keys(data)) {
+            if (idFields.includes(key) && data[key] !== undefined && data[key] !== null) {
+                data[key] = String(data[key]);
+            }
+        }
+
         const response = await fetch(`${this.fastAPIUrl}${endpoint}`, {
             method: 'POST',
             headers: {
