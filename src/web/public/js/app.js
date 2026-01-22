@@ -459,35 +459,65 @@ class App {
     container.appendChild(addButton);
   }
 
-  }
 
   renderBangumiSubscriptions(groupId, bangumi) {
     const container = document.querySelector('.tab-content');
+    container.innerHTML = ''; // Clear existing content
 
     if (bangumi.length === 0) {
-      container.innerHTML = `
-        <p class="empty-hint">暂无番剧订阅</p>
-        <button class="btn btn-primary" onclick="app.showAddBangumiSubDialog('${groupId}')">+ 添加番剧订阅</button>
-      `;
+      const emptyHint = document.createElement('p');
+      emptyHint.className = 'empty-hint';
+      emptyHint.textContent = '暂无番剧订阅';
+      
+      const addButton = document.createElement('button');
+      addButton.className = 'btn btn-primary';
+      addButton.textContent = '+ 添加番剧订阅';
+      addButton.onclick = () => this.showAddBangumiSubDialog(groupId);
+      
+      container.appendChild(emptyHint);
+      container.appendChild(addButton);
       return;
     }
 
-    container.innerHTML = `
-      <div class="subscription-list">
-        ${bangumi.map(item => `
-          <div class="list-item">
-            <div class="subscription-details">
-              <div class="subscription-name">${item.title}</div>
-              <div class="subscription-uid">Season ID: ${item.season_id}</div>
-            </div>
-            <button class="btn-icon btn-danger" onclick="app.removeBangumiSub('${groupId}', '${item.season_id}')" title="取消订阅">×</button>
-          </div>
-        `).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="app.showAddBangumiSubDialog('${groupId}')">+ 添加番剧订阅</button>
-    `;
-  }
+    const subscriptionList = document.createElement('div');
+    subscriptionList.className = 'subscription-list';
 
+    bangumi.forEach(item => {
+      const listItem = document.createElement('div');
+      listItem.className = 'list-item';
+
+      const details = document.createElement('div');
+      details.className = 'subscription-details';
+
+      const name = document.createElement('div');
+      name.className = 'subscription-name';
+      name.textContent = item.title;
+
+      const uid = document.createElement('div');
+      uid.className = 'subscription-uid';
+      uid.textContent = `Season ID: ${item.season_id}`;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-icon btn-danger';
+      removeBtn.textContent = '×';
+      removeBtn.title = '取消订阅';
+      removeBtn.onclick = () => this.removeBangumiSub(groupId, item.season_id);
+
+      details.appendChild(name);
+      details.appendChild(uid);
+      listItem.appendChild(details);
+      listItem.appendChild(removeBtn);
+      subscriptionList.appendChild(listItem);
+    });
+
+    const addButton = document.createElement('button');
+    addButton.className = 'btn btn-primary';
+    addButton.textContent = '+ 添加番剧订阅';
+    addButton.onclick = () => this.showAddBangumiSubDialog(groupId);
+
+    container.appendChild(subscriptionList);
+    container.appendChild(addButton);
+  }
   showAddAdminDialog(groupId) {
     const userId = prompt('请输入要添加的管理员 QQ 号:');
     if (userId && userId.trim()) {
