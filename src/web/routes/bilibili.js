@@ -4,6 +4,7 @@ const biliApi = require('../../services/biliApi');
 const subscriptionService = require('../../services/subscriptionService');
 const followingsCacheManager = require('../services/followingsCacheManager');
 const logger = require('../../utils/logger');
+const pLimit = require('p-limit');
 
 // 获取登录二维码 URL
 router.get('/login/qrcode', async (req, res, next) => {
@@ -171,8 +172,11 @@ router.post('/followings/subscribe', async (req, res, next) => {
       skipped: []
     };
 
-    // 逐个添加订阅
-    for (const uid of uids) {
+    // 并发限制为 5
+    const limit = pLimit(5);
+
+    // 创建任务列表
+    const tasks = uids.map(uid => limit(async () => {
       try {
         await subscriptionService.addUserSubscription(uid, groupId);
         results.success.push(uid);
@@ -185,7 +189,10 @@ router.post('/followings/subscribe', async (req, res, next) => {
           results.failed.push({ uid, error: e.message });
         }
       }
-    }
+    }));
+
+    // 等待所有任务完成
+    await Promise.all(tasks);
 
     res.json({
       success: true,
