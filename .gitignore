@@ -54,3 +54,8 @@ temp/
 test*
 coverage/
 
+
+# Runtime logs
+
+# Data cache
+data/followings-cache.json

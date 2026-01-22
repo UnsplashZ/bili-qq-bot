@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const config = require('../config');
 const logger = require('../utils/logger');
 const path = require('path');
+const fs = require('fs');
 
 class BiliApi {
     constructor() {
@@ -30,20 +31,16 @@ class BiliApi {
             
             logger.info(`Starting FastAPI service from ${fastApiScript}...`);
             
+            // Ensure logs directory exists
+            const logDir = path.join(process.cwd(), 'logs');
+            fs.mkdirSync(logDir, { recursive: true });
+
+            const logFile = path.join(logDir, 'fastapi.log');
+            const logStream = fs.openSync(logFile, 'a');
+
             // Spawn the FastAPI process
-            this.pythonProcess = spawn(this.pythonPath, [fastApiScript]);
-
-            this.pythonProcess.stdout.on('data', (data) => {
-                // Log stdout only if debug is needed, otherwise it might be too noisy
-                // logger.debug(`FastAPI: ${data}`);
-            });
-
-            this.pythonProcess.stderr.on('data', (data) => {
-                // Determine if it's an error or just info logging from uvicorn
-                const log = data.toString();
-                if (log.toLowerCase().includes('error')) {
-                    logger.error(`FastAPI Error: ${log}`);
-                }
+            this.pythonProcess = spawn(this.pythonPath, [fastApiScript], {
+                stdio: ['ignore', logStream, logStream]
             });
 
             this.pythonProcess.on('close', (code) => {
