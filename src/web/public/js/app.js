@@ -1047,6 +1047,7 @@ class App {
       document.getElementById('loginStatus').classList.add('hidden');
       const qrcodeContainer = document.getElementById('qrcodeContainer');
       qrcodeContainer.classList.remove('hidden');
+      void qrcodeContainer.offsetWidth; // Force reflow
 
       // Clear previous QR code and generate new one
       const qrcodeWrapper = qrcodeContainer.querySelector('.qrcode-wrapper');
@@ -1057,14 +1058,15 @@ class App {
         new QRCode(qrcodeWrapper, {
           text: response.data.qrcodeUrl,
           width: 256,
-          height: 256
+          height: 256,
+          correctLevel: QRCode.CorrectLevel.L
         });
 
         // Check if QR code was generated successfully
         if (qrcodeWrapper.children.length === 0) {
           console.warn('QR Code generation failed: Container might still be hidden or have 0 dimensions');
         }
-      }, 50);
+      }, 100);
 
       // Update progress text
       const loginProgress = document.getElementById('loginProgress');
