@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import asyncio
@@ -11,17 +12,14 @@ import io
 from PIL import Image
 import colorsys
 
-# Load credentials from a file if they exist
+# 如果存在，从文件加载凭据
 CREDENTIAL_FILE = 'data/cookies.json'
 GROUP_COOKIES_MAP_FILE = 'data/cookies_map.json'
-
-import os
-
 def get_credential_file(group_id=None):
     if not group_id:
         return CREDENTIAL_FILE
     
-    # Try to load mapping
+    # 尝试加载映射
     mapping = {}
     try:
         if os.path.exists(GROUP_COOKIES_MAP_FILE):
@@ -34,7 +32,7 @@ def get_credential_file(group_id=None):
     if group_key in mapping:
         return mapping[group_key]
     
-    # Default to group specific file
+    # 默认为特定群组的文件
     return f'data/cookies_{group_key}.json'
 
 def load_credential(group_id=None):
@@ -45,34 +43,42 @@ def load_credential(group_id=None):
             return Credential(sessdata=data.get('SESSDATA'), bili_jct=data.get('BILI_JCT'), buvid3=data.get('BUVID3'))
     except FileNotFoundError:
         return None
+    except json.JSONDecodeError:
+        print(f"Error: Credential file {file_path} is corrupted.", file=sys.stderr)
+        return None
 
 def save_credential(credential, group_id=None):
-    # Determine target file
-    if group_id:
-        group_key = str(group_id)
-        target_file = f'data/cookies_{group_key}.json'
-        
-        # Update mapping
-        mapping = {}
-        try:
-            if os.path.exists(GROUP_COOKIES_MAP_FILE):
-                with open(GROUP_COOKIES_MAP_FILE, 'r') as f:
-                    mapping = json.load(f)
-        except:
-            pass
+    try:
+        # 确定目标文件
+        # 确定目标文件
+        if group_id:
+            group_key = str(group_id)
+            target_file = f'data/cookies_{group_key}.json'
             
-        mapping[group_key] = target_file
-        with open(GROUP_COOKIES_MAP_FILE, 'w') as f:
-            json.dump(mapping, f, indent=4)
-    else:
-        target_file = CREDENTIAL_FILE
+            # 更新映射
+            # 更新映射
+            mapping = {}
+            try:
+                if os.path.exists(GROUP_COOKIES_MAP_FILE):
+                    with open(GROUP_COOKIES_MAP_FILE, 'r') as f:
+                        mapping = json.load(f)
+            except:
+                pass
+                
+            mapping[group_key] = target_file
+            with open(GROUP_COOKIES_MAP_FILE, 'w') as f:
+                json.dump(mapping, f, indent=4)
+        else:
+            target_file = CREDENTIAL_FILE
 
-    with open(target_file, 'w') as f:
-        json.dump({
-            'SESSDATA': credential.sessdata,
-            'BILI_JCT': credential.bili_jct,
-            'BUVID3': credential.buvid3
-        }, f)
+        with open(target_file, 'w') as f:
+            json.dump({
+                'SESSDATA': credential.sessdata,
+                'BILI_JCT': credential.bili_jct,
+                'BUVID3': credential.buvid3
+            }, f)
+    except (PermissionError, OSError) as e:
+        print(f"Error saving credentials: {e}", file=sys.stderr)
 
 async def _fetch_bytes(url: str) -> bytes:
     try:
@@ -203,7 +209,7 @@ async def get_bangumi_info(season_id, group_id=None):
             except:
                 stat = {}
 
-        # Get additional details
+        # 获取额外详情
         try:
             detail = await b.get_detail()
         except:
@@ -241,9 +247,9 @@ async def get_opus_detail(opus_id, group_id=None):
             result = await get_article_info(opus_id, group_id)
             if result.get('status') == 'success':
                 return result
-            # If article fetch fails (e.g. 404), fallback to dynamic detail
+            # 如果文章获取失败（如 404），回退到动态详情
             
-        # Fallback to dynamic detail
+        # 回退到动态详情
         return await get_dynamic_detail(opus_id, group_id)
     except Exception as e:
         import traceback
@@ -252,13 +258,13 @@ async def get_opus_detail(opus_id, group_id=None):
 
 async def get_article_info(cvid, group_id=None):
     try:
-        # Clean cvid: remove 'cv' prefix
-        # Handle cases like "cv123456?param=1" -> "123456"
-        # Split by '?' first to remove query params
+        # 清理 cvid：移除 'cv' 前缀
+        # 处理如 "cv123456?param=1" -> "123456" 的情况
+        # 先按 '?' 分割以移除查询参数
         base_id = cvid.split('?')[0].split('#')[0]
-        # Remove 'cv' (case insensitive)
+        # 移除 'cv'（不区分大小写）
         base_id = re.sub(r'cv', '', base_id, flags=re.IGNORECASE)
-        # Extract the first sequence of digits
+        # 提取第一个数字序列
         match = re.search(r'(\d+)', base_id)
         if not match:
              return {"status": "error", "message": "Invalid Article ID"}
@@ -282,7 +288,7 @@ async def get_article_info(cvid, group_id=None):
         if not author_face:
             author_face = info.get('author', {}).get('face') if isinstance(info.get('author'), dict) else None
 
-        # Try to get content for summary
+        # 尝试获取摘要内容
         summary = ""
         html_content = ""
         try:
@@ -292,7 +298,7 @@ async def get_article_info(cvid, group_id=None):
         except Exception:
             pass
 
-        # Fallback scraping if summary is empty/failed
+        # 如果摘要为空或失败，回退到爬取
         if not summary or len(summary) < 10:
             try:
                 url = f"https://www.bilibili.com/read/cv{cvid_int}"
@@ -301,7 +307,7 @@ async def get_article_info(cvid, group_id=None):
                 }
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=headers) as resp:
-                        # Check for redirect to Opus
+                        # 检查是否重定向到 Opus
                         final_url = str(resp.url)
                         if '/opus/' in final_url:
                             opus_match = re.search(r'/opus/(\d+)', final_url)
@@ -312,16 +318,16 @@ async def get_article_info(cvid, group_id=None):
                         if resp.status == 200:
                             html = await resp.text()
                             soup = BeautifulSoup(html, 'html.parser')
-                            # Try specific holders first
+                            # 首先尝试特定的容器
                             holder = soup.find(class_='article-holder') or soup.find(id='read-article-holder') or soup.find(class_='opus-module-content')
                             if holder:
-                                # Clean up scripts/styles from holder
+                                # 清理容器中的脚本/样式
                                 for script in holder(["script", "style"]):
                                     script.extract()
                                 html_content = holder.decode_contents()
                                 summary = holder.get_text(separator='\n', strip=True)
                             else:
-                                # Fallback to body text, removing scripts/styles
+                                # 回退到正文文本，移除脚本/样式
                                 for script in soup(["script", "style"]):
                                     script.extract()
                                 html_content = soup.body.decode_contents() if soup.body else soup.decode_contents()
@@ -335,7 +341,7 @@ async def get_article_info(cvid, group_id=None):
 
         info['author_face'] = author_face  # 添加作者头像
         
-        # Determine cover image
+        # 确定封面图片
         cover = info.get('banner_url')
         if not cover and info.get('image_urls'):
             cover = info['image_urls'][0]
@@ -347,9 +353,9 @@ async def get_article_info(cvid, group_id=None):
             "avatar": await get_image_focus_color(author_face)
         }
 
-        # Map publish_time if missing (Article API varies)
+        # 如果缺失，映射 publish_time（文章 API 有所不同）
         if 'publish_time' not in info:
-            # Some APIs use ctime or ptime
+            # 某些 API 使用 ctime 或 ptime
             info['publish_time'] = info.get('ctime', info.get('ptime', 0))
 
         return {"status": "success", "type": "article", "data": info}
@@ -494,7 +500,7 @@ async def get_user_dynamic(uid, group_id=None):
                 if 'modules' in item and 'module_author' in item['modules']:
                     pub_ts = item['modules']['module_author'].get('pub_ts', 0)
 
-                # Construct desc object for backward compatibility with old API format
+                # 构建 desc 对象以兼容旧 API 格式
                 desc = {
                     "dynamic_id_str": item.get('id_str'),
                     "type": item.get('type'),
@@ -510,7 +516,7 @@ async def get_user_dynamic(uid, group_id=None):
                     "desc": desc,  # Old API compatibility
                     "card": item.get('card'),  # Original card string (if exists)
                     "extend_json": item.get('extend_json'),  # Original extend_json (if exists)
-                    # New API fields
+                    # 新 API 字段
                     "id_str": item.get('id_str'),
                     "type": item.get('type'),
                     "modules": item.get('modules'),
@@ -560,7 +566,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         modules = (info.get('item') or {}).get('modules') or info.get('modules') or {}
 
         if not modules:
-            # Check for Opus redirect in basic info as fallback
+            # 检查基本信息中的 Opus 重定向作为后备
             item = info.get('item', {})
             basic = item.get('basic', {})
             jump_url = basic.get('jump_url', '')
@@ -950,7 +956,7 @@ async def get_my_followings(group_name=None, group_id=None):
         if not cred:
             return {"status": "error", "message": "未登录，请先配置 cookies.json"}
         
-        # Get self info to find my_uid
+        # 获取自身信息以查找 my_uid
         self_info = await user.get_self_info(credential=cred)
         my_uid = self_info['mid']
         u = user.User(uid=my_uid, credential=cred)
@@ -1035,7 +1041,7 @@ async def get_my_followings(group_name=None, group_id=None):
                 if page > 100: 
                     break
                 
-        # Format the result
+        # 格式化结果
         result = []
         for f in all_followings:
             # 统一字段处理
@@ -1093,7 +1099,7 @@ async def get_following_groups(group_id=None):
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-# Command dispatcher
+# 命令分发器
 
 async def check_cookie(group_id=None):
     try:
@@ -1101,7 +1107,7 @@ async def check_cookie(group_id=None):
         if not credential:
             return {"status": "success", "data": {"logged_in": False}}
         
-        # Get self info to verify cookie
+        # 获取自身信息以验证 Cookie
         info = await user.get_self_info(credential)
         return {
             "status": "success",
@@ -1128,9 +1134,9 @@ async def main():
 
     command = sys.argv[1]
     
-    # Helper to get optional group_id from the last argument
-    # We assume standard call is: python script.py command [arg1] [group_id]
-    # or python script.py command [arg1] [arg2] [group_id]
+    # 获取最后一个参数作为可选 group_id 的辅助函数
+    # 假设标准调用为：python script.py command [arg1] [group_id]
+    # 或 python script.py command [arg1] [arg2] [group_id]
     
     if command == "video":
         bvid = sys.argv[2]
