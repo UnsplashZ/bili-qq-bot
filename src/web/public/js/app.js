@@ -390,32 +390,75 @@ class App {
       container.innerHTML = `<p class="empty-hint">加载失败: ${error.message}</p>`;
     }
   }
-
   renderUserSubscriptions(groupId, users) {
     const container = document.querySelector('.tab-content');
+    container.innerHTML = ''; // Clear existing content
 
     if (users.length === 0) {
-      container.innerHTML = `
-        <p class="empty-hint">暂无 UP 主订阅</p>
-        <button class="btn btn-primary" onclick="app.showAddUserSubDialog('${groupId}')">+ 添加 UP 主订阅</button>
-      `;
+      // Create empty state elements
+      const emptyHint = document.createElement('p');
+      emptyHint.className = 'empty-hint';
+      emptyHint.textContent = '暂无 UP 主订阅';
+      
+      const addButton = document.createElement('button');
+      addButton.className = 'btn btn-primary';
+      addButton.textContent = '+ 添加 UP 主订阅';
+      addButton.onclick = () => app.showAddUserSubDialog(groupId);
+      
+      container.appendChild(emptyHint);
+      container.appendChild(addButton);
       return;
     }
 
-    container.innerHTML = `
-      <div class="subscription-list">
-        ${users.map(user => `
-          <div class="list-item">
-            <div class="subscription-details">
-              <div class="subscription-name">${user.name}</div>
-              <div class="subscription-uid">UID: ${user.uid}</div>
-            </div>
-            <button class="btn-icon btn-danger" onclick="app.removeUserSub('${groupId}', '${user.uid}')" title="取消订阅">×</button>
-          </div>
-        `).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="app.showAddUserSubDialog('${groupId}')">+ 添加 UP 主订阅</button>
-    `;
+    // Create subscription list container
+    const subscriptionList = document.createElement('div');
+    subscriptionList.className = 'subscription-list';
+
+    // Create list items for each user
+    users.forEach(user => {
+      const listItem = document.createElement('div');
+      listItem.className = 'list-item';
+
+      // Create subscription details container
+      const details = document.createElement('div');
+      details.className = 'subscription-details';
+
+      // Create name element
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'subscription-name';
+      nameDiv.textContent = user.name;
+
+      // Create UID element
+      const uidDiv = document.createElement('div');
+      uidDiv.className = 'subscription-uid';
+      uidDiv.textContent = `UID: ${user.uid}`;
+
+      // Create remove button
+      const removeButton = document.createElement('button');
+      removeButton.className = 'btn-icon btn-danger';
+      removeButton.textContent = '×';
+      removeButton.title = '取消订阅';
+      removeButton.onclick = () => app.removeUserSub(groupId, user.uid);
+
+      // Assemble the list item
+      details.appendChild(nameDiv);
+      details.appendChild(uidDiv);
+      listItem.appendChild(details);
+      listItem.appendChild(removeButton);
+      subscriptionList.appendChild(listItem);
+    });
+
+    // Create add button
+    const addButton = document.createElement('button');
+    addButton.className = 'btn btn-primary';
+    addButton.textContent = '+ 添加 UP 主订阅';
+    addButton.onclick = () => app.showAddUserSubDialog(groupId);
+
+    // Append to container
+    container.appendChild(subscriptionList);
+    container.appendChild(addButton);
+  }
+
   }
 
   renderBangumiSubscriptions(groupId, bangumi) {
