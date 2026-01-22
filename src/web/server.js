@@ -6,6 +6,7 @@ const groupsRouter = require('./routes/groups');
 const subscriptionsRouter = require('./routes/subscriptions');
 const configRouter = require('./routes/config');
 const bilibiliRouter = require('./routes/bilibili');
+const biliApi = require('../services/biliApi');
 
 class WebUIServer {
   constructor(config) {
@@ -56,13 +57,26 @@ class WebUIServer {
     });
   }
 
-  start() {
+  async start() {
     const host = this.config.webuiHost || '127.0.0.1';
     const port = this.config.webuiPort || 3100;
+
+    try {
+      // 启动 FastAPI 服务
+      await biliApi.startFastAPIService();
+    } catch (error) {
+      logger.error('[WebUI] Failed to start FastAPI service:', error);
+      process.exit(1);
+    }
 
     this.server = this.app.listen(port, host, () => {
       logger.info(`[WebUI] Server started on http://${host}:${port}`);
     });
+
+    // 优雅关闭
+    const shutdown = () => this.stop();
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   }
 
   stop() {
@@ -70,6 +84,12 @@ class WebUIServer {
       this.server.close(() => {
         logger.info('[WebUI] Server stopped');
       });
+    }
+
+    // 停止 Python 进程
+    if (biliApi.pythonProcess) {
+      logger.info('[WebUI] Stopping FastAPI service...');
+      biliApi.pythonProcess.kill();
     }
   }
 }
