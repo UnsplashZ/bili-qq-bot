@@ -16,6 +16,9 @@ pyvenv.cfg
 *.pyc
 __pycache__/
 
+# WebUI 第三方库（例外：需要版本控制）
+!src/web/public/lib/
+
 # Environment & Secrets
 .env
 config/.env

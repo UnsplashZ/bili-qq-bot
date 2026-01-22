@@ -11,7 +11,7 @@ function authMiddleware(config) {
 
   return (req, res, next) => {
     // 跳过静态资源
-    if (req.path.startsWith('/css') || req.path.startsWith('/js')) {
+    if (req.path.startsWith('/css') || req.path.startsWith('/js') || req.path.startsWith('/lib')) {
       return next();
     }
 
