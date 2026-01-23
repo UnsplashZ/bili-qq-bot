@@ -39,6 +39,8 @@ const config = {
     
     // System Paths & Admin
     pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? path.join(__dirname, '../venv/bin/python') : 'python3'),
+    biliServerPort: parseInt(process.env.BILI_SERVER_PORT || "10001"),
+
     biliScriptPath: './src/services/bili_service.py',
     adminQQ: process.env.ADMIN_QQ,
     useBase64Send: process.env.USE_BASE64_SEND === 'true',

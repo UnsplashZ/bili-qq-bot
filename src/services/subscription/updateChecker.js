@@ -136,7 +136,19 @@ class UpdateChecker {
 
                 for (const card of newCards) {
                     const cardId = card.desc.dynamic_id_str;
-                    
+
+                    // Check if this is a live stream start notification
+                    // These are auto-posted by Bilibili when a user starts streaming
+                    // We want to skip these and let checkUserLive handle the notification to avoid duplicates
+                    const isLiveDynamic = card.type === 'DYNAMIC_TYPE_LIVE_RCMD' ||
+                                          (card.desc && card.desc.type === 'DYNAMIC_TYPE_LIVE_RCMD') ||
+                                          card.modules?.module_dynamic?.major?.live_rcmd;
+
+                    if (isLiveDynamic) {
+                        logger.info(`[UpdateChecker] Skipping live dynamic for ${sub.name} (ID: ${cardId}) - expecting checkUserLive to handle it`);
+                        continue;
+                    }
+
                     // Filter based on config (labels)
                     // Simplified logic here: assume we notify for now, or check type
                     // Actually we should check labelConfig but let's trust notifyGroups to handle basic text

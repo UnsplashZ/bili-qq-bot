@@ -178,7 +178,7 @@ class MessageHandler {
         }
 
         // Check for AI Reply
-        const isAt = messageData.message.some(m => m.type === 'at' && m.data.qq === messageData.self_id);
+        const isAt = messageData.message.some(m => m.type === 'at' && String(m.data.qq) === String(messageData.self_id));
 
         if (aiHandler.shouldReply(rawMessage, isAt, groupId)) {
             const reply = await aiHandler.getReply(rawMessage, userId, groupId);

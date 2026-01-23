@@ -5,6 +5,7 @@ const messageHandler = require('./handlers/messageHandler');
 const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
 const mcpManager = require('./services/mcpManager');
+const ServiceManager = require('./services/ServiceManager');
 
 // WebSocket连接管理
 let ws = null;
@@ -141,6 +142,14 @@ process.on('SIGTERM', gracefulShutdown);
 
 // 初始连接
 (async () => {
+    try {
+        logger.info('Starting Service Manager...');
+        await ServiceManager.start();
+        logger.info('Service Manager started successfully');
+    } catch (e) {
+        logger.error('Failed to start Service Manager:', e);
+    }
+
     try {
         await mcpManager.init();
     } catch (e) {
