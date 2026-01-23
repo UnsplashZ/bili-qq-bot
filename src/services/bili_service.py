@@ -993,20 +993,12 @@ async def get_my_followings(group_name=None, group_id=None):
                 if not res:
                     break
                 
-                # The structure of x/relation/tag result is a list of users directly
-                # It doesn't seem to have 'total' field in the root usually?
-                # Actually standard pagination usually needs total.
-                # But 'res' IS the list of users according to my test script output structure (Users in group: [])
-                # Wait, my test script printed: "Users in group: []"
-                # If there were users, it would be a list of dicts.
-                
                 if isinstance(res, list):
                     current_list = res
                     if not current_list:
                         break
                     all_followings.extend(current_list)
                     
-                    # If we got fewer items than page_size, we are done
                     if len(current_list) < page_size:
                         break
                 else:
@@ -1034,6 +1026,63 @@ async def get_my_followings(group_name=None, group_id=None):
                 page += 1
                 if page > 100: 
                     break
+
+            # 增强逻辑：获取分组信息并关联
+            try:
+                groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
+                groups = await groups_api.result
+                
+                if groups:
+                    uid_tags_map = {}
+                    
+                    for g in groups:
+                        tag_name = g.get('name')
+                        tag_id = g.get('tagid')
+                        count = g.get('count', 0)
+                        
+                        if not count or count == 0:
+                            continue
+
+                        # 获取该分组下的用户
+                        g_page = 1
+                        while True:
+                            try:
+                                group_users_api = Api("https://api.bilibili.com/x/relation/tag", method="GET", credential=cred)
+                                group_users_api.update_params(mid=my_uid, tagid=tag_id, pn=g_page, ps=50)
+                                g_res = await group_users_api.result
+                                
+                                if not g_res or not isinstance(g_res, list):
+                                    break
+                                
+                                for gu in g_res:
+                                    guid = gu.get('mid')
+                                    if guid:
+                                        if guid not in uid_tags_map:
+                                            uid_tags_map[guid] = []
+                                        uid_tags_map[guid].append(tag_name)
+                                
+                                if len(g_res) < 50:
+                                    break
+                                g_page += 1
+                                if g_page > 50: # Safety limit
+                                    break
+                                    
+                                # Small delay to be nice to API
+                                import asyncio
+                                await asyncio.sleep(0.1)
+                            except Exception as e:
+                                print(f"Error fetching users for tag {tag_name}: {e}")
+                                break
+                    
+                    # 将分组信息注入到 all_followings
+                    for f in all_followings:
+                        f_uid = f.get('mid')
+                        if f_uid in uid_tags_map:
+                            f['biliGroups'] = uid_tags_map[f_uid]
+                            
+            except Exception as e:
+                # 分组获取失败不影响主流程，打印日志即可
+                print(f"Error fetching groups info: {e}")
                 
         # Format the result
         result = []
@@ -1044,6 +1093,7 @@ async def get_my_followings(group_name=None, group_id=None):
             uname = f.get('uname') or f.get('name') # tag api might use name? let's assume uname/mid are standard
             face = f.get('face')
             sign = f.get('sign', '')
+            bili_groups = f.get('biliGroups', [])
             
             if uid and uname:
                 result.append({
@@ -1051,13 +1101,25 @@ async def get_my_followings(group_name=None, group_id=None):
                     'name': uname,
                     'face': face,
                     'level': 0, 
-                    'sign': sign
+                    'sign': sign,
+                    'biliGroups': bili_groups
                 })
             
-        return {"status": "success", "type": "user_list", "data": result}
+        return {"status": "success", "type": "user_list", "data": result, "my_uid": my_uid}
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+async def get_my_info(group_id=None):
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+             return {"status": "error", "message": "未登录"}
+        
+        self_info = await user.get_self_info(credential=cred)
+        return {"status": "success", "data": self_info}
+    except Exception as e:
         return {"status": "error", "message": str(e)}
 
 # Command dispatcher
@@ -1072,7 +1134,12 @@ async def main():
     # We assume standard call is: python script.py command [arg1] [group_id]
     # or python script.py command [arg1] [arg2] [group_id]
     
-    if command == "video":
+    if command == "my_info":
+        group_id = sys.argv[2] if len(sys.argv) > 2 else None
+        result = await get_my_info(group_id)
+        print(json.dumps(result, ensure_ascii=False))
+
+    elif command == "video":
         bvid = sys.argv[2]
         group_id = sys.argv[3] if len(sys.argv) > 3 else None
         result = await get_video_info(bvid, group_id)

@@ -178,6 +178,12 @@ class BiliApi {
         return this.runCommand('media', args);
     }
 
+    async getMyInfo(groupId) {
+        const args = [];
+        if (groupId) args.push(groupId);
+        return this.runCommand('my_info', args);
+    }
+
     async getMyFollowings(groupName, groupId) {
         const args = [];
         if (groupName) {

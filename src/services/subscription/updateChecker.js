@@ -409,36 +409,52 @@ class UpdateChecker {
     }
 
     async refreshCookieFollowings() {
-        // Only run if at least one group has sync enabled
-        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => 
+        // Get all groups with sync enabled
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
             config.getGroupConfig(gid, 'enableCookieSync')
         );
 
-        if (groupsWithSync.length === 0) {
-            logger.info('[UpdateChecker] No groups have enabled cookie sync. Skipping refresh.');
-            return;
-        }
+        if (groupsWithSync.length === 0) return;
 
-        logger.info('[UpdateChecker] Refreshing cookie followings...');
-        try {
-            // Use getMyFollowings which fetches all followings with pagination
-            // Pass the first group ID to use its credentials (assuming shared or specific)
-            // Ideally we should check which credentials to use, but usually one account is logged in.
-            // If multiple groups use different accounts, this logic needs to be smarter (iterating unique accounts).
-            // For now, let's use the first group that enabled sync.
-            const representativeGroupId = groupsWithSync[0];
-            
-            const res = await biliApi.getMyFollowings(null, representativeGroupId);
-            
-            if (res.status === 'success' && res.data) {
-                subscriptionManager.setCookieFollowings(res.data);
-                logger.info(`[UpdateChecker] Successfully refreshed ${res.data.length} cookie followings.`);
-            } else {
-                logger.warn(`[UpdateChecker] Failed to refresh cookie followings: ${res.message}`);
+        const visitedUids = new Set();
+        
+        for (const groupId of groupsWithSync) {
+            try {
+                // First, check who is logged in for this group
+                const myInfo = await biliApi.getMyInfo(groupId);
+                if (myInfo.status !== 'success') {
+                    // Maybe cookie expired or not set
+                    logger.warn(`[UpdateChecker] Failed to get user info for group ${groupId}: ${myInfo.message}`);
+                    continue;
+                }
+                
+                const myUid = String(myInfo.data.mid);
+                
+                // Update mapping
+                subscriptionManager.setGroupAccountMapping(groupId, myUid);
+                
+                // If we already refreshed this account in this cycle, skip fetching
+                if (visitedUids.has(myUid)) {
+                    continue;
+                }
+                
+                // Fetch followings
+                logger.info(`[UpdateChecker] Refreshing followings for account ${myUid} via group ${groupId}`);
+                const res = await biliApi.getMyFollowings(null, groupId);
+                
+                if (res.status === 'success' && res.data) {
+                    subscriptionManager.setCookieFollowings(myUid, res.data);
+                    visitedUids.add(myUid);
+                } else {
+                    logger.error(`[UpdateChecker] Failed to refresh followings for group ${groupId}:`, res.message);
+                }
+                
+                // Sleep to avoid rate limiting
+                await new Promise(r => setTimeout(r, 2000));
+                
+            } catch (e) {
+                logger.error(`[UpdateChecker] Error refreshing cookie followings for group ${groupId}:`, e);
             }
-
-        } catch (e) {
-            logger.error('[UpdateChecker] Error refreshing cookie followings:', e);
         }
     }
 

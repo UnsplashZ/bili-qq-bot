@@ -79,7 +79,8 @@ class SubscriptionCommand {
                     // Get Account Follows (merged view)
                     let followings = [];
                     try {
-                         followings = subscriptionService.cookieFollowings || [];
+                         // New method to get followings specific to this group (via mapping)
+                         followings = subscriptionService.getFollowingsForGroup(groupId) || [];
                     } catch (e) {
                          logger.error('[SubscriptionCommand] Error fetching followings for merge view:', e);
                     }

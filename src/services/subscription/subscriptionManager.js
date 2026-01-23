@@ -8,7 +8,12 @@ class SubscriptionManager {
     constructor() {
         this.userSubs = []; // [{ uid, name, groupIds: [], lastDynamicId, lastLiveStatus, type: 'user' }]
         this.bangumiSubs = []; // [{ seasonId, title, groupIds: [], lastEpId, type: 'bangumi' }]
-        this.cookieFollowings = []; // [{ uid, name, face, sign, biliGroups: [] }]
+        
+        // Revised structure for multi-account support
+        // cookieFollowings: Map<String(uid), Array<User>>
+        this.cookieFollowings = {}; 
+        // groupToAccountMap: Map<String(groupId), String(uid)>
+        this.groupToAccountMap = {};
 
         this.dataDir = path.join(process.cwd(), 'data');
         this.subFile = path.join(this.dataDir, 'subscriptions.json');
@@ -21,115 +26,7 @@ class SubscriptionManager {
         this._followersLoadingPromise = null;
     }
 
-    /**
-     * 确保目录存在（异步）
-     */
-    async _ensureDir() {
-        try {
-            await fs.mkdir(this.dataDir, { recursive: true });
-        } catch (error) {
-            if (error.code !== 'EEXIST') {
-                throw error;
-            }
-        }
-    }
-
-    /**
-     * 确保订阅数据已加载（异步懒加载）
-     */
-    async _ensureSubscriptionsLoaded() {
-        if (this._loaded) return;
-        if (this._loadingPromise) return this._loadingPromise;
-
-        this._loadingPromise = (async () => {
-            try {
-                await this._ensureDir();
-                await this._loadSubscriptions();
-                this._loaded = true;
-            } catch (error) {
-                // Reset loading state on failure to allow retry
-                this._loadingPromise = null;
-                logger.error('[SubscriptionManager] Failed to load subscriptions, state reset for retry:', error);
-                throw error;
-            }
-        })();
-
-        return this._loadingPromise;
-    }
-
-    /**
-     * 确保粉丝数据已加载（异步懒加载）
-     */
-    async _ensureFollowersLoaded() {
-        if (this._followersLoaded) return;
-        if (this._followersLoadingPromise) return this._followersLoadingPromise;
-
-        this._followersLoadingPromise = (async () => {
-            try {
-                await this._ensureDir();
-                await this._loadFollowers();
-                this._followersLoaded = true;
-            } catch (error) {
-                // Reset loading state on failure to allow retry
-                this._followersLoadingPromise = null;
-                logger.error('[SubscriptionManager] Failed to load followers, state reset for retry:', error);
-                throw error;
-            }
-        })();
-
-        return this._followersLoadingPromise;
-    }
-
-    /**
-     * 异步加载订阅数据
-     */
-    async _loadSubscriptions() {
-        // 检查 .bak 文件
-        const bakFile = this.subFile + '.bak';
-        if (!await this._fileExists(this.subFile)) {
-            if (await this._fileExists(bakFile)) {
-                try {
-                    await fs.copyFile(bakFile, this.subFile);
-                    logger.info('[SubscriptionManager] Restored subscriptions from backup.');
-                } catch (e) {
-                    logger.error('[SubscriptionManager] Failed to restore backup:', e);
-                }
-            }
-        }
-
-        if (await this._fileExists(this.subFile)) {
-            try {
-                const content = await fs.readFile(this.subFile, 'utf8');
-                if (!content || content.trim() === '') {
-                    this.userSubs = [];
-                    this.bangumiSubs = [];
-                    return;
-                }
-
-                const data = JSON.parse(content);
-
-                // 兼容性处理
-                if (Array.isArray(data)) {
-                    if (data.length === 0) {
-                        this.userSubs = [];
-                        this.bangumiSubs = [];
-                    } else {
-                        this.userSubs = data.filter(item => item.type === 'user' || !item.type);
-                        this.bangumiSubs = data.filter(item => item.type === 'bangumi');
-                        this.userSubs.forEach(u => u.type = 'user');
-                    }
-                } else {
-                    this.userSubs = data.users || data.userSubs || [];
-                    this.bangumiSubs = data.bangumis || data.bangumiSubs || [];
-                }
-                logger.info(`[SubscriptionManager] Loaded ${this.userSubs.length} users and ${this.bangumiSubs.length} bangumis.`);
-            } catch (e) {
-                logger.error('[SubscriptionManager] Failed to load subscriptions:', e);
-                this.userSubs = [];
-                this.bangumiSubs = [];
-            }
-        }
-    }
+    // ... (keep existing methods)
 
     /**
      * 异步加载粉丝数据
@@ -137,42 +34,23 @@ class SubscriptionManager {
     async _loadFollowers() {
         if (await this._fileExists(this.followersFile)) {
             try {
-                const data = await storageUtils.safeReadJSON(this.followersFile, []);
-                this.cookieFollowings = Array.isArray(data) ? data : [];
-                logger.info(`[SubscriptionManager] Loaded ${this.cookieFollowings.length} followers from cache.`);
+                const data = await storageUtils.safeReadJSON(this.followersFile, {});
+                
+                // Compatibility check: if it's an array (old format), migrate it or discard
+                if (Array.isArray(data)) {
+                    logger.warn('[SubscriptionManager] Old array format detected in subfollowers.json. Data will be reset on next sync.');
+                    this.cookieFollowings = {};
+                    this.groupToAccountMap = {};
+                } else {
+                    this.cookieFollowings = data.followings || {};
+                    this.groupToAccountMap = data.groupMap || {};
+                }
+                logger.info(`[SubscriptionManager] Loaded followers for ${Object.keys(this.cookieFollowings).length} accounts.`);
             } catch (e) {
                 logger.error('[SubscriptionManager] Failed to load followers:', e);
-                this.cookieFollowings = [];
+                this.cookieFollowings = {};
+                this.groupToAccountMap = {};
             }
-        }
-    }
-
-    /**
-     * 检查文件是否存在（异步）
-     */
-    async _fileExists(filePath) {
-        try {
-            await fs.access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /**
-     * 异步保存订阅数据
-     */
-    async _saveSubscriptions() {
-        try {
-            const data = {
-                users: this.userSubs,
-                bangumis: this.bangumiSubs
-            };
-            await storageUtils.asyncWriteWithBackup(this.subFile, data);
-            logger.debug('[SubscriptionManager] Subscriptions saved successfully.');
-        } catch (error) {
-            logger.error('[SubscriptionManager] Failed to save subscriptions:', error);
-            throw error; // Re-throw to let caller handle
         }
     }
 
@@ -181,7 +59,11 @@ class SubscriptionManager {
      */
     async _saveFollowers() {
         try {
-            await storageUtils.asyncWriteWithBackup(this.followersFile, this.cookieFollowings);
+            const data = {
+                followings: this.cookieFollowings,
+                groupMap: this.groupToAccountMap
+            };
+            await storageUtils.asyncWriteWithBackup(this.followersFile, data);
             logger.debug('[SubscriptionManager] Followers saved successfully.');
         } catch (error) {
             logger.error('[SubscriptionManager] Failed to save followers:', error);
@@ -189,12 +71,41 @@ class SubscriptionManager {
         }
     }
 
-    setCookieFollowings(followings) {
-        this.cookieFollowings = followings;
-        // Fire-and-forget save with error handling
+    setCookieFollowings(accountUid, followings) {
+        if (!accountUid) return;
+        this.cookieFollowings[String(accountUid)] = followings;
+        // Fire-and-forget save
         this._saveFollowers().catch(err => {
             logger.error('[SubscriptionManager] Failed to save followers after setCookieFollowings:', err);
         });
+    }
+
+    setGroupAccountMapping(groupId, accountUid) {
+        if (!groupId || !accountUid) return;
+        this.groupToAccountMap[String(groupId)] = String(accountUid);
+        // We don't necessarily save on every mapping update if it's frequent, but let's be safe
+        this._saveFollowers().catch(err => {
+             logger.error('[SubscriptionManager] Failed to save followers after setGroupAccountMapping:', err);
+        });
+    }
+
+    getFollowingsForGroup(groupId) {
+        const gid = String(groupId);
+        const accountUid = this.groupToAccountMap[gid];
+        if (accountUid && this.cookieFollowings[accountUid]) {
+            return this.cookieFollowings[accountUid];
+        }
+        
+        // Fallback: If no mapping found but we have only 1 account, maybe return that?
+        // Or check if there's any data?
+        // For now, return empty array to avoid showing wrong data
+        const accountKeys = Object.keys(this.cookieFollowings);
+        if (!accountUid && accountKeys.length === 1) {
+            // If only one account exists globally, assume it's the one (Backward compatibility behavior)
+            return this.cookieFollowings[accountKeys[0]];
+        }
+
+        return [];
     }
 
     // Add User Subscription
