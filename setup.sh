@@ -162,11 +162,16 @@ while true; do
     fi
 done
 
-# 询问是否设置 WebSocket Token
-read -p "是否为 WebSocket 连接设置 Token？(留空则不设置) [token/回车跳过]: " ws_token
+# 设置 WebSocket Token (NapCat 强制要求)
+read -p "请设置 WebSocket Token (留空将自动生成随机 Token): " ws_token
 if [ -z "$ws_token" ]; then
-    ws_token=""
-    echo -e "${YELLOW}跳过 Token 设置，WebSocket 连接将不需要身份验证。${NC}"
+    if command -v openssl &> /dev/null; then
+        ws_token=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | head -c 10)
+    else
+        # Fallback for systems without openssl
+        ws_token=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 10 | head -n 1)
+    fi
+    echo -e "${GREEN}已自动生成 Token: $ws_token${NC}"
 else
     echo -e "${GREEN}已设置 Token: $ws_token${NC}"
 fi
@@ -307,21 +312,13 @@ else
     echo "WS_URL=$ws_url" >> config/.env
 fi
 
-# 设置 WS_TOKEN (使用前面询问的 token)
-if [ -n "$ws_token" ]; then
-    if grep -q "^WS_TOKEN=" config/.env; then
-        sed -i "s/^WS_TOKEN=.*/WS_TOKEN=$ws_token/" config/.env
-    else
-        echo "WS_TOKEN=$ws_token" >> config/.env
-    fi
-    echo "已配置 WS_TOKEN"
+# 设置 WS_TOKEN
+if grep -q "^WS_TOKEN=" config/.env; then
+    sed -i "s/^WS_TOKEN=.*/WS_TOKEN=$ws_token/" config/.env
 else
-    # 如果token为空，确保.env中也为空或不存在
-    if grep -q "^WS_TOKEN=" config/.env; then
-        sed -i "s/^WS_TOKEN=.*/WS_TOKEN=/" config/.env
-    fi
-    echo "WS_TOKEN 留空"
+    echo "WS_TOKEN=$ws_token" >> config/.env
 fi
+echo "已配置 WS_TOKEN"
 
 # 设置管理员 QQ
 while true; do

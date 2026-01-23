@@ -8,7 +8,7 @@ const notificationHistory = require('../../utils/notificationHistory');
 
 class UpdateChecker {
     constructor() {
-        this.checkInterval = 300 * 1000; // 5 minutes default
+        this.checkInterval = (config.subscriptionCheckInterval || 60) * 1000;
         this.timer = null;
         this.initTimer = null;
         this.ws = null;
