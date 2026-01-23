@@ -80,7 +80,7 @@ class SubscriptionCommand {
                     let followings = [];
                     try {
                          // New method to get followings specific to this group (via mapping)
-                         followings = subscriptionService.getFollowingsForGroup(groupId) || [];
+                         followings = await subscriptionService.getFollowingsForGroup(groupId) || [];
                     } catch (e) {
                          logger.error('[SubscriptionCommand] Error fetching followings for merge view:', e);
                     }
@@ -140,19 +140,38 @@ class SubscriptionCommand {
                     const syncGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
 
                     if (!enableSync) {
-                        data.accountFollows = [];
+                        data.accountFollows = null; // Explicitly null to indicate disabled
                         data.accountFollowsTitle = '';
                     } else if (syncGroups.length > 0) {
+                        // Ensure accountFollows is an array
+                        if (!Array.isArray(data.accountFollows)) {
+                            logger.warn(`[SubscriptionCommand] data.accountFollows is not an array: ${typeof data.accountFollows}`);
+                            data.accountFollows = [];
+                        }
+                        
                         data.accountFollows = data.accountFollows.filter(u => 
                             u.biliGroups && u.biliGroups.some(g => syncGroups.includes(g))
                         );
                         data.accountFollowsTitle = `关注列表 - ${syncGroups.join(' & ')}`;
                     } else {
-                        data.accountFollows = [];
+                        data.accountFollows = []; // Enabled but no groups configured? Treat as empty list or show all?
+                        // Previous logic implied showing all if no groups configured?
+                        // "关注列表 (未配置分组)" -> seems like we want to show it but maybe it's empty because of logic?
+                        // Actually, if syncGroups is empty, previous logic was:
+                        // data.accountFollows = [];
+                        // So let's keep it as [] to show "No groups configured" or similar if we want to show the section.
+                        // But wait, if syncGroups is empty, we probably shouldn't show anything or show a warning.
+                        // Let's stick to [] so it shows the section with "暂无关注" or similar, 
+                        // but maybe we want to be clearer. 
+                        // For now, let's keep [] so it behaves as "enabled but empty result".
                         data.accountFollowsTitle = '关注列表 (未配置分组)';
                     }
 
                     if (data.users.length === 0 && data.bangumis.length === 0 && (!data.accountFollows || data.accountFollows.length === 0)) {
+                         // Check if accountFollows is null (disabled) or empty array (enabled but empty)
+                         const isFollowsEmpty = !data.accountFollows || data.accountFollows.length === 0;
+                         // Actually, if it's null, it's "empty" for the purpose of "nothing to show at all".
+                         
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅' + (enableSync ? '，且符合条件的账户关注为空' : '') + '。' } }]);
                          return;
                     }

@@ -13,7 +13,7 @@ const { generateUnifiedCSS } = require('../../../utils/designSystem');
  */
 async function generateSubscriptionList(data, groupId, show_id = true, title = '订阅列表') {
     await browserManager.init();
-    const page = await browserManager.createPage({ width: 880, height: 1000, deviceScaleFactor: 1 });
+    const page = await browserManager.createPage({ width: 880, height: 1000, deviceScaleFactor: 1.5 });
 
     try {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -122,7 +122,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
             }
             .user-list {
                 display: grid;
-                grid-template-columns: repeat(2, 1fr);
+                grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 16px;
             }
             .user-card {
@@ -198,8 +198,8 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
 
             .bangumi-list {
                 display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 12px;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 16px;
             }
             .bangumi-card {
                 padding: 12px;
@@ -284,7 +284,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 ` : '<div class="empty-tip">暂无番剧订阅</div>'}
             </div>
 
-            <div class="section" style="${(!data.accountFollows || data.accountFollows.length === 0) ? 'display:none;' : ''}">
+            <div class="section" style="${(data.accountFollows === null || data.accountFollows === undefined) ? 'display:none;' : ''}">
                 <div class="section-title">
                     ${data.accountFollowsTitle ? escapeHtml(data.accountFollowsTitle) : '账户关注列表'}
                     <span class="count-badge">${data.accountFollows ? data.accountFollows.length : 0}</span>

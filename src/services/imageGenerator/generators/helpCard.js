@@ -15,7 +15,7 @@ async function generateHelpCard(type = 'user', groupId) {
         const page = await browserManager.createPage({
             width: 1000,
             height: 1500,
-            deviceScaleFactor: 1
+            deviceScaleFactor: 1.2
         });
 
         try {

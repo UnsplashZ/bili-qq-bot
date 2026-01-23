@@ -409,6 +409,9 @@ class UpdateChecker {
     }
 
     async refreshCookieFollowings() {
+        // Ensure followers are loaded before updating to prevent overwriting with old data
+        await subscriptionManager._ensureFollowersLoaded();
+
         // Get all groups with sync enabled
         const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
             config.getGroupConfig(gid, 'enableCookieSync')

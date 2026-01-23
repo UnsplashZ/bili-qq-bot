@@ -60,6 +60,11 @@ class SubscriptionService {
         return await subscriptionManager.getSubscriptionsByGroup(groupId);
     }
 
+    async getFollowingsForGroup(groupId) {
+        await subscriptionManager._ensureFollowersLoaded();
+        return subscriptionManager.getFollowingsForGroup(groupId);
+    }
+
     async removeAllGroupSubscriptions(groupId) {
         return await subscriptionManager.removeAllGroupSubscriptions(groupId);
     }

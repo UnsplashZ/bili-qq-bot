@@ -52,7 +52,7 @@ function renderTypeBadge(type, data, groupId, currentType) {
 async function generatePreviewCard(data, type, groupId, show_id = true) {
     return browserManager.withRetry(async () => {
         await browserManager.init();
-        const page = await browserManager.createPage({ width: 1200, height: 1200, deviceScaleFactor: 1 });
+        const page = await browserManager.createPage({ width: 1200, height: 1200, deviceScaleFactor: 1.2 });
 
         try {
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
