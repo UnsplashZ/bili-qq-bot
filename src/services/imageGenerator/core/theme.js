@@ -54,11 +54,7 @@ function calculateViewport(type, data) {
         const hasVideo = !!module_dynamic.major?.archive || !!module_dynamic.major?.live_rcmd;
         const hasOrig = !!(data.data?.item?.orig || data.data?.orig);
 
-        if (hasImages || hasVideo || hasOrig) {
-            baseWidth = 1100;
-        } else {
-            baseWidth = 800;
-        }
+        baseWidth = 1000;
 
         // 动态调整宽度以适应长用户名
         const module_author = modules.module_author || {};
@@ -72,11 +68,11 @@ function calculateViewport(type, data) {
     } else if (type === 'video' || type === 'live') {
         baseWidth = 1000;
     } else if (type === 'bangumi') {
-        baseWidth = 950;
+        baseWidth = 1000;
     } else if (type === 'article') {
-        baseWidth = 1080;
+        baseWidth = 1000;
     } else if (type === 'user') {
-        baseWidth = 900;
+        baseWidth = 1000;
         const info = data.data || {};
         const name = info.name || '';
         if (name.length > 10) {
@@ -88,7 +84,7 @@ function calculateViewport(type, data) {
     return {
         width: baseWidth,
         height: 1200,
-        deviceScaleFactor: 1,
+        deviceScaleFactor: 1.2,
         minWidth: minWidth
     };
 }
@@ -370,7 +366,7 @@ function generateCSS(colorData, viewport) {
             }
 
             .user-name {
-                font-size: 30px;
+                font-size: 36px;
                 font-weight: 700;
                 color: var(--color-text);
                 display: flex;
@@ -411,7 +407,7 @@ function generateCSS(colorData, viewport) {
             }
 
             .decoration-card {
-                height: 108px;
+                height: 96px;
                 width: auto;
                 object-fit: contain;
                 margin: 0;
@@ -421,10 +417,10 @@ function generateCSS(colorData, viewport) {
             .serial-badge {
                 position: absolute;
                 top: 50%;
-                left: 120px;
+                left: 80px;
                 transform: translateY(-50%);
                 font-weight: 700;
-                font-size: 20px;
+                font-size: 26px;
             }
 
 
