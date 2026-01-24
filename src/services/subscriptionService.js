@@ -78,22 +78,22 @@ class SubscriptionService {
         // Ensure subscriptions are loaded before checking
         await subscriptionManager._ensureSubscriptionsLoaded();
 
-        // This is a bit tricky as updateChecker checks everyone.
-        // We can implement a single check in updateChecker or just return current state?
-        // The original method checked immediately.
+        // Type-safe comparison
+        const targetGroupId = String(groupId);
+        const sub = subscriptionManager.userSubs.find(s =>
+            String(s.uid) === String(uid) &&
+            s.groupIds.map(String).includes(targetGroupId)
+        );
 
-        // Let's implement a single check logic reusing UpdateChecker's methods
-        // But UpdateChecker methods are designed for loop.
-        // We can create a temporary sub object and call checkUserDynamic
-        const sub = subscriptionManager.userSubs.find(s => s.uid == uid && s.groupIds.includes(groupId));
         if (sub) {
             // Force check to generate card immediately
             // CRITICAL: Create a temporary sub object with ONLY the current group ID
-            // This prevents the "Check Now" command from broadcasting to ALL subscribed groups
             const tempSub = {
                 ...sub,
-                groupIds: [groupId]
+                groupIds: [targetGroupId]
             };
+            // updateChecker.checkUserDynamic now internally uses bypassCache=true
+            // 2nd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
             await updateChecker.checkUserDynamic(tempSub, true);
             return true;
         }

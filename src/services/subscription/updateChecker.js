@@ -85,7 +85,7 @@ class UpdateChecker {
 
     async checkUserDynamic(sub, force = false) {
         try {
-            const res = await biliApi.getUserDynamic(sub.uid);
+            const res = await biliApi.getUserDynamic(sub.uid, null, true);
             if (res.status !== 'success') {
                 logger.warn(`[UpdateChecker] Failed to fetch dynamics for ${sub.name} (${sub.uid}): ${res.message}`);
                 return;
@@ -325,7 +325,9 @@ class UpdateChecker {
         if (!this.ws) return;
         groupIds.forEach(gid => {
             // Check for deduplication if key is provided
-            if (dedupKey && notificationHistory.has(gid, dedupKey)) {
+            const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'));
+            const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0;
+            if (dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
                 logger.info(`[UpdateChecker] Skipping duplicate text notification for group ${gid} (key: ${dedupKey})`);
                 return;
             }
@@ -335,7 +337,7 @@ class UpdateChecker {
                 
                 // Record notification history if key provided
                 if (dedupKey) {
-                    notificationHistory.add(gid, dedupKey);
+                    notificationHistory.add(gid, dedupKey, ttlMs);
                 }
             }
         });
@@ -355,7 +357,9 @@ class UpdateChecker {
         const pendingGroupIds = [];
         if (dedupId) {
             for (const gid of groupIds) {
-                if (notificationHistory.has(gid, dedupId)) {
+                const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'));
+                const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0;
+                if (notificationHistory.has(gid, dedupId, ttlMs)) {
                     logger.info(`[UpdateChecker] Skipping duplicate notification for group ${gid} (ID: ${dedupId})`);
                 } else {
                     pendingGroupIds.push(gid);
@@ -427,7 +431,9 @@ class UpdateChecker {
                     
                     // Record history
                     if (dedupId) {
-                        notificationHistory.add(gid, dedupId);
+                        const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'));
+                        const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0;
+                        notificationHistory.add(gid, dedupId, ttlMs);
                     }
                 });
                 

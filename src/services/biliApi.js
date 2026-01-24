@@ -8,14 +8,17 @@ class BiliApi {
      * @param {string} id - Resource ID
      * @param {string} groupId - Group ID for context
      * @param {Function} fetchFn - Function to execute on cache miss
+     * @param {boolean} [bypassCache=false] - Whether to bypass reading from cache
      */
-    async _withCache(keyPrefix, id, groupId, fetchFn) {
+    async _withCache(keyPrefix, id, groupId, fetchFn, bypassCache = false) {
         const cacheKey = `${keyPrefix}:${id}:${groupId || 'public'}`;
 
         // Try cache first
-        const cached = await cacheManager.get(cacheKey);
-        if (cached) {
-            return cached;
+        if (!bypassCache) {
+            const cached = await cacheManager.get(cacheKey);
+            if (cached) {
+                return cached;
+            }
         }
 
         try {
@@ -53,10 +56,11 @@ class BiliApi {
         return serviceManager.sendCommand('login_check', { key, group_id: groupId });
     }
 
-    async getUserDynamic(uid, groupId) {
+    async getUserDynamic(uid, groupId, bypassCache = false) {
         // Caching user dynamics (reduces load on subscription checks)
         return this._withCache('user_dynamic', uid, groupId, () =>
-            serviceManager.sendCommand('user_dynamic', { uid, group_id: groupId })
+            serviceManager.sendCommand('user_dynamic', { uid, group_id: groupId }),
+            bypassCache
         );
     }
 
