@@ -86,7 +86,19 @@ class UpdateChecker {
     async checkUserDynamic(sub, force = false) {
         try {
             const res = await biliApi.getUserDynamic(sub.uid);
-            if (res.status !== 'success' || !res.data.cards || res.data.cards.length === 0) return;
+            if (res.status !== 'success') {
+                logger.warn(`[UpdateChecker] Failed to fetch dynamics for ${sub.name} (${sub.uid}): ${res.message}`);
+                return;
+            }
+            
+            // Compatible with both 'items' (new API) and 'cards' (old logic)
+            // But actually bili_service.py get_user_dynamic now returns { data: { cards: [...] } }
+            // Wait, looking at bili_service.py:
+            // return {"status": "success", "data": {"cards": result_items}}
+            // So res.data.cards IS correct for the Python output wrapper.
+            // BUT, the fields INSIDE the card objects have changed/expanded.
+            
+            if (!res.data.cards || res.data.cards.length === 0) return;
 
             const cards = res.data.cards;
 
@@ -94,8 +106,14 @@ class UpdateChecker {
             // ensuring the first card is truly the latest one in time.
             cards.sort((a, b) => {
                 try {
-                    const idA = BigInt(a.desc.dynamic_id_str);
-                    const idB = BigInt(b.desc.dynamic_id_str);
+                    // Try id_str first (new API), then desc.dynamic_id_str (old API)
+                    const idAStr = a.id_str || (a.desc && a.desc.dynamic_id_str);
+                    const idBStr = b.id_str || (b.desc && b.desc.dynamic_id_str);
+                    
+                    if (!idAStr || !idBStr) return 0;
+
+                    const idA = BigInt(idAStr);
+                    const idB = BigInt(idBStr);
                     return idA < idB ? 1 : idA > idB ? -1 : 0;
                 } catch (e) {
                     return 0;
@@ -103,7 +121,12 @@ class UpdateChecker {
             });
 
             const latestCard = cards[0];
-            const latestId = latestCard.desc.dynamic_id_str;
+            const latestId = latestCard.id_str || (latestCard.desc && latestCard.desc.dynamic_id_str);
+
+            if (!latestId) {
+                logger.warn(`[UpdateChecker] Could not find dynamic ID for ${sub.name}`);
+                return;
+            }
 
             // If first time (no lastId), just update and return
             if (!sub.lastDynamicId && !force) {
@@ -120,13 +143,17 @@ class UpdateChecker {
                     logger.info(`[UpdateChecker] Force checking dynamic for ${sub.name} (ID: ${latestId})`);
                 } else {
                     for (const card of cards) {
-                        if (card.desc.dynamic_id_str === sub.lastDynamicId) break;
+                        const currentId = card.id_str || (card.desc && card.desc.dynamic_id_str);
+                        if (!currentId) continue;
+                        
+                        if (currentId === sub.lastDynamicId) break;
+                        
                         // Prevent re-pushing old dynamics if the last seen dynamic was deleted
                         // If we encounter a dynamic ID smaller (older) than our last seen ID, stop.
                         try {
-                            if (BigInt(card.desc.dynamic_id_str) < BigInt(sub.lastDynamicId)) break;
+                            if (BigInt(currentId) < BigInt(sub.lastDynamicId)) break;
                         } catch (e) {
-                            // Fallback for non-numeric IDs if any, though unlikely for Bilibili
+                            // Fallback for non-numeric IDs if any
                         }
                         newCards.push(card);
                     }
@@ -135,62 +162,55 @@ class UpdateChecker {
                 }
 
                 for (const card of newCards) {
-                    const cardId = card.desc.dynamic_id_str;
+                    const cardId = card.id_str || (card.desc && card.desc.dynamic_id_str);
+                    const cardType = card.type || (card.desc && card.desc.type);
 
                     // Check if this is a live stream start notification
                     // These are auto-posted by Bilibili when a user starts streaming
                     // We want to skip these and let checkUserLive handle the notification to avoid duplicates
-                    const isLiveDynamic = card.type === 'DYNAMIC_TYPE_LIVE_RCMD' ||
-                                          (card.desc && card.desc.type === 'DYNAMIC_TYPE_LIVE_RCMD') ||
-                                          card.modules?.module_dynamic?.major?.live_rcmd;
+                    const isLiveDynamic = cardType === 'DYNAMIC_TYPE_LIVE_RCMD' ||
+                                          cardType === 4308 || // OLD API Live type
+                                          (card.modules?.module_dynamic?.major?.type === 'MAJOR_TYPE_LIVE_RCMD');
 
                     if (isLiveDynamic) {
                         logger.info(`[UpdateChecker] Skipping live dynamic for ${sub.name} (ID: ${cardId}) - expecting checkUserLive to handle it`);
                         continue;
                     }
 
-                    // Filter based on config (labels)
-                    // Simplified logic here: assume we notify for now, or check type
-                    // Actually we should check labelConfig but let's trust notifyGroups to handle basic text
-                    // or do we need to check types here?
-                    // The original code did strict type checking.
-                    
                     // Generate Preview
-                    // Get Card Type
-                    // This logic was inside getDynamicInfo usually, but here we have raw card
-                    // Let's use biliApi helper if possible or assume dynamic
-                    // We can reuse imageGenerator.generatePreviewCard with constructed info object
-                    
                     // Construct info object compatible with generator
                     // The renderer expects { data: { item: { modules: ... } } }
+                    // We need to map our card structure to what the renderer expects
+                    
+                    // Python backend normalizes this somewhat, let's use what we have
                     const info = {
+                        id: cardId,
                         type: 'dynamic',
                         data: {
+                            pub_ts: card.modules?.module_author?.pub_ts || card.desc?.timestamp,
                             item: {
                                 modules: card.modules,
                                 orig: card.orig,
-                                id_str: card.id_str || card.desc.dynamic_id_str,
-                                type: card.type || card.desc.type
+                                id_str: cardId,
+                                type: cardType,
+                                desc: {
+                                    type: cardType
+                                },
+                                author: card.author
                             }
                         }
                     };
 
-                    // Detect specific types for label filtering
+                    // Detect specific types for label filtering and message
                     let typeLabel = '动态';
-                    if (card.desc.type === 8) typeLabel = '视频';
-                    else if (card.desc.type === 64) typeLabel = '专栏';
+                    
+                    // Handle both numeric and string types
+                    if (cardType === 8 || cardType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
+                    else if (cardType === 64 || cardType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
+                    else if (cardType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
                     
                     // Notify
-                    // We need to generate image first
                     try {
-                        // Pass 'dynamic' as generic type, generator handles details
-                        // For notifyGroupsWithImage, we need to pass the info object to let it regenerate based on group config
-                        // But wait, notifyGroupsWithImage in original code called generatePreviewCard internally per group
-                        // Here we are generating it once?
-                        // NO, the original code inside notifyGroupsWithImage generated it per group.
-                        // So we should pass the DATA object to notifyGroupsWithImage, not the base64!
-                        
-                        // Let's look at the method signature I'm fixing: notifyGroupsWithImage(groupIds, data, type, textUrl)
                         const url = `https://t.bilibili.com/${cardId}`;
                         await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, `${sub.name} 发布了新${typeLabel}！`);
                         

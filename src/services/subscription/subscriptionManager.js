@@ -269,9 +269,13 @@ class SubscriptionManager {
 
         // Get latest dynamic to initialize
         const dynamicInfo = await biliApi.getUserDynamic(uid);
-        const lastId = (dynamicInfo.status === 'success' && dynamicInfo.data.cards.length > 0)
-            ? dynamicInfo.data.cards[0].desc.dynamic_id_str
-            : null;
+        let lastId = null;
+        
+        if (dynamicInfo.status === 'success' && dynamicInfo.data.cards && dynamicInfo.data.cards.length > 0) {
+            const card = dynamicInfo.data.cards[0];
+            // Try id_str first (new API), then desc.dynamic_id_str (old API)
+            lastId = card.id_str || (card.desc && card.desc.dynamic_id_str) || null;
+        }
 
         const newSub = {
             uid: uid,
