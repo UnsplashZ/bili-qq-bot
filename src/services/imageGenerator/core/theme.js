@@ -43,7 +43,7 @@ function isNightMode(groupId) {
  * 计算视口尺寸
  */
 function calculateViewport(type, data) {
-    let baseWidth = 1200;
+    let baseWidth = 1100;
     let minWidth = 400;
 
     if (type === 'dynamic') {
@@ -54,7 +54,7 @@ function calculateViewport(type, data) {
         const hasVideo = !!module_dynamic.major?.archive || !!module_dynamic.major?.live_rcmd;
         const hasOrig = !!(data.data?.item?.orig || data.data?.orig);
 
-        baseWidth = 1000;
+        baseWidth = 1100;
 
         // 动态调整宽度以适应长用户名
         const module_author = modules.module_author || {};
@@ -66,13 +66,13 @@ function calculateViewport(type, data) {
             baseWidth += extraWidth;
         }
     } else if (type === 'video' || type === 'live') {
-        baseWidth = 1000;
+        baseWidth = 1100;
     } else if (type === 'bangumi') {
-        baseWidth = 1000;
+        baseWidth = 1100;
     } else if (type === 'article') {
-        baseWidth = 1000;
+        baseWidth = 1100;
     } else if (type === 'user') {
-        baseWidth = 1000;
+        baseWidth = 1100;
         const info = data.data || {};
         const name = info.name || '';
         if (name.length > 10) {

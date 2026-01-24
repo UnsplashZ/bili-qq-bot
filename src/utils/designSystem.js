@@ -112,8 +112,8 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 margin: 0;
                 padding: 0;
                 background: transparent;
-                width: fit-content;
-                min-width: ${minWidth}px;
+                width: ${width}px;
+                min-width: ${width}px;
                 max-width: ${width}px;
                 font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"MiSans", "MiSans L3", "Noto Sans SC", "Noto Color Emoji", sans-serif;
                 -webkit-font-smoothing: antialiased;
