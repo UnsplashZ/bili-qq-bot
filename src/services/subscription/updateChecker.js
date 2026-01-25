@@ -9,8 +9,11 @@ const notificationHistory = require('../../utils/notificationHistory');
 class UpdateChecker {
     constructor() {
         this.checkInterval = (config.subscriptionCheckInterval || 60) * 1000;
+        this.syncInterval = 60 * 60 * 1000; // 1 hour
         this.timer = null;
+        this.syncTimer = null;
         this.initTimer = null;
+        this.initSyncTimer = null;
         this.ws = null;
     }
 
@@ -20,8 +23,8 @@ class UpdateChecker {
 
     start() {
         if (this.timer) return;
-        
-        // Initial check after 10 seconds
+
+        // Initial check after 10 seconds (Feed & Subs)
         this.initTimer = setTimeout(() => {
             this.checkAll();
             this.initTimer = null;
@@ -30,8 +33,18 @@ class UpdateChecker {
         this.timer = setInterval(() => {
             this.checkAll();
         }, this.checkInterval);
-        
-        logger.info(`[UpdateChecker] Started polling every ${this.checkInterval / 1000}s`);
+
+        // Initial check after 5 seconds (List Sync)
+        this.initSyncTimer = setTimeout(() => {
+            this.refreshCookieFollowings();
+            this.initSyncTimer = null;
+        }, 5000);
+
+        this.syncTimer = setInterval(() => {
+            this.refreshCookieFollowings();
+        }, this.syncInterval);
+
+        logger.info(`[UpdateChecker] Started polling: Feed/Subs every ${this.checkInterval / 1000}s, List Sync every ${this.syncInterval / 1000}s`);
     }
 
     stop() {
@@ -42,6 +55,14 @@ class UpdateChecker {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
+        }
+        if (this.initSyncTimer) {
+            clearTimeout(this.initSyncTimer);
+            this.initSyncTimer = null;
+        }
+        if (this.syncTimer) {
+            clearInterval(this.syncTimer);
+            this.syncTimer = null;
         }
     }
 
@@ -57,30 +78,261 @@ class UpdateChecker {
         // Ensure subscriptions are loaded before checking
         await subscriptionManager._ensureSubscriptionsLoaded();
 
-        // Refresh cookie followings if enabled for any group
-        await this.refreshCookieFollowings();
+        // 1. Check Feed Updates (Cookie Sync)
+        await this.checkFeedUpdate();
 
-        // 1. Check User Dynamics
+        // 2. Check User Dynamics (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
             await this.checkUserDynamic(sub);
             // Small delay to be nice to API
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 2. Check User Live Status
+        // 3. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
             await this.checkUserLive(sub);
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 3. Check Bangumi Updates
+        // 4. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
             await this.checkBangumi(sub);
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 4. Refresh missing names (maintenance)
+        // 5. Refresh missing names (maintenance)
         await this.refreshMissingNames();
+    }
+
+    async checkFeedUpdate() {
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
+            config.getGroupConfig(gid, 'enableCookieSync')
+        );
+
+        if (groupsWithSync.length === 0) return;
+
+        // Identify unique accounts
+        const accountGroups = new Map(); // uid -> groupId (representative)
+
+        for (const gid of groupsWithSync) {
+            const accountUid = subscriptionManager.groupToAccountMap[String(gid)];
+            if (accountUid && !accountGroups.has(accountUid)) {
+                accountGroups.set(accountUid, gid);
+            }
+        }
+
+        // Loop through accounts
+        for (const [uid, groupId] of accountGroups) {
+            try {
+                // Process Dynamic Feed
+                await this.processDynamicFeed(uid, groupId);
+
+                // Wait 2s
+                await new Promise(r => setTimeout(r, 2000));
+
+                // Process Live Feed
+                await this.processLiveFeed(uid, groupId);
+            } catch (e) {
+                logger.error(`[UpdateChecker] Feed update failed for account ${uid}:`, e);
+            }
+        }
+    }
+
+    async processDynamicFeed(accountUid, groupId) {
+        const followers = subscriptionManager.cookieFollowings[String(accountUid)];
+        if (!followers || followers.length === 0) return;
+
+        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        let offset = '';
+        let hasMore = true;
+        let page = 0;
+        let stateChanged = false;
+
+        while (hasMore && page < 5) {
+            const res = await biliApi.getDynamicFeed(offset, groupId);
+            if (res.status !== 'success' || !res.data) {
+                logger.warn(`[UpdateChecker] Failed to get dynamic feed for account ${accountUid} (Group: ${groupId})`);
+                break;
+            }
+
+            const items = res.data.items || [];
+            hasMore = res.data.has_more;
+            offset = res.data.offset;
+            page++;
+
+            if (items.length === 0) break;
+
+            for (const item of items) {
+                const authorUid = String(item.modules?.module_author?.mid);
+                if (!authorUid || !followerMap.has(authorUid)) continue;
+
+                const follower = followerMap.get(authorUid);
+                const dynamicId = item.id_str;
+                const dynamicType = item.type;
+
+                // Check if new (ID > lastDynamicId)
+                let isNew = false;
+                if (!follower.lastDynamicId) {
+                    isNew = true; // First time seeing this user's dynamic in feed?
+                    // Maybe we shouldn't notify everything if it's the first run.
+                    // But usually lastDynamicId is populated by sync.
+                    // If it's missing, treat as seen to avoid spam, just update ID?
+                    // Let's assume if missing, we just update it.
+                    isNew = false;
+                } else {
+                    try {
+                        if (BigInt(dynamicId) > BigInt(follower.lastDynamicId)) {
+                            isNew = true;
+                        }
+                    } catch (e) {
+                        // Fallback string compare if BigInt fails
+                        if (dynamicId !== follower.lastDynamicId) isNew = true;
+                    }
+                }
+
+                if (isNew) {
+                    const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+
+                    if (targetGroups.length > 0) {
+                        // Notify
+                        const renderInfo = {
+                            id: dynamicId,
+                            type: 'dynamic',
+                            data: {
+                                pub_ts: item.modules?.module_author?.pub_ts,
+                                item: {
+                                    modules: item.modules,
+                                    orig: item.orig,
+                                    id_str: dynamicId,
+                                    type: dynamicType,
+                                    desc: { type: dynamicType },
+                                    author: item.modules?.module_author
+                                }
+                            }
+                        };
+
+                        let typeLabel = '动态';
+                        if (dynamicType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
+                        else if (dynamicType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
+                        else if (dynamicType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
+
+                        const url = `https://t.bilibili.com/${dynamicId}`;
+                        const name = follower.uname || item.modules?.module_author?.name;
+
+                        // Prevent sending duplicate notifications if multiple accounts follow same user
+                        // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
+                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, `${name} 发布了新${typeLabel}！`);
+                    }
+                }
+
+                // Update state if id is newer or missing
+                if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || 0n)) {
+                    follower.lastDynamicId = dynamicId;
+                    stateChanged = true;
+                }
+            }
+        }
+
+        if (stateChanged) {
+            subscriptionManager.setCookieFollowings(accountUid, followers);
+        }
+    }
+
+    async processLiveFeed(accountUid, groupId) {
+        const res = await biliApi.getLiveFeed(groupId);
+        if (res.status !== 'success' || !res.data || !res.data.list) return;
+
+        const liveList = res.data.list;
+        const followers = subscriptionManager.cookieFollowings[String(accountUid)];
+        if (!followers) return;
+
+        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        let stateChanged = false;
+
+        for (const item of liveList) {
+            const uid = String(item.uid);
+            if (!followerMap.has(uid)) continue;
+
+            const follower = followerMap.get(uid);
+            const liveStatus = item.live_status; // Should be 1 in live feed
+
+            // Check if status changed from 0 to 1
+            if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
+                const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+
+                if (targetGroups.length > 0) {
+                    const roomUrl = item.link;
+                    const title = item.title;
+                    const cover = item.cover;
+                    const name = item.uname;
+
+                    // Construct live data for renderer
+                    const liveData = {
+                        id: item.room_id || uid, // for dedup
+                        data: {
+                            room_info: {
+                                room_id: item.room_id,
+                                title: title,
+                                cover: cover,
+                                live_status: 1
+                            },
+                            anchor_info: {
+                                base_info: {
+                                    uname: name,
+                                    face: item.face
+                                }
+                            }
+                        }
+                    };
+
+                    await this.notifyGroupsWithImage(targetGroups, liveData, 'live', roomUrl, `${name} 开播了！`);
+                }
+            }
+
+            if (follower.lastLiveStatus !== liveStatus) {
+                follower.lastLiveStatus = liveStatus;
+                stateChanged = true;
+            }
+        }
+
+        // Note: Live Feed only returns online users.
+        // We might want to set offline status for those not in the list?
+        // But for "Feed Polling", we only care about *updates* (going live).
+        // Setting offline status is tricky without full list scan.
+        // We'll stick to detecting "Started Streaming" based on local state vs feed presence.
+        // Actually, if they disappear from feed, they are offline.
+        // But iterating all followers to set offline might be expensive every minute if there are 1000 followers.
+        // For now, let's just update those we see.
+
+        if (stateChanged) {
+            subscriptionManager.setCookieFollowings(accountUid, followers);
+        }
+    }
+
+    findTargetGroupsForFollower(accountUid, follower) {
+        const targetGroups = [];
+
+        // Find all groups bound to this account
+        for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
+            if (uid !== String(accountUid)) continue;
+
+            // Check if sync enabled
+            if (!config.getGroupConfig(gid, 'enableCookieSync')) continue;
+
+            // Check Tag filtering
+            const allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames'); // Array of strings
+            if (allowedTags && allowedTags.length > 0) {
+                // follower.biliGroups should be an array of tag names
+                const followerTags = follower.biliGroups || [];
+                // Check intersection
+                const hasTag = allowedTags.some(tag => followerTags.includes(tag));
+                if (!hasTag) continue;
+            }
+
+            targetGroups.push(gid);
+        }
+
+        return targetGroups;
     }
 
     async checkUserDynamic(sub, force = false) {

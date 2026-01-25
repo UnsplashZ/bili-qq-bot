@@ -210,13 +210,66 @@ class SubscriptionManager {
         }
     }
 
-    setCookieFollowings(accountUid, followings) {
+    setCookieFollowings(accountUid, newFollowings) {
         if (!accountUid) return;
-        this.cookieFollowings[String(accountUid)] = followings;
+        const uidStr = String(accountUid);
+        const oldFollowings = this.cookieFollowings[uidStr] || [];
+
+        // Helper to get ID from follower object safely
+        const getId = (f) => String(f.mid || f.uid || f.id || '');
+
+        // Index old followers
+        const oldMap = new Map();
+        oldFollowings.forEach(f => {
+            const id = getId(f);
+            if (id) oldMap.set(id, f);
+        });
+
+        // Merge new list with old state
+        const merged = newFollowings.map(newF => {
+            const id = getId(newF);
+            const oldF = oldMap.get(id);
+
+            if (oldF) {
+                // Preserve state
+                return {
+                    ...newF,
+                    lastDynamicId: oldF.lastDynamicId,
+                    lastLiveStatus: oldF.lastLiveStatus
+                };
+            } else {
+                // Initialize state
+                return {
+                    ...newF,
+                    lastDynamicId: null,
+                    lastLiveStatus: 0
+                };
+            }
+        });
+
+        this.cookieFollowings[uidStr] = merged;
+
         // Fire-and-forget save
         this._saveFollowers().catch(err => {
             logger.error('[SubscriptionManager] Failed to save followers after setCookieFollowings:', err);
         });
+    }
+
+    updateCookieFollowerState(accountUid, targetUid, updates) {
+        if (!accountUid || !targetUid) return;
+        const accountStr = String(accountUid);
+        const targetStr = String(targetUid);
+
+        const followings = this.cookieFollowings[accountStr];
+        if (!followings) return;
+
+        const follower = followings.find(f => String(f.mid || f.uid || f.id) === targetStr);
+        if (follower) {
+            Object.assign(follower, updates);
+            this._saveFollowers().catch(err => {
+                logger.error(`[SubscriptionManager] Failed to save followers after updating state for ${targetUid}:`, err);
+            });
+        }
     }
 
     setGroupAccountMapping(groupId, accountUid) {

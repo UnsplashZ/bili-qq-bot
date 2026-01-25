@@ -1116,9 +1116,50 @@ async def get_my_info(group_id=None):
         cred = load_credential(group_id)
         if not cred:
              return {"status": "error", "message": "未登录"}
-        
+
         self_info = await user.get_self_info(credential=cred)
         return {"status": "success", "data": self_info}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+async def get_dynamic_feed(offset=None, group_id=None):
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+
+        url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all"
+        params = {
+            "type": "all",
+            "page": 1,
+            "timezone_offset": -480
+        }
+        if offset:
+            params["offset"] = offset
+
+        api = Api(url, method="GET", credential=cred)
+        api.update_params(**params)
+        data = await api.result
+        return {"status": "success", "data": data}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+async def get_live_feed(group_id=None):
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+
+        url = "https://api.live.bilibili.com/relation/v1/feed/feed_list"
+        params = {
+            "page": 1,
+            "pagesize": 10
+        }
+
+        api = Api(url, method="GET", credential=cred)
+        api.update_params(**params)
+        data = await api.result
+        return {"status": "success", "data": data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1314,6 +1355,27 @@ async def handle_my_info(request):
         logger.error(f"Error in my_info handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+async def handle_dynamic_feed(request):
+    try:
+        data = await request.json()
+        offset = data.get('offset')
+        group_id = data.get('group_id')
+        result = await get_dynamic_feed(offset, group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in dynamic_feed handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
+async def handle_live_feed(request):
+    try:
+        data = await request.json()
+        group_id = data.get('group_id')
+        result = await get_live_feed(group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in live_feed handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
 async def health_check(request):
     return web.json_response({"status": "ok"})
 
@@ -1352,6 +1414,8 @@ def create_app():
         web.post('/user_card', handle_user_card),
         web.post('/my_followings', handle_my_followings),
         web.post('/my_info', handle_my_info),
+        web.post('/dynamic_feed', handle_dynamic_feed),
+        web.post('/live_feed', handle_live_feed),
         web.get('/health', health_check),
     ])
     return app

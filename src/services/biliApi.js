@@ -131,6 +131,16 @@ class BiliApi {
     async getMyFollowings(groupName, groupId) {
         return serviceManager.sendCommand('my_followings', { group_name: groupName, group_id: groupId });
     }
+
+    async getDynamicFeed(offset, groupId) {
+        // No cache for dynamic feed (real-time data)
+        return serviceManager.sendCommand('dynamic_feed', { offset, group_id: groupId });
+    }
+
+    async getLiveFeed(groupId) {
+        // No cache for live feed (real-time data)
+        return serviceManager.sendCommand('live_feed', { group_id: groupId });
+    }
 }
 
 module.exports = new BiliApi();
