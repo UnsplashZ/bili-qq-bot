@@ -336,6 +336,93 @@ else
     echo "ADMIN_QQ=$admin_qq" >> config/.env
 fi
 
+# --- WebUI 配置 ---
+echo -e "${GREEN}[6.5/8] WebUI 与 AI 配置...${NC}"
+read -p "请设置 WebUI 面板端口 (默认: 3000): " webui_port
+webui_port=${webui_port:-3000}
+
+read -p "请设置 WebUI 面板密码 (默认: admin): " dashboard_pwd
+dashboard_pwd=${dashboard_pwd:-admin}
+
+if grep -q "^DASHBOARD_PASSWORD=" config/.env; then
+    sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$dashboard_pwd/" config/.env
+else
+    echo "DASHBOARD_PASSWORD=$dashboard_pwd" >> config/.env
+fi
+
+# --- AI 配置 ---
+read -p "是否启用 AI 功能 (OpenAI/DeepSeek 等)? [y/N] " enable_ai
+if [[ "$enable_ai" =~ ^[Yy]$ ]]; then
+    read -p "请输入 AI API 地址 (例如 https://api.openai.com/v1): " ai_url
+    if [ -n "$ai_url" ]; then
+        if grep -q "^AI_API_URL=" config/.env; then
+            sed -i "s|^AI_API_URL=.*|AI_API_URL=$ai_url|" config/.env
+        else
+            echo "AI_API_URL=$ai_url" >> config/.env
+        fi
+    fi
+
+    read -p "请输入 AI API Key: " ai_key
+    if [ -n "$ai_key" ]; then
+        if grep -q "^AI_API_KEY=" config/.env; then
+            sed -i "s/^AI_API_KEY=.*/AI_API_KEY=$ai_key/" config/.env
+        else
+            echo "AI_API_KEY=$ai_key" >> config/.env
+        fi
+    fi
+
+    read -p "请输入模型名称 (例如 gpt-3.5-turbo): " ai_model
+    if [ -n "$ai_model" ]; then
+        if grep -q "^AI_MODEL=" config/.env; then
+            sed -i "s/^AI_MODEL=.*/AI_MODEL=$ai_model/" config/.env
+        else
+            echo "AI_MODEL=$ai_model" >> config/.env
+        fi
+    fi
+
+    read -p "请输入 AI 代理地址 (可选): " ai_proxy
+    if [ -n "$ai_proxy" ]; then
+        if grep -q "^AI_PROXY_URL=" config/.env; then
+            sed -i "s|^AI_PROXY_URL=.*|AI_PROXY_URL=$ai_proxy|" config/.env
+        else
+            echo "AI_PROXY_URL=$ai_proxy" >> config/.env
+        fi
+    fi
+
+    read -p "是否启用 RAG (长期记忆)? [y/N] " enable_rag
+    if [[ "$enable_rag" =~ ^[Yy]$ ]]; then
+        read -p "请输入 Embedding API 地址: " embed_url
+        if [ -n "$embed_url" ]; then
+            if grep -q "^AI_EMBEDDING_API_URL=" config/.env; then
+                sed -i "s|^AI_EMBEDDING_API_URL=.*|AI_EMBEDDING_API_URL=$embed_url|" config/.env
+            else
+                echo "AI_EMBEDDING_API_URL=$embed_url" >> config/.env
+            fi
+        fi
+
+        read -p "请输入 Embedding API Key (留空同 AI Key): " embed_key
+        if [ -z "$embed_key" ]; then
+            embed_key="$ai_key"
+        fi
+        if [ -n "$embed_key" ]; then
+            if grep -q "^AI_EMBEDDING_API_KEY=" config/.env; then
+                sed -i "s/^AI_EMBEDDING_API_KEY=.*/AI_EMBEDDING_API_KEY=$embed_key/" config/.env
+            else
+                echo "AI_EMBEDDING_API_KEY=$embed_key" >> config/.env
+            fi
+        fi
+
+        read -p "请输入 Embedding 模型 (例如 text-embedding-ada-002): " embed_model
+        if [ -n "$embed_model" ]; then
+            if grep -q "^AI_EMBEDDING_MODEL=" config/.env; then
+                sed -i "s/^AI_EMBEDDING_MODEL=.*/AI_EMBEDDING_MODEL=$embed_model/" config/.env
+            else
+                echo "AI_EMBEDDING_MODEL=$embed_model" >> config/.env
+            fi
+        fi
+    fi
+fi
+
 echo -e "${YELLOW}提示: 您可以稍后编辑 config/.env 修改 AI 配置等其他选项。${NC}"
 
 # 7. 配置 docker-compose.yml
@@ -394,6 +481,12 @@ fi
 if [ ! -f "docker-compose.yml" ]; then
      echo -e "${RED}错误: 缺少 docker-compose.yml 文件。${NC}"
      exit 1
+fi
+
+# 更新 WebUI 端口
+if [ "$webui_port" != "3000" ]; then
+    echo "正在更新 docker-compose.yml 端口映射..."
+    sed -i "s/- \"3000:3000\"/- \"$webui_port:3000\"/" docker-compose.yml
 fi
 
 # 8. 启动运行
