@@ -168,13 +168,31 @@ class SubscriptionManager {
     }
     
     /**
+     * Helper to normalize follower state fields
+     */
+    _normalizeFollowerState(f) {
+        if (!f) return f;
+        if (f.lastDynamicId === undefined) f.lastDynamicId = null;
+        if (f.lastLiveStatus === undefined) f.lastLiveStatus = 0;
+        return f;
+    }
+
+    /**
+     * Helper to get safe ID from follower object
+     */
+    getFollowerId(f) {
+        if (!f) return '';
+        return String(f.mid || f.uid || f.id || '');
+    }
+
+    /**
      * 异步加载粉丝数据
      */
     async _loadFollowers() {
         if (await this._fileExists(this.followersFile)) {
             try {
                 const data = await storageUtils.safeReadJSON(this.followersFile, {});
-                
+
                 // Compatibility check: if it's an array (old format), migrate it or discard
                 if (Array.isArray(data)) {
                     logger.warn('[SubscriptionManager] Old array format detected in subfollowers.json. Data will be reset on next sync.');
@@ -183,6 +201,13 @@ class SubscriptionManager {
                 } else {
                     this.cookieFollowings = data.followings || {};
                     this.groupToAccountMap = data.groupMap || {};
+
+                    // Normalize state for all loaded followers
+                    for (const uid in this.cookieFollowings) {
+                        if (Array.isArray(this.cookieFollowings[uid])) {
+                            this.cookieFollowings[uid].forEach(f => this._normalizeFollowerState(f));
+                        }
+                    }
                 }
                 logger.info(`[SubscriptionManager] Loaded followers for ${Object.keys(this.cookieFollowings).length} accounts.`);
             } catch (e) {
@@ -216,7 +241,7 @@ class SubscriptionManager {
         const oldFollowings = this.cookieFollowings[uidStr] || [];
 
         // Helper to get ID from follower object safely
-        const getId = (f) => String(f.mid || f.uid || f.id || '');
+        const getId = this.getFollowerId.bind(this);
 
         // Index old followers
         const oldMap = new Map();
@@ -234,8 +259,8 @@ class SubscriptionManager {
                 // Preserve state
                 return {
                     ...newF,
-                    lastDynamicId: oldF.lastDynamicId,
-                    lastLiveStatus: oldF.lastLiveStatus
+                    lastDynamicId: oldF.lastDynamicId !== undefined ? oldF.lastDynamicId : null,
+                    lastLiveStatus: oldF.lastLiveStatus !== undefined ? oldF.lastLiveStatus : 0
                 };
             } else {
                 // Initialize state
@@ -263,7 +288,7 @@ class SubscriptionManager {
         const followings = this.cookieFollowings[accountStr];
         if (!followings) return;
 
-        const follower = followings.find(f => String(f.mid || f.uid || f.id) === targetStr);
+        const follower = followings.find(f => this.getFollowerId(f) === targetStr);
         if (follower) {
             Object.assign(follower, updates);
             this._saveFollowers().catch(err => {

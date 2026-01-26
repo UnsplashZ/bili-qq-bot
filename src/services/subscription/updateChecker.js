@@ -78,11 +78,20 @@ class UpdateChecker {
         // Ensure subscriptions are loaded before checking
         await subscriptionManager._ensureSubscriptionsLoaded();
 
+        // Prepare set to track UIDs covered by feed check (to avoid duplicate check)
+        const feedMonitoredUids = new Set();
+
         // 1. Check Feed Updates (Cookie Sync)
-        await this.checkFeedUpdate();
+        // This will populate feedMonitoredUids with UIDs that were checked via feed
+        await this.checkFeedUpdate(feedMonitoredUids);
 
         // 2. Check User Dynamics (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
+            // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
             await this.checkUserDynamic(sub);
             // Small delay to be nice to API
             await new Promise(r => setTimeout(r, 1000));
@@ -90,6 +99,11 @@ class UpdateChecker {
 
         // 3. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
+             // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
             await this.checkUserLive(sub);
             await new Promise(r => setTimeout(r, 1000));
         }
@@ -104,7 +118,7 @@ class UpdateChecker {
         await this.refreshMissingNames();
     }
 
-    async checkFeedUpdate() {
+    async checkFeedUpdate(monitoredUidsSet = null) {
         const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
             config.getGroupConfig(gid, 'enableCookieSync')
         );
@@ -124,6 +138,15 @@ class UpdateChecker {
         // Loop through accounts
         for (const [uid, groupId] of accountGroups) {
             try {
+                // Collect UIDs monitored by this account
+                if (monitoredUidsSet) {
+                    const followers = subscriptionManager.cookieFollowings[String(uid)] || [];
+                    followers.forEach(f => {
+                         const fid = subscriptionManager.getFollowerId(f);
+                         if (fid) monitoredUidsSet.add(fid);
+                    });
+                }
+
                 // Process Dynamic Feed
                 await this.processDynamicFeed(uid, groupId);
 
@@ -142,7 +165,8 @@ class UpdateChecker {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
         if (!followers || followers.length === 0) return;
 
-        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        // Use safe ID generation
+        const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let offset = '';
         let hasMore = true;
         let page = 0;
@@ -191,7 +215,7 @@ class UpdateChecker {
                 }
 
                 if (isNew) {
-                    const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+                    const targetGroups = this.findTargetGroupsForUser(accountUid, follower);
 
                     if (targetGroups.length > 0) {
                         // Notify
@@ -246,7 +270,8 @@ class UpdateChecker {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
         if (!followers) return;
 
-        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        // Use safe ID generation
+        const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let stateChanged = false;
 
         for (const item of liveList) {
@@ -258,7 +283,7 @@ class UpdateChecker {
 
             // Check if status changed from 0 to 1
             if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
-                const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+                const targetGroups = this.findTargetGroupsForUser(accountUid, follower);
 
                 if (targetGroups.length > 0) {
                     const roomUrl = item.link;
@@ -309,10 +334,11 @@ class UpdateChecker {
         }
     }
 
-    findTargetGroupsForFollower(accountUid, follower) {
+    findTargetGroupsForUser(accountUid, follower) {
         const targetGroups = [];
+        const followerId = subscriptionManager.getFollowerId(follower);
 
-        // Find all groups bound to this account
+        // 1. Find all groups bound to this account (Cookie Sync)
         for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
             if (uid !== String(accountUid)) continue;
 
@@ -330,6 +356,19 @@ class UpdateChecker {
             }
 
             targetGroups.push(gid);
+        }
+
+        // 2. Find manual subscriptions for this user (Group Subscription)
+        // Even if the group didn't enable sync, if they manually subscribed, they should get it.
+        // And since we are in the Feed flow, we know this user updated.
+        const manualSub = subscriptionManager.userSubs.find(s => String(s.uid) === followerId);
+        if (manualSub) {
+            manualSub.groupIds.forEach(gid => {
+                // Deduplicate: avoid adding if already added via sync
+                if (!targetGroups.includes(String(gid))) {
+                    targetGroups.push(String(gid));
+                }
+            });
         }
 
         return targetGroups;
