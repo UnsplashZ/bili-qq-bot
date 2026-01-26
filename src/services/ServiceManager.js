@@ -13,7 +13,7 @@ class ServiceManager {
 
         this.process = null;
         this.port = config.biliServerPort || 10001;
-        this.scriptPath = path.join(__dirname, 'bili_server.py');
+        this.scriptPath = path.resolve(process.cwd(), config.biliScriptPath || 'src/services/bili_server.py');
         this.baseUrl = `http://127.0.0.1:${this.port}`;
         this.lastRequestTime = Date.now();
         this.isRestarting = false;

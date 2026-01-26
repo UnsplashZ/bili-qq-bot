@@ -210,7 +210,12 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
     try {
         const groupId = req.params.id;
         const subs = await subscriptionService.getSubscriptionsByGroup(groupId);
-        res.json(subs);
+        // Merge users and bangumis into a single array
+        const mergedSubs = [
+            ...(subs.users || []).map(u => ({ ...u, type: 'user', value: u.uid })),
+            ...(subs.bangumis || []).map(b => ({ ...b, type: 'bangumi', value: b.seasonId }))
+        ];
+        res.json(mergedSubs);
     } catch (error) {
         logger.error(`Error fetching subscriptions for group ${req.params.id}:`, error);
         res.status(500).json({ error: 'Failed to fetch subscriptions' });
@@ -228,12 +233,12 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
         }
 
         let resultName;
-        if (type === 'video' || type === 'live' || type === 'user') {
+        if (type === 'user') {
             resultName = await subscriptionService.addUserSubscription(value, groupId);
         } else if (type === 'bangumi') {
             resultName = await subscriptionService.addBangumiSubscription(value, groupId);
         } else {
-            return res.status(400).json({ error: 'Invalid subscription type' });
+            return res.status(400).json({ error: 'Invalid subscription type. Must be "user" or "bangumi".' });
         }
 
         res.json({ message: 'Subscription added', name: resultName });
@@ -256,12 +261,12 @@ router.delete('/groups/:id/subscriptions', async (req, res) => {
         }
 
         let success = false;
-        if (type === 'video' || type === 'live' || type === 'user') {
+        if (type === 'user') {
             success = await subscriptionService.removeUserSubscription(value, groupId);
         } else if (type === 'bangumi') {
             success = await subscriptionService.removeBangumiSubscription(value, groupId);
         } else {
-            return res.status(400).json({ error: 'Invalid subscription type' });
+            return res.status(400).json({ error: 'Invalid subscription type. Must be "user" or "bangumi".' });
         }
 
         if (success) {

@@ -3,7 +3,7 @@ import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
-import { useToast } from '../components/ToastProvider';
+import { useToast } from '../hooks/useToast';
 import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -34,7 +34,7 @@ function Groups() {
   const [subscriptions, setSubscriptions] = useState([]);
   const [subsLoading, setSubsLoading] = useState(false);
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
-  const [subForm, setSubForm] = useState({ type: 'video', value: '' });
+  const [subForm, setSubForm] = useState({ type: 'user', value: '' });
 
   // Blacklist State
   const [blacklistInput, setBlacklistInput] = useState('');
@@ -56,6 +56,20 @@ function Groups() {
       setLoading(false);
     }
   };
+
+  const fetchSubscriptions = useCallback(async (groupId) => {
+    if (!groupId) return;
+    setSubsLoading(true);
+    try {
+      const res = await api.get(`/api/groups/${groupId}/subscriptions`);
+      setSubscriptions(res.data || []);
+    } catch (error) {
+      console.error('Failed to fetch subscriptions', error);
+      show('获取订阅列表失败', 'error');
+    } finally {
+      setSubsLoading(false);
+    }
+  }, [show]);
 
   useEffect(() => {
     if (selectedGroupId) {
@@ -87,7 +101,7 @@ function Groups() {
         }
       }
     }
-  }, [selectedGroupId, groups]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -95,20 +109,6 @@ function Groups() {
           fetchSubscriptions(selectedGroupId);
       }
   }, [selectedTabIndex, selectedGroupId, fetchSubscriptions]);
-
-  const fetchSubscriptions = useCallback(async (groupId) => {
-    if (!groupId) return;
-    setSubsLoading(true);
-    try {
-      const res = await api.get(`/api/groups/${groupId}/subscriptions`);
-      setSubscriptions(res.data || []);
-    } catch (error) {
-      console.error('Failed to fetch subscriptions', error);
-      show('获取订阅列表失败', 'error');
-    } finally {
-      setSubsLoading(false);
-    }
-  }, [show]);
 
   const handleToggleGroup = async (e, group) => {
     e.stopPropagation();
@@ -165,7 +165,7 @@ function Groups() {
           await api.post(`/api/groups/${selectedGroupId}/subscriptions`, subForm);
           show('添加订阅成功', 'success');
           setIsSubModalOpen(false);
-          setSubForm({ type: 'video', value: '' });
+          setSubForm({ type: 'user', value: '' });
           fetchSubscriptions(selectedGroupId);
       } catch (err) {
           console.error(err);
@@ -235,10 +235,8 @@ function Groups() {
   ];
 
   const subTypes = [
-      { value: 'video', label: '视频更新' },
-      { value: 'live', label: '直播开播' },
-      { value: 'bangumi', label: '番剧更新' },
-      { value: 'dynamic', label: '动态更新' },
+      { value: 'user', label: 'UP主' },
+      { value: 'bangumi', label: '番剧' },
   ];
 
   return (
@@ -344,7 +342,7 @@ function Groups() {
                         </label>
 
                         <div>
-                            <span className="text-gray-300 text-sm font-medium mb-2 block">内容过滤 (标签配置)</span>
+                            <span className="text-gray-300 text-sm font-medium mb-2 block">预览卡片标签开关</span>
                             <div className="grid grid-cols-2 gap-3">
                                 {Object.keys(formData.labelConfig).map(key => (
                                     <label key={key} className="flex items-center gap-2 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
@@ -390,7 +388,7 @@ function Groups() {
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-white/5 text-gray-400 font-medium">
                                     <tr>
-                                        <th className="p-3">类型</th>
+                                        <th className="p-3">用户</th>
                                         <th className="p-3">值 / ID</th>
                                         <th className="p-3 text-right">操作</th>
                                     </tr>
@@ -401,7 +399,16 @@ function Groups() {
                                             <td className="p-3 text-blue-400">
                                                 {subTypes.find(t => t.value === sub.type)?.label || sub.type}
                                             </td>
-                                            <td className="p-3 text-white font-mono">{sub.value}</td>
+                                            <td className="p-3 text-white">
+                                                {sub.name ? (
+                                                    <div>
+                                                        <div className="font-medium">{sub.name}</div>
+                                                        <div className="text-xs text-gray-400 font-mono">{sub.value}</div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="font-mono">{sub.value}</div>
+                                                )}
+                                            </td>
                                             <td className="p-3 text-right">
                                                 <button
                                                     onClick={() => handleDeleteSubscription(sub)}
@@ -559,7 +566,7 @@ function Groups() {
                     type="text"
                     value={subForm.value}
                     onChange={(e) => setSubForm({...subForm, value: e.target.value})}
-                    placeholder="请输入 UID 或房间号"
+                    placeholder={subForm.type === 'user' ? '请输入用户UID' : '请输入SSID'}
                     className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                 />
             </div>

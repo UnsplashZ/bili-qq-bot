@@ -6,6 +6,7 @@ const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
 const mcpManager = require('./services/mcpManager');
 const ServiceManager = require('./services/ServiceManager');
+const dashboardServer = require('./dashboard/server');
 
 // WebSocket连接管理
 let ws = null;
@@ -132,6 +133,12 @@ async function gracefulShutdown() {
         }
     }
 
+    try {
+        dashboardServer.stop();
+    } catch (e) {
+        logger.error('Error stopping Dashboard Server:', e);
+    }
+
     logger.info('Shutdown complete');
     process.exit(0);
 }
@@ -155,5 +162,13 @@ process.on('SIGTERM', gracefulShutdown);
     } catch (e) {
         logger.error('Failed to initialize MCP Manager:', e);
     }
+
+    try {
+        logger.info('Starting Dashboard Server...');
+        await dashboardServer.start(config.dashboardPort);
+    } catch (e) {
+        logger.error('Failed to start Dashboard Server:', e);
+    }
+
     createWebSocketConnection();
 })();

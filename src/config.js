@@ -39,6 +39,15 @@ const config = {
     
     // System Paths & Admin
     pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? path.join(__dirname, '../venv/bin/python') : 'python3'),
+    dashboardPort: parseInt(process.env.DASHBOARD_PORT || "3000"),
+    dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin', // Default password if not set
+    jwtSecret: process.env.JWT_SECRET || (() => {
+        const crypto = require('crypto');
+        const secret = crypto.randomBytes(32).toString('hex');
+        process.env.JWT_SECRET = secret; // Set it back to env for consistency
+        require('./utils/logger').warn('JWT_SECRET not set in .env, generated a temporary random secret. Tokens will be invalid after restart.');
+        return secret;
+    })(),
     biliServerPort: parseInt(process.env.BILI_SERVER_PORT || "10001"),
 
     biliScriptPath: './src/services/bili_server.py',
