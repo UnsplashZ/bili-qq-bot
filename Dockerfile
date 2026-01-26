@@ -68,6 +68,9 @@ RUN npm config set registry https://registry.npmmirror.com && npm ci \
 # 7. 复制项目源代码
 COPY . .
 
+# Build dashboard
+RUN cd dashboard && npm install --registry=https://registry.npmmirror.com && npm run build
+
 # 创建必要的目录
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 

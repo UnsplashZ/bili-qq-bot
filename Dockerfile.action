@@ -45,6 +45,9 @@ RUN npm ci && npm cache clean --force
 
 # 5. 复制代码
 COPY . .
+
+# Build dashboard
+RUN cd dashboard && npm install && npm run build
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
