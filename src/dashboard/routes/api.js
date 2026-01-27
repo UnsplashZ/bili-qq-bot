@@ -193,28 +193,49 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
+        // 验证AI配置覆盖（如果提供）
+        if (updates.hasOwnProperty('aiProbability') && updates.aiProbability !== null) {
+            const prob = parseFloat(updates.aiProbability);
+            if (isNaN(prob) || prob < 0 || prob > 1) {
+                return res.status(400).json({ error: 'aiProbability must be between 0 and 1' });
+            }
+            updates.aiProbability = prob;
+        }
+
+        if (updates.hasOwnProperty('aiContextLimit') && updates.aiContextLimit !== null) {
+            const limit = parseInt(updates.aiContextLimit, 10);
+            if (isNaN(limit) || limit < 1 || limit > 100) {
+                return res.status(400).json({ error: 'aiContextLimit must be between 1 and 100' });
+            }
+            updates.aiContextLimit = limit;
+        }
+
         if (!sysConfig.groupConfigs) {
             sysConfig.groupConfigs = {};
         }
 
-        // Merging logic: Update provided fields, keep others
-        sysConfig.groupConfigs[groupId] = {
-            ...(sysConfig.groupConfigs[groupId] || {}),
-            ...updates
-        };
-
-        // 特殊处理AI配置：null表示清除覆盖，使用全局默认
-        if (updates.hasOwnProperty('aiProbability')) {
-            if (updates.aiProbability === null) {
+        // 清理null值（表示使用全局默认）- 在合并前处理
+        const cleanedUpdates = { ...updates };
+        if (updates.hasOwnProperty('aiProbability') && updates.aiProbability === null) {
+            delete cleanedUpdates.aiProbability;
+            // 从现有配置中删除
+            if (sysConfig.groupConfigs[groupId]) {
                 delete sysConfig.groupConfigs[groupId].aiProbability;
             }
         }
-
-        if (updates.hasOwnProperty('aiContextLimit')) {
-            if (updates.aiContextLimit === null) {
+        if (updates.hasOwnProperty('aiContextLimit') && updates.aiContextLimit === null) {
+            delete cleanedUpdates.aiContextLimit;
+            // 从现有配置中删除
+            if (sysConfig.groupConfigs[groupId]) {
                 delete sysConfig.groupConfigs[groupId].aiContextLimit;
             }
         }
+
+        // 合并更新（已清理null值）
+        sysConfig.groupConfigs[groupId] = {
+            ...(sysConfig.groupConfigs[groupId] || {}),
+            ...cleanedUpdates
+        };
 
         sysConfig.save();
 

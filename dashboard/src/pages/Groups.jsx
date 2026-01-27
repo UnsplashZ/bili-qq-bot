@@ -59,6 +59,7 @@ function Groups() {
     aiProbability: 0.1,
     aiContextLimit: 10
   });
+  const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
 
   useEffect(() => {
     fetchGroups();
@@ -67,6 +68,7 @@ function Groups() {
   // 在 useEffect 中加载全局配置
   useEffect(() => {
     const fetchGlobalConfig = async () => {
+      setGlobalConfigLoading(true);
       try {
         const res = await api.get('/api/config');
         if (res.data) {
@@ -77,6 +79,8 @@ function Groups() {
         }
       } catch (err) {
         console.error('Failed to fetch global config:', err);
+      } finally {
+        setGlobalConfigLoading(false);
       }
     };
     fetchGlobalConfig();
@@ -672,12 +676,20 @@ function Groups() {
                             min="0"
                             max="1"
                             value={formData.aiProbability ?? ''}
-                            placeholder={`全局默认: ${Math.round(globalAiConfig.aiProbability * 100)}%`}
-                            onChange={(e) => setFormData({
-                              ...formData,
-                              aiProbability: e.target.value ? parseFloat(e.target.value) : null
-                            })}
-                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30"
+                            placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${Math.round(globalAiConfig.aiProbability * 100)}%`}
+                            disabled={globalConfigLoading}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === '') {
+                                setFormData({ ...formData, aiProbability: null });
+                              } else {
+                                const parsed = parseFloat(value);
+                                if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+                                  setFormData({ ...formData, aiProbability: parsed });
+                                }
+                              }
+                            }}
+                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
                           />
                           <span className="text-white/70 min-w-[60px]">
                             {formData.aiProbability !== null
@@ -700,12 +712,20 @@ function Groups() {
                           min="1"
                           max="100"
                           value={formData.aiContextLimit ?? ''}
-                          placeholder={`全局默认: ${globalAiConfig.aiContextLimit}`}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            aiContextLimit: e.target.value ? parseInt(e.target.value) : null
-                          })}
-                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30"
+                          placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${globalAiConfig.aiContextLimit}`}
+                          disabled={globalConfigLoading}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === '') {
+                              setFormData({ ...formData, aiContextLimit: null });
+                            } else {
+                              const parsed = parseInt(value, 10);
+                              if (!isNaN(parsed) && parsed >= 1 && parsed <= 100) {
+                                setFormData({ ...formData, aiContextLimit: parsed });
+                              }
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <p className="text-xs text-white/50">
                           AI对话时记忆的上下文轮数，影响token消耗
