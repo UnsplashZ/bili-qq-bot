@@ -7,133 +7,240 @@ const CONFIG_DIR = path.join(__dirname, '../config');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
-let configData = {};
+// ============================================================================
+// LAYERED CONFIG ARCHITECTURE
+// ============================================================================
+// Priority: Override (config.json) > Environment Variable > Default
+// - _overrides: User-modified values (loaded from and saved to config.json)
+// - META: Defines all config keys with { env, def, type, lazyInit }
+// - Dynamic getters/setters for each config key
+// ============================================================================
+
+// Load overrides from config.json
+let _overrides = {};
 if (fs.existsSync(CONFIG_PATH)) {
     try {
-        configData = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        _overrides = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
         logger.error('[Config] Failed to load config.json', e);
     }
 }
 
+// Type parsers
+const parsers = {
+    string: (val) => String(val),
+    int: (val) => {
+        const parsed = parseInt(val, 10);
+        return isNaN(parsed) ? 0 : parsed;
+    },
+    float: (val) => {
+        const parsed = parseFloat(val);
+        return isNaN(parsed) ? 0.0 : parsed;
+    },
+    bool: (val) => {
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'string') {
+            const lower = val.toLowerCase().trim();
+            if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+            if (lower === 'false' || lower === '0' || lower === 'no') return false;
+        }
+        return Boolean(val);
+    },
+    array: (val) => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') {
+            try {
+                const parsed = JSON.parse(val);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    },
+    object: (val) => {
+        if (typeof val === 'object' && val !== null) return val;
+        if (typeof val === 'string') {
+            try {
+                const parsed = JSON.parse(val);
+                return typeof parsed === 'object' ? parsed : {};
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    }
+};
+
+function parseValue(val, type) {
+    if (val === undefined || val === null) return val;
+    const parser = parsers[type];
+    return parser ? parser(val) : val;
+}
+
+// META: Configuration schema
+// - env: Environment variable name
+// - def: Default value
+// - type: Type for parsing (string, int, float, bool, array, object)
+// - lazyInit: If true, initialize from default on first access and persist reference
+//             (Use for mutable state like arrays/objects that get modified)
+const META = {
+    // WebSocket Configuration
+    wsUrl: { env: 'WS_URL', def: 'ws://localhost:3001', type: 'string' },
+    wsToken: { env: 'WS_TOKEN', def: '', type: 'string' },
+
+    // AI LLM Configuration
+    aiApiUrl: { env: 'AI_API_URL', def: 'https://api.openai.com/v1/chat/completions', type: 'string' },
+    aiApiKey: { env: 'AI_API_KEY', def: '', type: 'string' },
+    aiModel: { env: 'AI_MODEL', def: 'gpt-3.5-turbo', type: 'string' },
+    aiSystemPrompt: { env: 'AI_SYSTEM_PROMPT', def: '你是一个有用的助手。', type: 'string' },
+    aiProbability: { env: 'AI_PROBABILITY', def: 0.1, type: 'float' },
+    aiContextLimit: { env: null, def: 10, type: 'int' },
+
+    // AI Embedding Configuration
+    aiEmbeddingApiUrl: {
+        env: 'AI_EMBEDDING_API_URL',
+        def: 'https://api.openai.com/v1/embeddings',
+        type: 'string',
+        // Special handling: auto-infer from AI_API_URL if not provided
+        get: function() {
+            if ('aiEmbeddingApiUrl' in _overrides) return _overrides.aiEmbeddingApiUrl;
+            const envVal = process.env.AI_EMBEDDING_API_URL;
+            if (envVal) return envVal;
+            // Auto-infer from AI_API_URL
+            const aiApiUrl = process.env.AI_API_URL;
+            if (aiApiUrl) {
+                return aiApiUrl.replace('/chat/completions', '/embeddings');
+            }
+            return this.def;
+        }
+    },
+    aiEmbeddingApiKey: {
+        env: 'AI_EMBEDDING_API_KEY',
+        def: '',
+        type: 'string',
+        // Special handling: fallback to AI_API_KEY
+        get: function() {
+            if ('aiEmbeddingApiKey' in _overrides) return _overrides.aiEmbeddingApiKey;
+            const envVal = process.env.AI_EMBEDDING_API_KEY;
+            if (envVal) return envVal;
+            // Fallback to main AI key
+            return process.env.AI_API_KEY || '';
+        }
+    },
+    aiEmbeddingModel: { env: 'AI_EMBEDDING_MODEL', def: 'text-embedding-3-small', type: 'string' },
+
+    // AI Proxy Configuration
+    aiChatProxy: {
+        env: 'AI_CHAT_PROXY',
+        def: '',
+        type: 'string',
+        // Special handling: fallback to AI_PROXY
+        get: function() {
+            if ('aiChatProxy' in _overrides) return _overrides.aiChatProxy;
+            const envVal = process.env.AI_CHAT_PROXY;
+            if (envVal) return envVal;
+            return process.env.AI_PROXY || '';
+        }
+    },
+    aiEmbeddingProxy: {
+        env: 'AI_EMBEDDING_PROXY',
+        def: '',
+        type: 'string',
+        // Special handling: fallback to AI_PROXY
+        get: function() {
+            if ('aiEmbeddingProxy' in _overrides) return _overrides.aiEmbeddingProxy;
+            const envVal = process.env.AI_EMBEDDING_PROXY;
+            if (envVal) return envVal;
+            return process.env.AI_PROXY || '';
+        }
+    },
+
+    // AI Memory Configuration
+    aiHistoryMaxSize: { env: null, def: 200 * 1024 * 1024, type: 'int' },
+    aiVectorMaxSize: { env: null, def: 200 * 1024 * 1024, type: 'int' },
+    aiVectorSimilarityThreshold: { env: null, def: 0.4, type: 'float' },
+    aiVectorSearchLimit: { env: null, def: 3, type: 'int' },
+    aiShortMessageThreshold: { env: null, def: 5, type: 'int' },
+    aiMemorySafetyLimit: { env: null, def: 5000, type: 'int' },
+    aiVectorMemoryLimit: { env: null, def: 10000, type: 'int' },
+    aiTrimRatio: { env: null, def: 0.1, type: 'float' },
+    aiVectorBatchLoadSize: { env: null, def: 1000, type: 'int' },
+    aiEnableVectorCache: { env: null, def: true, type: 'bool' },
+    aiEnableSmartTrim: { env: null, def: true, type: 'bool' },
+
+    // System Configuration
+    pythonPath: {
+        env: 'PYTHON_PATH',
+        def: 'python3',
+        type: 'string',
+        // Special handling: check for venv
+        get: function() {
+            if ('pythonPath' in _overrides) return _overrides.pythonPath;
+            const envVal = process.env.PYTHON_PATH;
+            if (envVal) return envVal;
+            const venvPath = path.join(__dirname, '../venv/bin/python');
+            if (fs.existsSync(venvPath)) return venvPath;
+            return this.def;
+        }
+    },
+    dashboardPort: { env: 'DASHBOARD_PORT', def: 3000, type: 'int' },
+    dashboardPassword: { env: 'DASHBOARD_PASSWORD', def: 'admin', type: 'string' },
+    jwtSecret: {
+        env: 'JWT_SECRET',
+        def: '',
+        type: 'string',
+        // Special handling: generate random secret if not set
+        get: function() {
+            if ('jwtSecret' in _overrides) return _overrides.jwtSecret;
+            let envVal = process.env.JWT_SECRET;
+            if (envVal) return envVal;
+            // Generate random secret
+            const crypto = require('crypto');
+            const secret = crypto.randomBytes(32).toString('hex');
+            process.env.JWT_SECRET = secret;
+            logger.warn('JWT_SECRET not set in .env, generated a temporary random secret. Tokens will be invalid after restart.');
+            return secret;
+        }
+    },
+    biliServerPort: { env: 'BILI_SERVER_PORT', def: 10001, type: 'int' },
+    biliScriptPath: { env: null, def: './src/services/bili_server.py', type: 'string' },
+    adminQQ: { env: 'ADMIN_QQ', def: undefined, type: 'string' },
+    useBase64Send: { env: 'USE_BASE64_SEND', def: false, type: 'bool' },
+    napcatTempPath: { env: 'NAPCAT_TEMP_PATH', def: '/app/.config/QQ/tmp/', type: 'string' },
+    napcatReadPath: { env: 'NAPCAT_READ_PATH', def: '/app/.config/QQ/tmp/', type: 'string' },
+
+    // Dynamic Configuration (typically modified at runtime)
+    linkCacheTimeout: { env: null, def: 600, type: 'int' },
+    dataCacheTTL: { env: 'DATA_CACHE_TTL', def: 3600, type: 'int' },
+    subscriptionCheckInterval: { env: null, def: 60, type: 'int' },
+    showId: { env: null, def: true, type: 'bool' },
+
+    // State Arrays (lazyInit = true for reference stability)
+    blacklistedQQs: { env: null, def: [], type: 'array', lazyInit: true },
+    enabledGroups: { env: null, def: [], type: 'array', lazyInit: true },
+
+    // State Objects (lazyInit = true for reference stability)
+    nightMode: {
+        env: null,
+        def: { mode: 'off', startTime: '21:00', endTime: '06:00' },
+        type: 'object',
+        lazyInit: true
+    },
+    labelConfig: {
+        env: null,
+        def: { video: true, bangumi: true, article: true, live: true, dynamic: true, user: true },
+        type: 'object',
+        lazyInit: true
+    },
+    groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true }
+};
+
+// Build the config object with dynamic getters/setters
 const config = {
-    // --- Environment Variables (.env) ---
-    // NapCat WebSocket URL
-    wsUrl: process.env.WS_URL || 'ws://localhost:3001',
-    wsToken: process.env.WS_TOKEN || '',
-    
-    // AI Config (Prioritize dynamic config over env)
-    aiApiUrl: configData.aiApiUrl || process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions',
-    aiApiKey: configData.aiApiKey || process.env.AI_API_KEY || '',
-    aiModel: configData.aiModel || process.env.AI_MODEL || 'gpt-3.5-turbo',
-    // Auto-infer embedding URL from API URL if not provided
-    aiEmbeddingApiUrl: configData.aiEmbeddingApiUrl || process.env.AI_EMBEDDING_API_URL || (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings'),
-    // Use dedicated embedding key if provided, otherwise fallback to main AI key
-    aiEmbeddingApiKey: configData.aiEmbeddingApiKey || process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '',
-    aiEmbeddingModel: configData.aiEmbeddingModel || process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
-    // Proxy Config
-    aiChatProxy: configData.aiChatProxy || process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '',
-    aiEmbeddingProxy: configData.aiEmbeddingProxy || process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '',
-    aiProbability: configData.aiProbability !== undefined ? configData.aiProbability : parseFloat(process.env.AI_PROBABILITY || '0.1'),
-    aiSystemPrompt: configData.aiSystemPrompt || process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
-    
-    // System Paths & Admin
-    pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? path.join(__dirname, '../venv/bin/python') : 'python3'),
-    dashboardPort: parseInt(process.env.DASHBOARD_PORT || "3000"),
-    dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin', // Default password if not set
-    jwtSecret: process.env.JWT_SECRET || (() => {
-        const crypto = require('crypto');
-        const secret = crypto.randomBytes(32).toString('hex');
-        process.env.JWT_SECRET = secret; // Set it back to env for consistency
-        require('./utils/logger').warn('JWT_SECRET not set in .env, generated a temporary random secret. Tokens will be invalid after restart.');
-        return secret;
-    })(),
-    biliServerPort: parseInt(process.env.BILI_SERVER_PORT || "10001"),
-
-    biliScriptPath: './src/services/bili_server.py',
-    adminQQ: process.env.ADMIN_QQ,
-    useBase64Send: process.env.USE_BASE64_SEND === 'true',
-    // NapCat temporary file path (host path mapped to container)
-    napcatTempPath: process.env.NAPCAT_TEMP_PATH || '/app/.config/QQ/tmp/',
-    // Path sent to NapCat (where NapCat looks for the file inside ITS container)
-    napcatReadPath: process.env.NAPCAT_READ_PATH || '/app/.config/QQ/tmp/',
-
-    // --- Dynamic Configuration (config.json) ---
-    // AI Context Limit (Number of messages sent to API)
-    aiContextLimit: configData.aiContextLimit || 10,
-
-    // AI History File Size Limit in Bytes (default 200MB)
-    aiHistoryMaxSize: configData.aiHistoryMaxSize || 200 * 1024 * 1024,
-
-    // AI Vector Memory File Size Limit in Bytes (default 200MB)
-    aiVectorMaxSize: configData.aiVectorMaxSize || 200 * 1024 * 1024,
-
-    // Vector Memory Configuration
-    // Similarity threshold for vector search (0-1, higher = stricter match)
-    aiVectorSimilarityThreshold: configData.aiVectorSimilarityThreshold !== undefined ? configData.aiVectorSimilarityThreshold : 0.4,
-
-    // Number of relevant memories to return in search
-    aiVectorSearchLimit: configData.aiVectorSearchLimit || 3,
-
-    // Minimum message length to save as memory (characters)
-    aiShortMessageThreshold: configData.aiShortMessageThreshold || 5,
-
-    // Maximum number of messages to keep in memory before safety trim
-    aiMemorySafetyLimit: configData.aiMemorySafetyLimit || 5000,
-
-    // Maximum number of vector memories to keep in memory before eviction
-    aiVectorMemoryLimit: configData.aiVectorMemoryLimit || 10000,
-
-    // Ratio of items to remove during trim (0-1, default 0.1 = 10%)
-    aiTrimRatio: configData.aiTrimRatio !== undefined ? configData.aiTrimRatio : 0.1,
-
-    // Performance Configuration
-    // Batch size for loading vectors (not used for now, reserved for future)
-    aiVectorBatchLoadSize: configData.aiVectorBatchLoadSize || 1000,
-
-    // Enable vector search caching for performance
-    aiEnableVectorCache: configData.aiEnableVectorCache !== false,
-
-    // Enable smart memory retention strategy (vs simple FIFO)
-    aiEnableSmartTrim: configData.aiEnableSmartTrim !== false,
-
-    // Blacklist QQ numbers
-    blacklistedQQs: configData.blacklistedQQs || [],
-
-    // Enabled Groups (empty means all allowed)
-    enabledGroups: configData.enabledGroups || [],
-
-    // Link processing cache timeout in seconds
-    linkCacheTimeout: parseInt(configData.linkCacheTimeout || 600),
-
-    // Data persistence cache TTL in seconds (default 3600s / 1 hour)
-    dataCacheTTL: parseInt(process.env.DATA_CACHE_TTL || '3600'),
-
-    // Subscription check interval in seconds
-    subscriptionCheckInterval: parseInt(configData.subscriptionCheckInterval || 60),
-
-    // Night Mode Config
-    nightMode: configData.nightMode || {
-        mode: 'off', // 'on', 'off', 'timed'
-        startTime: '21:00',
-        endTime: '06:00'
-    },
-
-    // Label Config (Show/Hide top-left label)
-    labelConfig: configData.labelConfig || {
-        video: true,
-        bangumi: true,
-        article: true,
-        live: true,
-        dynamic: true,
-        user: true
-    },
-
-    // Show ID Config (Toggle UID display)
-    showId: configData.showId !== undefined ? configData.showId : true,
-
-    // Group Configs (overrides global settings per group)
-    groupConfigs: configData.groupConfigs || {},
+    // Internal state
+    _overrides,
+    _saveTimer: null,
 
     // Helper to get config value for a group
     getGroupConfig: function(groupId, key) {
@@ -159,7 +266,7 @@ const config = {
         if (!this.groupConfigs[groupId]) {
             this.groupConfigs[groupId] = {};
         }
-        
+
         // Ensure it's an array
         if (!Array.isArray(this.groupConfigs[groupId][key])) {
             this.groupConfigs[groupId][key] = [];
@@ -177,7 +284,7 @@ const config = {
     // Helper to remove value from a group config array
     removeGroupConfigArray: function(groupId, key, value) {
         if (!groupId || !this.groupConfigs[groupId]) return false;
-        
+
         const arr = this.groupConfigs[groupId][key];
         if (Array.isArray(arr)) {
             const index = arr.indexOf(value);
@@ -198,7 +305,7 @@ const config = {
     isGroupAdmin: function(groupId, userId) {
         if (this.isRootAdmin(userId)) return true;
         if (!groupId) return false;
-        
+
         const groupConfig = this.groupConfigs[groupId];
         if (groupConfig && groupConfig.admins && Array.isArray(groupConfig.admins)) {
             return groupConfig.admins.includes(userId.toString());
@@ -211,7 +318,7 @@ const config = {
         if (!groupId || !userId) return false;
         if (!this.groupConfigs[groupId]) this.groupConfigs[groupId] = {};
         if (!this.groupConfigs[groupId].admins) this.groupConfigs[groupId].admins = [];
-        
+
         const strId = userId.toString();
         if (!this.groupConfigs[groupId].admins.includes(strId)) {
             this.groupConfigs[groupId].admins.push(strId);
@@ -224,7 +331,7 @@ const config = {
     removeGroupAdmin: function(groupId, userId) {
         if (!groupId || !userId) return false;
         if (!this.groupConfigs[groupId] || !this.groupConfigs[groupId].admins) return false;
-        
+
         const strId = userId.toString();
         const index = this.groupConfigs[groupId].admins.indexOf(strId);
         if (index > -1) {
@@ -257,42 +364,21 @@ const config = {
         this.save();
     },
 
-    // Delete specific keys from configuration and file
+    // Delete specific keys from overrides and revert to env/default
     deleteKeys: function(keys) {
         if (!Array.isArray(keys)) return;
 
-        // 1. Remove from in-memory object
+        // Remove from overrides
         keys.forEach(key => {
-            delete this[key];
+            delete _overrides[key];
         });
 
-        // 2. Remove from config.json
-        if (fs.existsSync(CONFIG_PATH)) {
-            try {
-                const currentConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-                let changed = false;
-                keys.forEach(key => {
-                    if (Object.prototype.hasOwnProperty.call(currentConfig, key)) {
-                        delete currentConfig[key];
-                        changed = true;
-                    }
-                });
-
-                if (changed) {
-                    fs.writeFileSync(CONFIG_PATH, JSON.stringify(currentConfig, null, 2), 'utf8');
-                    logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
-                }
-            } catch (e) {
-                logger.error('[Config] Failed to update config.json during reset', e);
-            }
-        }
+        // Save changes
+        this._performSave();
+        logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
     },
 
-    // Save configuration to file (Only dynamic fields)
-    // Uses a debounced queue to prevent excessive disk writes
-    _saveTimer: null,
-    _saveQueued: false,
-
+    // Save configuration to file (Only overrides)
     save: function() {
         // Clear existing timer if any
         if (this._saveTimer) {
@@ -306,40 +392,8 @@ const config = {
     },
 
     _performSave: function() {
-        const data = {
-            // AI Configuration (Dynamic override)
-            aiApiUrl: this.aiApiUrl,
-            aiApiKey: this.aiApiKey,
-            aiModel: this.aiModel,
-            aiSystemPrompt: this.aiSystemPrompt,
-            aiProbability: this.aiProbability,
-            aiContextLimit: this.aiContextLimit,
-            aiHistoryMaxSize: this.aiHistoryMaxSize,
-            aiVectorMaxSize: this.aiVectorMaxSize,
-            // Vector Memory Configuration
-            aiVectorSimilarityThreshold: this.aiVectorSimilarityThreshold,
-            aiVectorSearchLimit: this.aiVectorSearchLimit,
-            aiShortMessageThreshold: this.aiShortMessageThreshold,
-            aiMemorySafetyLimit: this.aiMemorySafetyLimit,
-            aiVectorMemoryLimit: this.aiVectorMemoryLimit,
-            aiTrimRatio: this.aiTrimRatio,
-            // Performance Configuration
-            aiVectorBatchLoadSize: this.aiVectorBatchLoadSize,
-            aiEnableVectorCache: this.aiEnableVectorCache,
-            aiEnableSmartTrim: this.aiEnableSmartTrim,
-            // Other Configuration
-            blacklistedQQs: this.blacklistedQQs,
-            enabledGroups: this.enabledGroups,
-            linkCacheTimeout: this.linkCacheTimeout,
-            subscriptionCheckInterval: this.subscriptionCheckInterval,
-            nightMode: this.nightMode,
-            labelConfig: this.labelConfig,
-            showId: this.showId,
-            groupConfigs: this.groupConfigs
-        };
-
         try {
-            const jsonString = JSON.stringify(data, null, 2);
+            const jsonString = JSON.stringify(_overrides, null, 2);
             fs.writeFile(CONFIG_PATH, jsonString, 'utf8', (err) => {
                 if (err) {
                     logger.error('[Config] Failed to save configuration:', err);
@@ -352,5 +406,42 @@ const config = {
         }
     }
 };
+
+// Define dynamic getters/setters for all META keys
+Object.keys(META).forEach(key => {
+    const meta = META[key];
+
+    Object.defineProperty(config, key, {
+        get: function() {
+            // If custom getter exists, use it
+            if (meta.get) {
+                return meta.get.call(meta);
+            }
+
+            // Priority: Override > Env > Default
+            if (key in _overrides) {
+                return _overrides[key];
+            }
+
+            // LazyInit: Initialize from default on first access
+            if (meta.lazyInit) {
+                // Deep clone the default value
+                _overrides[key] = JSON.parse(JSON.stringify(meta.def));
+                return _overrides[key];
+            }
+
+            // Parse from env or use default
+            const envVal = meta.env ? process.env[meta.env] : undefined;
+            const rawVal = envVal !== undefined ? envVal : meta.def;
+            return parseValue(rawVal, meta.type);
+        },
+        set: function(val) {
+            _overrides[key] = val;
+            this.save();
+        },
+        enumerable: true,
+        configurable: true
+    });
+});
 
 module.exports = config;

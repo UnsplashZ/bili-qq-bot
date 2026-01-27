@@ -82,10 +82,10 @@ const Settings = () => {
         } = configRes.data;
 
         setAiConfig({
-            aiProbability: aiProbability ?? 0.5,
-            aiContextLimit: aiContextLimit ?? 2000,
-            aiHistoryMaxSize: aiHistoryMaxSize ?? 20,
-            aiEnableVectorCache: aiEnableVectorCache ?? false,
+            aiProbability: aiProbability ?? 0.1,
+            aiContextLimit: aiContextLimit ?? 10,
+            aiHistoryMaxSize: aiHistoryMaxSize ?? (200 * 1024 * 1024),
+            aiEnableVectorCache: aiEnableVectorCache ?? true,
             aiVectorSimilarityThreshold: aiVectorSimilarityThreshold ?? 0.4,
             aiVectorSearchLimit: aiVectorSearchLimit ?? 3,
             aiMemorySafetyLimit: aiMemorySafetyLimit ?? 5000

@@ -420,40 +420,8 @@ router.post('/ai/reset', async (req, res) => {
             'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize', 'aiEnableVectorCache', 'aiEnableSmartTrim'
         ];
 
-        // 1. Delete from config.json and remove from sysConfig object
+        // Delete keys from config.json - getters will auto-fallback to .env or defaults
         sysConfig.deleteKeys(aiKeys);
-
-        // 2. Restore in-memory values from .env or defaults
-        sysConfig.aiApiUrl = process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions';
-        sysConfig.aiApiKey = process.env.AI_API_KEY || '';
-        sysConfig.aiModel = process.env.AI_MODEL || 'gpt-3.5-turbo';
-
-        // Auto-infer embedding URL logic
-        sysConfig.aiEmbeddingApiUrl = process.env.AI_EMBEDDING_API_URL ||
-            (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings');
-
-        sysConfig.aiEmbeddingApiKey = process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '';
-        sysConfig.aiEmbeddingModel = process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small';
-
-        sysConfig.aiChatProxy = process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '';
-        sysConfig.aiEmbeddingProxy = process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '';
-
-        sysConfig.aiProbability = parseFloat(process.env.AI_PROBABILITY || '0.1');
-        sysConfig.aiSystemPrompt = process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。';
-
-        // Static Defaults
-        sysConfig.aiContextLimit = 10;
-        sysConfig.aiHistoryMaxSize = 200 * 1024 * 1024;
-        sysConfig.aiVectorMaxSize = 200 * 1024 * 1024;
-        sysConfig.aiVectorSimilarityThreshold = 0.4;
-        sysConfig.aiVectorSearchLimit = 3;
-        sysConfig.aiShortMessageThreshold = 5;
-        sysConfig.aiMemorySafetyLimit = 5000;
-        sysConfig.aiVectorMemoryLimit = 10000;
-        sysConfig.aiTrimRatio = 0.1;
-        sysConfig.aiVectorBatchLoadSize = 1000;
-        sysConfig.aiEnableVectorCache = true;
-        sysConfig.aiEnableSmartTrim = true;
 
         res.json({ message: 'AI settings reset to defaults', config: sysConfig });
     } catch (error) {

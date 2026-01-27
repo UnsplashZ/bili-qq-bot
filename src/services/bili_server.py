@@ -1122,6 +1122,35 @@ async def get_my_info(group_id=None):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def _unwrap_bili_response(response, max_depth=5):
+    """
+    Recursively unwrap Bilibili API response to find the actual data list.
+    Handles nested structures like {data: {data: [...]}}, {result: [...}}, etc.
+    Returns the first list found, or empty list if none found.
+    """
+    if max_depth <= 0:
+        return []
+
+    if isinstance(response, list):
+        return response
+
+    if isinstance(response, dict):
+        # Priority search keys (common Bilibili API patterns)
+        for key in ['data', 'result', 'list', 'items']:
+            if key in response:
+                unwrapped = _unwrap_bili_response(response[key], max_depth - 1)
+                if isinstance(unwrapped, list):
+                    return unwrapped
+
+        # If no priority key found, search all dict values
+        for value in response.values():
+            if isinstance(value, (list, dict)):
+                unwrapped = _unwrap_bili_response(value, max_depth - 1)
+                if isinstance(unwrapped, list) and unwrapped:
+                    return unwrapped
+
+    return []
+
 async def get_follow_groups(group_id=None):
     try:
         cred = load_credential(group_id)
@@ -1130,18 +1159,10 @@ async def get_follow_groups(group_id=None):
 
         try:
             groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
-            groups = await groups_api.result
+            groups_raw = await groups_api.result
 
-            # Standardize response to always be a list
-            if not isinstance(groups, list):
-                if isinstance(groups, dict) and 'data' in groups:
-                    groups = groups.get('data') or []
-                else:
-                    groups = []
-
-            # Final safety check: if extraction resulted in non-list (e.g. None), force empty list
-            if not isinstance(groups, list):
-                groups = []
+            # Use deep unwrapping to handle various API response structures
+            groups = _unwrap_bili_response(groups_raw)
 
             return {"status": "success", "data": groups}
         except Exception as e:

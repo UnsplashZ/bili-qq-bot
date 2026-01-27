@@ -587,29 +587,31 @@ class UpdateChecker {
             const res = await biliApi.getUserInfo(sub.uid); // getUserInfo contains live_room
             if (res.status !== 'success') return;
 
-            const liveStatus = res.data.live_room?.liveStatus; // 1: live, 0: offline
-            const roomUrl = res.data.live_room?.url;
-            const title = res.data.live_room?.title;
-            const cover = res.data.live_room?.cover;
+            const liveRoom = res.data.live_room || {};
+            const liveStatus = liveRoom.liveStatus; // 1: live, 0: offline
+            const roomId = liveRoom.roomid || liveRoom.room_id || sub.uid; // Extract room_id with fallback
+            const roomUrl = liveRoom.url;
+            const title = liveRoom.title;
+            const cover = liveRoom.cover;
 
             if (liveStatus === 1 && sub.lastLiveStatus === 0) {
                 // Started Streaming
                 const msg = `${sub.name} 开播了！\n标题：${title}\n地址：${roomUrl}`;
-                
+
                 // Try to generate image? Or just text + cover
-                // If cover exists, we can send it. 
+                // If cover exists, we can send it.
                 // Using generic notify with image support if we download cover?
                 // Or just text for now as per original simple logic, or upgrade?
                 // Original code might have used generatePreviewCard for live
-                
+
                 // Let's try generatePreviewCard for live
                 try {
                      // Build data structure matching what the live renderer expects
                      const liveData = {
-                         id: sub.uid,
+                         id: roomId, // Use room_id for deduplication and imageGenerator
                          data: {
                              room_info: {
-                                 room_id: sub.uid,
+                                 room_id: roomId, // Pass actual room_id
                                  title: title,
                                  cover: cover,
                                  live_status: 1 // 1 = live
@@ -628,7 +630,7 @@ class UpdateChecker {
                      };
                      await this.notifyGroupsWithImage(sub.groupIds, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg, `live_${sub.uid}`);
+                    this.notifyGroups(sub.groupIds, msg, `live_${roomId}`);
                 }
             }
 
