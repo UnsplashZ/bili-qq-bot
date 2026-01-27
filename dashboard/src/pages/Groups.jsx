@@ -29,6 +29,9 @@ function Groups() {
     enableCookieSync: false,
     cookieSyncGroupNames: [], // Array of strings
     blacklistedQQs: [],
+    // AI配置覆盖（null表示使用全局默认）
+    aiProbability: null,
+    aiContextLimit: null
   });
 
   // Subscriptions State
@@ -51,8 +54,32 @@ function Groups() {
   const [biliGroups, setBiliGroups] = useState([]);
   const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
 
+  // 全局AI配置（用于显示默认值占位符）
+  const [globalAiConfig, setGlobalAiConfig] = useState({
+    aiProbability: 0.1,
+    aiContextLimit: 10
+  });
+
   useEffect(() => {
     fetchGroups();
+  }, []);
+
+  // 在 useEffect 中加载全局配置
+  useEffect(() => {
+    const fetchGlobalConfig = async () => {
+      try {
+        const res = await api.get('/api/config');
+        if (res.data) {
+          setGlobalAiConfig({
+            aiProbability: res.data.aiProbability || 0.1,
+            aiContextLimit: res.data.aiContextLimit || 10
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch global config:', err);
+      }
+    };
+    fetchGlobalConfig();
   }, []);
 
   const fetchGroups = async () => {
@@ -135,6 +162,9 @@ function Groups() {
           enableCookieSync: config.enableCookieSync ?? false,
           cookieSyncGroupNames: syncGroups,
           blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
+          // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
+          aiProbability: config.aiProbability ?? null,
+          aiContextLimit: config.aiContextLimit ?? null
         });
 
         // Reset sub state
@@ -617,14 +647,70 @@ function Groups() {
 
                 {/* AI Settings Tab */}
                 <Tab.Panel className="focus:outline-none">
-                    <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 space-y-4 py-12">
-                        <Cpu size={48} className="opacity-50" />
-                        <div>
-                            <h3 className="text-lg font-medium text-white">AI 配置</h3>
-                            <p className="max-w-md mx-auto mt-2">
-                                全局 AI 设置当前应用于所有群组。每群组覆盖设置即将推出。
-                            </p>
+                    {/* AI 响应配置 */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="w-5 h-5 text-purple-400" />
+                        <h3 className="text-lg font-semibold text-white">AI 响应配置</h3>
+                      </div>
+
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                        <p className="text-sm text-white/70">
+                          配置此群组专属的AI响应行为。留空则使用全局默认值。
+                        </p>
+                      </div>
+
+                      {/* 响应概率 */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-white/90">
+                          响应概率 (留空使用全局默认)
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={formData.aiProbability ?? ''}
+                            placeholder={`全局默认: ${Math.round(globalAiConfig.aiProbability * 100)}%`}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              aiProbability: e.target.value ? parseFloat(e.target.value) : null
+                            })}
+                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30"
+                          />
+                          <span className="text-white/70 min-w-[60px]">
+                            {formData.aiProbability !== null
+                              ? `${Math.round(formData.aiProbability * 100)}%`
+                              : '使用默认'}
+                          </span>
                         </div>
+                        <p className="text-xs text-white/50">
+                          AI响应普通消息的概率 (0.0-1.0)，设置为0则完全不响应
+                        </p>
+                      </div>
+
+                      {/* 上下文限制 */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-white/90">
+                          上下文对话轮数 (留空使用全局默认)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={formData.aiContextLimit ?? ''}
+                          placeholder={`全局默认: ${globalAiConfig.aiContextLimit}`}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            aiContextLimit: e.target.value ? parseInt(e.target.value) : null
+                          })}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30"
+                        />
+                        <p className="text-xs text-white/50">
+                          AI对话时记忆的上下文轮数，影响token消耗
+                        </p>
+                      </div>
                     </div>
                 </Tab.Panel>
 

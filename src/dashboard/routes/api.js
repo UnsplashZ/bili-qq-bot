@@ -203,6 +203,19 @@ router.post('/groups/:id/config', async (req, res) => {
             ...updates
         };
 
+        // 特殊处理AI配置：null表示清除覆盖，使用全局默认
+        if (updates.hasOwnProperty('aiProbability')) {
+            if (updates.aiProbability === null) {
+                delete sysConfig.groupConfigs[groupId].aiProbability;
+            }
+        }
+
+        if (updates.hasOwnProperty('aiContextLimit')) {
+            if (updates.aiContextLimit === null) {
+                delete sysConfig.groupConfigs[groupId].aiContextLimit;
+            }
+        }
+
         sysConfig.save();
 
         res.json({
