@@ -113,30 +113,35 @@ router.post('/config', async (req, res) => {
     }
 });
 
-// GET /api/groups - List groups
+// GET /api/groups - List all groups (including disabled ones)
 router.get('/groups', async (req, res) => {
     try {
-        // Use in-memory config
+        const bot = global.bot;
+        if (!bot || !bot.groupList) {
+            return res.json([]);
+        }
+
+        // 获取所有群组（不过滤 enabledGroups）
+        const allGroups = Array.from(bot.groupList.keys());
         const enabledGroups = new Set(sysConfig.enabledGroups || []);
         const groupConfigs = sysConfig.groupConfigs || {};
 
-        // Collect all unique group IDs from enabledGroups and groupConfigs keys
-        const allGroupIds = new Set([
-            ...enabledGroups,
-            ...Object.keys(groupConfigs)
-        ]);
+        const groupsData = allGroups.map(groupId => {
+            const groupInfo = bot.groupList.get(groupId);
+            const isEnabled = enabledGroups.has(groupId);
+            const groupConfig = groupConfigs[groupId] || {};
 
-        const groups = [];
-        for (const id of allGroupIds) {
-            groups.push({
-                id: id,
-                isEnabled: enabledGroups.has(id),
-                config: groupConfigs[id] || {}
-            });
-        }
+            return {
+                id: groupId,
+                name: groupInfo?.group_name || `群组 ${groupId}`,
+                isEnabled: isEnabled,  // 添加启用状态
+                config: groupConfig
+            };
+        });
 
-        res.json(groups);
+        res.json(groupsData);
     } catch (error) {
+        logger.error('Error fetching groups:', error);
         res.status(500).json({ error: 'Failed to fetch groups' });
     }
 });

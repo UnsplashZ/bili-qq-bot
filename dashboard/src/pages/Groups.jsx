@@ -386,26 +386,29 @@ function Groups() {
                 key={group.id}
                 onClick={() => setSelectedGroupId(group.id)}
                 className={clsx(
-                  'flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors',
+                  'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
+                  'hover:bg-white/5',
                   selectedGroupId === group.id
-                    ? 'bg-blue-500/20 border border-blue-500/30'
-                    : 'hover:bg-white/5 border border-transparent'
+                    ? 'bg-blue-500/20 ring-2 ring-blue-500'
+                    : 'bg-white/5',
+                  !group.isEnabled && 'opacity-50'  // 禁用时半透明
                 )}
               >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{group.name || `Group ${group.id}`}</div>
-                  <div className="text-xs text-gray-400">ID: {group.id}</div>
-                </div>
-                <button
-                  onClick={(e) => handleToggleGroup(e, group)}
+                <Power
                   className={clsx(
-                    'p-2 rounded-full transition-colors',
-                    group.isEnabled ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-500 hover:bg-gray-500/20'
+                    'w-4 h-4',
+                    group.isEnabled ? 'text-green-400' : 'text-gray-400'
                   )}
-                  title={group.isEnabled ? '禁用群组' : '启用群组'}
-                >
-                  <Power size={18} />
-                </button>
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
+                  <div className="text-xs text-white/50">ID: {group.id}</div>
+                </div>
+                {!group.isEnabled && (
+                  <span className="text-xs text-white/40 px-2 py-1 bg-white/5 rounded">
+                    已禁用
+                  </span>
+                )}
               </div>
             ))
           )}
