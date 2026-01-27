@@ -541,47 +541,53 @@ async def get_user_dynamic(uid, group_id=None):
                             logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Extracted desc from opus.summary")
 
                     # 话题修复（与 get_dynamic_detail 保持一致）
-                    topic = modules.get('module_dynamic', {}).get('topic')
-                    if topic and isinstance(topic, dict):
-                        topic_name = topic.get('name', '')
-                        topic_id = topic.get('id', 0)
-                        if topic_name and topic_id:
-                            # 确保 desc 存在
-                            if not module_dynamic.get('desc'):
-                                module_dynamic['desc'] = {'text': '', 'rich_text_nodes': []}
+                    topic_added = False
+                    try:
+                        topic = module_dynamic.get('topic')
+                        if topic and isinstance(topic, dict):
+                            topic_name = topic.get('name', '')
+                            topic_id = topic.get('id', 0)
+                            if topic_name and topic_id:
+                                # 确保 desc 存在
+                                if not module_dynamic.get('desc'):
+                                    module_dynamic['desc'] = {'text': '', 'rich_text_nodes': []}
 
-                            # 在文本开头添加话题标签
-                            desc = module_dynamic['desc']
-                            topic_tag = f"#{topic_name}#"
-                            if not desc['text'].startswith(topic_tag):
-                                desc['text'] = topic_tag + desc['text']
+                                # 在文本结尾添加话题标签（与 get_dynamic_detail 保持一致）
+                                desc = module_dynamic['desc']
+                                topic_tag = f"#{topic_name}#"
+                                if topic_tag not in desc['text']:
+                                    desc['text'] = desc['text'] + f" #{topic_name}#"
 
-                            # 在 rich_text_nodes 开头添加话题节点
-                            if not desc.get('rich_text_nodes'):
-                                desc['rich_text_nodes'] = []
+                                # 在 rich_text_nodes 开头添加话题节点
+                                if not desc.get('rich_text_nodes'):
+                                    desc['rich_text_nodes'] = []
 
-                            topic_node = {
-                                'type': 'RICH_TEXT_NODE_TYPE_TOPIC',
-                                'text': topic_tag,
-                                'jump_url': f"https://www.bilibili.com/v/topic/detail/?topic_id={topic_id}",
-                                'orig_text': topic_tag
-                            }
+                                topic_node = {
+                                    'type': 'RICH_TEXT_NODE_TYPE_TOPIC',
+                                    'text': topic_tag,
+                                    'jump_url': f"https://www.bilibili.com/v/topic/detail/?topic_id={topic_id}",
+                                    'orig_text': topic_tag
+                                }
 
-                            # 检查是否已存在话题节点
-                            if not any(n.get('type') == 'RICH_TEXT_NODE_TYPE_TOPIC' for n in desc['rich_text_nodes']):
-                                desc['rich_text_nodes'].insert(0, topic_node)
+                                # 检查是否已存在话题节点
+                                if not any(n.get('type') == 'RICH_TEXT_NODE_TYPE_TOPIC' for n in desc['rich_text_nodes']):
+                                    desc['rich_text_nodes'].insert(0, topic_node)
 
-                            logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Added topic '{topic_name}' from topic field")
+                                topic_added = True
+                                logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Added topic '{topic_name}' from topic field")
+                    except Exception as e:
+                        logger.warning(f"[get_user_dynamic] Failed to process topic: {e}")
 
-                    # Fix topic formatting (similar to get_dynamic_detail lines 604-633)
+                    # 兜底：使用正则表达式修复话题格式（与 get_dynamic_detail 保持一致）
                     # Keep this as a fallback for cases where topics are embedded in text but not in topic field
-                    desc_text = module_dynamic.get('desc', {}).get('text', '')
-                    if desc_text and '#' in desc_text:
-                        # Fix topic hashtag formatting (B站API返回的话题可能格式不完整)
-                        fixed_text = re.sub(r'#([^#\s]+?)#', r'#\1# ', desc_text)
-                        if fixed_text != desc_text:
-                            module_dynamic['desc']['text'] = fixed_text
-                            logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting")
+                    if not topic_added:
+                        desc_text = module_dynamic.get('desc', {}).get('text', '')
+                        if desc_text and '#' in desc_text:
+                            # Fix topic hashtag formatting (B站API返回的话题可能格式不完整)
+                            fixed_text = re.sub(r'#([^#\s]+?)#', r'#\1# ', desc_text)
+                            if fixed_text != desc_text:
+                                module_dynamic['desc']['text'] = fixed_text
+                                logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting")
 
                 # Construct desc object for backward compatibility with old API format
                 desc = {
