@@ -4,7 +4,8 @@ import asyncio
 import re
 import aiohttp
 from bs4 import BeautifulSoup
-from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential, settings
+import bilibili_api
+from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
 from bilibili_api.utils.network import Api
 import bilibili_api.login_v2 as login
 import io
@@ -15,15 +16,20 @@ import logging
 # 设置日志
 logger = logging.getLogger(__name__)
 
-# 配置 bilibili_api 的请求头，绕过风控
-settings.wbi_mixin_key = True  # 启用 wbi 签名
-settings.request_settings = {
-    "headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://www.bilibili.com",
-        "Origin": "https://www.bilibili.com"
-    }
-}
+# 配置 bilibili_api 以避免412错误
+# 1. 更新请求头，添加Origin头
+bilibili_api.HEADERS.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Referer': 'https://www.bilibili.com',
+    'Origin': 'https://www.bilibili.com'
+})
+
+# 2. 启用 bili_ticket 以减少风控触发
+try:
+    bilibili_api.request_settings.set_enable_bili_ticket(True)
+    logger.info("已启用 bili_ticket")
+except Exception as e:
+    logger.warning(f"无法启用 bili_ticket: {e}")
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'data/cookies.json'
