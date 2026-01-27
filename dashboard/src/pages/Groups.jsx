@@ -291,22 +291,32 @@ function Groups() {
           setLoginStatus('waiting');
           setIsLoginModalOpen(true);
           const res = await api.get('/api/bili/login-url');
-          if (res.data && res.data.url) {
-              setLoginKey(res.data.key); // Save key for checking
+
+          // 检查返回的状态
+          if (res.data && res.data.status === 'error') {
+              // 后端返回了错误信息
+              show(`获取登录二维码失败: ${res.data.message || '未知错误'}`, 'error');
+              setIsLoginModalOpen(false);
+              return;
+          }
+
+          if (res.data && res.data.data && res.data.data.url) {
+              setLoginKey(res.data.data.key); // Save key for checking
               // Generate QR Code
-              const qrDataUrl = await QRCode.toDataURL(res.data.url);
+              const qrDataUrl = await QRCode.toDataURL(res.data.data.url);
               setLoginQrCode(qrDataUrl);
 
               // Start polling
               if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
-              checkLoginTimerRef.current = setInterval(() => checkLoginStatus(res.data.key), 3000);
+              checkLoginTimerRef.current = setInterval(() => checkLoginStatus(res.data.data.key), 3000);
           } else {
-              show('获取登录二维码失败', 'error');
+              show('获取登录二维码失败: 响应格式错误', 'error');
               setIsLoginModalOpen(false);
           }
       } catch (err) {
-          console.error(err);
-          show('启动登录失败', 'error');
+          console.error('Login error:', err);
+          const errorMsg = err.response?.data?.error || err.message || '未知错误';
+          show(`启动登录失败: ${errorMsg}`, 'error');
           setIsLoginModalOpen(false);
       }
   };

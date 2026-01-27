@@ -4,12 +4,26 @@ import asyncio
 import re
 import aiohttp
 from bs4 import BeautifulSoup
-from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
+from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential, settings
 from bilibili_api.utils.network import Api
 import bilibili_api.login_v2 as login
 import io
 from PIL import Image
 import colorsys
+import logging
+
+# 设置日志
+logger = logging.getLogger(__name__)
+
+# 配置 bilibili_api 的请求头，绕过风控
+settings.wbi_mixin_key = True  # 启用 wbi 签名
+settings.request_settings = {
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com",
+        "Origin": "https://www.bilibili.com"
+    }
+}
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'data/cookies.json'
@@ -374,14 +388,19 @@ async def get_live_room_info(room_id, group_id=None):
 
 async def get_login_url():
     try:
+        logger.info("开始生成登录二维码...")
         # 使用 QrCodeLogin 类获取二维码
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
         await q.generate_qrcode()
+        logger.info("登录二维码生成成功")
         return {"status": "success", "data": {
-            "url": q._QrCodeLogin__qr_link, 
+            "url": q._QrCodeLogin__qr_link,
             "key": q._QrCodeLogin__qr_key
         }}
     except Exception as e:
+        logger.error(f"生成登录二维码失败: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"详细错误: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 async def poll_login(qrcode_key, group_id=None):
@@ -389,10 +408,11 @@ async def poll_login(qrcode_key, group_id=None):
         # 实例化并手动设置 key 以支持轮询
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
         q._QrCodeLogin__qr_key = qrcode_key
-        
+
         event = await q.check_state()
-        
+
         if event == login.QrCodeLoginEvents.DONE:
+            logger.info(f"登录成功 (group_id: {group_id})")
             credential = q.get_credential()
             save_credential(credential, group_id)
             return {"status": "success", "message": "登录成功"}
@@ -401,11 +421,14 @@ async def poll_login(qrcode_key, group_id=None):
         elif event == login.QrCodeLoginEvents.CONF:
             return {"status": "pending", "code": 86090, "message": "已扫码，请在手机上确认"}
         elif event == login.QrCodeLoginEvents.TIMEOUT:
+            logger.warning("登录二维码已过期")
             return {"status": "error", "code": 86038, "message": "二维码已过期"}
         else:
+            logger.warning(f"未知的登录状态: {event}")
             return {"status": "error", "message": "未知状态"}
-            
+
     except Exception as e:
+        logger.error(f"检查登录状态失败: {type(e).__name__}: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 async def get_user_dynamic(uid, group_id=None):
