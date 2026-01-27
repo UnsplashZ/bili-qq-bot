@@ -39,7 +39,7 @@ function renderOrigContent(origItemRaw) {
         o_images = o_dynamic.major.opus.pics.map(i => i.url);
     } else if (o_dynamic.major?.archive) {
         o_videoCard = o_dynamic.major.archive;
-        if (!o_text) o_text = o_videoCard.desc;
+        // if (!o_text) o_text = o_videoCard.desc; // Removed fallback
     }
 
     const o_mediaHtml = renderMediaHtml(o_images, o_videoCard, true);
@@ -140,7 +140,7 @@ function renderDynamicContent(data) {
          images = module_dynamic.major.opus.pics.map(i => i.url);
     } else if (module_dynamic.major?.archive) {
          videoCard = module_dynamic.major.archive;
-         if(!text) text = videoCard.desc;
+         // if(!text) text = videoCard.desc; // Removed fallback
     } else if (liveRcmdInfo) {
          const isLive = liveRcmdInfo.live_status === 1;
          const liveBadge = isLive

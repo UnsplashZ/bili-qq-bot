@@ -245,7 +245,34 @@ class UpdateChecker {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, `${name} 发布了新${typeLabel}！`);
+
+                        // Construct Notification Text
+                        let notificationText = `${name} 发布了新${typeLabel}！`; // Default
+
+                        if (dynamicType === 'DYNAMIC_TYPE_AV' && item.modules?.module_dynamic?.major?.archive) {
+                            const title = item.modules.module_dynamic.major.archive.title;
+                            notificationText = `${name} 投稿了新视频：\n${title}`;
+                        } else if (dynamicType === 'DYNAMIC_TYPE_ARTICLE' && item.modules?.module_dynamic?.major?.opus) {
+                             const title = item.modules.module_dynamic.major.opus.title;
+                             notificationText = `${name} 投稿了新专栏：\n${title}`;
+                        } else if (dynamicType === 'DYNAMIC_TYPE_FORWARD') {
+                            const orig = item.orig;
+                            if (orig) {
+                                if (orig.type === 'DYNAMIC_TYPE_AV' && orig.modules?.module_dynamic?.major?.archive) {
+                                     const title = orig.modules.module_dynamic.major.archive.title;
+                                     notificationText = `${name} 转发了视频：\n${title}`;
+                                } else if (orig.type === 'DYNAMIC_TYPE_ARTICLE' && orig.modules?.module_dynamic?.major?.opus) {
+                                     const title = orig.modules.module_dynamic.major.opus.title;
+                                     notificationText = `${name} 转发了专栏：\n${title}`;
+                                } else {
+                                     notificationText = `${name} 转发了一条动态`;
+                                }
+                            }
+                        } else if (dynamicType === 'DYNAMIC_TYPE_WORD') {
+                             notificationText = `${name} 发布了新动态`;
+                        }
+
+                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, notificationText);
                     }
                 }
 
@@ -494,21 +521,50 @@ class UpdateChecker {
 
                     // Detect specific types for label filtering and message
                     let typeLabel = '动态';
-                    
+
                     // Handle both numeric and string types
                     if (cardType === 8 || cardType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
                     else if (cardType === 64 || cardType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
                     else if (cardType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
-                    
+
+                    // Construct Notification Text
+                    let notificationText = `${sub.name} 发布了新${typeLabel}！`; // Default
+
+                    if (cardType === 'DYNAMIC_TYPE_AV' || cardType === 8) {
+                         const title = card.modules?.module_dynamic?.major?.archive?.title || card.desc?.title || '';
+                         if (title) notificationText = `${sub.name} 投稿了新视频：\n${title}`;
+                    } else if (cardType === 'DYNAMIC_TYPE_ARTICLE' || cardType === 64) {
+                         const title = card.modules?.module_dynamic?.major?.opus?.title || card.desc?.title || '';
+                         if (title) notificationText = `${sub.name} 投稿了新专栏：\n${title}`;
+                    } else if (cardType === 'DYNAMIC_TYPE_FORWARD') {
+                         const orig = card.orig;
+                         if (orig) {
+                              const oType = orig.type;
+                              if (oType === 'DYNAMIC_TYPE_AV' || oType === 8) {
+                                   const title = orig.modules?.module_dynamic?.major?.archive?.title || '';
+                                   if (title) notificationText = `${sub.name} 转发了视频：\n${title}`;
+                                   else notificationText = `${sub.name} 转发了视频`;
+                              } else if (oType === 'DYNAMIC_TYPE_ARTICLE' || oType === 64) {
+                                   const title = orig.modules?.module_dynamic?.major?.opus?.title || '';
+                                   if (title) notificationText = `${sub.name} 转发了专栏：\n${title}`;
+                                   else notificationText = `${sub.name} 转发了专栏`;
+                              } else {
+                                   notificationText = `${sub.name} 转发了一条动态`;
+                              }
+                         }
+                    } else if (cardType === 'DYNAMIC_TYPE_WORD') {
+                         notificationText = `${sub.name} 发布了新动态`;
+                    }
+
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, `${sub.name} 发布了新${typeLabel}！`);
-                        
+                        await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, notificationText);
+
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
                         // Fallback text
-                        const msg = `${sub.name} 发布了新${typeLabel}：\nhttps://t.bilibili.com/${cardId}`;
+                        const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`;
                         this.notifyGroups(sub.groupIds, msg, cardId);
                     }
                 }
@@ -600,7 +656,7 @@ class UpdateChecker {
 
                 try {
                     // Generate preview (pass full res object, not res.data)
-                    await this.notifyGroupsWithImage(sub.groupIds, res, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
+                    await this.notifyGroupsWithImage(sub.groupIds, res, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
                 } catch (e) {
                     this.notifyGroups(sub.groupIds, msg, newEp.id);
                 }
