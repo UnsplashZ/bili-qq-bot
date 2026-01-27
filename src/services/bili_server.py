@@ -523,6 +523,32 @@ async def get_user_dynamic(uid, group_id=None):
                 if 'modules' in item and 'module_author' in item['modules']:
                     pub_ts = item['modules']['module_author'].get('pub_ts', 0)
 
+                # Normalize modules data to ensure text content is available
+                modules = item.get('modules') or {}
+                module_dynamic = modules.get('module_dynamic')
+
+                if module_dynamic:
+                    # Fix missing desc: Extract text from opus.summary if desc is missing
+                    if not module_dynamic.get('desc'):
+                        major = module_dynamic.get('major') or {}
+                        opus = major.get('opus')
+                        if opus and opus.get('summary'):
+                            # Construct desc structure from opus.summary
+                            module_dynamic['desc'] = {
+                                'text': opus['summary'].get('text', ''),
+                                'rich_text_nodes': opus['summary'].get('rich_text_nodes', [])
+                            }
+                            logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Extracted desc from opus.summary")
+
+                    # Fix topic formatting (similar to get_dynamic_detail lines 604-633)
+                    desc_text = module_dynamic.get('desc', {}).get('text', '')
+                    if desc_text and '#' in desc_text:
+                        # Fix topic hashtag formatting (B站API返回的话题可能格式不完整)
+                        fixed_text = re.sub(r'#([^#\s]+?)#', r'#\1# ', desc_text)
+                        if fixed_text != desc_text:
+                            module_dynamic['desc']['text'] = fixed_text
+                            logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting")
+
                 # Construct desc object for backward compatibility with old API format
                 desc = {
                     "dynamic_id_str": item.get('id_str'),
@@ -542,7 +568,7 @@ async def get_user_dynamic(uid, group_id=None):
                     # New API fields
                     "id_str": item.get('id_str'),
                     "type": item.get('type'),
-                    "modules": item.get('modules'),
+                    "modules": modules,  # Use normalized modules
                     "orig": item.get('orig'),
                     "pub_ts": pub_ts,
                     "author": author_info
