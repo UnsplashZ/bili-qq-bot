@@ -8,12 +8,28 @@ const mcpManager = require('./services/mcpManager');
 const ServiceManager = require('./services/ServiceManager');
 const dashboardServer = require('./dashboard/server');
 
+global.bot = global.bot || { groupList: new Map() };
+
 // WebSocket连接管理
 let ws = null;
 let reconnectCount = 0;
 let reconnectTimer = null;
 let isManualClose = false;
 const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
+const GROUP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const GROUP_LIST_ECHO_PREFIX = 'get_group_list#';
+let groupRefreshTimer = null;
+
+function requestGroupList() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const echo = `${GROUP_LIST_ECHO_PREFIX}${Date.now()}`;
+    const payload = { action: 'get_group_list', params: {}, echo };
+    try {
+        ws.send(JSON.stringify(payload));
+    } catch (e) {
+        logger.error('Failed to request group list:', e);
+    }
+}
 
 function createWebSocketConnection() {
     // 清除可能存在的旧连接
@@ -38,11 +54,31 @@ function createWebSocketConnection() {
         // 设置WebSocket并启动订阅服务
         // subscriptionService.setWs(ws); // 已移除，ws 在 start 中传入
         subscriptionService.start(ws);
+
+        requestGroupList();
+        if (groupRefreshTimer) {
+            clearInterval(groupRefreshTimer);
+            groupRefreshTimer = null;
+        }
+        groupRefreshTimer = setInterval(requestGroupList, GROUP_REFRESH_INTERVAL_MS);
     });
 
     ws.on('message', function incoming(data) {
         try {
             const payload = JSON.parse(data);
+
+            if (payload && payload.echo && String(payload.echo).startsWith(GROUP_LIST_ECHO_PREFIX)) {
+                const list = Array.isArray(payload.data) ? payload.data : [];
+                const newMap = new Map();
+                for (const g of list) {
+                    const gid = g && g.group_id !== undefined ? String(g.group_id) : null;
+                    if (gid) {
+                        newMap.set(gid, g);
+                    }
+                }
+                global.bot = global.bot || {};
+                global.bot.groupList = newMap;
+            }
 
             // Handle Heartbeat or meta events (ignore for now)
             if (payload.post_type === 'meta_event') return;
@@ -61,6 +97,7 @@ function createWebSocketConnection() {
             // Handle Notices (e.g. Bot join group)
             if (payload.post_type === 'notice' && payload.notice_type === 'group_increase') {
                 messageHandler.handleGroupIncrease(ws, payload);
+                requestGroupList();
             }
 
         } catch (e) {
@@ -74,6 +111,10 @@ function createWebSocketConnection() {
         // 清除WebSocket引用，停止订阅检查
         // subscriptionService.setWs(null); // setWs method no longer exists in Facade
         subscriptionService.stop();
+        if (groupRefreshTimer) {
+            clearInterval(groupRefreshTimer);
+            groupRefreshTimer = null;
+        }
 
         // 如果不是手动关闭，则尝试重连
         if (!isManualClose) {
