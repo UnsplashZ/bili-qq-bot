@@ -458,17 +458,26 @@ const Settings = () => {
                     <p className="text-xs text-gray-500 mt-1">保留在上下文中的最近对话轮数（1轮 = 1问1答）。</p>
                 </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                        历史记录最大体积 (Bytes)
+                <div className="space-y-2">
+                    <label className="block text-sm font-medium text-white/90">
+                        历史记录最大体积
                     </label>
-                    <input
-                        type="number"
-                        value={aiConfig.aiHistoryMaxSize}
-                        onChange={(e) => handleAiChange('aiHistoryMaxSize', parseInt(e.target.value))}
-                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">历史记录文件允许的最大字节数。示例: 209715200 (200MB)。</p>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="number"
+                            min="1"
+                            value={Math.round(aiConfig.aiHistoryMaxSize / (1024 * 1024))}
+                            onChange={(e) => {
+                                const mb = parseInt(e.target.value) || 0;
+                                handleAiChange('aiHistoryMaxSize', mb * 1024 * 1024);
+                            }}
+                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                        />
+                        <span className="text-white/70 font-medium">MB</span>
+                    </div>
+                    <p className="text-xs text-white/50">
+                        默认: 200 MB (用于存储AI对话历史)
+                    </p>
                 </div>
 
                 <div>
