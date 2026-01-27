@@ -33,6 +33,12 @@ class MessageHandler {
 
         logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}: ${rawMessage.substring(0, 100)}...`);
 
+        // Auto-create group configuration if not exists (skip for private messages)
+        const isPrivateMsg = typeof groupId === 'string' && groupId.startsWith('private_');
+        if (groupId && !isPrivateMsg) {
+            config.ensureGroupConfig(groupId);
+        }
+
         // 检查用户是否在黑名单中 (Global + Group Isolation)
         // 1. Check Global Blacklist (System Ban)
         if (config.blacklistedQQs.includes(userId.toString())) {

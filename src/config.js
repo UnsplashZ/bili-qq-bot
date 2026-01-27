@@ -364,6 +364,34 @@ const config = {
         this.save();
     },
 
+    // Ensure group config exists (auto-initialize with defaults)
+    ensureGroupConfig: function(groupId) {
+        const key = String(groupId);
+
+        if (!this.groupConfigs[key]) {
+            logger.info(`[Config] 自动创建群组 ${groupId} 的配置`);
+
+            this.groupConfigs[key] = {
+                linkCacheTimeout: 5,
+                labelConfig: {
+                    video: true,
+                    dynamic: true,
+                    live: true,
+                    article: true,
+                    bangumi: true
+                },
+                enableCookieSync: false,
+                cookieSyncGroupNames: [],
+                blacklistedQQs: []
+            };
+
+            // Trigger save
+            this.save();
+        }
+
+        return this.groupConfigs[key];
+    },
+
     // Delete specific keys from overrides and revert to env/default
     deleteKeys: function(keys) {
         if (!Array.isArray(keys)) return;
