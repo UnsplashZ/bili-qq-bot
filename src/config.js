@@ -7,6 +7,9 @@ const CONFIG_DIR = path.join(__dirname, '../config');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
+// 正在初始化的群组ID集合（防止并发创建）
+const initializingGroups = new Set();
+
 // ============================================================================
 // LAYERED CONFIG ARCHITECTURE
 // ============================================================================
@@ -368,7 +371,15 @@ const config = {
     ensureGroupConfig: function(groupId) {
         const key = String(groupId);
 
+        // 如果正在初始化，等待完成
+        if (initializingGroups.has(key)) {
+            return this.groupConfigs[key];
+        }
+
         if (!this.groupConfigs[key]) {
+            // 标记为正在初始化
+            initializingGroups.add(key);
+
             logger.info(`[Config] 自动创建群组 ${groupId} 的配置`);
 
             this.groupConfigs[key] = {
@@ -382,11 +393,15 @@ const config = {
                 },
                 enableCookieSync: false,
                 cookieSyncGroupNames: [],
-                blacklistedQQs: []
+                blacklistedQQs: [],
+                admins: []  // 群组管理员列表
             };
 
             // Trigger save
             this.save();
+
+            // 标记初始化完成
+            initializingGroups.delete(key);
         }
 
         return this.groupConfigs[key];
