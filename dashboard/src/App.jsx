@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Groups from './pages/Groups';
 import Settings from './pages/Settings';
+import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -43,6 +44,17 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <Settings />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/logs"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Logs />
                 </Layout>
               </ProtectedRoute>
             }

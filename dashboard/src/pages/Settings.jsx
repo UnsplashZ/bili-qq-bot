@@ -38,6 +38,7 @@ const Settings = () => {
     aiMemorySafetyLimit: 5000
   });
   const [savingAi, setSavingAi] = useState(false);
+  const [resettingAi, setResettingAi] = useState(false);
 
   // MCP State
   const [mcpConfig, setMcpConfig] = useState({ mcpServers: [] });
@@ -189,6 +190,37 @@ const Settings = () => {
       show("保存 AI 设置失败", "error");
     } finally {
       setSavingAi(false);
+    }
+  };
+
+  const resetAiSettings = async () => {
+    if (!window.confirm("确定要重置 AI 设置为默认值 (.env) 吗？此操作将覆盖当前的自定义设置。")) {
+        return;
+    }
+    setResettingAi(true);
+    try {
+        const res = await api.post('/api/ai/reset');
+        // Update local state with the returned config (which contains defaults)
+        const newConfig = res.data.config;
+
+        setAiConfig(prev => ({
+            ...prev,
+            aiProbability: newConfig.aiProbability ?? 0.1,
+            aiContextLimit: newConfig.aiContextLimit ?? 10,
+            aiHistoryMaxSize: newConfig.aiHistoryMaxSize ?? 200 * 1024 * 1024,
+            aiEnableVectorCache: newConfig.aiEnableVectorCache ?? true,
+            aiVectorSimilarityThreshold: newConfig.aiVectorSimilarityThreshold ?? 0.4,
+            aiVectorSearchLimit: newConfig.aiVectorSearchLimit ?? 3,
+            aiMemorySafetyLimit: newConfig.aiMemorySafetyLimit ?? 5000
+        }));
+
+        setFullConfig(prev => ({ ...prev, ...newConfig }));
+        show("AI 设置已重置为默认值", "success");
+    } catch (error) {
+        console.error("Failed to reset AI settings:", error);
+        show("重置 AI 设置失败", "error");
+    } finally {
+        setResettingAi(false);
     }
   };
 
@@ -415,7 +447,7 @@ const Settings = () => {
 
                 <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                        上下文限制 (Tokens)
+                        上下文限制 (对话轮数)
                     </label>
                     <input
                         type="number"
@@ -423,11 +455,12 @@ const Settings = () => {
                         onChange={(e) => handleAiChange('aiContextLimit', parseInt(e.target.value))}
                         className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                     />
+                    <p className="text-xs text-gray-500 mt-1">保留在上下文中的最近对话轮数（1轮 = 1问1答）。</p>
                 </div>
 
                 <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                        历史记录最大数量 (条)
+                        历史记录最大体积 (Bytes)
                     </label>
                     <input
                         type="number"
@@ -435,6 +468,7 @@ const Settings = () => {
                         onChange={(e) => handleAiChange('aiHistoryMaxSize', parseInt(e.target.value))}
                         className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                     />
+                    <p className="text-xs text-gray-500 mt-1">历史记录文件允许的最大字节数。示例: 209715200 (200MB)。</p>
                 </div>
 
                 <div>
@@ -470,7 +504,7 @@ const Settings = () => {
 
                 <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                        记忆安全限制 (Tokens)
+                        记忆安全限制 (消息条数)
                     </label>
                     <input
                         type="number"
@@ -498,10 +532,17 @@ const Settings = () => {
                 </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end gap-3">
+                <button
+                    onClick={resetAiSettings}
+                    disabled={resettingAi || savingAi}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
+                >
+                    {resettingAi ? '重置中...' : '重置为默认值 (.env)'}
+                </button>
                 <button
                     onClick={saveAiSettings}
-                    disabled={savingAi}
+                    disabled={savingAi || resettingAi}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-medium transition-colors disabled:opacity-50"
                 >
                     <Save size={18} />

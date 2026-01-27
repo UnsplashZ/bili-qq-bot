@@ -1122,6 +1122,33 @@ async def get_my_info(group_id=None):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+async def get_follow_groups(group_id=None):
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+
+        try:
+            groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
+            groups = await groups_api.result
+
+            # Standardize response to always be a list
+            if not isinstance(groups, list):
+                if isinstance(groups, dict) and 'data' in groups:
+                    groups = groups.get('data') or []
+                else:
+                    groups = []
+
+            # Final safety check: if extraction resulted in non-list (e.g. None), force empty list
+            if not isinstance(groups, list):
+                groups = []
+
+            return {"status": "success", "data": groups}
+        except Exception as e:
+            return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 async def get_dynamic_feed(offset=None, group_id=None):
     try:
         cred = load_credential(group_id)
@@ -1355,6 +1382,16 @@ async def handle_my_info(request):
         logger.error(f"Error in my_info handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+async def handle_get_follow_groups(request):
+    try:
+        data = await request.json()
+        group_id = data.get('group_id')
+        result = await get_follow_groups(group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in get_follow_groups handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
 async def handle_dynamic_feed(request):
     try:
         data = await request.json()
@@ -1414,6 +1451,7 @@ def create_app():
         web.post('/user_card', handle_user_card),
         web.post('/my_followings', handle_my_followings),
         web.post('/my_info', handle_my_info),
+        web.post('/get_follow_groups', handle_get_follow_groups),
         web.post('/dynamic_feed', handle_dynamic_feed),
         web.post('/live_feed', handle_live_feed),
         web.get('/health', health_check),

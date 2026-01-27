@@ -8,6 +8,7 @@ const logger = require('../../utils/logger');
 const sysConfig = require('../../config');
 const authenticateToken = require('../middleware/auth');
 const subscriptionService = require('../../services/subscriptionService');
+const biliApi = require('../../services/biliApi');
 
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
@@ -102,15 +103,10 @@ router.post('/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
-        // Validate basic structure if needed, or just overwrite
-        // For now, we assume the client sends a full or partial config object
-        // that we want to save.
-        // The requirement says "overwrite config/config.json", implying the body IS the new config.
-        // But usually we might want to merge. Let's stick to "overwrite" as per requirements
-        // or safer: read existing, merge, then write?
-        // Requirement: "Receive JSON body, validate it (basic check), and overwrite config/config.json"
+        // Update in-memory config
+        Object.assign(sysConfig, newConfig);
+        sysConfig.save();
 
-        await writeConfig(newConfig);
         res.json({ message: 'Configuration updated successfully', config: newConfig });
     } catch (error) {
         res.status(500).json({ error: 'Failed to save configuration' });
@@ -120,9 +116,9 @@ router.post('/config', async (req, res) => {
 // GET /api/groups - List groups
 router.get('/groups', async (req, res) => {
     try {
-        const config = await readConfig();
-        const enabledGroups = new Set(config.enabledGroups || []);
-        const groupConfigs = config.groupConfigs || {};
+        // Use in-memory config
+        const enabledGroups = new Set(sysConfig.enabledGroups || []);
+        const groupConfigs = sysConfig.groupConfigs || {};
 
         // Collect all unique group IDs from enabledGroups and groupConfigs keys
         const allGroupIds = new Set([
@@ -149,24 +145,23 @@ router.get('/groups', async (req, res) => {
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
         const groupId = req.params.id;
-        const config = await readConfig();
 
-        if (!config.enabledGroups) {
-            config.enabledGroups = [];
+        if (!sysConfig.enabledGroups) {
+            sysConfig.enabledGroups = [];
         }
 
-        const index = config.enabledGroups.indexOf(groupId);
+        const index = sysConfig.enabledGroups.indexOf(groupId);
         let isEnabled;
 
         if (index === -1) {
-            config.enabledGroups.push(groupId);
+            sysConfig.enabledGroups.push(groupId);
             isEnabled = true;
         } else {
-            config.enabledGroups.splice(index, 1);
+            sysConfig.enabledGroups.splice(index, 1);
             isEnabled = false;
         }
 
-        await writeConfig(config);
+        sysConfig.save();
         res.json({ message: `Group ${groupId} toggled`, isEnabled });
     } catch (error) {
         res.status(500).json({ error: 'Failed to toggle group status' });
@@ -183,25 +178,64 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
-        const config = await readConfig();
-
-        if (!config.groupConfigs) {
-            config.groupConfigs = {};
+        if (!sysConfig.groupConfigs) {
+            sysConfig.groupConfigs = {};
         }
 
         // Merging logic: Update provided fields, keep others
-        config.groupConfigs[groupId] = {
-            ...(config.groupConfigs[groupId] || {}),
+        sysConfig.groupConfigs[groupId] = {
+            ...(sysConfig.groupConfigs[groupId] || {}),
             ...updates
         };
 
-        await writeConfig(config);
+        sysConfig.save();
+
         res.json({
             message: `Group ${groupId} configuration updated`,
-            config: config.groupConfigs[groupId]
+            config: sysConfig.groupConfigs[groupId]
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update group configuration' });
+    }
+});
+
+// GET /api/groups/:id/bili-groups - Get Bilibili follow groups
+router.get('/groups/:id/bili-groups', async (req, res) => {
+    try {
+        const groupId = req.params.id;
+        const result = await biliApi.getFollowGroups(groupId);
+        if (result && result.status === 'success') {
+            res.json(result.data);
+        } else {
+            // Return empty array if failed or no data
+            res.json([]);
+        }
+    } catch (error) {
+        logger.error(`Error fetching Bilibili groups for group ${req.params.id}:`, error);
+        res.status(500).json({ error: 'Failed to fetch Bilibili groups' });
+    }
+});
+
+// GET /api/bili/login-url - Get Bilibili Login QR
+router.get('/bili/login-url', async (req, res) => {
+    try {
+        const result = await biliApi.getLoginUrl();
+        res.json(result);
+    } catch (error) {
+        logger.error('Error getting login URL:', error);
+        res.status(500).json({ error: 'Failed to get login URL' });
+    }
+});
+
+// POST /api/bili/check-login - Check Login Status
+router.post('/bili/check-login', async (req, res) => {
+    try {
+        const { key, groupId } = req.body;
+        const result = await biliApi.checkLogin(key, groupId);
+        res.json(result);
+    } catch (error) {
+        logger.error('Error checking login:', error);
+        res.status(500).json({ error: 'Failed to check login' });
     }
 });
 
@@ -283,8 +317,7 @@ router.delete('/groups/:id/subscriptions', async (req, res) => {
 // GET /api/blacklist/global - Get global blacklist
 router.get('/blacklist/global', async (req, res) => {
     try {
-        const config = await readConfig();
-        res.json(config.blacklistedQQs || []);
+        res.json(sysConfig.blacklistedQQs || []);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch blacklist' });
     }
@@ -298,27 +331,20 @@ router.post('/blacklist/global', async (req, res) => {
             return res.status(400).json({ error: 'Missing QQ number' });
         }
 
-        const config = await readConfig();
-        if (!config.blacklistedQQs) {
-            config.blacklistedQQs = [];
+        if (!sysConfig.blacklistedQQs) {
+            sysConfig.blacklistedQQs = [];
         }
 
         // Store as number if it looks like one, or string.
-        // Usually QQs are numbers, but JS handles them as numbers up to 2^53.
-        // Config often stores them as numbers. Let's try to convert to number if safe.
-        // But for safety against large numbers, maybe string is better?
-        // Let's check if existing ones are numbers.
-        // If the array is empty, we default to Number(qq) if valid, else string.
-
         const qqVal = Number(qq);
         const valToStore = isNaN(qqVal) ? qq : qqVal;
 
-        if (!config.blacklistedQQs.includes(valToStore)) {
-            config.blacklistedQQs.push(valToStore);
-            await writeConfig(config);
+        if (!sysConfig.blacklistedQQs.includes(valToStore)) {
+            sysConfig.blacklistedQQs.push(valToStore);
+            sysConfig.save();
         }
 
-        res.json({ message: 'Added to blacklist', blacklist: config.blacklistedQQs });
+        res.json({ message: 'Added to blacklist', blacklist: sysConfig.blacklistedQQs });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update blacklist' });
     }
@@ -328,15 +354,14 @@ router.post('/blacklist/global', async (req, res) => {
 router.delete('/blacklist/global/:qq', async (req, res) => {
     try {
         const qqToRemove = req.params.qq;
-        const config = await readConfig();
 
-        if (config.blacklistedQQs && config.blacklistedQQs.length > 0) {
+        if (sysConfig.blacklistedQQs && sysConfig.blacklistedQQs.length > 0) {
             // Filter out loose match (string vs number)
-            config.blacklistedQQs = config.blacklistedQQs.filter(q => String(q) !== String(qqToRemove));
-            await writeConfig(config);
+            sysConfig.blacklistedQQs = sysConfig.blacklistedQQs.filter(q => String(q) !== String(qqToRemove));
+            sysConfig.save();
         }
 
-        res.json({ message: 'Removed from blacklist', blacklist: config.blacklistedQQs || [] });
+        res.json({ message: 'Removed from blacklist', blacklist: sysConfig.blacklistedQQs || [] });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update blacklist' });
     }
@@ -374,15 +399,66 @@ router.post('/ai', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
-        const config = await readConfig();
-
         // Merge updates into root config (AI settings are at root level)
-        Object.assign(config, updates);
+        Object.assign(sysConfig, updates);
 
-        await writeConfig(config);
-        res.json({ message: 'AI settings updated', config: config });
+        sysConfig.save();
+        res.json({ message: 'AI settings updated', config: sysConfig });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update AI settings' });
+    }
+});
+
+// POST /api/ai/reset - Reset AI settings to defaults (.env)
+router.post('/ai/reset', async (req, res) => {
+    try {
+        const aiKeys = [
+            'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt', 'aiProbability',
+            'aiEmbeddingApiUrl', 'aiEmbeddingApiKey', 'aiEmbeddingModel', 'aiChatProxy', 'aiEmbeddingProxy',
+            'aiContextLimit', 'aiHistoryMaxSize', 'aiVectorMaxSize',
+            'aiVectorSimilarityThreshold', 'aiVectorSearchLimit', 'aiShortMessageThreshold', 'aiMemorySafetyLimit',
+            'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize', 'aiEnableVectorCache', 'aiEnableSmartTrim'
+        ];
+
+        // 1. Delete from config.json and remove from sysConfig object
+        sysConfig.deleteKeys(aiKeys);
+
+        // 2. Restore in-memory values from .env or defaults
+        sysConfig.aiApiUrl = process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions';
+        sysConfig.aiApiKey = process.env.AI_API_KEY || '';
+        sysConfig.aiModel = process.env.AI_MODEL || 'gpt-3.5-turbo';
+
+        // Auto-infer embedding URL logic
+        sysConfig.aiEmbeddingApiUrl = process.env.AI_EMBEDDING_API_URL ||
+            (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings');
+
+        sysConfig.aiEmbeddingApiKey = process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '';
+        sysConfig.aiEmbeddingModel = process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small';
+
+        sysConfig.aiChatProxy = process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '';
+        sysConfig.aiEmbeddingProxy = process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '';
+
+        sysConfig.aiProbability = parseFloat(process.env.AI_PROBABILITY || '0.1');
+        sysConfig.aiSystemPrompt = process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。';
+
+        // Static Defaults
+        sysConfig.aiContextLimit = 10;
+        sysConfig.aiHistoryMaxSize = 200 * 1024 * 1024;
+        sysConfig.aiVectorMaxSize = 200 * 1024 * 1024;
+        sysConfig.aiVectorSimilarityThreshold = 0.4;
+        sysConfig.aiVectorSearchLimit = 3;
+        sysConfig.aiShortMessageThreshold = 5;
+        sysConfig.aiMemorySafetyLimit = 5000;
+        sysConfig.aiVectorMemoryLimit = 10000;
+        sysConfig.aiTrimRatio = 0.1;
+        sysConfig.aiVectorBatchLoadSize = 1000;
+        sysConfig.aiEnableVectorCache = true;
+        sysConfig.aiEnableSmartTrim = true;
+
+        res.json({ message: 'AI settings reset to defaults', config: sysConfig });
+    } catch (error) {
+        logger.error('Error resetting AI settings:', error);
+        res.status(500).json({ error: 'Failed to reset AI settings' });
     }
 });
 

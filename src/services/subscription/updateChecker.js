@@ -373,8 +373,11 @@ class UpdateChecker {
             if (!config.getGroupConfig(gid, 'enableCookieSync')) continue;
 
             // Check Tag filtering
-            const allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames'); // Array of strings
-            if (allowedTags && allowedTags.length > 0) {
+            let allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames');
+            if (typeof allowedTags === 'string') {
+                allowedTags = allowedTags.split(',').map(s => s.trim());
+            }
+            if (Array.isArray(allowedTags) && allowedTags.length > 0) {
                 // follower.biliGroups should be an array of tag names
                 const followerTags = follower.biliGroups || [];
                 // Check intersection
@@ -603,6 +606,7 @@ class UpdateChecker {
                 try {
                      // Build data structure matching what the live renderer expects
                      const liveData = {
+                         id: sub.uid,
                          data: {
                              room_info: {
                                  room_id: sub.uid,
@@ -656,7 +660,7 @@ class UpdateChecker {
 
                 try {
                     // Generate preview (pass full res object, not res.data)
-                    await this.notifyGroupsWithImage(sub.groupIds, res, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
+                    await this.notifyGroupsWithImage(sub.groupIds, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
                 } catch (e) {
                     this.notifyGroups(sub.groupIds, msg, newEp.id);
                 }

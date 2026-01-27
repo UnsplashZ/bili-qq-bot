@@ -22,20 +22,20 @@ const config = {
     wsUrl: process.env.WS_URL || 'ws://localhost:3001',
     wsToken: process.env.WS_TOKEN || '',
     
-    // AI Config (Static)
-    aiApiUrl: process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions',
-    aiApiKey: process.env.AI_API_KEY || '',
-    aiModel: process.env.AI_MODEL || 'gpt-3.5-turbo',
+    // AI Config (Prioritize dynamic config over env)
+    aiApiUrl: configData.aiApiUrl || process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions',
+    aiApiKey: configData.aiApiKey || process.env.AI_API_KEY || '',
+    aiModel: configData.aiModel || process.env.AI_MODEL || 'gpt-3.5-turbo',
     // Auto-infer embedding URL from API URL if not provided
-    aiEmbeddingApiUrl: process.env.AI_EMBEDDING_API_URL || (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings'),
+    aiEmbeddingApiUrl: configData.aiEmbeddingApiUrl || process.env.AI_EMBEDDING_API_URL || (process.env.AI_API_URL ? process.env.AI_API_URL.replace('/chat/completions', '/embeddings') : 'https://api.openai.com/v1/embeddings'),
     // Use dedicated embedding key if provided, otherwise fallback to main AI key
-    aiEmbeddingApiKey: process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '',
-    aiEmbeddingModel: process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
+    aiEmbeddingApiKey: configData.aiEmbeddingApiKey || process.env.AI_EMBEDDING_API_KEY || process.env.AI_API_KEY || '',
+    aiEmbeddingModel: configData.aiEmbeddingModel || process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
     // Proxy Config
-    aiChatProxy: process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '',
-    aiEmbeddingProxy: process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '',
-    aiProbability: parseFloat(process.env.AI_PROBABILITY || '0.1'),
-    aiSystemPrompt: process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
+    aiChatProxy: configData.aiChatProxy || process.env.AI_CHAT_PROXY || process.env.AI_PROXY || '',
+    aiEmbeddingProxy: configData.aiEmbeddingProxy || process.env.AI_EMBEDDING_PROXY || process.env.AI_PROXY || '',
+    aiProbability: configData.aiProbability !== undefined ? configData.aiProbability : parseFloat(process.env.AI_PROBABILITY || '0.1'),
+    aiSystemPrompt: configData.aiSystemPrompt || process.env.AI_SYSTEM_PROMPT || '你是一个有用的助手。',
     
     // System Paths & Admin
     pythonPath: process.env.PYTHON_PATH || (fs.existsSync(path.join(__dirname, '../venv/bin/python')) ? path.join(__dirname, '../venv/bin/python') : 'python3'),
@@ -257,6 +257,37 @@ const config = {
         this.save();
     },
 
+    // Delete specific keys from configuration and file
+    deleteKeys: function(keys) {
+        if (!Array.isArray(keys)) return;
+
+        // 1. Remove from in-memory object
+        keys.forEach(key => {
+            delete this[key];
+        });
+
+        // 2. Remove from config.json
+        if (fs.existsSync(CONFIG_PATH)) {
+            try {
+                const currentConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+                let changed = false;
+                keys.forEach(key => {
+                    if (Object.prototype.hasOwnProperty.call(currentConfig, key)) {
+                        delete currentConfig[key];
+                        changed = true;
+                    }
+                });
+
+                if (changed) {
+                    fs.writeFileSync(CONFIG_PATH, JSON.stringify(currentConfig, null, 2), 'utf8');
+                    logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
+                }
+            } catch (e) {
+                logger.error('[Config] Failed to update config.json during reset', e);
+            }
+        }
+    },
+
     // Save configuration to file (Only dynamic fields)
     // Uses a debounced queue to prevent excessive disk writes
     _saveTimer: null,
@@ -276,6 +307,11 @@ const config = {
 
     _performSave: function() {
         const data = {
+            // AI Configuration (Dynamic override)
+            aiApiUrl: this.aiApiUrl,
+            aiApiKey: this.aiApiKey,
+            aiModel: this.aiModel,
+            aiSystemPrompt: this.aiSystemPrompt,
             aiProbability: this.aiProbability,
             aiContextLimit: this.aiContextLimit,
             aiHistoryMaxSize: this.aiHistoryMaxSize,

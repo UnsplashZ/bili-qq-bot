@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Users, Settings } from 'lucide-react';
+import { Home, Users, Settings, Terminal } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 // eslint-disable-next-line no-unused-vars
@@ -51,6 +51,12 @@ const Layout = ({ children }) => {
             label="系统设置"
             href="/settings"
             active={path === '/settings'}
+          />
+          <SidebarItem
+            icon={Terminal}
+            label="系统日志"
+            href="/logs"
+            active={path === '/logs'}
           />
         </nav>
       </aside>

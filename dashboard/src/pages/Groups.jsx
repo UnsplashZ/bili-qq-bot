@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
-import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus } from 'lucide-react';
+import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import QRCode from 'qrcode';
 
 function Groups() {
   const [groups, setGroups] = useState([]);
@@ -26,7 +27,7 @@ function Groups() {
       bangumi: true,
     },
     enableCookieSync: false,
-    cookieSyncGroupNames: '',
+    cookieSyncGroupNames: [], // Array of strings
     blacklistedQQs: [],
   });
 
@@ -38,6 +39,17 @@ function Groups() {
 
   // Blacklist State
   const [blacklistInput, setBlacklistInput] = useState('');
+
+  // Login State
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginQrCode, setLoginQrCode] = useState('');
+  const [loginKey, setLoginKey] = useState('');
+  const [loginStatus, setLoginStatus] = useState('idle'); // idle, waiting, success, expired
+  const checkLoginTimerRef = useRef(null);
+
+  // Bilibili Groups State (Follow Groups)
+  const [biliGroups, setBiliGroups] = useState([]);
+  const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
 
   useEffect(() => {
     fetchGroups();
@@ -71,12 +83,46 @@ function Groups() {
     }
   }, [show]);
 
+  const fetchBiliGroups = useCallback(async (groupId) => {
+      if (!groupId) return;
+      setBiliGroupsLoading(true);
+      try {
+          const res = await api.get(`/api/groups/${groupId}/bili-groups`);
+          // API returns array of objects usually, or strings?
+          // Python backend usually returns list of dicts or list of strings?
+          // Assumption: returns array of { name: "TagName", id: 123 } or just strings.
+          // Let's assume strings based on "cookieSyncGroupNames (Array of strings)" requirement.
+          // Or if it returns objects, we extract names.
+          // Let's check api.js: res.json(result.data).
+          // If result.data is [ { tagid: 0, name: 'Main' } ], we need to handle it.
+          // Plan says "Render checkboxes... Value binding: cookieSyncGroupNames (Array of strings)".
+          // So we need names.
+          // Handle both direct array (if changed later) and wrapped response
+          const responseData = res.data;
+          const listData = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+          const safeList = Array.isArray(listData) ? listData : [];
+          setBiliGroups(safeList);
+      } catch (error) {
+          console.error("Failed to fetch Bili groups", error);
+      } finally {
+          setBiliGroupsLoading(false);
+      }
+  }, []);
+
   useEffect(() => {
     if (selectedGroupId) {
       const group = groups.find(g => g.id === selectedGroupId);
       if (group) {
         const config = group.config || {};
         const labels = config.labelConfig || {};
+
+        let syncGroups = [];
+        if (Array.isArray(config.cookieSyncGroupNames)) {
+            syncGroups = config.cookieSyncGroupNames;
+        } else if (typeof config.cookieSyncGroupNames === 'string') {
+            syncGroups = config.cookieSyncGroupNames.split(',').map(s => s.trim()).filter(Boolean);
+        }
+
         setFormData({
           linkCacheTimeout: config.linkCacheTimeout ?? 5,
           labelConfig: {
@@ -87,9 +133,7 @@ function Groups() {
             bangumi: labels.bangumi ?? true,
           },
           enableCookieSync: config.enableCookieSync ?? false,
-          cookieSyncGroupNames: Array.isArray(config.cookieSyncGroupNames)
-            ? config.cookieSyncGroupNames.join(', ')
-            : (config.cookieSyncGroupNames || ''),
+          cookieSyncGroupNames: syncGroups,
           blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
         });
 
@@ -99,9 +143,13 @@ function Groups() {
         if (selectedTabIndex === 1) {
             fetchSubscriptions(selectedGroupId);
         }
+        // If on sync tab, fetch bili groups
+        if (selectedTabIndex === 4) {
+            fetchBiliGroups(selectedGroupId);
+        }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -131,10 +179,8 @@ function Groups() {
     try {
       const payload = {
         ...formData,
+        // Ensure cookieSyncGroupNames is saved as array (it already is in state)
         cookieSyncGroupNames: formData.cookieSyncGroupNames
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean)
       };
 
       await api.post(`/api/groups/${selectedGroupId}/config`, payload);
@@ -231,13 +277,83 @@ function Groups() {
     { name: '订阅', icon: Bell },
     { name: '黑名单', icon: Ban },
     { name: 'AI 设置', icon: Cpu },
-    { name: '同步', icon: RefreshCw },
+    { name: '关注列表同步', icon: RefreshCw },
   ];
 
   const subTypes = [
       { value: 'user', label: 'UP主' },
       { value: 'bangumi', label: '番剧' },
   ];
+
+  // Login Handlers
+  const startLogin = async () => {
+      try {
+          setLoginStatus('waiting');
+          setIsLoginModalOpen(true);
+          const res = await api.get('/api/bili/login-url');
+          if (res.data && res.data.url) {
+              setLoginKey(res.data.key); // Save key for checking
+              // Generate QR Code
+              const qrDataUrl = await QRCode.toDataURL(res.data.url);
+              setLoginQrCode(qrDataUrl);
+
+              // Start polling
+              if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
+              checkLoginTimerRef.current = setInterval(() => checkLoginStatus(res.data.key), 3000);
+          } else {
+              show('获取登录二维码失败', 'error');
+              setIsLoginModalOpen(false);
+          }
+      } catch (err) {
+          console.error(err);
+          show('启动登录失败', 'error');
+          setIsLoginModalOpen(false);
+      }
+  };
+
+  const checkLoginStatus = async (key) => {
+      try {
+          const res = await api.post('/api/bili/check-login', { key, groupId: selectedGroupId });
+          // Check status in response
+          // Python script usually returns: { status: 'success'/'waiting'/'expired', ... }
+          // Or data: { status: ... } depending on biliApi wrapper
+
+          const status = res.data.data ? res.data.data.status : res.data.status;
+
+          if (status === 'success') {
+              clearInterval(checkLoginTimerRef.current);
+              setLoginStatus('success');
+              show('登录成功！', 'success');
+              // Maybe reload bili groups?
+              setTimeout(() => {
+                  setIsLoginModalOpen(false);
+                  fetchBiliGroups(selectedGroupId);
+              }, 1500);
+          } else if (status === 'expired') { // Or whatever code Bili returns
+               // handle expiry
+          }
+      } catch (err) {
+          console.error('Check login error', err);
+      }
+  };
+
+  const closeLoginModal = () => {
+      if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
+      setIsLoginModalOpen(false);
+      setLoginStatus('idle');
+  };
+
+  // Sync Group Checkbox Handler
+  const toggleSyncGroup = (groupName) => {
+      setFormData(prev => {
+          const current = prev.cookieSyncGroupNames;
+          if (current.includes(groupName)) {
+              return { ...prev, cookieSyncGroupNames: current.filter(n => n !== groupName) };
+          } else {
+              return { ...prev, cookieSyncGroupNames: [...current, groupName] };
+          }
+      });
+  };
 
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6">
@@ -484,37 +600,76 @@ function Groups() {
                 </Tab.Panel>
 
                 {/* Sync Tab */}
-                <Tab.Panel className="space-y-6 focus:outline-none">
-                     <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                         <label className="flex items-center justify-between cursor-pointer">
-                             <div>
-                                 <span className="text-white font-medium block">启用 Cookie 同步</span>
-                                 <span className="text-gray-400 text-sm">与其他群组同步 Cookie</span>
-                             </div>
-                             <div className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={formData.enableCookieSync}
-                                    onChange={(e) => setFormData({...formData, enableCookieSync: e.target.checked})}
-                                    className="sr-only peer"
-                                />
-                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                             </div>
-                         </label>
+                <Tab.Panel className="space-y-8 focus:outline-none">
+                     {/* Bilibili Login Section */}
+                     <div className="bg-white/5 p-6 rounded-lg border border-white/10">
+                        <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+                            <QrCode size={20} className="text-pink-400" />
+                            Bilibili 账号
+                        </h3>
+                        <p className="text-gray-400 text-sm mb-4">
+                            登录 Bilibili 账号以获取关注列表和更高清的视频解析。Cookie 将仅用于此群组（或同步）。
+                        </p>
+                        <button
+                            onClick={startLogin}
+                            className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg transition-colors font-medium"
+                        >
+                            扫码登录 Bilibili
+                        </button>
                      </div>
 
-                     <div className={clsx("transition-opacity", !formData.enableCookieSync && "opacity-50 pointer-events-none")}>
-                        <label className="block">
-                            <span className="text-gray-300 text-sm font-medium">同步群组 (逗号分隔)</span>
-                            <input
-                                type="text"
-                                placeholder="群组名称 1, 群组名称 2"
-                                value={formData.cookieSyncGroupNames}
-                                onChange={(e) => setFormData({...formData, cookieSyncGroupNames: e.target.value})}
-                                className="mt-1 block w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                            />
-                            <p className="mt-2 text-xs text-gray-500">输入要同步 Cookie 的群组的确切名称。</p>
-                        </label>
+                     {/* Sync Config Section */}
+                     <div>
+                         <div className="p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
+                             <label className="flex items-center justify-between cursor-pointer">
+                                 <div>
+                                     <span className="text-white font-medium block">启用关注列表同步</span>
+                                     <span className="text-gray-400 text-sm">自动同步所选分组的 UP 主更新</span>
+                                 </div>
+                                 <div className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.enableCookieSync}
+                                        onChange={(e) => setFormData({...formData, enableCookieSync: e.target.checked})}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                 </div>
+                             </label>
+                         </div>
+
+                         <div className={clsx("transition-opacity", !formData.enableCookieSync && "opacity-50 pointer-events-none")}>
+                            <h4 className="text-sm font-medium text-gray-300 mb-3">选择要同步的关注分组</h4>
+
+                            {biliGroupsLoading ? (
+                                <div className="flex items-center gap-2 text-gray-400">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    正在获取分组...
+                                </div>
+                            ) : biliGroups.length === 0 ? (
+                                <div className="text-gray-500 text-sm italic">
+                                    未找到关注分组，请先登录 Bilibili 账号。
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    {biliGroups.map((group) => {
+                                        // group is likely { tagid, name, count, tip } or just string
+                                        const groupName = typeof group === 'string' ? group : group.name;
+                                        return (
+                                            <label key={groupName} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formData.cookieSyncGroupNames.includes(groupName)}
+                                                    onChange={() => toggleSyncGroup(groupName)}
+                                                    className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                                                />
+                                                <span className="text-gray-200 text-sm">{groupName}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                         </div>
                      </div>
                 </Tab.Panel>
               </Tab.Panels>
@@ -528,6 +683,47 @@ function Groups() {
           </GlassCard>
         )}
       </div>
+
+      {/* Login Modal */}
+      <GlassModal
+        isOpen={isLoginModalOpen}
+        onClose={closeLoginModal}
+        title="扫码登录 Bilibili"
+        footer={
+            <button onClick={closeLoginModal} className="px-4 py-2 text-gray-300 hover:text-white transition-colors">
+                关闭
+            </button>
+        }
+      >
+        <div className="flex flex-col items-center justify-center p-4">
+            {loginStatus === 'success' ? (
+                <div className="text-green-400 font-medium text-lg flex flex-col items-center">
+                    <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-4 text-3xl">
+                        ✓
+                    </div>
+                    登录成功！
+                </div>
+            ) : (
+                <>
+                    <div className="bg-white p-2 rounded-lg mb-4">
+                        {loginQrCode ? (
+                            <img src={loginQrCode} alt="Login QR" className="w-48 h-48" />
+                        ) : (
+                            <div className="w-48 h-48 flex items-center justify-center text-gray-400">
+                                <Loader2 size={32} className="animate-spin" />
+                            </div>
+                        )}
+                    </div>
+                    <p className="text-gray-300 text-center mb-2">
+                        请使用 Bilibili 手机客户端扫码登录
+                    </p>
+                    <p className="text-sm text-gray-500">
+                        {loginStatus === 'waiting' ? '等待扫码...' : '已过期，请重试'}
+                    </p>
+                </>
+            )}
+        </div>
+      </GlassModal>
 
       {/* Add Subscription Modal */}
       <GlassModal

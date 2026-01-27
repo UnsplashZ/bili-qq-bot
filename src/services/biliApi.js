@@ -141,6 +141,13 @@ class BiliApi {
         // No cache for live feed (real-time data)
         return serviceManager.sendCommand('live_feed', { group_id: groupId });
     }
+
+    async getFollowGroups(groupId) {
+        // Cache this as tags don't change often
+        return this._withCache('follow_groups', 'list', groupId, () =>
+            serviceManager.sendCommand('get_follow_groups', { group_id: groupId })
+        );
+    }
 }
 
 module.exports = new BiliApi();

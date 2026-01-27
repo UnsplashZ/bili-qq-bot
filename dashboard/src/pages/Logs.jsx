@@ -8,78 +8,93 @@ const Logs = () => {
   const [isPaused, setIsPaused] = useState(false);
   const logsEndRef = useRef(null);
   const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const isPausedRef = useRef(isPaused);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   useEffect(() => {
     const token = getToken();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Use the same host as the page, assuming proxy or same origin
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws/logs?token=${token}`;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    const addLog = (log) => {
-      setLogs(prev => {
-        const newLogs = [...prev, log];
-        // Keep last 500 lines
-        if (newLogs.length > 500) return newLogs.slice(newLogs.length - 500);
-        return newLogs;
-      });
-    };
+      const addLog = (log) => {
+        setLogs(prev => {
+          const newLogs = [...prev, log];
+          if (newLogs.length > 1000) return newLogs.slice(-1000);
+          return newLogs;
+        });
+      };
 
-    ws.onopen = () => {
-      addLog({ level: 'INFO', message: '已连接到日志流...', timestamp: new Date().toISOString() });
-    };
+      ws.onopen = () => {
+        addLog({ level: 'INFO', message: '已连接到日志流...', timestamp: new Date().toISOString() });
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        // Try to parse JSON, otherwise treat as plain text
-        let data;
+      ws.onmessage = (event) => {
+        if (isPausedRef.current) return;
+
         try {
+          let data;
+          try {
             data = JSON.parse(event.data);
-        } catch {
+          } catch {
             data = event.data;
-        }
+          }
 
-        let logEntry;
-        if (typeof data === 'object' && data !== null) {
+          let logEntry;
+          if (typeof data === 'object' && data !== null) {
             logEntry = {
-                level: data.level || 'INFO',
-                message: data.message || JSON.stringify(data),
-                timestamp: data.timestamp || new Date().toISOString()
+              level: data.level || 'INFO',
+              message: data.message || JSON.stringify(data),
+              timestamp: data.timestamp || new Date().toISOString()
             };
-        } else {
-            // Attempt to guess level from string content
+          } else {
             const text = String(data);
             let level = 'INFO';
             if (text.match(/error|fail|exception/i)) level = 'ERROR';
             else if (text.match(/warn/i)) level = 'WARN';
 
             logEntry = {
-                level,
-                message: text,
-                timestamp: new Date().toISOString()
+              level,
+              message: text,
+              timestamp: new Date().toISOString()
             };
+          }
+
+          addLog(logEntry);
+        } catch (e) {
+          console.error('Error parsing log:', e);
         }
+      };
 
-        addLog(logEntry);
-      } catch (e) {
-        console.error('Error parsing log:', e);
-      }
-    };
+      ws.onclose = () => {
+        addLog({ level: 'WARN', message: '连接已断开，正在尝试重连...', timestamp: new Date().toISOString() });
+        reconnectTimerRef.current = setTimeout(connect, 3000);
+      };
 
-    ws.onclose = () => {
-      addLog({ level: 'WARN', message: '连接已断开', timestamp: new Date().toISOString() });
-    };
-
-    ws.onerror = (err) => {
+      ws.onerror = (err) => {
         console.error("WebSocket error:", err);
-        addLog({ level: 'ERROR', message: 'WebSocket连接错误', timestamp: new Date().toISOString() });
+        ws.close();
+      };
     };
+
+    connect();
 
     return () => {
-      if (ws.readyState === 1) ws.close();
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
     };
   }, []);
 
