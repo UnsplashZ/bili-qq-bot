@@ -353,6 +353,16 @@ function Groups() {
       setLoginStatus('idle');
   };
 
+  // Cleanup timer on component unmount
+  useEffect(() => {
+      return () => {
+          // 组件卸载时清理定时器
+          if (checkLoginTimerRef.current) {
+              clearInterval(checkLoginTimerRef.current);
+          }
+      };
+  }, []);
+
   // Sync Group Checkbox Handler
   const toggleSyncGroup = (groupName) => {
       setFormData(prev => {

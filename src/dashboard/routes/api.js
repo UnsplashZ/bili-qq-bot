@@ -151,6 +151,11 @@ router.post('/groups/:id/toggle', async (req, res) => {
     try {
         const groupId = req.params.id;
 
+        // 验证群组是否存在
+        if (!global.bot || !global.bot.groupList || !global.bot.groupList.has(groupId)) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
         if (!sysConfig.enabledGroups) {
             sysConfig.enabledGroups = [];
         }
@@ -178,6 +183,11 @@ router.post('/groups/:id/config', async (req, res) => {
     try {
         const groupId = req.params.id;
         const updates = req.body;
+
+        // 验证群组是否存在
+        if (!global.bot || !global.bot.groupList || !global.bot.groupList.has(groupId)) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
 
         if (!updates || typeof updates !== 'object') {
             return res.status(400).json({ error: 'Invalid configuration data' });
