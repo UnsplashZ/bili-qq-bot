@@ -466,9 +466,11 @@ const Settings = () => {
                         <input
                             type="number"
                             min="1"
+                            max="10000"
+                            step="1"
                             value={Math.round(aiConfig.aiHistoryMaxSize / (1024 * 1024))}
                             onChange={(e) => {
-                                const mb = parseInt(e.target.value) || 0;
+                                const mb = Math.max(1, parseInt(e.target.value, 10) || 1);
                                 handleAiChange('aiHistoryMaxSize', mb * 1024 * 1024);
                             }}
                             className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
@@ -476,7 +478,7 @@ const Settings = () => {
                         <span className="text-white/70 font-medium">MB</span>
                     </div>
                     <p className="text-xs text-white/50">
-                        默认: 200 MB (用于存储AI对话历史)
+                        默认: 200 MB (用于存储AI对话历史，范围: 1-10000 MB)
                     </p>
                 </div>
 
