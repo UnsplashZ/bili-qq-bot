@@ -634,7 +634,7 @@ const Settings = () => {
             <div>
                 <h2 className="text-xl font-semibold text-white flex items-center gap-2">
                     <Activity className="text-red-400" />
-                    危险区域
+                    系统控制
                 </h2>
                 <p className="text-gray-400 text-sm mt-1">影响整个机器人的系统级操作。</p>
             </div>

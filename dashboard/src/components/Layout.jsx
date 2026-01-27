@@ -36,7 +36,7 @@ const Layout = ({ children }) => {
         <nav className="px-4 space-y-2 mt-4">
           <SidebarItem
             icon={Home}
-            label="控制面板"
+            label="运行状态"
             href="/"
             active={path === '/'}
           />
