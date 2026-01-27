@@ -404,12 +404,18 @@ function Groups() {
                   !group.isEnabled && 'opacity-50'  // 禁用时半透明
                 )}
               >
-                <Power
-                  className={clsx(
-                    'w-4 h-4',
-                    group.isEnabled ? 'text-green-400' : 'text-gray-400'
-                  )}
-                />
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleGroup(e, group)}
+                  className="p-1 rounded hover:bg-white/10 transition-colors"
+                >
+                  <Power
+                    className={clsx(
+                      'w-4 h-4',
+                      group.isEnabled ? 'text-green-400' : 'text-gray-400'
+                    )}
+                  />
+                </button>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
                   <div className="text-xs text-white/50">ID: {group.id}</div>
