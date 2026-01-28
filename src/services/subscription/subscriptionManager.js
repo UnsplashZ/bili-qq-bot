@@ -441,6 +441,52 @@ class SubscriptionManager {
         return false;
     }
 
+    // Remove a group from all subscriptions (used when bot leaves a group)
+    async removeGroupFromAllSubscriptions(groupId) {
+        await this._ensureSubscriptionsLoaded();
+        const gid = String(groupId);
+        let modified = false;
+
+        // Remove from user subscriptions
+        for (let i = this.userSubs.length - 1; i >= 0; i--) {
+            const sub = this.userSubs[i];
+            const groupIndex = sub.groupIds.findIndex(id => String(id) === gid);
+            if (groupIndex > -1) {
+                sub.groupIds.splice(groupIndex, 1);
+                modified = true;
+
+                // Remove subscription entirely if no groups left
+                if (sub.groupIds.length === 0) {
+                    this.userSubs.splice(i, 1);
+                    logger.debug(`[SubscriptionManager] Removed user sub ${sub.uid} (${sub.name}) - no groups remaining`);
+                }
+            }
+        }
+
+        // Remove from bangumi subscriptions
+        for (let i = this.bangumiSubs.length - 1; i >= 0; i--) {
+            const sub = this.bangumiSubs[i];
+            const groupIndex = sub.groupIds.findIndex(id => String(id) === gid);
+            if (groupIndex > -1) {
+                sub.groupIds.splice(groupIndex, 1);
+                modified = true;
+
+                // Remove subscription entirely if no groups left
+                if (sub.groupIds.length === 0) {
+                    this.bangumiSubs.splice(i, 1);
+                    logger.debug(`[SubscriptionManager] Removed bangumi sub ${sub.seasonId} (${sub.title}) - no groups remaining`);
+                }
+            }
+        }
+
+        if (modified) {
+            await this._saveSubscriptions();
+            logger.info(`[SubscriptionManager] Removed group ${groupId} from all subscriptions`);
+        }
+
+        return modified;
+    }
+
     // Get followings for a specific group
     getFollowingsForGroup(groupId) {
         const gid = String(groupId);

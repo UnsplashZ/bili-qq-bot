@@ -242,6 +242,30 @@ function Groups() {
     }
   };
 
+  const handleDeleteConfig = async (e, group) => {
+    e.stopPropagation();
+
+    if (!window.confirm(`确认删除群组 ${group.name} (${group.id}) 的所有配置和订阅数据？\n\n此操作不可恢复。`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/api/groups/${group.id}`);
+      show('配置已删除', 'success');
+
+      // Remove from groups list
+      setGroups(prev => prev.filter(g => g.id !== group.id));
+
+      // Clear selection if deleted group was selected
+      if (selectedGroupId === group.id) {
+        setSelectedGroupId(null);
+      }
+    } catch (err) {
+      console.error('Failed to delete group config', err);
+      show(err.response?.data?.error || '删除失败', 'error');
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedGroupId) return;
     setSaving(true);
@@ -566,26 +590,46 @@ function Groups() {
                   selectedGroupId === group.id
                     ? 'bg-blue-500/20 ring-2 ring-blue-500'
                     : 'bg-white/5',
-                  !group.isEnabled && 'opacity-50'  // 禁用时半透明
+                  !group.isEnabled && 'opacity-50',  // 禁用时半透明
+                  !group.isInGroup && 'opacity-60 grayscale'  // 已退群时灰色半透明
                 )}
               >
-                <button
-                  type="button"
-                  onClick={(e) => handleToggleGroup(e, group)}
-                  className="p-1 rounded hover:bg-white/10 transition-colors"
-                >
-                  <Power
-                    className={clsx(
-                      'w-4 h-4',
-                      group.isEnabled ? 'text-green-400' : 'text-gray-400'
-                    )}
-                  />
-                </button>
+                {group.isInGroup ? (
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleGroup(e, group)}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    title={group.isEnabled ? '禁用群组' : '启用群组'}
+                  >
+                    <Power
+                      className={clsx(
+                        'w-4 h-4',
+                        group.isEnabled ? 'text-green-400' : 'text-gray-400'
+                      )}
+                    />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteConfig(e, group)}
+                    className="p-1 rounded hover:bg-red-500/20 transition-colors"
+                    title="删除配置"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                  </button>
+                )}
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
+                    {!group.isInGroup && (
+                      <span className="text-xs text-red-400 px-2 py-0.5 bg-red-500/20 rounded flex-shrink-0">
+                        已退群
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-white/50">ID: {group.id}</div>
                 </div>
-                {!group.isEnabled && (
+                {group.isInGroup && !group.isEnabled && (
                   <span className="text-xs text-white/40 px-2 py-1 bg-white/5 rounded">
                     已禁用
                   </span>

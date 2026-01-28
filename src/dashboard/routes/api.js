@@ -9,6 +9,7 @@ const sysConfig = require('../../config');
 const authenticateToken = require('../middleware/auth');
 const subscriptionService = require('../../services/subscriptionService');
 const biliApi = require('../../services/biliApi');
+const mcpManager = require('../../services/mcpManager');
 
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
@@ -113,28 +114,39 @@ router.post('/config', async (req, res) => {
     }
 });
 
-// GET /api/groups - List all groups (including disabled ones)
+// GET /api/groups - List all groups (including disabled and left ones)
 router.get('/groups', async (req, res) => {
     try {
         const bot = global.bot;
-        if (!bot || !bot.groupList) {
-            return res.json([]);
+        const groupConfigs = sysConfig.groupConfigs || {};
+        const enabledGroups = new Set(sysConfig.enabledGroups || []);
+
+        // Collect all group IDs (currently in groups + have configs)
+        const allGroupIds = new Set();
+
+        // 1. Add groups bot is currently in
+        if (bot && bot.groupList) {
+            bot.groupList.forEach((info, groupId) => {
+                allGroupIds.add(groupId);
+            });
         }
 
-        // 获取所有群组（不过滤 enabledGroups）
-        const allGroups = Array.from(bot.groupList.keys());
-        const enabledGroups = new Set(sysConfig.enabledGroups || []);
-        const groupConfigs = sysConfig.groupConfigs || {};
+        // 2. Add groups with configs (may have left)
+        Object.keys(groupConfigs).forEach(groupId => {
+            allGroupIds.add(groupId);
+        });
 
-        const groupsData = allGroups.map(groupId => {
-            const groupInfo = bot.groupList.get(groupId);
-            const isEnabled = enabledGroups.has(groupId);
+        // 3. Build response data
+        const groupsData = Array.from(allGroupIds).map(groupId => {
+            const groupInfo = bot?.groupList?.get(groupId);
             const groupConfig = groupConfigs[groupId] || {};
+            const isInGroup = groupConfig.isInGroup !== false;
 
             return {
                 id: groupId,
                 name: groupInfo?.group_name || `群组 ${groupId}`,
-                isEnabled: isEnabled,  // 添加启用状态
+                isEnabled: enabledGroups.has(groupId),
+                isInGroup: isInGroup,
                 config: groupConfig
             };
         });
@@ -245,6 +257,49 @@ router.post('/groups/:id/config', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update group configuration' });
+    }
+});
+
+// DELETE /api/groups/:id - Delete config for a left group
+router.delete('/groups/:id', async (req, res) => {
+    try {
+        const groupId = req.params.id;
+        const groupConfig = sysConfig.groupConfigs?.[groupId];
+
+        // Only allow deleting configs for left groups
+        if (!groupConfig) {
+            return res.status(404).json({ error: 'Group config not found' });
+        }
+
+        if (groupConfig.isInGroup !== false) {
+            return res.status(400).json({
+                error: 'Can only delete configs for groups that bot has left'
+            });
+        }
+
+        // 1. Delete group config
+        delete sysConfig.groupConfigs[groupId];
+
+        // 2. Remove from enabled groups list
+        if (sysConfig.enabledGroups) {
+            const index = sysConfig.enabledGroups.indexOf(groupId);
+            if (index !== -1) {
+                sysConfig.enabledGroups.splice(index, 1);
+            }
+        }
+
+        // 3. Remove group from all subscriptions
+        const subscriptionManager = require('../../services/subscription/subscriptionManager');
+        await subscriptionManager.removeGroupFromAllSubscriptions(groupId);
+
+        // Save config (debounced, will save in background)
+        sysConfig.save();
+
+        logger.info(`[API] Deleted config for left group ${groupId}`);
+        res.json({ success: true, message: `Config for group ${groupId} deleted` });
+    } catch (error) {
+        logger.error('Error deleting group config:', error);
+        res.status(500).json({ error: 'Failed to delete group config' });
     }
 });
 
@@ -508,24 +563,176 @@ router.delete('/blacklist/global/:qq', async (req, res) => {
 // GET /api/mcp - Read MCP servers config
 router.get('/mcp', async (req, res) => {
     try {
+        logger.info('[API] Reading MCP configuration...');
         const config = await readMcpConfig();
-        res.json(config);
+
+        // Extract version number
+        const version = config._version || 0;
+
+        // Convert object format to array format for frontend
+        const mcpServers = Object.entries(config)
+            .filter(([key]) => key !== '_version')  // Filter out version field
+            .map(([name, serverConfig]) => ({
+                name,
+                command: serverConfig.command || '',
+                args: serverConfig.args || [],
+                env: serverConfig.env || {},
+                enabled: serverConfig.enabled !== false
+            }));
+
+        logger.info(`[API] Returning ${mcpServers.length} MCP servers to client`);
+        res.json({ mcpServers, version });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to read MCP configuration' });
+        logger.error('[API] Failed to read MCP configuration:', error);
+        res.status(500).json({ error: 'Failed to read MCP configuration', details: error.message });
     }
 });
 
 // POST /api/mcp - Update MCP servers config
 router.post('/mcp', async (req, res) => {
     try {
-        const newConfig = req.body;
-        if (!newConfig || typeof newConfig !== 'object') {
-            return res.status(400).json({ error: 'Invalid configuration data' });
+        const { mcpServers, version, renameOperation } = req.body;
+
+        logger.info(`[API] Updating MCP configuration: ${mcpServers?.length || 0} servers`);
+
+        // Rename operation logging
+        if (renameOperation) {
+            logger.info(`[API] Rename operation detected: ${renameOperation.from} → ${renameOperation.to}`);
         }
+
+        // === Strong validation: Frontend must send array format ===
+        if (!Array.isArray(mcpServers)) {
+            logger.warn('[API] Invalid mcpServers format:', req.body);
+            return res.status(400).json({
+                error: 'Invalid mcpServers format, expected array',
+                received: typeof req.body.mcpServers,
+                expected: 'array'
+            });
+        }
+
+        // === Version control: Concurrent conflict detection ===
+        const currentConfig = await readMcpConfig();
+        const currentVersion = currentConfig._version || 0;
+
+        if (version !== undefined && version !== currentVersion) {
+            logger.warn('[API] Concurrent modification detected', {
+                clientVersion: version,
+                serverVersion: currentVersion
+            });
+
+            // Return latest config for frontend merge
+            const latestServers = Object.entries(currentConfig)
+                .filter(([key]) => key !== '_version')
+                .map(([name, serverConfig]) => ({
+                    name,
+                    command: serverConfig.command || '',
+                    args: serverConfig.args || [],
+                    env: serverConfig.env || {},
+                    enabled: serverConfig.enabled !== false
+                }));
+
+            return res.status(409).json({
+                error: 'Configuration has been modified by another user',
+                conflict: true,
+                serverVersion: currentVersion,
+                currentConfig: latestServers
+            });
+        }
+
+        // === Field-level validation: validate all servers ===
+        const validationErrors = [];
+        const seenNames = new Set();
+
+        mcpServers.forEach((server, idx) => {
+            // name validation
+            if (!server.name || typeof server.name !== 'string') {
+                validationErrors.push(`Server at index ${idx}: name is required and must be string`);
+                return;
+            }
+            if (server.name.trim() === '') {
+                validationErrors.push(`Server "${server.name}": name cannot be empty`);
+                return;
+            }
+            if (!/^[a-zA-Z0-9_-]+$/.test(server.name)) {
+                validationErrors.push(`Server "${server.name}": name contains invalid characters (only a-z, A-Z, 0-9, _, - allowed)`);
+                return;
+            }
+            if (seenNames.has(server.name)) {
+                validationErrors.push(`Duplicate server name: "${server.name}"`);
+            }
+            seenNames.add(server.name);
+
+            // command validation
+            if (!server.command || typeof server.command !== 'string') {
+                validationErrors.push(`Server "${server.name}": command is required and must be string`);
+                return;
+            }
+
+            // args validation
+            if (server.args !== undefined && !Array.isArray(server.args)) {
+                validationErrors.push(`Server "${server.name}": args must be an array`);
+            }
+
+            // env validation
+            if (server.env !== undefined && (typeof server.env !== 'object' || Array.isArray(server.env))) {
+                validationErrors.push(`Server "${server.name}": env must be an object`);
+            }
+        });
+
+        if (validationErrors.length > 0) {
+            logger.warn('[API] MCP configuration validation failed:', validationErrors);
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: validationErrors
+            });
+        }
+
+        // === Format conversion: array → object (single source of truth) ===
+        const newVersion = currentVersion + 1;
+        const newConfig = { _version: newVersion };
+
+        for (const server of mcpServers) {
+            newConfig[server.name] = {
+                command: server.command,
+                args: server.args || [],
+                env: server.env || {},
+                enabled: server.enabled !== undefined ? server.enabled : true
+            };
+        }
+
+        // Write to file
         await writeMcpConfig(newConfig);
-        res.json({ message: 'MCP configuration updated', config: newConfig });
+        logger.info('[API] MCP configuration saved to file');
+
+        // === Reload mechanism: Wait for reload and return result ===
+        try {
+            await mcpManager.reload(newConfig);
+            logger.info('[API] MCP servers reloaded successfully');
+
+            res.json({
+                message: 'MCP配置已更新并生效',
+                config: newConfig,
+                version: newVersion,
+                reloadSuccess: true
+            });
+
+        } catch (reloadError) {
+            logger.error('[API] Failed to reload MCP servers after config update:', reloadError);
+
+            // Config saved but reload failed - return 207 Multi-Status
+            res.status(207).json({
+                message: '配置已保存，但服务重载失败',
+                config: newConfig,
+                version: newVersion,
+                reloadSuccess: false,
+                error: reloadError.message,
+                warning: '配置已保存到文件，但MCP服务可能未更新，建议重启应用'
+            });
+        }
+
     } catch (error) {
-        res.status(500).json({ error: 'Failed to save MCP configuration' });
+        logger.error('[API] Failed to save MCP configuration:', error);
+        res.status(500).json({ error: 'Failed to save MCP configuration', details: error.message });
     }
 });
 
@@ -537,13 +744,111 @@ router.post('/ai', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
+        // === AI配置字段验证 ===
+
+        // aiProbability: 0-1
+        if (updates.aiProbability !== undefined) {
+            const prob = parseFloat(updates.aiProbability);
+            if (isNaN(prob) || prob < 0 || prob > 1) {
+                return res.status(400).json({
+                    error: 'aiProbability must be between 0 and 1',
+                    field: 'aiProbability',
+                    expected: '0.0 - 1.0'
+                });
+            }
+            updates.aiProbability = prob;
+        }
+
+        // aiContextLimit: 1-100
+        if (updates.aiContextLimit !== undefined) {
+            const limit = parseInt(updates.aiContextLimit, 10);
+            if (isNaN(limit) || limit < 1 || limit > 100) {
+                return res.status(400).json({
+                    error: 'aiContextLimit must be between 1 and 100',
+                    field: 'aiContextLimit',
+                    expected: '1 - 100'
+                });
+            }
+            updates.aiContextLimit = limit;
+        }
+
+        // aiVectorSimilarityThreshold: 0-1
+        if (updates.aiVectorSimilarityThreshold !== undefined) {
+            const threshold = parseFloat(updates.aiVectorSimilarityThreshold);
+            if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+                return res.status(400).json({
+                    error: 'aiVectorSimilarityThreshold must be between 0 and 1',
+                    field: 'aiVectorSimilarityThreshold',
+                    expected: '0.0 - 1.0'
+                });
+            }
+            updates.aiVectorSimilarityThreshold = threshold;
+        }
+
+        // aiVectorSearchLimit: 1-10
+        if (updates.aiVectorSearchLimit !== undefined) {
+            const limit = parseInt(updates.aiVectorSearchLimit, 10);
+            if (isNaN(limit) || limit < 1 || limit > 10) {
+                return res.status(400).json({
+                    error: 'aiVectorSearchLimit must be between 1 and 10',
+                    field: 'aiVectorSearchLimit',
+                    expected: '1 - 10'
+                });
+            }
+            updates.aiVectorSearchLimit = limit;
+        }
+
+        // aiMemorySafetyLimit: 1-10000
+        if (updates.aiMemorySafetyLimit !== undefined) {
+            const limit = parseInt(updates.aiMemorySafetyLimit, 10);
+            if (isNaN(limit) || limit < 1 || limit > 10000) {
+                return res.status(400).json({
+                    error: 'aiMemorySafetyLimit must be between 1 and 10000',
+                    field: 'aiMemorySafetyLimit',
+                    expected: '1 - 10000'
+                });
+            }
+            updates.aiMemorySafetyLimit = limit;
+        }
+
+        // aiHistoryMaxSize: 1MB - 10000MB
+        if (updates.aiHistoryMaxSize !== undefined) {
+            const size = parseInt(updates.aiHistoryMaxSize, 10);
+            if (isNaN(size) || size < 1024 * 1024 || size > 10000 * 1024 * 1024) {
+                return res.status(400).json({
+                    error: 'aiHistoryMaxSize must be between 1MB and 10000MB',
+                    field: 'aiHistoryMaxSize',
+                    expected: '1048576 - 10485760000 (1MB - 10000MB)'
+                });
+            }
+            updates.aiHistoryMaxSize = size;
+        }
+
         // Merge updates into root config (AI settings are at root level)
+        // Object.assign will trigger setters which internally call save()
         Object.assign(sysConfig, updates);
 
-        sysConfig.save();
-        res.json({ message: 'AI settings updated', config: sysConfig });
+        // Return clean snapshot of AI fields (not sysConfig instance)
+        const aiFields = [
+            'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt',
+            'aiProbability', 'aiContextLimit',
+            'aiChatApiUrl', 'aiChatApiKey', 'aiChatModel', 'aiChatProxy', 'aiChatSystemPrompt',
+            'aiEmbeddingApiUrl', 'aiEmbeddingApiKey', 'aiEmbeddingModel', 'aiEmbeddingProxy',
+            'aiHistoryMaxSize', 'aiVectorMaxSize', 'aiVectorSimilarityThreshold',
+            'aiVectorSearchLimit', 'aiShortMessageThreshold', 'aiMemorySafetyLimit',
+            'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize',
+            'aiEnableVectorCache', 'aiEnableSmartTrim'
+        ];
+
+        const snapshot = {};
+        for (const field of aiFields) {
+            snapshot[field] = sysConfig[field];
+        }
+
+        res.json({ message: 'AI settings updated', config: snapshot });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to update AI settings' });
+        logger.error('Failed to update AI settings:', error);
+        res.status(500).json({ error: 'Failed to update AI settings', details: error.message });
     }
 });
 

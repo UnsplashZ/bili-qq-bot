@@ -78,12 +78,24 @@ class UpdateChecker {
         // Ensure subscriptions are loaded before checking
         await subscriptionManager._ensureSubscriptionsLoaded();
 
+        // Build active groups set (only groups where isInGroup !== false)
+        const activeGroups = new Set();
+        const groupConfigs = config.groupConfigs || {};
+
+        for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
+            if (groupConfig.isInGroup !== false) {
+                activeGroups.add(groupId);
+            }
+        }
+
+        logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`);
+
         // Prepare set to track UIDs covered by feed check (to avoid duplicate check)
         const feedMonitoredUids = new Set();
 
         // 1. Check Feed Updates (Cookie Sync)
         // This will populate feedMonitoredUids with UIDs that were checked via feed
-        await this.checkFeedUpdate(feedMonitoredUids);
+        await this.checkFeedUpdate(feedMonitoredUids, activeGroups);
 
         // 2. Check User Dynamics (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
@@ -92,7 +104,14 @@ class UpdateChecker {
                 continue;
             }
 
-            await this.checkUserDynamic(sub);
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped dynamic check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkUserDynamic(sub, targetGroups);
             // Small delay to be nice to API
             await new Promise(r => setTimeout(r, 1000));
         }
@@ -104,13 +123,27 @@ class UpdateChecker {
                 continue;
             }
 
-            await this.checkUserLive(sub);
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped live check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkUserLive(sub, targetGroups);
             await new Promise(r => setTimeout(r, 1000));
         }
 
         // 4. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
-            await this.checkBangumi(sub);
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped bangumi check for ${sub.seasonId} (${sub.title}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkBangumi(sub, targetGroups);
             await new Promise(r => setTimeout(r, 1000));
         }
 
@@ -118,10 +151,14 @@ class UpdateChecker {
         await this.refreshMissingNames();
     }
 
-    async checkFeedUpdate(monitoredUidsSet = null) {
-        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
-            config.getGroupConfig(gid, 'enableCookieSync')
-        );
+    async checkFeedUpdate(monitoredUidsSet = null, activeGroups = null) {
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
+            // Only check groups that are active (not left)
+            if (activeGroups && !activeGroups.has(gid)) {
+                return false;
+            }
+            return config.getGroupConfig(gid, 'enableCookieSync');
+        });
 
         if (groupsWithSync.length === 0) return;
 
@@ -148,20 +185,20 @@ class UpdateChecker {
                 }
 
                 // Process Dynamic Feed
-                await this.processDynamicFeed(uid, groupId);
+                await this.processDynamicFeed(uid, groupId, activeGroups);
 
                 // Wait 2s
                 await new Promise(r => setTimeout(r, 2000));
 
                 // Process Live Feed
-                await this.processLiveFeed(uid, groupId);
+                await this.processLiveFeed(uid, groupId, activeGroups);
             } catch (e) {
                 logger.error(`[UpdateChecker] Feed update failed for account ${uid}:`, e);
             }
         }
     }
 
-    async processDynamicFeed(accountUid, groupId) {
+    async processDynamicFeed(accountUid, groupId, activeGroups = null) {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
         if (!followers || followers.length === 0) return;
 
@@ -215,7 +252,7 @@ class UpdateChecker {
                 }
 
                 if (isNew) {
-                    const targetGroups = this.findTargetGroupsForUser(accountUid, follower);
+                    const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                     if (targetGroups.length > 0) {
                         // Notify
@@ -289,7 +326,7 @@ class UpdateChecker {
         }
     }
 
-    async processLiveFeed(accountUid, groupId) {
+    async processLiveFeed(accountUid, groupId, activeGroups = null) {
         const res = await biliApi.getLiveFeed(groupId);
         if (res.status !== 'success' || !res.data || !res.data.list) return;
 
@@ -310,7 +347,7 @@ class UpdateChecker {
 
             // Check if status changed from 0 to 1
             if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
-                const targetGroups = this.findTargetGroupsForUser(accountUid, follower);
+                const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                 if (targetGroups.length > 0) {
                     const roomUrl = item.link;
@@ -361,13 +398,16 @@ class UpdateChecker {
         }
     }
 
-    findTargetGroupsForUser(accountUid, follower) {
+    findTargetGroupsForUser(accountUid, follower, activeGroups = null) {
         const targetGroups = [];
         const followerId = subscriptionManager.getFollowerId(follower);
 
         // 1. Find all groups bound to this account (Cookie Sync)
         for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
             if (uid !== String(accountUid)) continue;
+
+            // Filter out inactive groups
+            if (activeGroups && !activeGroups.has(gid)) continue;
 
             // Check if sync enabled
             if (!config.getGroupConfig(gid, 'enableCookieSync')) continue;
@@ -394,6 +434,9 @@ class UpdateChecker {
         const manualSub = subscriptionManager.userSubs.find(s => String(s.uid) === followerId);
         if (manualSub) {
             manualSub.groupIds.forEach(gid => {
+                // Filter out inactive groups
+                if (activeGroups && !activeGroups.has(gid)) return;
+
                 // Deduplicate: avoid adding if already added via sync
                 if (!targetGroups.includes(String(gid))) {
                     targetGroups.push(String(gid));
@@ -404,7 +447,9 @@ class UpdateChecker {
         return targetGroups;
     }
 
-    async checkUserDynamic(sub, force = false) {
+    async checkUserDynamic(sub, targetGroups = null, force = false) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
         try {
             const res = await biliApi.getUserDynamic(sub.uid, null, true);
             if (res.status !== 'success') {
@@ -562,13 +607,13 @@ class UpdateChecker {
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImage(groupsToNotify, info, 'dynamic', url, notificationText);
 
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
                         // Fallback text
                         const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`;
-                        this.notifyGroups(sub.groupIds, msg, cardId);
+                        this.notifyGroups(groupsToNotify, msg, cardId);
                     }
                 }
 
@@ -582,7 +627,9 @@ class UpdateChecker {
         }
     }
 
-    async checkUserLive(sub) {
+    async checkUserLive(sub, targetGroups = null) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
         try {
             const res = await biliApi.getUserInfo(sub.uid); // getUserInfo contains live_room
             if (res.status !== 'success') return;
@@ -628,9 +675,9 @@ class UpdateChecker {
                              }
                          }
                      };
-                     await this.notifyGroupsWithImage(sub.groupIds, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
+                     await this.notifyGroupsWithImage(groupsToNotify, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg, `live_${roomId}`);
+                    this.notifyGroups(groupsToNotify, msg, `live_${roomId}`);
                 }
             }
 
@@ -642,7 +689,9 @@ class UpdateChecker {
         }
     }
 
-    async checkBangumi(sub) {
+    async checkBangumi(sub, targetGroups = null) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
         try {
             const res = await biliApi.getBangumiInfo(sub.seasonId);
             if (res.status !== 'success') return;
@@ -662,9 +711,9 @@ class UpdateChecker {
 
                 try {
                     // Generate preview (pass full res object, not res.data)
-                    await this.notifyGroupsWithImage(sub.groupIds, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
+                    await this.notifyGroupsWithImage(groupsToNotify, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg, newEp.id);
+                    this.notifyGroups(groupsToNotify, msg, newEp.id);
                 }
 
                 await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
@@ -803,10 +852,15 @@ class UpdateChecker {
         // Ensure followers are loaded before updating to prevent overwriting with old data
         await subscriptionManager._ensureFollowersLoaded();
 
-        // Get all groups with sync enabled
-        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
-            config.getGroupConfig(gid, 'enableCookieSync')
-        );
+        // Get all groups with sync enabled and bot is still in
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
+            const groupConfig = config.groupConfigs[gid];
+            // Skip groups bot has left
+            if (groupConfig && groupConfig.isInGroup === false) {
+                return false;
+            }
+            return config.getGroupConfig(gid, 'enableCookieSync');
+        });
 
         if (groupsWithSync.length === 0) return;
 

@@ -93,8 +93,8 @@ class SubscriptionService {
                 groupIds: [targetGroupId]
             };
             // updateChecker.checkUserDynamic now internally uses bypassCache=true
-            // 2nd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
-            await updateChecker.checkUserDynamic(tempSub, true);
+            // 3rd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
+            await updateChecker.checkUserDynamic(tempSub, null, true);
             return true;
         }
         return false;

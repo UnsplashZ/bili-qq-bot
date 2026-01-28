@@ -19,6 +19,7 @@ const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
 const GROUP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const GROUP_LIST_ECHO_PREFIX = 'get_group_list#';
 let groupRefreshTimer = null;
+let initialSyncDone = false; // 标记是否已完成初始状态同步
 
 function requestGroupList() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -29,6 +30,66 @@ function requestGroupList() {
     } catch (e) {
         logger.error('Failed to request group list:', e);
     }
+}
+
+// 配置迁移：为缺少 isInGroup 字段的配置设置默认值
+function migrateGroupConfigs() {
+    const groupConfigs = config.groupConfigs || {};
+    let migrated = 0;
+
+    for (const groupId in groupConfigs) {
+        if (groupConfigs[groupId].isInGroup === undefined) {
+            groupConfigs[groupId].isInGroup = true;
+            migrated++;
+        }
+    }
+
+    if (migrated > 0) {
+        logger.info(`[Bot] Migrated ${migrated} group configs with default isInGroup=true`);
+        config.save();
+    }
+}
+
+// 同步群组状态：对比 groupList 与 groupConfigs
+function syncGroupStates() {
+    if (!global.bot || !global.bot.groupList) {
+        logger.warn('[Bot] Cannot sync group states: groupList not available');
+        return;
+    }
+
+    const groupList = global.bot.groupList;
+    const groupConfigs = config.groupConfigs || {};
+    let leftCount = 0;
+    let rejoinedCount = 0;
+
+    // 1. 标记已退出的群
+    for (const configGroupId in groupConfigs) {
+        if (!groupList.has(configGroupId)) {
+            if (groupConfigs[configGroupId].isInGroup !== false) {
+                groupConfigs[configGroupId].isInGroup = false;
+                leftCount++;
+                logger.warn(`[Bot] Group ${configGroupId} not in list, marked as left`);
+            }
+        }
+    }
+
+    // 2. 恢复重新加入的群
+    for (const groupId of groupList.keys()) {
+        if (groupConfigs[groupId] && groupConfigs[groupId].isInGroup === false) {
+            groupConfigs[groupId].isInGroup = true;
+            rejoinedCount++;
+            const groupInfo = groupList.get(groupId);
+            const groupName = groupInfo?.group_name || groupId;
+            logger.info(`[Bot] Group ${groupId} (${groupName}) rejoined, config restored`);
+        }
+    }
+
+    if (leftCount > 0 || rejoinedCount > 0) {
+        logger.info(`[Bot] Synced group states: ${leftCount} left, ${rejoinedCount} rejoined`);
+        config.save();
+    }
+
+    initialSyncDone = true;
 }
 
 function createWebSocketConnection() {
@@ -78,6 +139,12 @@ function createWebSocketConnection() {
                 }
                 global.bot = global.bot || {};
                 global.bot.groupList = newMap;
+
+                // 首次获取群列表后，进行配置迁移和状态同步
+                if (!initialSyncDone) {
+                    migrateGroupConfigs();
+                    syncGroupStates();
+                }
             }
 
             // Handle Heartbeat or meta events (ignore for now)
@@ -94,10 +161,53 @@ function createWebSocketConnection() {
                 }
             }
 
-            // Handle Notices (e.g. Bot join group)
+            // Handle Notices (e.g. Bot join/leave group)
             if (payload.post_type === 'notice' && payload.notice_type === 'group_increase') {
+                const groupId = String(payload.group_id);
+                const userId = String(payload.user_id);
+                const selfId = String(payload.self_id);
+
+                // 如果是 bot 自己加入群组
+                if (userId === selfId) {
+                    // 确保配置存在
+                    config.ensureGroupConfig(groupId);
+
+                    // 如果是重新加入已有配置的群，恢复状态
+                    if (config.groupConfigs[groupId] && config.groupConfigs[groupId].isInGroup === false) {
+                        config.groupConfigs[groupId].isInGroup = true;
+                        const groupInfo = global.bot?.groupList?.get(groupId);
+                        const groupName = groupInfo?.group_name || groupId;
+                        logger.info(`[Bot] Rejoined group ${groupId} (${groupName}), config restored`);
+                        config.save();
+                    }
+                }
+
                 messageHandler.handleGroupIncrease(ws, payload);
                 requestGroupList();
+            }
+
+            // Handle Bot leaving/kicked from group
+            if (payload.post_type === 'notice' && payload.notice_type === 'group_decrease') {
+                const groupId = String(payload.group_id);
+                const userId = String(payload.user_id);
+                const selfId = String(payload.self_id);
+                const subType = payload.sub_type; // 'leave' or 'kick' or 'kick_me'
+
+                // 如果是 bot 自己退出群组
+                if (userId === selfId || subType === 'kick_me') {
+                    // 标记配置为已退群
+                    if (config.groupConfigs && config.groupConfigs[groupId]) {
+                        config.groupConfigs[groupId].isInGroup = false;
+                        const groupInfo = global.bot?.groupList?.get(groupId);
+                        const groupName = groupInfo?.group_name || groupId;
+                        const action = subType === 'kick_me' ? 'kicked from' : 'left';
+                        logger.warn(`[Bot] Bot ${action} group ${groupId} (${groupName}), marked as isInGroup=false`);
+                        config.save();
+                    }
+
+                    // 刷新群列表
+                    requestGroupList();
+                }
             }
 
         } catch (e) {
