@@ -288,6 +288,59 @@ router.post('/bili/check-login', async (req, res) => {
     }
 });
 
+// GET /api/bili/my-info - Get current logged-in user info
+router.get('/bili/my-info', async (req, res) => {
+    try {
+        const groupId = req.query.groupId ? parseInt(req.query.groupId) : null;
+        const result = await biliApi.getMyInfo(groupId);
+        res.json(result);
+    } catch (error) {
+        logger.error('Error getting my info:', error);
+        res.status(500).json({ error: 'Failed to get user info' });
+    }
+});
+
+// POST /api/bili/logout - Logout (clear cookies)
+router.post('/api/bili/logout', async (req, res) => {
+    try {
+        const { groupId } = req.body;
+
+        // Delete cookie file
+        const cookieFile = groupId
+            ? path.resolve(__dirname, `../../../data/cookies_${groupId}.json`)
+            : path.resolve(__dirname, '../../../data/cookies.json');
+
+        try {
+            await fs.unlink(cookieFile);
+        } catch (err) {
+            // File doesn't exist - that's OK
+            if (err.code !== 'ENOENT') {
+                logger.warn('Error deleting cookie file:', err);
+            }
+        }
+
+        // If group cookie, update mapping file
+        if (groupId) {
+            const mapFile = path.resolve(__dirname, '../../../data/cookies_map.json');
+            try {
+                const mapData = JSON.parse(await fs.readFile(mapFile, 'utf-8'));
+                delete mapData[String(groupId)];
+                await fs.writeFile(mapFile, JSON.stringify(mapData, null, 4));
+            } catch (err) {
+                // Mapping file doesn't exist or format error, ignore
+                if (err.code !== 'ENOENT') {
+                    logger.warn('Error updating cookie map:', err);
+                }
+            }
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error logging out:', error);
+        res.status(500).json({ error: 'Failed to logout' });
+    }
+});
+
 // GET /api/groups/:id/subscriptions - List subscriptions for a group
 router.get('/groups/:id/subscriptions', async (req, res) => {
     try {

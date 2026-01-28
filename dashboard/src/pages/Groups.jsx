@@ -4,7 +4,7 @@ import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
-import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2 } from 'lucide-react';
+import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2, LogOut } from 'lucide-react';
 import { clsx } from 'clsx';
 import QRCode from 'qrcode';
 
@@ -49,6 +49,9 @@ function Groups() {
   const [loginKey, setLoginKey] = useState('');
   const [loginStatus, setLoginStatus] = useState('idle'); // idle, waiting, success, expired
   const checkLoginTimerRef = useRef(null);
+
+  // Bilibili User Info State
+  const [biliUserInfo, setBiliUserInfo] = useState(null); // { mid, name, face }
 
   // Bilibili Groups State (Follow Groups)
   const [biliGroups, setBiliGroups] = useState([]);
@@ -140,6 +143,26 @@ function Groups() {
       }
   }, []);
 
+  // Check existing Bilibili login
+  const checkExistingLogin = async (groupId) => {
+      try {
+          const res = await api.get(`/api/bili/my-info?groupId=${groupId}`);
+          if (res.data && res.data.status === 'success' && res.data.data) {
+              setBiliUserInfo({
+                  mid: res.data.data.mid,
+                  name: res.data.data.name,
+                  face: res.data.data.face
+              });
+          } else {
+              // Not logged in or cookie expired
+              setBiliUserInfo(null);
+          }
+      } catch (err) {
+          // API call failed, treat as not logged in
+          setBiliUserInfo(null);
+      }
+  };
+
   useEffect(() => {
     if (selectedGroupId) {
       const group = groups.find(g => g.id === selectedGroupId);
@@ -180,6 +203,8 @@ function Groups() {
         // If on sync tab, fetch bili groups
         if (selectedTabIndex === 4) {
             fetchBiliGroups(selectedGroupId);
+            // Check Bilibili login status
+            checkExistingLogin(selectedGroupId);
         }
       }
     }
@@ -368,6 +393,21 @@ function Groups() {
               clearInterval(checkLoginTimerRef.current);
               setLoginStatus('success');
               show('登录成功！', 'success');
+
+              // Fetch user info
+              try {
+                  const userRes = await api.get(`/api/bili/my-info?groupId=${selectedGroupId}`);
+                  if (userRes.data && userRes.data.status === 'success' && userRes.data.data) {
+                      setBiliUserInfo({
+                          mid: userRes.data.data.mid,
+                          name: userRes.data.data.name,
+                          face: userRes.data.data.face
+                      });
+                  }
+              } catch (err) {
+                  console.error('Failed to fetch user info:', err);
+              }
+
               // Maybe reload bili groups?
               setTimeout(() => {
                   setIsLoginModalOpen(false);
@@ -385,6 +425,27 @@ function Groups() {
       if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
       setIsLoginModalOpen(false);
       setLoginStatus('idle');
+  };
+
+  const handleLogout = async () => {
+      if (!window.confirm('确定要登出吗？这将清除该群组的B站登录信息。')) {
+          return;
+      }
+
+      try {
+          await api.post(`/api/bili/logout`, { groupId: selectedGroupId });
+          setBiliUserInfo(null);
+          setBiliGroups([]);
+          setFormData({
+              ...formData,
+              enableCookieSync: false,
+              cookieSyncGroupNames: []
+          });
+          show('已登出', 'success');
+      } catch (err) {
+          console.error('Logout error:', err);
+          show('登出失败', 'error');
+      }
   };
 
   // Cleanup timer on component unmount
@@ -737,75 +798,108 @@ function Groups() {
                 {/* Sync Tab */}
                 <Tab.Panel className="space-y-8 focus:outline-none">
                      {/* Bilibili Login Section */}
-                     <div className="bg-white/5 p-6 rounded-lg border border-white/10">
-                        <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
-                            <QrCode size={20} className="text-pink-400" />
-                            Bilibili 账号
-                        </h3>
-                        <p className="text-gray-400 text-sm mb-4">
-                            登录 Bilibili 账号以获取关注列表和更高清的视频解析。Cookie 将仅用于此群组（或同步）。
-                        </p>
-                        <button
-                            onClick={startLogin}
-                            className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg transition-colors font-medium"
-                        >
-                            扫码登录 Bilibili
-                        </button>
+                     <div className="space-y-4">
+                         <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+                             <QrCode size={20} className="text-pink-400" />
+                             Bilibili 账号
+                         </h3>
+                         <p className="text-gray-400 text-sm mb-4">
+                             登录 Bilibili 账号以获取关注列表和更高清的视频解析。Cookie 将仅用于此群组（或同步）。
+                         </p>
+
+                         {biliUserInfo ? (
+                             /* Logged in state */
+                             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                                 <div className="flex items-center gap-3">
+                                     <img
+                                         src={biliUserInfo.face}
+                                         alt={biliUserInfo.name}
+                                         className="w-12 h-12 rounded-full border-2 border-green-400"
+                                     />
+                                     <div className="flex-1">
+                                         <div className="flex items-center gap-2">
+                                             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                             <span className="text-green-400 text-sm font-medium">已登录</span>
+                                         </div>
+                                         <div className="text-white font-medium mt-1">{biliUserInfo.name}</div>
+                                         <div className="text-white/50 text-xs">UID: {biliUserInfo.mid}</div>
+                                     </div>
+                                     <button
+                                         onClick={handleLogout}
+                                         className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors flex items-center gap-2"
+                                     >
+                                         <LogOut className="w-4 h-4" />
+                                         <span className="text-sm">登出</span>
+                                     </button>
+                                 </div>
+                             </div>
+                         ) : (
+                             /* Not logged in state */
+                             <button
+                                 onClick={startLogin}
+                                 className="w-full px-4 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center justify-center gap-2"
+                             >
+                                 <QrCode className="w-5 h-5" />
+                                 <span>扫码登录 Bilibili</span>
+                             </button>
+                         )}
                      </div>
 
-                     {/* Sync Config Section */}
-                     <div>
-                         <div className="p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
-                             <label className="flex items-center justify-between cursor-pointer">
-                                 <div>
-                                     <span className="text-white font-medium block">启用关注列表同步</span>
-                                     <span className="text-gray-400 text-sm">自动同步所选分组的 UP 主更新</span>
-                                 </div>
-                                 <div className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.enableCookieSync}
-                                        onChange={(e) => setFormData({...formData, enableCookieSync: e.target.checked})}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                 </div>
-                             </label>
-                         </div>
+                     {/* Sync Config Section - Only show when logged in */}
+                     {biliUserInfo && (
+                         <div>
+                             <div className="p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
+                                 <label className="flex items-center justify-between cursor-pointer">
+                                     <div>
+                                         <span className="text-white font-medium block">启用关注列表同步</span>
+                                         <span className="text-gray-400 text-sm">自动同步所选分组的 UP 主更新</span>
+                                     </div>
+                                     <div className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.enableCookieSync}
+                                            onChange={(e) => setFormData({...formData, enableCookieSync: e.target.checked})}
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                     </div>
+                                 </label>
+                             </div>
 
-                         <div className={clsx("transition-opacity", !formData.enableCookieSync && "opacity-50 pointer-events-none")}>
-                            <h4 className="text-sm font-medium text-gray-300 mb-3">选择要同步的关注分组</h4>
+                             <div className={clsx("transition-opacity", !formData.enableCookieSync && "opacity-50 pointer-events-none")}>
+                                <h4 className="text-sm font-medium text-gray-300 mb-3">选择要同步的关注分组</h4>
 
-                            {biliGroupsLoading ? (
-                                <div className="flex items-center gap-2 text-gray-400">
-                                    <Loader2 size={16} className="animate-spin" />
-                                    正在获取分组...
-                                </div>
-                            ) : biliGroups.length === 0 ? (
-                                <div className="text-gray-500 text-sm italic">
-                                    未找到关注分组，请先登录 Bilibili 账号。
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                    {biliGroups.map((group) => {
-                                        // group is likely { tagid, name, count, tip } or just string
-                                        const groupName = typeof group === 'string' ? group : group.name;
-                                        return (
-                                            <label key={groupName} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.cookieSyncGroupNames.includes(groupName)}
-                                                    onChange={() => toggleSyncGroup(groupName)}
-                                                    className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                                                />
-                                                <span className="text-gray-200 text-sm">{groupName}</span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                                {biliGroupsLoading ? (
+                                    <div className="flex items-center gap-2 text-gray-400">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        正在获取分组...
+                                    </div>
+                                ) : biliGroups.length === 0 ? (
+                                    <div className="text-gray-500 text-sm italic">
+                                        未找到关注分组，请先登录 Bilibili 账号。
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                        {biliGroups.map((group) => {
+                                            // group is likely { tagid, name, count, tip } or just string
+                                            const groupName = typeof group === 'string' ? group : group.name;
+                                            return (
+                                                <label key={groupName} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.cookieSyncGroupNames.includes(groupName)}
+                                                        onChange={() => toggleSyncGroup(groupName)}
+                                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-gray-200 text-sm">{groupName}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                             </div>
                          </div>
-                     </div>
+                     )}
                 </Tab.Panel>
               </Tab.Panels>
             </Tab.Group>
