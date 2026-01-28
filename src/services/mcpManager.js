@@ -118,6 +118,22 @@ class McpManager {
             }
         }
 
+        try {
+            const rawConfig = fs.readFileSync(this.configPath, 'utf8');
+            const currentConfig = JSON.parse(rawConfig);
+            const serverInConfig = currentConfig[serverName];
+            if (!serverInConfig) {
+                logger.info(`[McpManager] ${serverName} not in config, skipping reconnect`);
+                return;
+            }
+            if (serverInConfig.enabled === false) {
+                logger.info(`[McpManager] ${serverName} is disabled, skipping reconnect`);
+                return;
+            }
+        } catch (e) {
+            logger.error('[McpManager] Failed to read config for reconnect decision:', e);
+        }
+
         logger.info(`[McpManager] Attempting to reconnect to ${serverName}...`);
         // Start reconnection loop (reset retry count or use a separate logic)
         // Here we start a new connection attempt loop

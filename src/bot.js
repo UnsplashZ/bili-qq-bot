@@ -275,6 +275,13 @@ async function gracefulShutdown() {
         logger.error('Error cleaning up Puppeteer:', e);
     }
 
+    try {
+        await mcpManager.cleanup();
+        logger.info('[Bot] MCP Manager cleaned up');
+    } catch (e) {
+        logger.error('[Bot] Failed to cleanup MCP Manager:', e);
+    }
+
     // 关闭WebSocket连接
     if (ws) {
         try {

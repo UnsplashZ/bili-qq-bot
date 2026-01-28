@@ -575,6 +575,8 @@ router.get('/mcp', async (req, res) => {
             .filter(([key]) => key !== '_version')  // Filter out version field
             .map(([name, serverConfig]) => ({
                 name,
+                type: serverConfig.type || 'stdio',
+                url: serverConfig.url || '',
                 command: serverConfig.command || '',
                 args: serverConfig.args || [],
                 env: serverConfig.env || {},
@@ -626,6 +628,8 @@ router.post('/mcp', async (req, res) => {
                 .filter(([key]) => key !== '_version')
                 .map(([name, serverConfig]) => ({
                     name,
+                    type: serverConfig.type || 'stdio',
+                    url: serverConfig.url || '',
                     command: serverConfig.command || '',
                     args: serverConfig.args || [],
                     env: serverConfig.env || {},
@@ -643,8 +647,10 @@ router.post('/mcp', async (req, res) => {
         // === Field-level validation: validate all servers ===
         const validationErrors = [];
         const seenNames = new Set();
+        const allowedTypes = new Set(['stdio', 'sse', 'streamable_http']);
 
         mcpServers.forEach((server, idx) => {
+            const serverType = server.type || 'stdio';
             // name validation
             if (!server.name || typeof server.name !== 'string') {
                 validationErrors.push(`Server at index ${idx}: name is required and must be string`);
@@ -663,10 +669,31 @@ router.post('/mcp', async (req, res) => {
             }
             seenNames.add(server.name);
 
-            // command validation
-            if (!server.command || typeof server.command !== 'string') {
-                validationErrors.push(`Server "${server.name}": command is required and must be string`);
+            if (!allowedTypes.has(serverType)) {
+                validationErrors.push(`Server "${server.name}": type must be one of stdio, sse, streamable_http`);
                 return;
+            }
+
+            if (serverType !== 'stdio') {
+                if (!server.url || typeof server.url !== 'string' || server.url.trim() === '') {
+                    validationErrors.push(`Server "${server.name}": url is required for ${serverType}`);
+                    return;
+                }
+                try {
+                    const parsedUrl = new URL(server.url);
+                    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+                        validationErrors.push(`Server "${server.name}": url must start with http or https`);
+                        return;
+                    }
+                } catch {
+                    validationErrors.push(`Server "${server.name}": url is invalid`);
+                    return;
+                }
+            } else {
+                if (!server.command || typeof server.command !== 'string') {
+                    validationErrors.push(`Server "${server.name}": command is required and must be string`);
+                    return;
+                }
             }
 
             // args validation
@@ -693,12 +720,17 @@ router.post('/mcp', async (req, res) => {
         const newConfig = { _version: newVersion };
 
         for (const server of mcpServers) {
+            const serverType = server.type || 'stdio';
             newConfig[server.name] = {
+                type: serverType,
                 command: server.command,
                 args: server.args || [],
                 env: server.env || {},
                 enabled: server.enabled !== undefined ? server.enabled : true
             };
+            if (serverType !== 'stdio') {
+                newConfig[server.name].url = server.url;
+            }
         }
 
         // Write to file

@@ -58,6 +58,8 @@ const Settings = () => {
   const [isAddMcpModalOpen, setIsAddMcpModalOpen] = useState(false);
   const [newMcp, setNewMcp] = useState({
     name: '',
+    type: 'stdio',
+    url: '',
     command: '',
     args: '',
     env: '{}'
@@ -66,6 +68,8 @@ const Settings = () => {
   const [isEditMcpModalOpen, setIsEditMcpModalOpen] = useState(false);
   const [editMcp, setEditMcp] = useState({
     name: '',
+    type: 'stdio',
+    url: '',
     command: '',
     args: '',
     env: '{}'
@@ -324,21 +328,33 @@ const Settings = () => {
   // MCP Handlers
   const handleAddMcp = async () => {
     try {
-      let env = {};
-      try {
-        env = JSON.parse(newMcp.env);
-      } catch {
-        show("环境变量 JSON 格式无效", "error");
+      const selectedType = newMcp.type || 'stdio';
+      if (selectedType !== 'stdio' && !newMcp.url.trim()) {
+        show("URL 不能为空", "error");
         return;
       }
 
-      const args = newMcp.args.split(',').map(s => s.trim()).filter(Boolean);
+      let env = {};
+      if (selectedType === 'stdio') {
+        try {
+          env = JSON.parse(newMcp.env);
+        } catch {
+          show("环境变量 JSON 格式无效", "error");
+          return;
+        }
+      }
+
+      const args = selectedType === 'stdio'
+        ? newMcp.args.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
 
       const newServer = {
         name: newMcp.name,
-        command: newMcp.command,
+        type: selectedType,
+        url: selectedType === 'stdio' ? '' : newMcp.url.trim(),
+        command: selectedType === 'stdio' ? newMcp.command : '',
         args,
-        env,
+        env: selectedType === 'stdio' ? env : {},
         enabled: true
       };
 
@@ -347,7 +363,7 @@ const Settings = () => {
       // Optimistic update
       setMcpConfig({ mcpServers: updatedServers });
       setIsAddMcpModalOpen(false);
-      setNewMcp({ name: '', command: '', args: '', env: '{}' });
+      setNewMcp({ name: '', type: 'stdio', url: '', command: '', args: '', env: '{}' });
 
       // Save to backend
       setSavingMcp(true);
@@ -427,14 +443,43 @@ const Settings = () => {
 
   const toggleMcpServer = async (index) => {
     const updatedServers = [...mcpConfig.mcpServers];
-    updatedServers[index].enabled = !updatedServers[index].enabled;
+    const previousEnabled = updatedServers[index].enabled;
+    updatedServers[index].enabled = !previousEnabled;
     setMcpConfig({ mcpServers: updatedServers });
 
     try {
         setSavingMcp(true);
-        await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
+        const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
+
+        if (!response.data.reloadSuccess) {
+            show(response.data.warning || '配置已保存但服务可能未更新', 'warning');
+        } else {
+            show(updatedServers[index].enabled ? '已启用 MCP 服务器' : '已禁用 MCP 服务器', 'success');
+        }
+
+        if (response.data.version !== undefined) {
+            setMcpVersion(response.data.version);
+        }
     } catch (error) {
+        if (error.response?.status === 409) {
+            show('配置已被其他用户修改，请刷新后重试', 'error');
+            try {
+                const res = await api.get('/api/mcp');
+                const servers = res.data.mcpServers || (Array.isArray(res.data) ? res.data : []);
+                setMcpConfig({ mcpServers: servers });
+                if (res.data.version !== undefined) {
+                    setMcpVersion(res.data.version);
+                }
+            } catch (fetchError) {
+                console.error('Failed to refresh MCP config:', fetchError);
+            }
+            return;
+        }
         console.error("Failed to toggle MCP server:", error);
+        const revertedServers = [...updatedServers];
+        revertedServers[index].enabled = previousEnabled;
+        setMcpConfig({ mcpServers: revertedServers });
+        show('切换 MCP 服务器失败', 'error');
     } finally {
         setSavingMcp(false);
     }
@@ -445,6 +490,8 @@ const Settings = () => {
     setEditingMcpIndex(index);
     setEditMcp({
         name: server.name,
+        type: server.type || 'stdio',
+        url: server.url || '',
         command: server.command,
         args: server.args?.join(', ') || '',
         env: JSON.stringify(server.env || {}, null, 2)
@@ -456,6 +503,12 @@ const Settings = () => {
     try {
         const oldName = mcpConfig.mcpServers[editingMcpIndex].name;
         const newName = editMcp.name.trim();
+        const selectedType = editMcp.type || 'stdio';
+
+        if (selectedType !== 'stdio' && !editMcp.url.trim()) {
+            show('URL 不能为空', 'error');
+            return;
+        }
 
         // Frontend validation: name cannot be empty
         if (!newName) {
@@ -471,22 +524,28 @@ const Settings = () => {
 
         // Frontend validation: environment variables JSON
         let env = {};
-        try {
-            env = JSON.parse(editMcp.env);
-        } catch {
-            show('环境变量 JSON 格式无效', 'error');
-            return;
+        if (selectedType === 'stdio') {
+            try {
+                env = JSON.parse(editMcp.env);
+            } catch {
+                show('环境变量 JSON 格式无效', 'error');
+                return;
+            }
         }
 
-        const args = editMcp.args.split(',').map(s => s.trim()).filter(Boolean);
+        const args = selectedType === 'stdio'
+            ? editMcp.args.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
 
         const updatedServers = [...mcpConfig.mcpServers];
         updatedServers[editingMcpIndex] = {
             ...updatedServers[editingMcpIndex],
             name: newName,
-            command: editMcp.command,
-            args,
-            env,
+            type: selectedType,
+            url: selectedType === 'stdio' ? '' : editMcp.url.trim(),
+            command: selectedType === 'stdio' ? editMcp.command : '',
+            args: selectedType === 'stdio' ? args : [],
+            env: selectedType === 'stdio' ? env : {},
             enabled: updatedServers[editingMcpIndex].enabled
         };
 
@@ -496,7 +555,7 @@ const Settings = () => {
         // Optimistic update
         setMcpConfig({ mcpServers: updatedServers });
         setIsEditMcpModalOpen(false);
-        setEditMcp({ name: '', command: '', args: '', env: '{}' });
+        setEditMcp({ name: '', type: 'stdio', url: '', command: '', args: '', env: '{}' });
         setEditingMcpIndex(null);
 
         // Save to backend with version control
@@ -1216,13 +1275,28 @@ const Settings = () => {
                     <div className="space-y-2 text-sm text-gray-400">
                         <div className="flex items-center gap-2 bg-black/20 p-2 rounded font-mono text-xs truncate">
                             <Terminal size={12} />
-                            <span className="truncate" title={`${server.command} ${server.args?.join(' ')}`}>
-                                {server.command} {server.args?.join(' ')}
-                            </span>
+                            {server.type && server.type !== 'stdio' ? (
+                                <span className="truncate" title={server.url || ''}>
+                                    {server.url || '-'}
+                                </span>
+                            ) : (
+                                <span className="truncate" title={`${server.command} ${server.args?.join(' ')}`}>
+                                    {server.command} {server.args?.join(' ')}
+                                </span>
+                            )}
                         </div>
                         <div className="flex justify-between text-xs">
-                             <span>参数: {server.args?.length || 0}</span>
-                             <span>环境变量: {Object.keys(server.env || {}).length} 个</span>
+                             {server.type && server.type !== 'stdio' ? (
+                                <>
+                                    <span>类型: {server.type}</span>
+                                    <span>URL: {server.url ? '已配置' : '未配置'}</span>
+                                </>
+                             ) : (
+                                <>
+                                    <span>参数: {server.args?.length || 0}</span>
+                                    <span>环境变量: {Object.keys(server.env || {}).length} 个</span>
+                                </>
+                             )}
                         </div>
                     </div>
                 </GlassCard>
@@ -1278,15 +1352,41 @@ const Settings = () => {
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">命令</label>
-                        <input
-                            type="text"
-                            value={newMcp.command}
-                            onChange={e => setNewMcp({...newMcp, command: e.target.value})}
-                            placeholder="npx, python 等"
+                        <label className="block text-sm font-medium text-gray-300 mb-1">类型</label>
+                        <select
+                            value={newMcp.type}
+                            onChange={e => setNewMcp({...newMcp, type: e.target.value})}
                             className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
-                        />
+                        >
+                            <option value="stdio">stdio</option>
+                            <option value="sse">sse</option>
+                            <option value="streamable_http">streamable_http</option>
+                        </select>
                     </div>
+                    {newMcp.type !== 'stdio' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">URL</label>
+                            <input
+                                type="text"
+                                value={newMcp.url}
+                                onChange={e => setNewMcp({...newMcp, url: e.target.value})}
+                                placeholder="http://localhost:port/mcp"
+                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                            />
+                        </div>
+                    )}
+                    {newMcp.type === 'stdio' && (
+                        <>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">命令</label>
+                            <input
+                                type="text"
+                                value={newMcp.command}
+                                onChange={e => setNewMcp({...newMcp, command: e.target.value})}
+                                placeholder="npx, python 等"
+                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                            />
+                        </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">参数 (逗号分隔)</label>
                         <input
@@ -1306,6 +1406,8 @@ const Settings = () => {
                             className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-xs focus:border-purple-500 focus:outline-none"
                         />
                     </div>
+                        </>
+                    )}
                 </div>
                 <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3">
                     <button
@@ -1316,7 +1418,7 @@ const Settings = () => {
                     </button>
                     <button
                         onClick={handleAddMcp}
-                        disabled={savingMcp || !newMcp.name || !newMcp.command}
+                        disabled={savingMcp || !newMcp.name || (newMcp.type === 'stdio' ? !newMcp.command : !newMcp.url)}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {savingMcp ? '添加中...' : '添加服务器'}
@@ -1349,15 +1451,41 @@ const Settings = () => {
                         <p className="text-xs text-gray-500 mt-1">只能包含字母、数字、下划线和短横线</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">命令</label>
-                        <input
-                            type="text"
-                            value={editMcp.command}
-                            onChange={e => setEditMcp({...editMcp, command: e.target.value})}
-                            placeholder="npx, python 等"
+                        <label className="block text-sm font-medium text-gray-300 mb-1">类型</label>
+                        <select
+                            value={editMcp.type}
+                            onChange={e => setEditMcp({...editMcp, type: e.target.value})}
                             className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
-                        />
+                        >
+                            <option value="stdio">stdio</option>
+                            <option value="sse">sse</option>
+                            <option value="streamable_http">streamable_http</option>
+                        </select>
                     </div>
+                    {editMcp.type !== 'stdio' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">URL</label>
+                            <input
+                                type="text"
+                                value={editMcp.url}
+                                onChange={e => setEditMcp({...editMcp, url: e.target.value})}
+                                placeholder="http://localhost:port/mcp"
+                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                            />
+                        </div>
+                    )}
+                    {editMcp.type === 'stdio' && (
+                        <>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1">命令</label>
+                            <input
+                                type="text"
+                                value={editMcp.command}
+                                onChange={e => setEditMcp({...editMcp, command: e.target.value})}
+                                placeholder="npx, python 等"
+                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                            />
+                        </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">参数 (逗号分隔)</label>
                         <input
@@ -1377,6 +1505,8 @@ const Settings = () => {
                             className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-xs focus:border-purple-500 focus:outline-none"
                         />
                     </div>
+                        </>
+                    )}
                 </div>
                 <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3">
                     <button
@@ -1387,7 +1517,7 @@ const Settings = () => {
                     </button>
                     <button
                         onClick={handleEditMcp}
-                        disabled={savingMcp || !editMcp.name || !editMcp.command}
+                        disabled={savingMcp || !editMcp.name || (editMcp.type === 'stdio' ? !editMcp.command : !editMcp.url)}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {savingMcp ? '保存中...' : '保存更改'}
