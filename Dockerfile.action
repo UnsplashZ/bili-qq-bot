@@ -43,11 +43,17 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # 使用官方 NPM 源
 RUN npm ci && npm cache clean --force
 
+# 4.5. 预先安装 dashboard 依赖 (利用 Docker 缓存)
+RUN mkdir -p dashboard
+COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
+# Github Action 环境直接使用官方源
+RUN cd dashboard && npm ci
+
 # 5. 复制代码
 COPY . .
 
-# Build dashboard
-RUN cd dashboard && npm install && npm run build
+# Build dashboard (依赖已安装，只需构建)
+RUN cd dashboard && npm run build
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
