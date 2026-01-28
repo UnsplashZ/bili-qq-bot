@@ -32,7 +32,8 @@ function Groups() {
     admins: [], // 群组管理员列表
     // AI配置覆盖（null表示使用全局默认）
     aiProbability: null,
-    aiContextLimit: null
+    aiContextLimit: null,
+    aiTemperature: null
   });
 
   // Subscriptions State
@@ -64,6 +65,7 @@ function Groups() {
   const [globalConfig, setGlobalConfig] = useState({
     aiProbability: 0.1,
     aiContextLimit: 10,
+    aiTemperature: 1.0,
     adminQQ: undefined
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
@@ -82,6 +84,7 @@ function Groups() {
           setGlobalConfig({
             aiProbability: res.data.aiProbability || 0.1,
             aiContextLimit: res.data.aiContextLimit || 10,
+            aiTemperature: res.data.aiTemperature ?? 1.0,
             adminQQ: res.data.adminQQ
           });
         }
@@ -200,7 +203,8 @@ function Groups() {
           admins: Array.isArray(config.admins) ? config.admins : [],
           // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
           aiProbability: config.aiProbability ?? null,
-          aiContextLimit: config.aiContextLimit ?? null
+          aiContextLimit: config.aiContextLimit ?? null,
+          aiTemperature: config.aiTemperature ?? null
         });
 
         // Reset sub state
@@ -961,6 +965,36 @@ function Groups() {
                         />
                         <p className="text-xs text-white/50">
                           AI对话时记忆的上下文轮数，影响token消耗
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-white/90">
+                          温度参数 (留空使用全局默认)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="2"
+                          value={formData.aiTemperature ?? ''}
+                          placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${globalConfig.aiTemperature}`}
+                          disabled={globalConfigLoading}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === '') {
+                              setFormData({ ...formData, aiTemperature: null });
+                            } else {
+                              const parsed = parseFloat(value);
+                              if (!isNaN(parsed) && parsed >= 0 && parsed <= 2) {
+                                setFormData({ ...formData, aiTemperature: parsed });
+                              }
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                        <p className="text-xs text-white/50">
+                          AI 回复的随机性 (0.0-2.0)，0 为完全确定性，2 为最大创造性
                         </p>
                       </div>
                     </div>

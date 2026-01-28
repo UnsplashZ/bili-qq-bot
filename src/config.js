@@ -99,6 +99,7 @@ const META = {
     aiSystemPrompt: { env: 'AI_SYSTEM_PROMPT', def: '你是一个有用的助手。', type: 'string' },
     aiProbability: { env: 'AI_PROBABILITY', def: 0.1, type: 'float' },
     aiContextLimit: { env: null, def: 10, type: 'int' },
+    aiTemperature: { env: 'AI_TEMPERATURE', def: 1.0, type: 'float' },
 
     // AI Chat Service Configuration (priority over general AI config)
     aiChatApiUrl: { env: 'AI_CHAT_API_URL', def: null, type: 'string' },
@@ -229,7 +230,8 @@ const config = {
 
     // Helper to get config value for a group
     getGroupConfig: function(groupId, key) {
-        if (groupId && this.groupConfigs[groupId] && this.groupConfigs[groupId][key] !== undefined) {
+        // use != null to check for both null and undefined
+        if (groupId && this.groupConfigs[groupId] && this.groupConfigs[groupId][key] != null) {
             return this.groupConfigs[groupId][key];
         }
         return this[key];

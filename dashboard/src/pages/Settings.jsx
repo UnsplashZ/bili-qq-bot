@@ -32,6 +32,7 @@ const Settings = () => {
   const [aiConfig, setAiConfig] = useState({
     aiProbability: 0,
     aiContextLimit: 0,
+    aiTemperature: 1.0,
     aiHistoryMaxSize: 0,
     aiEnableVectorCache: false,
     aiVectorSimilarityThreshold: 0.4,
@@ -112,6 +113,7 @@ const Settings = () => {
         const {
           aiProbability,
           aiContextLimit,
+          aiTemperature,
           aiHistoryMaxSize,
           aiEnableVectorCache,
           aiVectorSimilarityThreshold,
@@ -131,6 +133,7 @@ const Settings = () => {
         setAiConfig({
             aiProbability: aiProbability ?? 0.1,
             aiContextLimit: aiContextLimit ?? 10,
+            aiTemperature: aiTemperature ?? 1.0,
             aiHistoryMaxSize: aiHistoryMaxSize ?? (200 * 1024 * 1024),
             aiEnableVectorCache: aiEnableVectorCache ?? true,
             aiVectorSimilarityThreshold: aiVectorSimilarityThreshold ?? 0.4,
@@ -297,6 +300,7 @@ const Settings = () => {
             ...prev,
             aiProbability: newConfig.aiProbability ?? 0.1,
             aiContextLimit: newConfig.aiContextLimit ?? 10,
+            aiTemperature: newConfig.aiTemperature ?? 1.0,
             aiHistoryMaxSize: newConfig.aiHistoryMaxSize ?? 200 * 1024 * 1024,
             aiEnableVectorCache: newConfig.aiEnableVectorCache ?? true,
             aiVectorSimilarityThreshold: newConfig.aiVectorSimilarityThreshold ?? 0.4,
@@ -958,6 +962,22 @@ const Settings = () => {
                         className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                     />
                     <p className="text-xs text-gray-500 mt-1">保留在上下文中的最近对话轮数（1轮 = 1问1答）。</p>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                        温度参数 ({aiConfig.aiTemperature})
+                    </label>
+                    <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={aiConfig.aiTemperature}
+                        onChange={(e) => handleAiChange('aiTemperature', parseFloat(e.target.value))}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">控制 AI 回复的随机性（0=确定性，2=创造性）。</p>
                 </div>
 
                 <div className="space-y-2">

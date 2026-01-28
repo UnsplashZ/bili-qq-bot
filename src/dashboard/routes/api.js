@@ -222,6 +222,14 @@ router.post('/groups/:id/config', async (req, res) => {
             updates.aiContextLimit = limit;
         }
 
+        if (updates.hasOwnProperty('aiTemperature') && updates.aiTemperature !== null) {
+            const temp = parseFloat(updates.aiTemperature);
+            if (isNaN(temp) || temp < 0 || temp > 2) {
+                return res.status(400).json({ error: 'aiTemperature must be between 0 and 2' });
+            }
+            updates.aiTemperature = temp;
+        }
+
         if (!sysConfig.groupConfigs) {
             sysConfig.groupConfigs = {};
         }
@@ -240,6 +248,13 @@ router.post('/groups/:id/config', async (req, res) => {
             // 从现有配置中删除
             if (sysConfig.groupConfigs[groupId]) {
                 delete sysConfig.groupConfigs[groupId].aiContextLimit;
+            }
+        }
+        if (updates.hasOwnProperty('aiTemperature') && updates.aiTemperature === null) {
+            delete cleanedUpdates.aiTemperature;
+            // 从现有配置中删除
+            if (sysConfig.groupConfigs[groupId]) {
+                delete sysConfig.groupConfigs[groupId].aiTemperature;
             }
         }
 
@@ -805,6 +820,18 @@ router.post('/ai', async (req, res) => {
             updates.aiContextLimit = limit;
         }
 
+        if (updates.aiTemperature !== undefined) {
+            const temp = parseFloat(updates.aiTemperature);
+            if (isNaN(temp) || temp < 0 || temp > 2) {
+                return res.status(400).json({
+                    error: 'aiTemperature must be between 0 and 2',
+                    field: 'aiTemperature',
+                    expected: '0.0 - 2.0'
+                });
+            }
+            updates.aiTemperature = temp;
+        }
+
         // aiVectorSimilarityThreshold: 0-1
         if (updates.aiVectorSimilarityThreshold !== undefined) {
             const threshold = parseFloat(updates.aiVectorSimilarityThreshold);
@@ -864,7 +891,7 @@ router.post('/ai', async (req, res) => {
         // Return clean snapshot of AI fields (not sysConfig instance)
         const aiFields = [
             'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt',
-            'aiProbability', 'aiContextLimit',
+            'aiProbability', 'aiContextLimit', 'aiTemperature',
             'aiChatApiUrl', 'aiChatApiKey', 'aiChatModel', 'aiChatProxy', 'aiChatSystemPrompt',
             'aiEmbeddingApiUrl', 'aiEmbeddingApiKey', 'aiEmbeddingModel', 'aiEmbeddingProxy',
             'aiHistoryMaxSize', 'aiVectorMaxSize', 'aiVectorSimilarityThreshold',
@@ -890,7 +917,7 @@ router.post('/ai/reset', async (req, res) => {
     try {
         const aiKeys = [
             // General AI Config
-            'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt', 'aiProbability',
+            'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt', 'aiProbability', 'aiTemperature',
             // Chat Service Config
             'aiChatApiUrl', 'aiChatApiKey', 'aiChatModel', 'aiChatProxy', 'aiChatSystemPrompt',
             // Embedding Service Config

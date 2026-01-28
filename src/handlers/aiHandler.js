@@ -45,6 +45,7 @@ class AiHandler {
             // Limit context for API based on aiContextLimit
             const contextLimit = config.getGroupConfig(groupId, 'aiContextLimit');
             const context = fullContext.slice(-contextLimit);
+            const temperature = config.getGroupConfig(groupId, 'aiTemperature');
 
             // Separate history and current message
             let historyText = "";
@@ -145,7 +146,8 @@ class AiHandler {
             while (loopCount < MAX_LOOPS) {
                 const requestPayload = {
                     model: config.aiModel,
-                    messages: currentMessages
+                    messages: currentMessages,
+                    temperature
                 };
                 if (tools.length > 0) {
                     requestPayload.tools = tools;
