@@ -292,6 +292,9 @@ router.post('/bili/check-login', async (req, res) => {
 router.get('/bili/my-info', async (req, res) => {
     try {
         const groupId = req.query.groupId ? parseInt(req.query.groupId) : null;
+        if (groupId !== null && (isNaN(groupId) || groupId <= 0)) {
+            return res.status(400).json({ error: 'Invalid groupId' });
+        }
         const result = await biliApi.getMyInfo(groupId);
         res.json(result);
     } catch (error) {
@@ -304,6 +307,11 @@ router.get('/bili/my-info', async (req, res) => {
 router.post('/api/bili/logout', async (req, res) => {
     try {
         const { groupId } = req.body;
+
+        // 验证 groupId 以防止路径遍历攻击
+        if (groupId && (!/^\d+$/.test(String(groupId)) || String(groupId).includes('..'))) {
+            return res.status(400).json({ error: 'Invalid groupId' });
+        }
 
         // Delete cookie file
         const cookieFile = groupId

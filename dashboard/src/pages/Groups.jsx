@@ -144,7 +144,7 @@ function Groups() {
   }, []);
 
   // Check existing Bilibili login
-  const checkExistingLogin = async (groupId) => {
+  const checkExistingLogin = useCallback(async (groupId) => {
       try {
           const res = await api.get(`/api/bili/my-info?groupId=${groupId}`);
           if (res.data && res.data.status === 'success' && res.data.data) {
@@ -161,10 +161,13 @@ function Groups() {
           // API call failed, treat as not logged in
           setBiliUserInfo(null);
       }
-  };
+  }, []); // No dependencies needed since it doesn't use any props/state
 
   useEffect(() => {
     if (selectedGroupId) {
+      // 切换群组时重置B站登录状态
+      setBiliUserInfo(null);
+
       const group = groups.find(g => g.id === selectedGroupId);
       if (group) {
         const config = group.config || {};
@@ -208,7 +211,7 @@ function Groups() {
         }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkExistingLogin]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -444,7 +447,8 @@ function Groups() {
           show('已登出', 'success');
       } catch (err) {
           console.error('Logout error:', err);
-          show('登出失败', 'error');
+          const errorMsg = err.response?.data?.error || err.message || '未知错误';
+          show(`登出失败: ${errorMsg}`, 'error');
       }
   };
 
