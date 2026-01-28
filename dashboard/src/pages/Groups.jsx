@@ -4,7 +4,7 @@ import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
-import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2, LogOut } from 'lucide-react';
+import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2, LogOut, Shield } from 'lucide-react';
 import { clsx } from 'clsx';
 import QRCode from 'qrcode';
 
@@ -29,6 +29,7 @@ function Groups() {
     enableCookieSync: false,
     cookieSyncGroupNames: [], // Array of strings
     blacklistedQQs: [],
+    admins: [], // 群组管理员列表
     // AI配置覆盖（null表示使用全局默认）
     aiProbability: null,
     aiContextLimit: null
@@ -42,6 +43,9 @@ function Groups() {
 
   // Blacklist State
   const [blacklistInput, setBlacklistInput] = useState('');
+
+  // Admin State
+  const [adminInput, setAdminInput] = useState('');
 
   // Login State
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -57,10 +61,11 @@ function Groups() {
   const [biliGroups, setBiliGroups] = useState([]);
   const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
 
-  // 全局AI配置（用于显示默认值占位符）
-  const [globalAiConfig, setGlobalAiConfig] = useState({
+  // 全局配置（包括AI配置和系统配置）
+  const [globalConfig, setGlobalConfig] = useState({
     aiProbability: 0.1,
-    aiContextLimit: 10
+    aiContextLimit: 10,
+    adminQQ: undefined
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
 
@@ -75,9 +80,10 @@ function Groups() {
       try {
         const res = await api.get('/api/config');
         if (res.data) {
-          setGlobalAiConfig({
+          setGlobalConfig({
             aiProbability: res.data.aiProbability || 0.1,
-            aiContextLimit: res.data.aiContextLimit || 10
+            aiContextLimit: res.data.aiContextLimit || 10,
+            adminQQ: res.data.adminQQ
           });
         }
       } catch (err) {
@@ -192,6 +198,7 @@ function Groups() {
           enableCookieSync: config.enableCookieSync ?? false,
           cookieSyncGroupNames: syncGroups,
           blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
+          admins: Array.isArray(config.admins) ? config.admins : [],
           // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
           aiProbability: config.aiProbability ?? null,
           aiContextLimit: config.aiContextLimit ?? null
@@ -203,8 +210,8 @@ function Groups() {
         if (selectedTabIndex === 1) {
             fetchSubscriptions(selectedGroupId);
         }
-        // If on sync tab, fetch bili groups
-        if (selectedTabIndex === 4) {
+        // If on sync tab, fetch bili groups (index changed from 4 to 5 after adding Admin tab)
+        if (selectedTabIndex === 5) {
             fetchBiliGroups(selectedGroupId);
             // Check Bilibili login status
             checkExistingLogin(selectedGroupId);
@@ -334,10 +341,69 @@ function Groups() {
       handleUpdateBlacklist(newList);
   };
 
+  // Admin Handlers
+  const handleAddAdmin = () => {
+      if (!adminInput) return;
+
+      // 验证 QQ 号格式（只能是数字）
+      if (!/^\d+$/.test(adminInput)) {
+          show('请输入有效的 QQ 号（纯数字）', 'error');
+          return;
+      }
+
+      // 验证 QQ 号长度（通常是 5-11 位）
+      if (adminInput.length < 5 || adminInput.length > 11) {
+          show('QQ 号长度不正确（应为 5-11 位）', 'error');
+          return;
+      }
+
+      if (formData.admins?.includes(adminInput)) {
+          show('该 QQ 已是管理员', 'error');
+          return;
+      }
+
+      const newAdmins = [...(formData.admins || []), adminInput];
+      handleUpdateAdmins(newAdmins);
+      setAdminInput('');
+      show('管理员已添加', 'success');
+  };
+
+  const handleRemoveAdmin = (qq) => {
+      const newAdmins = (formData.admins || []).filter(a => a !== qq);
+      handleUpdateAdmins(newAdmins);
+      show('管理员已移除', 'success');
+  };
+
+  const handleUpdateAdmins = async (newAdmins) => {
+      try {
+          // Optimistic update UI
+          setFormData(prev => ({ ...prev, admins: newAdmins }));
+
+          // API Call
+          await api.post(`/api/groups/${selectedGroupId}/config`, { admins: newAdmins });
+
+          // Update global groups state
+          setGroups(prev => prev.map(g =>
+              g.id === selectedGroupId
+                  ? { ...g, config: { ...g.config, admins: newAdmins } }
+                  : g
+          ));
+      } catch (err) {
+          console.error(err);
+          show('更新管理员失败', 'error');
+          // Revert on error
+          const group = groups.find(g => g.id === selectedGroupId);
+          if (group && group.config) {
+              setFormData(prev => ({ ...prev, admins: group.config.admins || [] }));
+          }
+      }
+  };
+
   const categories = [
     { name: '常规', icon: Settings },
     { name: '订阅', icon: Bell },
     { name: '黑名单', icon: Ban },
+    { name: '管理员', icon: Shield },
     { name: 'AI 设置', icon: Cpu },
     { name: '关注列表同步', icon: RefreshCw },
   ];
@@ -714,6 +780,65 @@ function Groups() {
                     </div>
                 </Tab.Panel>
 
+                {/* Admin Tab */}
+                <Tab.Panel className="focus:outline-none">
+                  <div className="space-y-6">
+                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                      <p className="text-sm text-white/70">
+                        群组管理员可以使用所有机器人指令，不受其他限制。
+                        {globalConfig.adminQQ && (
+                          <span className="block mt-2 text-yellow-300">
+                            根管理员: {globalConfig.adminQQ}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* 添加管理员 */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="输入 QQ 号..."
+                        value={adminInput}
+                        onChange={(e) => setAdminInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddAdmin()}
+                        className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={handleAddAdmin}
+                        disabled={!adminInput}
+                        className="px-4 py-2 bg-yellow-600/20 text-yellow-300 border border-yellow-500/30 hover:bg-yellow-600/30 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        添加
+                      </button>
+                    </div>
+
+                    {/* 管理员列表 */}
+                    <div className="space-y-2">
+                      {formData.admins && formData.admins.length > 0 ? (
+                        formData.admins.map((qq) => (
+                          <div key={qq} className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg p-3">
+                            <div className="flex items-center gap-3">
+                              <Shield className="w-5 h-5 text-yellow-400" />
+                              <span className="font-mono text-white">{qq}</span>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveAdmin(qq)}
+                              className="text-gray-400 hover:text-red-400 transition-colors"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center text-gray-500 py-4">
+                          暂无管理员
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Tab.Panel>
+
                 {/* AI Settings Tab */}
                 <Tab.Panel className="focus:outline-none">
                     {/* AI 响应配置 */}
@@ -741,7 +866,7 @@ function Groups() {
                             min="0"
                             max="1"
                             value={formData.aiProbability ?? ''}
-                            placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${Math.round(globalAiConfig.aiProbability * 100)}%`}
+                            placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${Math.round(globalConfig.aiProbability * 100)}%`}
                             disabled={globalConfigLoading}
                             onChange={(e) => {
                               const value = e.target.value;
@@ -777,7 +902,7 @@ function Groups() {
                           min="1"
                           max="100"
                           value={formData.aiContextLimit ?? ''}
-                          placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${globalAiConfig.aiContextLimit}`}
+                          placeholder={globalConfigLoading ? '加载中...' : `全局默认: ${globalConfig.aiContextLimit}`}
                           disabled={globalConfigLoading}
                           onChange={(e) => {
                             const value = e.target.value;
