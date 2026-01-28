@@ -3,7 +3,7 @@ import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
-import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock, MessageSquare } from 'lucide-react';
+import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock, MessageSquare, Edit } from 'lucide-react';
 
 const Settings = () => {
   const [loading, setLoading] = useState(true);
@@ -61,6 +61,15 @@ const Settings = () => {
     args: '',
     env: '{}'
   });
+  const [editingMcpIndex, setEditingMcpIndex] = useState(null);
+  const [isEditMcpModalOpen, setIsEditMcpModalOpen] = useState(false);
+  const [editMcp, setEditMcp] = useState({
+    name: '',
+    command: '',
+    args: '',
+    env: '{}'
+  });
+  const [mcpVersion, setMcpVersion] = useState(0);
 
   // B站全局Cookie状态
   const [biliGlobalStatus, setBiliGlobalStatus] = useState({
@@ -142,6 +151,11 @@ const Settings = () => {
         // Setup MCP Config
         const servers = mcpRes.data.mcpServers || (Array.isArray(mcpRes.data) ? mcpRes.data : []);
         setMcpConfig({ mcpServers: servers });
+
+        // Save version for concurrent control
+        if (mcpRes.data.version !== undefined) {
+            setMcpVersion(mcpRes.data.version);
+        }
 
         // 设置B站全局状态
         if (biliStatusRes.data.isLoggedIn) {
@@ -249,7 +263,17 @@ const Settings = () => {
       show("AI 设置已保存！", "success");
     } catch (error) {
       console.error("Failed to save AI settings:", error);
-      show("保存 AI 设置失败", "error");
+      // Extract detailed error message from API response
+      const errorMsg = error.response?.data?.error || error.response?.data?.details || '保存 AI 设置失败';
+      const field = error.response?.data?.field;
+      const expected = error.response?.data?.expected;
+
+      // Show detailed error if available
+      if (field && expected) {
+        show(`${errorMsg} (${field}: ${expected})`, "error");
+      } else {
+        show(errorMsg, "error");
+      }
     } finally {
       setSavingAi(false);
     }
@@ -327,8 +351,25 @@ const Settings = () => {
 
       // Save to backend
       setSavingMcp(true);
-      await api.post('/api/mcp', { mcpServers: updatedServers });
-      show("MCP 服务器已添加", "success");
+      const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
+
+      // Handle conflict
+      if (response.data.conflict) {
+          show('配置已被其他用户修改，请刷新后重试', 'error');
+          return;
+      }
+
+      // Handle reload failure warning
+      if (!response.data.reloadSuccess) {
+          show(response.data.warning || '配置已保存但服务可能未更新', 'warning');
+      } else {
+          show("MCP 服务器已添加并生效", "success");
+      }
+
+      // Update version
+      if (response.data.version !== undefined) {
+          setMcpVersion(response.data.version);
+      }
 
     } catch (error) {
       console.error("Failed to add MCP server:", error);
@@ -353,9 +394,30 @@ const Settings = () => {
 
     try {
         setSavingMcp(true);
-        await api.post('/api/mcp', { mcpServers: updatedServers });
-        show("MCP 服务器已移除", "success");
+        const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
+
+        // Handle conflict
+        if (response.data.conflict) {
+            show('配置已被其他用户修改，请刷新后重试', 'error');
+            return;
+        }
+
+        // Handle reload failure warning
+        if (!response.data.reloadSuccess) {
+            show(response.data.warning || '配置已保存但服务可能未更新', 'warning');
+        } else {
+            show("MCP 服务器已移除", "success");
+        }
+
+        // Update version
+        if (response.data.version !== undefined) {
+            setMcpVersion(response.data.version);
+        }
     } catch (error) {
+        if (error.response?.status === 409) {
+            show('配置已被其他用户修改，请刷新后重试', 'error');
+            return;
+        }
         console.error("Failed to remove MCP server:", error);
         show("保存更改失败", "error");
     } finally {
@@ -370,9 +432,115 @@ const Settings = () => {
 
     try {
         setSavingMcp(true);
-        await api.post('/api/mcp', { mcpServers: updatedServers });
+        await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
     } catch (error) {
         console.error("Failed to toggle MCP server:", error);
+    } finally {
+        setSavingMcp(false);
+    }
+  };
+
+  const openEditMcpModal = (index) => {
+    const server = mcpConfig.mcpServers[index];
+    setEditingMcpIndex(index);
+    setEditMcp({
+        name: server.name,
+        command: server.command,
+        args: server.args?.join(', ') || '',
+        env: JSON.stringify(server.env || {}, null, 2)
+    });
+    setIsEditMcpModalOpen(true);
+  };
+
+  const handleEditMcp = async () => {
+    try {
+        const oldName = mcpConfig.mcpServers[editingMcpIndex].name;
+        const newName = editMcp.name.trim();
+
+        // Frontend validation: name cannot be empty
+        if (!newName) {
+            show('服务器名称不能为空', 'error');
+            return;
+        }
+
+        // Frontend validation: name format
+        if (!/^[a-zA-Z0-9_-]+$/.test(newName)) {
+            show('服务器名称只能包含字母、数字、下划线和短横线', 'error');
+            return;
+        }
+
+        // Frontend validation: environment variables JSON
+        let env = {};
+        try {
+            env = JSON.parse(editMcp.env);
+        } catch {
+            show('环境变量 JSON 格式无效', 'error');
+            return;
+        }
+
+        const args = editMcp.args.split(',').map(s => s.trim()).filter(Boolean);
+
+        const updatedServers = [...mcpConfig.mcpServers];
+        updatedServers[editingMcpIndex] = {
+            ...updatedServers[editingMcpIndex],
+            name: newName,
+            command: editMcp.command,
+            args,
+            env,
+            enabled: updatedServers[editingMcpIndex].enabled
+        };
+
+        // Detect rename
+        const isRename = oldName !== newName;
+
+        // Optimistic update
+        setMcpConfig({ mcpServers: updatedServers });
+        setIsEditMcpModalOpen(false);
+        setEditMcp({ name: '', command: '', args: '', env: '{}' });
+        setEditingMcpIndex(null);
+
+        // Save to backend with version control
+        setSavingMcp(true);
+        const response = await api.post('/api/mcp', {
+            mcpServers: updatedServers,
+            version: mcpVersion,
+            renameOperation: isRename ? { from: oldName, to: newName } : undefined
+        });
+
+        // Handle conflict
+        if (response.data.conflict) {
+            show('配置已被其他用户修改，请刷新后重试', 'error');
+            return;
+        }
+
+        // Handle reload failure warning
+        if (!response.data.reloadSuccess) {
+            show(response.data.warning || '配置已保存但服务可能未更新', 'warning');
+        } else {
+            show("MCP 服务器已更新并生效", "success");
+        }
+
+        // Update version
+        if (response.data.version !== undefined) {
+            setMcpVersion(response.data.version);
+        }
+
+    } catch (error) {
+        if (error.response?.status === 409) {
+            show('配置已被其他用户修改，请刷新后重试', 'error');
+            return;
+        }
+        if (error.response?.status === 400) {
+            const errorMsg = error.response.data?.error || '更新失败';
+            if (error.response.data.details && Array.isArray(error.response.data.details)) {
+                show(`${errorMsg}: ${error.response.data.details[0]}`, 'error');
+            } else {
+                show(errorMsg, 'error');
+            }
+            return;
+        }
+        console.error("Failed to update MCP server:", error);
+        show("更新 MCP 服务器失败", "error");
     } finally {
         setSavingMcp(false);
     }
@@ -384,12 +552,25 @@ const Settings = () => {
     try {
       // 获取二维码 (不传groupId)
       const res = await api.get('/api/bili/login-url');
-      setQrCodeUrl(res.data.url);
-      setQrKey(res.data.authCode);
-      setIsQrModalOpen(true);
 
-      // 开始轮询登录状态
-      startQrPolling();
+      // 检查返回状态
+      if (res.data && res.data.status === 'error') {
+        show(`获取登录二维码失败: ${res.data.message || '未知错误'}`, 'error');
+        setBiliLoading(false);
+        return;
+      }
+
+      if (res.data && res.data.data && res.data.data.url) {
+        setQrCodeUrl(res.data.data.url);
+        setQrKey(res.data.data.key);
+        setIsQrModalOpen(true);
+
+        // 开始轮询登录状态
+        startQrPolling();
+      } else {
+        show('获取登录二维码失败: 响应格式错误', 'error');
+        setBiliLoading(false);
+      }
     } catch (error) {
       console.error('Failed to get QR code:', error);
       show('获取二维码失败', 'error');
@@ -1006,6 +1187,13 @@ const Settings = () => {
                                 <Power size={16} />
                              </button>
                              <button
+                                onClick={() => openEditMcpModal(idx)}
+                                className="p-1.5 hover:bg-blue-500/20 rounded-md text-gray-300 hover:text-blue-400"
+                                title="编辑"
+                             >
+                                <Edit size={16} />
+                             </button>
+                             <button
                                 onClick={() => removeMcpServer(idx)}
                                 className="p-1.5 hover:bg-red-500/20 rounded-md text-gray-300 hover:text-red-400"
                                 title="移除"
@@ -1122,6 +1310,77 @@ const Settings = () => {
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {savingMcp ? '添加中...' : '添加服务器'}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Edit MCP Modal */}
+      {isEditMcpModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-gray-900 border border-white/20 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+                <div className="flex justify-between items-center p-4 border-b border-white/10 bg-white/5">
+                    <h3 className="text-lg font-bold text-white">编辑 MCP 服务器</h3>
+                    <button onClick={() => setIsEditMcpModalOpen(false)} className="text-gray-400 hover:text-white">
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">服务器名称</label>
+                        <input
+                            type="text"
+                            value={editMcp.name}
+                            onChange={e => setEditMcp({...editMcp, name: e.target.value})}
+                            placeholder="例如：Filesystem"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">只能包含字母、数字、下划线和短横线</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">命令</label>
+                        <input
+                            type="text"
+                            value={editMcp.command}
+                            onChange={e => setEditMcp({...editMcp, command: e.target.value})}
+                            placeholder="npx, python 等"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">参数 (逗号分隔)</label>
+                        <input
+                            type="text"
+                            value={editMcp.args}
+                            onChange={e => setEditMcp({...editMcp, args: e.target.value})}
+                            placeholder="-y, @modelcontextprotocol/server-filesystem, /path/to/dir"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">环境变量 (JSON)</label>
+                        <textarea
+                            value={editMcp.env}
+                            onChange={e => setEditMcp({...editMcp, env: e.target.value})}
+                            rows={3}
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-xs focus:border-purple-500 focus:outline-none"
+                        />
+                    </div>
+                </div>
+                <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3">
+                    <button
+                        onClick={() => setIsEditMcpModalOpen(false)}
+                        className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                        取消
+                    </button>
+                    <button
+                        onClick={handleEditMcp}
+                        disabled={savingMcp || !editMcp.name || !editMcp.command}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {savingMcp ? '保存中...' : '保存更改'}
                     </button>
                 </div>
             </div>
