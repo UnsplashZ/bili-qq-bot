@@ -148,6 +148,25 @@ class BiliApi {
             serviceManager.sendCommand('get_follow_groups', { group_id: groupId })
         );
     }
+
+    /**
+     * 获取全局Cookie的用户信息
+     * @returns {Promise<{status: string, data?: {uid, username, is_logged_in, timestamp}, message?: string}>}
+     */
+    async getGlobalCredentialInfo() {
+        // 短期缓存（60秒），避免频繁查询
+        return this._withCache('global_credential_info', 'global', null, async () => {
+            try {
+                const result = await serviceManager.sendCommand('credential_info', {});
+                return result;
+            } catch (error) {
+                return {
+                    status: 'error',
+                    message: error.message || 'Failed to fetch credential info'
+                };
+            }
+        });
+    }
 }
 
 module.exports = new BiliApi();

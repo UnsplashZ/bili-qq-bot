@@ -303,6 +303,34 @@ router.get('/bili/my-info', async (req, res) => {
     }
 });
 
+// GET /api/bili/global-status - 获取全局Cookie登录状态
+router.get('/bili/global-status', authenticateToken, async (req, res) => {
+    try {
+        const result = await biliApi.getGlobalCredentialInfo();
+
+        if (result.status === 'success') {
+            res.json({
+                isLoggedIn: true,
+                uid: result.data.uid,
+                username: result.data.username,
+                timestamp: result.data.timestamp
+            });
+        } else {
+            // Cookie不存在或失效
+            res.json({
+                isLoggedIn: false,
+                message: result.message || 'Not logged in'
+            });
+        }
+    } catch (error) {
+        logger.error('Error fetching global Bilibili status:', error);
+        res.status(500).json({
+            isLoggedIn: false,
+            error: 'Failed to check login status'
+        });
+    }
+});
+
 // POST /api/bili/logout - Logout (clear cookies)
 router.post('/api/bili/logout', async (req, res) => {
     try {

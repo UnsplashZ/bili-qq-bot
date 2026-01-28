@@ -3,6 +3,7 @@ import json
 import asyncio
 import re
 import aiohttp
+import time
 from bs4 import BeautifulSoup
 import bilibili_api
 from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
@@ -17,11 +18,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 配置 bilibili_api 以避免412错误
-# 1. 更新请求头，添加Origin头
+# 1. 更新请求头，添加完整的浏览器特征头部
 bilibili_api.HEADERS.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Referer': 'https://www.bilibili.com',
-    'Origin': 'https://www.bilibili.com'
+    'Origin': 'https://www.bilibili.com',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"'
 })
 
 # 2. 启用 bili_ticket 以减少风控触发
@@ -58,13 +68,80 @@ def get_credential_file(group_id=None):
     return f'data/cookies_{group_key}.json'
 
 def load_credential(group_id=None):
-    file_path = get_credential_file(group_id)
-    try:
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-            return Credential(sessdata=data.get('SESSDATA'), bili_jct=data.get('BILI_JCT'), buvid3=data.get('BUVID3'))
-    except FileNotFoundError:
-        return None
+    """
+    加载B站凭证，优先级：群组Cookie > 全局Cookie
+
+    Args:
+        group_id: 群组ID，None表示加载全局Cookie
+
+    Returns:
+        Credential对象或None
+    """
+    credential = None
+
+    # 优先尝试加载群组Cookie
+    if group_id:
+        file_path = get_credential_file(group_id)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    sessdata = data.get('SESSDATA')
+                    bili_jct = data.get('BILI_JCT')
+                    buvid3 = data.get('BUVID3')
+
+                    if not buvid3:
+                        logger.warning(f"BUVID3 缺失 (group_id: {group_id}, file: {file_path})，可能导致请求被风控")
+
+                    timestamp = data.get('_timestamp', 0)
+                    if timestamp:
+                        age_days = (time.time() - timestamp) / (24 * 3600)
+                        if age_days > 7:
+                            logger.warning(f"Cookie 可能已过期 (group_id: {group_id}, age: {age_days:.1f} 天)")
+
+                    credential = Credential(
+                        sessdata=sessdata,
+                        bili_jct=bili_jct,
+                        buvid3=buvid3
+                    )
+                    logger.debug(f"使用群组Cookie: {group_id}")
+                    return credential
+            except Exception as e:
+                logger.error(f"加载群组Cookie失败 (group_id: {group_id}): {e}")
+
+        # 群组Cookie不存在，尝试fallback
+        logger.info(f"群组 {group_id} Cookie不存在，尝试使用全局Cookie")
+
+    # 加载全局Cookie
+    if os.path.exists(CREDENTIAL_FILE):
+        try:
+            with open(CREDENTIAL_FILE, 'r') as f:
+                data = json.load(f)
+                sessdata = data.get('SESSDATA')
+                bili_jct = data.get('BILI_JCT')
+                buvid3 = data.get('BUVID3')
+
+                if not buvid3:
+                    logger.warning(f"全局Cookie BUVID3 缺失，可能导致请求被风控")
+
+                timestamp = data.get('_timestamp', 0)
+                if timestamp:
+                    age_days = (time.time() - timestamp) / (24 * 3600)
+                    if age_days > 7:
+                        logger.warning(f"全局Cookie 可能已过期 (age: {age_days:.1f} 天)")
+
+                credential = Credential(
+                    sessdata=sessdata,
+                    bili_jct=bili_jct,
+                    buvid3=buvid3
+                )
+                logger.debug("使用全局Cookie")
+                return credential
+        except Exception as e:
+            logger.error(f"加载全局Cookie失败: {e}")
+
+    logger.debug("未找到可用的Cookie")
+    return None
 
 def save_credential(credential, group_id=None):
     # Determine target file
@@ -91,7 +168,8 @@ def save_credential(credential, group_id=None):
         json.dump({
             'SESSDATA': credential.sessdata,
             'BILI_JCT': credential.bili_jct,
-            'BUVID3': credential.buvid3
+            'BUVID3': credential.buvid3,
+            '_timestamp': int(time.time())  # 添加时间戳用于过期检测
         }, f)
 
 async def _fetch_bytes(url: str) -> bytes:
@@ -741,7 +819,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         # 如果上面没有获取到装饰信息或等级，再尝试通过用户API获取
         if (not pendant_url or not card_url or author_level == 0) and author_uid:
             try:
-                u = user.User(uid=int(author_uid), credential=load_credential())
+                u = user.User(uid=int(author_uid), credential=load_credential(group_id))
                 base = await u.get_user_info()
                 author_level = base.get('level', author_level)  # 保持之前获取到的等级，如果获取不到则使用之前的值
                 profile = await u.get_user_profile()
@@ -793,7 +871,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             vote_id = vobj.get('vote_id')
             if vote_id:
                 from bilibili_api import vote as vote_api
-                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential())
+                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential(group_id))
                 vinfo = await vv.get_info()
                 # Normalize to expected fields for Node renderer
                 # choices may reside under data['choices'] or info['options'] or similar
@@ -1539,6 +1617,60 @@ async def on_startup(app):
     # Place to initialize global sessions if needed
     pass
 
+async def handle_credential_info(request):
+    """
+    获取Cookie对应的用户信息
+
+    Request Body:
+        {
+            "group_id": "123456" (可选，用于测试特定群组Cookie)
+        }
+
+    Response:
+        {
+            "status": "success",
+            "data": {
+                "uid": 123456,
+                "username": "用户名",
+                "is_logged_in": true,
+                "timestamp": 1706428800
+            }
+        }
+    """
+    try:
+        data = await request.json()
+        group_id = data.get('group_id')
+
+        # 加载凭证
+        credential = load_credential(group_id)
+        if not credential:
+            return web.json_response({
+                'status': 'error',
+                'message': 'No credential found'
+            })
+
+        # 获取用户信息
+        u = user.User(credential=credential)
+        info = await u.get_user_info()
+
+        return web.json_response({
+            'status': 'success',
+            'data': {
+                'uid': info['mid'],
+                'username': info['name'],
+                'is_logged_in': True,
+                'timestamp': int(time.time())
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取凭证信息失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            'status': 'error',
+            'message': str(e)
+        })
+
 async def on_cleanup(app):
     logger.info("Application shutting down...")
     # Place to close global sessions if needed
@@ -1570,6 +1702,7 @@ def create_app():
         web.post('/get_follow_groups', handle_get_follow_groups),
         web.post('/dynamic_feed', handle_dynamic_feed),
         web.post('/live_feed', handle_live_feed),
+        web.post('/credential_info', handle_credential_info),
         web.get('/health', health_check),
     ])
     return app

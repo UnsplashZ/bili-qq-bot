@@ -62,15 +62,29 @@ const Settings = () => {
     env: '{}'
   });
 
+  // B站全局Cookie状态
+  const [biliGlobalStatus, setBiliGlobalStatus] = useState({
+    isLoggedIn: false,
+    uid: null,
+    username: '',
+    timestamp: null
+  });
+  const [biliLoading, setBiliLoading] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrKey, setQrKey] = useState('');
+  const [qrPollInterval, setQrPollInterval] = useState(null);
+
   // Fetch Data
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [configRes, mcpRes, blacklistRes] = await Promise.all([
+        const [configRes, mcpRes, blacklistRes, biliStatusRes] = await Promise.all([
           api.get('/api/config'),
           api.get('/api/mcp'),
-          api.get('/api/blacklist/global')
+          api.get('/api/blacklist/global'),
+          api.get('/api/bili/global-status')
         ]);
 
         // Store full config
@@ -128,6 +142,23 @@ const Settings = () => {
         // Setup MCP Config
         const servers = mcpRes.data.mcpServers || (Array.isArray(mcpRes.data) ? mcpRes.data : []);
         setMcpConfig({ mcpServers: servers });
+
+        // 设置B站全局状态
+        if (biliStatusRes.data.isLoggedIn) {
+          setBiliGlobalStatus({
+            isLoggedIn: true,
+            uid: biliStatusRes.data.uid,
+            username: biliStatusRes.data.username,
+            timestamp: biliStatusRes.data.timestamp
+          });
+        } else {
+          setBiliGlobalStatus({
+            isLoggedIn: false,
+            uid: null,
+            username: '',
+            timestamp: null
+          });
+        }
 
       } catch (error) {
         console.error("Failed to load settings:", error);
@@ -347,6 +378,110 @@ const Settings = () => {
     }
   };
 
+  // B站全局Cookie Handlers
+  const handleBiliGlobalLogin = async () => {
+    setBiliLoading(true);
+    try {
+      // 获取二维码 (不传groupId)
+      const res = await api.get('/api/bili/login-url');
+      setQrCodeUrl(res.data.url);
+      setQrKey(res.data.authCode);
+      setIsQrModalOpen(true);
+
+      // 开始轮询登录状态
+      startQrPolling();
+    } catch (error) {
+      console.error('Failed to get QR code:', error);
+      show('获取二维码失败', 'error');
+      setBiliLoading(false);
+    }
+  };
+
+  const startQrPolling = () => {
+    let attempts = 0;
+    const maxAttempts = 30; // 60秒超时 (2秒间隔)
+
+    const interval = setInterval(async () => {
+      attempts++;
+
+      if (attempts > maxAttempts) {
+        clearInterval(interval);
+        setIsQrModalOpen(false);
+        setBiliLoading(false);
+        show('登录超时，请重试', 'error');
+        return;
+      }
+
+      try {
+        const statusRes = await api.post('/api/bili/check-login', {
+          key: qrKey
+          // 不传groupId，表示全局登录
+        });
+
+        if (statusRes.data.status === 'success') {
+          clearInterval(interval);
+          setIsQrModalOpen(false);
+          setBiliLoading(false);
+          show('B站全局登录成功！', 'success');
+
+          // 刷新登录状态
+          const newStatus = await api.get('/api/bili/global-status');
+          setBiliGlobalStatus({
+            isLoggedIn: true,
+            uid: newStatus.data.uid,
+            username: newStatus.data.username,
+            timestamp: newStatus.data.timestamp
+          });
+        } else if (statusRes.data.status === 'expired') {
+          clearInterval(interval);
+          setBiliLoading(false);
+          show('二维码已过期', 'error');
+          setIsQrModalOpen(false);
+        }
+      } catch (error) {
+        clearInterval(interval);
+        setBiliLoading(false);
+        console.error('Login polling error:', error);
+        setIsQrModalOpen(false);
+        show('登录检查失败', 'error');
+      }
+    }, 2000);
+
+    setQrPollInterval(interval);
+  };
+
+  const handleBiliGlobalLogout = async () => {
+    if (!window.confirm('确定要退出全局B站登录吗？这将影响所有未单独登录的群组。')) {
+      return;
+    }
+
+    setBiliLoading(true);
+    try {
+      await api.post('/api/bili/logout', {});  // 不传groupId表示退出全局登录
+      setBiliGlobalStatus({
+        isLoggedIn: false,
+        uid: null,
+        username: '',
+        timestamp: null
+      });
+      show('已退出B站全局登录', 'success');
+    } catch (error) {
+      console.error('Failed to logout:', error);
+      show('退出登录失败', 'error');
+    } finally {
+      setBiliLoading(false);
+    }
+  };
+
+  // 清理轮询（组件卸载时）
+  useEffect(() => {
+    return () => {
+      if (qrPollInterval) {
+        clearInterval(qrPollInterval);
+      }
+    };
+  }, [qrPollInterval]);
+
   // System Handlers
   const handleRestart = () => {
     setIsRestartModalOpen(true);
@@ -410,6 +545,81 @@ const Settings = () => {
                     {savingGeneral ? '保存中...' : '保存常规设置'}
                 </button>
             </div>
+        </GlassCard>
+      </section>
+
+      {/* B站全局Cookie Section */}
+      <section>
+        <div className="flex items-center gap-2 mb-4">
+          <svg
+            className="w-5 h-5 text-pink-400"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.386-.947.258-.257.574-.386.947-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373z"/>
+          </svg>
+          <h2 className="text-xl font-semibold text-white">B站全局Cookie</h2>
+        </div>
+        <GlassCard>
+          <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg p-4 mb-4">
+            <p className="text-sm text-white/70">
+              全局Cookie用于所有未单独登录的群组。优先级：群组Cookie &gt; 全局Cookie
+            </p>
+          </div>
+
+          {biliGlobalStatus.isLoggedIn ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse" />
+                  <div>
+                    <p className="text-white font-medium">
+                      {biliGlobalStatus.username}{' '}
+                      <span className="text-gray-400">
+                        (UID: {biliGlobalStatus.uid})
+                      </span>
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      更新时间：{biliGlobalStatus.timestamp
+                        ? new Date(biliGlobalStatus.timestamp * 1000).toLocaleString('zh-CN')
+                        : '未知'
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleBiliGlobalLogout}
+                    disabled={biliLoading}
+                    className="px-3 py-1.5 bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 rounded-lg text-sm transition-colors disabled:opacity-50"
+                  >
+                    退出登录
+                  </button>
+                  <button
+                    onClick={handleBiliGlobalLogin}
+                    disabled={biliLoading}
+                    className="px-3 py-1.5 bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 border border-pink-500/30 rounded-lg text-sm transition-colors disabled:opacity-50"
+                  >
+                    重新登录
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-gray-500/10 border border-gray-500/20 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-gray-500" />
+                <p className="text-gray-400">未登录</p>
+              </div>
+              <button
+                onClick={handleBiliGlobalLogin}
+                disabled={biliLoading}
+                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {biliLoading ? '加载中...' : '扫码登录'}
+              </button>
+            </div>
+          )}
         </GlassCard>
       </section>
 
@@ -970,6 +1180,40 @@ const Settings = () => {
         <p className="text-gray-300">
             确定要移除此 MCP 服务器吗？此操作无法撤销。
         </p>
+      </GlassModal>
+
+      {/* QR Code Modal for Global Login */}
+      <GlassModal
+        isOpen={isQrModalOpen}
+        onClose={() => {
+          setIsQrModalOpen(false);
+          setBiliLoading(false);
+          if (qrPollInterval) {
+            clearInterval(qrPollInterval);
+            setQrPollInterval(null);
+          }
+        }}
+        title="扫码登录 B 站（全局）"
+      >
+        <div className="flex flex-col items-center space-y-4">
+          <p className="text-gray-300 text-sm text-center">
+            请使用 B 站 App 扫描下方二维码完成登录
+          </p>
+          {qrCodeUrl && (
+            <img
+              src={qrCodeUrl}
+              alt="QR Code"
+              className="w-64 h-64 border-2 border-white/20 rounded-lg"
+            />
+          )}
+          <div className="flex items-center gap-2 text-blue-400">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-400 border-t-transparent" />
+            <span className="text-sm">等待扫码...</span>
+          </div>
+          <p className="text-xs text-gray-500">
+            二维码有效期60秒，超时请重新获取
+          </p>
+        </div>
       </GlassModal>
     </div>
   );
