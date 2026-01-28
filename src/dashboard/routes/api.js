@@ -403,7 +403,7 @@ router.get('/bili/global-status', authenticateToken, async (req, res) => {
 });
 
 // POST /api/bili/logout - Logout (clear cookies)
-router.post('/api/bili/logout', async (req, res) => {
+router.post('/bili/logout', async (req, res) => {
     try {
         const { groupId } = req.body;
 
