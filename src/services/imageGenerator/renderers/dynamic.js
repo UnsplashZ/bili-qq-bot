@@ -116,14 +116,20 @@ function renderDynamicContent(data) {
         }
     }
 
+    // 1. Try to get text from desc (user comment)
     if (module_dynamic.desc) {
         text = module_dynamic.desc.text || "";
         richTextNodes = module_dynamic.desc.rich_text_nodes;
-    } else if (module_dynamic.major?.opus) {
-         if (module_dynamic.major.opus.summary) {
-             text = module_dynamic.major.opus.summary.text || "";
-             richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
-         }
+    } 
+    
+    // 2. Fallback to opus summary if text is empty (common in Article shares or raw feed)
+    if (!text && module_dynamic.major?.opus?.summary) {
+         text = module_dynamic.major.opus.summary.text || "";
+         richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
+    }
+
+    // 3. Always try to extract title from Opus if present
+    if (module_dynamic.major?.opus) {
          title = module_dynamic.major.opus.title || "";
     }
 

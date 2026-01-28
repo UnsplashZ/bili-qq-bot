@@ -1678,9 +1678,7 @@ async def handle_credential_info(request):
             })
         credential = await ensure_buvid3(credential, group_id)
 
-        # 获取用户信息
-        u = user.User(credential=credential)
-        info = await u.get_user_info()
+        info = await user.get_self_info(credential=credential)
 
         return web.json_response({
             'status': 'success',
