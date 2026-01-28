@@ -410,24 +410,37 @@ const config = {
             clearTimeout(this._saveTimer);
         }
 
-        // Debounce: wait 500ms before actually saving
+        // Debounce: wait 100ms before actually saving (shortened from 500ms)
+        // 100ms is sufficient to merge multiple setter calls from Object.assign
         this._saveTimer = setTimeout(() => {
             this._performSave();
-        }, 500);
+        }, 100);
     },
 
     _performSave: function() {
+        const startTime = Date.now();
+        const saveCount = (this._saveCount || 0) + 1;
+
         try {
             const jsonString = JSON.stringify(_overrides, null, 2);
             fs.writeFile(CONFIG_PATH, jsonString, 'utf8', (err) => {
+                const duration = Date.now() - startTime;
+
                 if (err) {
-                    logger.error('[Config] Failed to save configuration:', err);
+                    logger.error(`[Config] Failed to save configuration (took ${duration}ms):`, err);
                 } else {
-                    logger.info('[Config] Configuration saved to config.json');
+                    this._saveCount = saveCount;
+                    logger.info(`[Config] Configuration saved to config.json (took ${duration}ms, total saves: ${this._saveCount})`);
+
+                    // Warn if save is slow (potential disk I/O issue)
+                    if (duration > 100) {
+                        logger.warn(`[Config] Slow save detected (${duration}ms), consider checking disk I/O`);
+                    }
                 }
             });
         } catch (e) {
-            logger.error('[Config] Error preparing configuration data:', e);
+            const duration = Date.now() - startTime;
+            logger.error(`[Config] Error preparing configuration data (took ${duration}ms):`, e);
         }
     }
 };
