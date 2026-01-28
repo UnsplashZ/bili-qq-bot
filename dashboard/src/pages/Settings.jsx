@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
@@ -81,7 +82,6 @@ const Settings = () => {
   const [biliLoading, setBiliLoading] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [qrKey, setQrKey] = useState('');
   const [qrPollInterval, setQrPollInterval] = useState(null);
 
   // Fetch Data
@@ -561,12 +561,12 @@ const Settings = () => {
       }
 
       if (res.data && res.data.data && res.data.data.url) {
-        setQrCodeUrl(res.data.data.url);
-        setQrKey(res.data.data.key);
+        const qrDataUrl = await QRCode.toDataURL(res.data.data.url);
+        setQrCodeUrl(qrDataUrl);
         setIsQrModalOpen(true);
 
         // 开始轮询登录状态
-        startQrPolling();
+        startQrPolling(res.data.data.key);
       } else {
         show('获取登录二维码失败: 响应格式错误', 'error');
         setBiliLoading(false);
@@ -578,7 +578,7 @@ const Settings = () => {
     }
   };
 
-  const startQrPolling = () => {
+  const startQrPolling = (key) => {
     let attempts = 0;
     const maxAttempts = 30; // 60秒超时 (2秒间隔)
 
@@ -595,7 +595,7 @@ const Settings = () => {
 
       try {
         const statusRes = await api.post('/api/bili/check-login', {
-          key: qrKey
+          key
           // 不传groupId，表示全局登录
         });
 

@@ -50,7 +50,6 @@ function Groups() {
   // Login State
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginQrCode, setLoginQrCode] = useState('');
-  const [loginKey, setLoginKey] = useState('');
   const [loginStatus, setLoginStatus] = useState('idle'); // idle, waiting, success, expired
   const checkLoginTimerRef = useRef(null);
 
@@ -163,7 +162,7 @@ function Groups() {
               // Not logged in or cookie expired
               setBiliUserInfo(null);
           }
-      } catch (err) {
+      } catch {
           // API call failed, treat as not logged in
           setBiliUserInfo(null);
       }
@@ -453,7 +452,6 @@ function Groups() {
           }
 
           if (res.data && res.data.data && res.data.data.url) {
-              setLoginKey(res.data.data.key); // Save key for checking
               // Generate QR Code
               const qrDataUrl = await QRCode.toDataURL(res.data.data.url);
               setLoginQrCode(qrDataUrl);
