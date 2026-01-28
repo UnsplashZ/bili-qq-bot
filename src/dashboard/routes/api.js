@@ -361,7 +361,8 @@ router.get('/bili/my-info', async (req, res) => {
 // GET /api/bili/global-status - 获取全局Cookie登录状态
 router.get('/bili/global-status', authenticateToken, async (req, res) => {
     try {
-        const result = await biliApi.getGlobalCredentialInfo();
+        const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+        const result = await biliApi.getGlobalCredentialInfo(refresh);
 
         if (result.status === 'success') {
             res.json({

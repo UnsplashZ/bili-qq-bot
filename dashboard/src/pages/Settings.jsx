@@ -606,13 +606,23 @@ const Settings = () => {
           show('B站全局登录成功！', 'success');
 
           // 刷新登录状态
-          const newStatus = await api.get('/api/bili/global-status');
-          setBiliGlobalStatus({
-            isLoggedIn: true,
-            uid: newStatus.data.uid,
-            username: newStatus.data.username,
-            timestamp: newStatus.data.timestamp
-          });
+          const newStatus = await api.get('/api/bili/global-status?refresh=1');
+          if (newStatus.data.isLoggedIn) {
+            setBiliGlobalStatus({
+              isLoggedIn: true,
+              uid: newStatus.data.uid,
+              username: newStatus.data.username,
+              timestamp: newStatus.data.timestamp
+            });
+          } else {
+            setBiliGlobalStatus({
+              isLoggedIn: false,
+              uid: null,
+              username: '',
+              timestamp: null
+            });
+            show(newStatus.data.message || '登录状态获取失败', 'error');
+          }
         } else if (statusRes.data.status === 'expired') {
           clearInterval(interval);
           setBiliLoading(false);

@@ -153,7 +153,7 @@ class BiliApi {
      * 获取全局Cookie的用户信息
      * @returns {Promise<{status: string, data?: {uid, username, is_logged_in, timestamp}, message?: string}>}
      */
-    async getGlobalCredentialInfo() {
+    async getGlobalCredentialInfo(bypassCache = false) {
         // 短期缓存（60秒），避免频繁查询
         return this._withCache('global_credential_info', 'global', null, async () => {
             try {
@@ -165,7 +165,7 @@ class BiliApi {
                     message: error.message || 'Failed to fetch credential info'
                 };
             }
-        });
+        }, bypassCache);
     }
 }
 

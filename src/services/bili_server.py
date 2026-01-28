@@ -172,6 +172,33 @@ def save_credential(credential, group_id=None):
             '_timestamp': int(time.time())  # 添加时间戳用于过期检测
         }, f)
 
+async def _fetch_buvid3():
+    try:
+        timeout = aiohttp.ClientTimeout(total=6)
+        headers = bilibili_api.HEADERS.copy()
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get('https://www.bilibili.com', headers=headers) as resp:
+                for name in resp.cookies:
+                    if name.lower() == 'buvid3':
+                        return resp.cookies[name].value
+                for item in resp.headers.getall('Set-Cookie', []):
+                    for part in item.split(';'):
+                        kv = part.strip()
+                        if kv.lower().startswith('buvid3='):
+                            return kv.split('=', 1)[1]
+    except Exception as e:
+        logger.warning(f"获取BUVID3失败: {e}")
+    return None
+
+async def ensure_buvid3(credential, group_id=None):
+    if not credential or credential.buvid3:
+        return credential
+    buvid3 = await _fetch_buvid3()
+    if buvid3:
+        credential.buvid3 = buvid3
+        save_credential(credential, group_id)
+    return credential
+
 async def _fetch_bytes(url: str) -> bytes:
     try:
         headers = {
@@ -499,6 +526,7 @@ async def poll_login(qrcode_key, group_id=None):
             logger.info(f"登录成功 (group_id: {group_id})")
             credential = q.get_credential()
             save_credential(credential, group_id)
+            await ensure_buvid3(credential, group_id)
             return {"status": "success", "message": "登录成功"}
         elif event == login.QrCodeLoginEvents.SCAN:
             return {"status": "pending", "code": 86101, "message": "等待扫码"}
@@ -1648,6 +1676,7 @@ async def handle_credential_info(request):
                 'status': 'error',
                 'message': 'No credential found'
             })
+        credential = await ensure_buvid3(credential, group_id)
 
         # 获取用户信息
         u = user.User(credential=credential)
