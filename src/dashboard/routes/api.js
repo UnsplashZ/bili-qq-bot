@@ -523,8 +523,13 @@ router.post('/ai', async (req, res) => {
 router.post('/ai/reset', async (req, res) => {
     try {
         const aiKeys = [
+            // General AI Config
             'aiApiUrl', 'aiApiKey', 'aiModel', 'aiSystemPrompt', 'aiProbability',
-            'aiEmbeddingApiUrl', 'aiEmbeddingApiKey', 'aiEmbeddingModel', 'aiChatProxy', 'aiEmbeddingProxy',
+            // Chat Service Config
+            'aiChatApiUrl', 'aiChatApiKey', 'aiChatModel', 'aiChatProxy', 'aiChatSystemPrompt',
+            // Embedding Service Config
+            'aiEmbeddingApiUrl', 'aiEmbeddingApiKey', 'aiEmbeddingModel', 'aiEmbeddingProxy',
+            // Other AI Settings
             'aiContextLimit', 'aiHistoryMaxSize', 'aiVectorMaxSize',
             'aiVectorSimilarityThreshold', 'aiVectorSearchLimit', 'aiShortMessageThreshold', 'aiMemorySafetyLimit',
             'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize', 'aiEnableVectorCache', 'aiEnableSmartTrim'

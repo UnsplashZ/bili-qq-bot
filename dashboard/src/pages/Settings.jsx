@@ -3,7 +3,7 @@ import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
-import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock } from 'lucide-react';
+import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock, MessageSquare } from 'lucide-react';
 
 const Settings = () => {
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,18 @@ const Settings = () => {
     aiEnableVectorCache: false,
     aiVectorSimilarityThreshold: 0.4,
     aiVectorSearchLimit: 3,
-    aiMemorySafetyLimit: 5000
+    aiMemorySafetyLimit: 5000,
+    // Chat Service
+    aiChatApiUrl: '',
+    aiChatApiKey: '',
+    aiChatModel: 'gpt-3.5-turbo',
+    aiChatProxy: '',
+    aiChatSystemPrompt: '你是一个有用的助手',
+    // Embedding Service
+    aiEmbeddingApiUrl: '',
+    aiEmbeddingApiKey: '',
+    aiEmbeddingModel: 'text-embedding-3-small',
+    aiEmbeddingProxy: ''
   });
   const [savingAi, setSavingAi] = useState(false);
   const [resettingAi, setResettingAi] = useState(false);
@@ -78,7 +89,16 @@ const Settings = () => {
           aiEnableVectorCache,
           aiVectorSimilarityThreshold,
           aiVectorSearchLimit,
-          aiMemorySafetyLimit
+          aiMemorySafetyLimit,
+          aiChatApiUrl,
+          aiChatApiKey,
+          aiChatModel,
+          aiChatProxy,
+          aiChatSystemPrompt,
+          aiEmbeddingApiUrl,
+          aiEmbeddingApiKey,
+          aiEmbeddingModel,
+          aiEmbeddingProxy
         } = configRes.data;
 
         setAiConfig({
@@ -88,7 +108,18 @@ const Settings = () => {
             aiEnableVectorCache: aiEnableVectorCache ?? true,
             aiVectorSimilarityThreshold: aiVectorSimilarityThreshold ?? 0.4,
             aiVectorSearchLimit: aiVectorSearchLimit ?? 3,
-            aiMemorySafetyLimit: aiMemorySafetyLimit ?? 5000
+            aiMemorySafetyLimit: aiMemorySafetyLimit ?? 5000,
+            // Chat Service
+            aiChatApiUrl: aiChatApiUrl || '',
+            aiChatApiKey: aiChatApiKey || '',
+            aiChatModel: aiChatModel || 'gpt-3.5-turbo',
+            aiChatProxy: aiChatProxy || '',
+            aiChatSystemPrompt: aiChatSystemPrompt || '你是一个有用的助手',
+            // Embedding Service
+            aiEmbeddingApiUrl: aiEmbeddingApiUrl || '',
+            aiEmbeddingApiKey: aiEmbeddingApiKey || '',
+            aiEmbeddingModel: aiEmbeddingModel || 'text-embedding-3-small',
+            aiEmbeddingProxy: aiEmbeddingProxy || ''
         });
 
         // Setup Blacklist
@@ -211,7 +242,18 @@ const Settings = () => {
             aiEnableVectorCache: newConfig.aiEnableVectorCache ?? true,
             aiVectorSimilarityThreshold: newConfig.aiVectorSimilarityThreshold ?? 0.4,
             aiVectorSearchLimit: newConfig.aiVectorSearchLimit ?? 3,
-            aiMemorySafetyLimit: newConfig.aiMemorySafetyLimit ?? 5000
+            aiMemorySafetyLimit: newConfig.aiMemorySafetyLimit ?? 5000,
+            // Chat Service
+            aiChatApiUrl: newConfig.aiChatApiUrl || '',
+            aiChatApiKey: newConfig.aiChatApiKey || '',
+            aiChatModel: newConfig.aiChatModel || 'gpt-3.5-turbo',
+            aiChatProxy: newConfig.aiChatProxy || '',
+            aiChatSystemPrompt: newConfig.aiChatSystemPrompt || '你是一个有用的助手',
+            // Embedding Service
+            aiEmbeddingApiUrl: newConfig.aiEmbeddingApiUrl || '',
+            aiEmbeddingApiKey: newConfig.aiEmbeddingApiKey || '',
+            aiEmbeddingModel: newConfig.aiEmbeddingModel || 'text-embedding-3-small',
+            aiEmbeddingProxy: newConfig.aiEmbeddingProxy || ''
         }));
 
         setFullConfig(prev => ({ ...prev, ...newConfig }));
@@ -539,6 +581,164 @@ const Settings = () => {
                             className="sr-only peer"
                         />
                         <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </div>
+                </div>
+            </div>
+
+            {/* === 对话服务配置 === */}
+            <div className="space-y-4 pt-6 border-t border-white/10">
+                <div className="flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-blue-400" />
+                    <h3 className="text-lg font-semibold text-white">对话服务配置</h3>
+                </div>
+
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <p className="text-sm text-white/70">
+                        配置AI对话API。留空则使用通用AI配置 (aiApiUrl/aiApiKey)。
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            API端点
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiChatApiUrl}
+                            onChange={(e) => handleAiChange('aiChatApiUrl', e.target.value)}
+                            placeholder="https://api.openai.com/v1/chat/completions"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">对话服务的API地址</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            API密钥
+                        </label>
+                        <input
+                            type="password"
+                            value={aiConfig.aiChatApiKey}
+                            onChange={(e) => handleAiChange('aiChatApiKey', e.target.value)}
+                            placeholder="sk-..."
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">对话服务的密钥</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            模型
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiChatModel}
+                            onChange={(e) => handleAiChange('aiChatModel', e.target.value)}
+                            placeholder="gpt-3.5-turbo"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">使用的对话模型名称</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            代理地址
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiChatProxy}
+                            onChange={(e) => handleAiChange('aiChatProxy', e.target.value)}
+                            placeholder="http://proxy.example.com:8080"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">HTTP代理（可选）</p>
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            系统提示词
+                        </label>
+                        <textarea
+                            rows={4}
+                            value={aiConfig.aiChatSystemPrompt}
+                            onChange={(e) => handleAiChange('aiChatSystemPrompt', e.target.value)}
+                            placeholder="你是一个有用的助手"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none resize-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">定义AI的角色和行为</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* === 向量化服务配置 === */}
+            <div className="space-y-4 pt-6 border-t border-white/10">
+                <div className="flex items-center gap-2">
+                    <Cpu className="w-5 h-5 text-purple-400" />
+                    <h3 className="text-lg font-semibold text-white">向量化服务配置</h3>
+                </div>
+
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
+                    <p className="text-sm text-white/70">
+                        配置文本向量化API（用于相似度搜索）。留空则使用对话服务配置。
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            API端点
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiEmbeddingApiUrl}
+                            onChange={(e) => handleAiChange('aiEmbeddingApiUrl', e.target.value)}
+                            placeholder="https://api.openai.com/v1/embeddings"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">向量化服务的API地址</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            API密钥
+                        </label>
+                        <input
+                            type="password"
+                            value={aiConfig.aiEmbeddingApiKey}
+                            onChange={(e) => handleAiChange('aiEmbeddingApiKey', e.target.value)}
+                            placeholder="sk-..."
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">向量化服务的密钥</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            模型
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiEmbeddingModel}
+                            onChange={(e) => handleAiChange('aiEmbeddingModel', e.target.value)}
+                            placeholder="text-embedding-3-small"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">使用的向量化模型名称</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            代理地址
+                        </label>
+                        <input
+                            type="text"
+                            value={aiConfig.aiEmbeddingProxy}
+                            onChange={(e) => handleAiChange('aiEmbeddingProxy', e.target.value)}
+                            placeholder="http://proxy.example.com:8080"
+                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">HTTP代理（可选）</p>
                     </div>
                 </div>
             </div>

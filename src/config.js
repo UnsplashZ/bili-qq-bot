@@ -92,13 +92,20 @@ const META = {
     wsUrl: { env: 'WS_URL', def: 'ws://localhost:3001', type: 'string' },
     wsToken: { env: 'WS_TOKEN', def: '', type: 'string' },
 
-    // AI LLM Configuration
+    // AI LLM Configuration (General)
     aiApiUrl: { env: 'AI_API_URL', def: 'https://api.openai.com/v1/chat/completions', type: 'string' },
     aiApiKey: { env: 'AI_API_KEY', def: '', type: 'string' },
     aiModel: { env: 'AI_MODEL', def: 'gpt-3.5-turbo', type: 'string' },
     aiSystemPrompt: { env: 'AI_SYSTEM_PROMPT', def: '你是一个有用的助手。', type: 'string' },
     aiProbability: { env: 'AI_PROBABILITY', def: 0.1, type: 'float' },
     aiContextLimit: { env: null, def: 10, type: 'int' },
+
+    // AI Chat Service Configuration (priority over general AI config)
+    aiChatApiUrl: { env: 'AI_CHAT_API_URL', def: null, type: 'string' },
+    aiChatApiKey: { env: 'AI_CHAT_API_KEY', def: null, type: 'string' },
+    aiChatModel: { env: 'AI_CHAT_MODEL', def: 'gpt-3.5-turbo', type: 'string' },
+    aiChatProxy: { env: 'AI_CHAT_PROXY', def: null, type: 'string' },
+    aiChatSystemPrompt: { env: 'AI_CHAT_SYSTEM_PROMPT', def: '你是一个有用的助手', type: 'string' },
 
     // AI Embedding Configuration
     aiEmbeddingApiUrl: {
@@ -132,32 +139,7 @@ const META = {
         }
     },
     aiEmbeddingModel: { env: 'AI_EMBEDDING_MODEL', def: 'text-embedding-3-small', type: 'string' },
-
-    // AI Proxy Configuration
-    aiChatProxy: {
-        env: 'AI_CHAT_PROXY',
-        def: '',
-        type: 'string',
-        // Special handling: fallback to AI_PROXY
-        get: function() {
-            if ('aiChatProxy' in _overrides) return _overrides.aiChatProxy;
-            const envVal = process.env.AI_CHAT_PROXY;
-            if (envVal) return envVal;
-            return process.env.AI_PROXY || '';
-        }
-    },
-    aiEmbeddingProxy: {
-        env: 'AI_EMBEDDING_PROXY',
-        def: '',
-        type: 'string',
-        // Special handling: fallback to AI_PROXY
-        get: function() {
-            if ('aiEmbeddingProxy' in _overrides) return _overrides.aiEmbeddingProxy;
-            const envVal = process.env.AI_EMBEDDING_PROXY;
-            if (envVal) return envVal;
-            return process.env.AI_PROXY || '';
-        }
-    },
+    aiEmbeddingProxy: { env: 'AI_EMBEDDING_PROXY', def: null, type: 'string' },
 
     // AI Memory Configuration
     aiHistoryMaxSize: { env: null, def: 200 * 1024 * 1024, type: 'int' },
