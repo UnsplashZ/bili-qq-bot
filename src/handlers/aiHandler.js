@@ -33,8 +33,13 @@ class AiHandler {
 
     async getReply(message, userId, groupId) {
         try {
-            if (!config.aiApiKey) {
-                logger.warn('[AiHandler] AI_API_KEY is not set. Skipping AI reply.');
+            const apiKey = config.aiChatApiKey || config.aiApiKey;
+            const apiUrl = config.aiChatApiUrl || config.aiApiUrl;
+            const model = config.aiChatModel || config.aiModel;
+            const systemPromptBase = config.aiChatSystemPrompt || config.aiSystemPrompt || '';
+
+            if (!apiKey) {
+                logger.warn('[AiHandler] AI API Key is not set (checked aiChatApiKey and aiApiKey). Skipping AI reply.');
                 return null;
             }
 
@@ -101,7 +106,7 @@ class AiHandler {
             }
 
             // RAG: Retrieve relevant long-term memories
-            let systemPrompt = config.aiSystemPrompt;
+            let systemPrompt = systemPromptBase;
             
             // Inject Core System Rules (Identity, Expression, Fact, Format)
             const CORE_INSTRUCTIONS = `
@@ -145,7 +150,7 @@ class AiHandler {
 
             while (loopCount < MAX_LOOPS) {
                 const requestPayload = {
-                    model: config.aiModel,
+                    model,
                     messages: currentMessages,
                     temperature
                 };
@@ -153,9 +158,9 @@ class AiHandler {
                     requestPayload.tools = tools;
                 }
 
-                const response = await axios.post(config.aiApiUrl, requestPayload, {
+                const response = await axios.post(apiUrl, requestPayload, {
                     headers: {
-                        'Authorization': `Bearer ${config.aiApiKey}`,
+                        'Authorization': `Bearer ${apiKey}`,
                         'Content-Type': 'application/json'
                     },
                     proxy: proxyConfig,

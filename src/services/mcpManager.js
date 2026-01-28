@@ -12,9 +12,13 @@ class McpManager {
         this.toolsMap = new Map(); // toolName -> { serverName, toolName }
         this.configPath = path.join(process.cwd(), 'config', 'mcp_servers.json');
         this._lastWorkingConfig = null;  // Last successfully loaded config for rollback
+        this._startupStartedAt = null;
+        const delayValue = parseInt(process.env.MCP_CALL_DELAY_MS || '10000', 10);
+        this._startupDelayMs = Number.isFinite(delayValue) ? Math.max(delayValue, 0) : 0;
     }
 
     async init() {
+        this._startupStartedAt = Date.now();
         if (!fs.existsSync(this.configPath)) {
             logger.info('[McpManager] No config file found, skipping initialization.');
             return;
@@ -169,6 +173,13 @@ class McpManager {
         }
 
         try {
+            if (this._startupStartedAt && this._startupDelayMs > 0) {
+                const elapsed = Date.now() - this._startupStartedAt;
+                const remaining = this._startupDelayMs - elapsed;
+                if (remaining > 0) {
+                    await new Promise(resolve => setTimeout(resolve, remaining));
+                }
+            }
             const result = await client.callTool({
                 name: toolInfo.originalName,
                 arguments: args
