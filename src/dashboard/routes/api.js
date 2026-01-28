@@ -136,16 +136,33 @@ router.get('/groups', async (req, res) => {
             allGroupIds.add(groupId);
         });
 
-        // 3. Build response data
+        // 3. Add groups that are enabled (but might not have config or be in bot list)
+        if (sysConfig.enabledGroups) {
+            sysConfig.enabledGroups.forEach(groupId => {
+                allGroupIds.add(groupId);
+            });
+        }
+
+        // 4. Build response data
         const groupsData = Array.from(allGroupIds).map(groupId => {
-            const groupInfo = bot?.groupList?.get(groupId);
-            const groupConfig = groupConfigs[groupId] || {};
-            const isInGroup = groupConfig.isInGroup !== false;
+            const groupIdStr = String(groupId);
+            const groupIdNum = Number(groupIdStr);
+            const groupInfo = bot?.groupList?.get(groupId) || bot?.groupList?.get(groupIdNum);
+            const groupConfig = groupConfigs[groupIdStr] || {};
+            
+            // Determine if bot is in group
+            let isInGroup = true;
+            if (bot && bot.groupList) {
+                isInGroup = bot.groupList.has(groupId) || bot.groupList.has(groupIdNum);
+            } else {
+                // Fallback if bot status unknown
+                isInGroup = groupConfig.isInGroup !== false;
+            }
 
             return {
-                id: groupId,
-                name: groupInfo?.group_name || `群组 ${groupId}`,
-                isEnabled: enabledGroups.has(groupId),
+                id: groupIdStr,
+                name: groupInfo?.group_name || `群组 ${groupIdStr}`,
+                isEnabled: enabledGroups.has(groupIdStr),
                 isInGroup: isInGroup,
                 config: groupConfig
             };
@@ -162,9 +179,11 @@ router.get('/groups', async (req, res) => {
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
         const groupId = req.params.id;
+        const groupIdStr = String(groupId);
+        const groupIdNum = Number(groupIdStr);
 
         // 验证群组是否存在
-        if (!global.bot || !global.bot.groupList || !global.bot.groupList.has(groupId)) {
+        if (!global.bot || !global.bot.groupList || (!global.bot.groupList.has(groupIdStr) && !global.bot.groupList.has(groupIdNum))) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
@@ -172,11 +191,11 @@ router.post('/groups/:id/toggle', async (req, res) => {
             sysConfig.enabledGroups = [];
         }
 
-        const index = sysConfig.enabledGroups.indexOf(groupId);
+        const index = sysConfig.enabledGroups.indexOf(groupIdStr);
         let isEnabled;
 
         if (index === -1) {
-            sysConfig.enabledGroups.push(groupId);
+            sysConfig.enabledGroups.push(groupIdStr);
             isEnabled = true;
         } else {
             sysConfig.enabledGroups.splice(index, 1);
@@ -194,10 +213,12 @@ router.post('/groups/:id/toggle', async (req, res) => {
 router.post('/groups/:id/config', async (req, res) => {
     try {
         const groupId = req.params.id;
+        const groupIdStr = String(groupId);
+        const groupIdNum = Number(groupIdStr);
         const updates = req.body;
 
         // 验证群组是否存在
-        if (!global.bot || !global.bot.groupList || !global.bot.groupList.has(groupId)) {
+        if (!global.bot || !global.bot.groupList || (!global.bot.groupList.has(groupIdStr) && !global.bot.groupList.has(groupIdNum))) {
             return res.status(404).json({ error: 'Group not found' });
         }
 
@@ -239,28 +260,28 @@ router.post('/groups/:id/config', async (req, res) => {
         if (updates.hasOwnProperty('aiProbability') && updates.aiProbability === null) {
             delete cleanedUpdates.aiProbability;
             // 从现有配置中删除
-            if (sysConfig.groupConfigs[groupId]) {
-                delete sysConfig.groupConfigs[groupId].aiProbability;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiProbability;
             }
         }
         if (updates.hasOwnProperty('aiContextLimit') && updates.aiContextLimit === null) {
             delete cleanedUpdates.aiContextLimit;
             // 从现有配置中删除
-            if (sysConfig.groupConfigs[groupId]) {
-                delete sysConfig.groupConfigs[groupId].aiContextLimit;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiContextLimit;
             }
         }
         if (updates.hasOwnProperty('aiTemperature') && updates.aiTemperature === null) {
             delete cleanedUpdates.aiTemperature;
             // 从现有配置中删除
-            if (sysConfig.groupConfigs[groupId]) {
-                delete sysConfig.groupConfigs[groupId].aiTemperature;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiTemperature;
             }
         }
 
         // 合并更新（已清理null值）
-        sysConfig.groupConfigs[groupId] = {
-            ...(sysConfig.groupConfigs[groupId] || {}),
+        sysConfig.groupConfigs[groupIdStr] = {
+            ...(sysConfig.groupConfigs[groupIdStr] || {}),
             ...cleanedUpdates
         };
 
@@ -268,7 +289,7 @@ router.post('/groups/:id/config', async (req, res) => {
 
         res.json({
             message: `Group ${groupId} configuration updated`,
-            config: sysConfig.groupConfigs[groupId]
+            config: sysConfig.groupConfigs[groupIdStr]
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update group configuration' });
@@ -279,28 +300,44 @@ router.post('/groups/:id/config', async (req, res) => {
 router.delete('/groups/:id', async (req, res) => {
     try {
         const groupId = req.params.id;
-        const groupConfig = sysConfig.groupConfigs?.[groupId];
+        const groupIdStr = String(groupId);
+        const groupIdNum = Number(groupIdStr);
+        const groupConfig = sysConfig.groupConfigs?.[groupIdStr];
 
-        // Only allow deleting configs for left groups
-        if (!groupConfig) {
-            return res.status(404).json({ error: 'Group config not found' });
+        // Check if bot is still in the group
+        const bot = global.bot;
+        let isInBotGroup = true;
+        if (bot && bot.groupList) {
+            isInBotGroup = bot.groupList.has(groupIdStr) || bot.groupList.has(groupIdNum);
+        } else if (groupConfig) {
+            isInBotGroup = groupConfig.isInGroup !== false;
         }
 
-        if (groupConfig.isInGroup !== false) {
+        if (isInBotGroup) {
             return res.status(400).json({
                 error: 'Can only delete configs for groups that bot has left'
             });
         }
 
-        // 1. Delete group config
-        delete sysConfig.groupConfigs[groupId];
+        let modified = false;
+
+        // 1. Delete group config if exists
+        if (groupConfig) {
+            delete sysConfig.groupConfigs[groupIdStr];
+            modified = true;
+        }
 
         // 2. Remove from enabled groups list
         if (sysConfig.enabledGroups) {
-            const index = sysConfig.enabledGroups.indexOf(groupId);
+            const index = sysConfig.enabledGroups.indexOf(groupIdStr);
             if (index !== -1) {
                 sysConfig.enabledGroups.splice(index, 1);
+                modified = true;
             }
+        }
+
+        if (!modified) {
+            return res.status(404).json({ error: 'Group config not found' });
         }
 
         // 3. Remove group from all subscriptions

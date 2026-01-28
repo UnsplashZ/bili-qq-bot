@@ -278,6 +278,10 @@ async def get_video_info(bvid, group_id=None):
         }
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        if str(e) == "'data'":
+             return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
         return {"status": "error", "message": str(e)}
 
 async def get_bangumi_info(season_id, group_id=None):
@@ -1321,6 +1325,10 @@ async def get_my_info(group_id=None):
         self_info = await user.get_self_info(credential=cred)
         return {"status": "success", "data": self_info}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        if str(e) == "'data'":
+             return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
         return {"status": "error", "message": str(e)}
 
 def _unwrap_bili_response(response, max_depth=5):
