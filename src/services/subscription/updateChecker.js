@@ -644,19 +644,39 @@ class UpdateChecker {
     async checkUserLive(sub, targetGroups = null) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
+        // 使用第一个群组的cookie获取用户信息
+        const groupId = groupsToNotify[0];
         try {
-            const res = await biliApi.getUserInfo(sub.uid); // getUserInfo contains live_room
+            const res = await biliApi.getUserInfo(sub.uid, groupId); // getUserInfo contains live_room
             if (res.status !== 'success') return;
 
             const liveRoom = res.data.live_room || {};
-            const liveStatus = liveRoom.liveStatus; // 1: live, 0: offline
-            const roomId = liveRoom.roomid || liveRoom.room_id;
-            if (!roomId) {
-                logger.warn(`[UpdateChecker] Missing room ID for user ${sub.uid} (${sub.name}), skipping live check`);
+
+            let liveStatus = liveRoom.liveStatus; // 1: live, 0: offline
+            let roomId = liveRoom.roomid || liveRoom.room_id;
+
+            // roomId 缓存逻辑：如果API返回了roomId，保存到subscription；如果没有，使用缓存的
+            if (roomId) {
+                // API返回了roomId，缓存它
+                if (sub.roomId !== roomId) {
+                    logger.info(`[UpdateChecker] Caching roomId ${roomId} for user ${sub.uid} (${sub.name})`);
+                    await subscriptionManager.updateUserSub(sub.uid, { roomId });
+                    sub.roomId = roomId; // 同步更新内存中的值
+                }
+            } else if (sub.roomId) {
+                // API没有返回roomId，但subscription中有缓存
+                roomId = sub.roomId;
+                logger.debug(`[UpdateChecker] API returned empty live_room for user ${sub.uid} (${sub.name}), using cached roomId ${roomId}`);
+                // 注意：此时liveStatus为undefined，不会触发开播通知，这是期望的行为
+                // 下次API正常时会恢复检查
+            } else {
+                // API没有返回，缓存中也没有，跳过检查
+                logger.warn(`[UpdateChecker] No room ID available for user ${sub.uid} (${sub.name}), skipping live check. User may not have a live room.`);
                 return;
             }
-            const roomUrl = liveRoom.url;
-            const title = liveRoom.title;
+
+            const roomUrl = liveRoom.url || `https://live.bilibili.com/${roomId}`;
+            const title = liveRoom.title || '直播间';
             const cover = liveRoom.cover;
 
             if (liveStatus === 1 && sub.lastLiveStatus === 0) {

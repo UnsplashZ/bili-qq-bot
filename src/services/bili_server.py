@@ -34,12 +34,15 @@ bilibili_api.HEADERS.update({
     'Sec-Ch-Ua-Platform': '"Windows"'
 })
 
-# 2. 启用 bili_ticket 以减少风控触发
+# 2. bili_ticket 配置
+# 注意: 启用 bili_ticket 可能减少风控触发，但当前版本的 bilibili-api 库
+# 在获取 bili_ticket 时可能失败（KeyError: 'data'），导致每次启动报错
+# 因此暂时禁用。如果遇到 412 错误，可以尝试重新启用并调试
 try:
-    bilibili_api.request_settings.set_enable_bili_ticket(True)
-    logger.info("已启用 bili_ticket")
+    bilibili_api.request_settings.set_enable_bili_ticket(False)  # 暂时禁用
+    logger.info("bili_ticket 已禁用（避免启动时获取ticket失败）")
 except Exception as e:
-    logger.warning(f"无法启用 bili_ticket: {e}")
+    logger.warning(f"无法配置 bili_ticket: {e}")
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'data/cookies.json'
@@ -278,8 +281,11 @@ async def get_video_info(bvid, group_id=None):
         }
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        # 只在非预期错误时打印traceback，已知的cookie无效错误不需要打印
+        if str(e) != "'data'":
+            import traceback
+            traceback.print_exc()
+
         if str(e) == "'data'":
              return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
         return {"status": "error", "message": str(e)}
@@ -691,11 +697,15 @@ async def get_user_dynamic(uid, group_id=None):
                     # 兜底：使用正则表达式修复话题格式（与 get_dynamic_detail 保持一致）
                     # Keep this as a fallback for cases where topics are embedded in text but not in topic field
                     if not topic_added:
-                        desc_text = module_dynamic.get('desc', {}).get('text', '')
+                        # 使用 `or {}` 处理 desc 为 None 的情况
+                        desc_text = (module_dynamic.get('desc') or {}).get('text', '')
                         if desc_text and '#' in desc_text:
                             # Fix topic hashtag formatting (B站API返回的话题可能格式不完整)
                             fixed_text = re.sub(r'#([^#\s]+?)#', r'#\1# ', desc_text)
                             if fixed_text != desc_text:
+                                # 确保 desc 存在且不为 None
+                                if not module_dynamic.get('desc'):
+                                    module_dynamic['desc'] = {'text': '', 'rich_text_nodes': []}
                                 module_dynamic['desc']['text'] = fixed_text
                                 logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting")
 
@@ -1140,6 +1150,7 @@ async def get_user_info(uid, group_id=None):
             "likes": likes,
             "archive_view": archive_view,
             "dynamic": latest_dynamic,
+            "live_room": user_info.get('live_room', {}),  # 直播间信息
             "focus": {
                 "avatar": await get_image_focus_color(user_info.get('face', ''))
             }
@@ -1325,8 +1336,11 @@ async def get_my_info(group_id=None):
         self_info = await user.get_self_info(credential=cred)
         return {"status": "success", "data": self_info}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        # 只在非预期错误时打印traceback，已知的cookie无效错误不需要打印
+        if str(e) != "'data'":
+            import traceback
+            traceback.print_exc()
+
         if str(e) == "'data'":
              return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
         return {"status": "error", "message": str(e)}
