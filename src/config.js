@@ -423,7 +423,12 @@ const config = {
                 enableCookieSync: false,
                 cookieSyncGroupNames: [],
                 blacklistedQQs: [],
-                admins: []  // 群组管理员列表
+                admins: [],  // 群组管理员列表
+                nightMode: {
+                    mode: "off",
+                    startTime: "21:00",
+                    endTime: "06:00"
+                }
             };
 
             // 确保新群默认开启（自动加入白名单）

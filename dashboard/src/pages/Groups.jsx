@@ -33,7 +33,13 @@ function Groups() {
     // AI配置覆盖（null表示使用全局默认）
     aiProbability: null,
     aiContextLimit: null,
-    aiTemperature: null
+    aiTemperature: null,
+    // 深色模式配置
+    nightMode: {
+      mode: "off",
+      startTime: "21:00",
+      endTime: "06:00"
+    }
   });
 
   // Subscriptions State
@@ -204,7 +210,13 @@ function Groups() {
           // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
           aiProbability: config.aiProbability ?? null,
           aiContextLimit: config.aiContextLimit ?? null,
-          aiTemperature: config.aiTemperature ?? null
+          aiTemperature: config.aiTemperature ?? null,
+          // 加载深色模式配置
+          nightMode: config.nightMode || {
+            mode: "off",
+            startTime: "21:00",
+            endTime: "06:00"
+          }
         });
 
         // Reset sub state
@@ -271,6 +283,27 @@ function Groups() {
 
   const handleSave = async () => {
     if (!selectedGroupId) return;
+
+    // 深色模式校验
+    if (formData.nightMode.mode === 'timed') {
+      const timeRegex = /^\d{1,2}:\d{2}$/;
+
+      if (!timeRegex.test(formData.nightMode.startTime) || !timeRegex.test(formData.nightMode.endTime)) {
+        show('时间格式不正确，请使用 HH:mm 格式', 'error');
+        return;
+      }
+
+      // 校验时间范围
+      const [startH, startM] = formData.nightMode.startTime.split(':').map(Number);
+      const [endH, endM] = formData.nightMode.endTime.split(':').map(Number);
+
+      if (startH < 0 || startH > 23 || startM < 0 || startM > 59 ||
+          endH < 0 || endH > 23 || endM < 0 || endM > 59) {
+        show('时间超出有效范围（00:00-23:59）', 'error');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -695,6 +728,86 @@ function Groups() {
                                 className="mt-1 block w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                             />
                         </label>
+
+                        {/* 深色模式配置 */}
+                        <div>
+                            <span className="text-gray-300 text-sm font-medium mb-2 block">深色模式</span>
+
+                            {/* 模式选择按钮 */}
+                            <div className="flex gap-3 mb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, nightMode: {...formData.nightMode, mode: 'off'}})}
+                                    className={clsx(
+                                        'flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                                        formData.nightMode.mode === 'off'
+                                            ? 'bg-blue-500/20 text-blue-400 ring-2 ring-blue-500'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    )}
+                                >
+                                    关闭
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, nightMode: {...formData.nightMode, mode: 'on'}})}
+                                    className={clsx(
+                                        'flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                                        formData.nightMode.mode === 'on'
+                                            ? 'bg-blue-500/20 text-blue-400 ring-2 ring-blue-500'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    )}
+                                >
+                                    开启
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, nightMode: {...formData.nightMode, mode: 'timed'}})}
+                                    className={clsx(
+                                        'flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                                        formData.nightMode.mode === 'timed'
+                                            ? 'bg-blue-500/20 text-blue-400 ring-2 ring-blue-500'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    )}
+                                >
+                                    定时
+                                </button>
+                            </div>
+
+                            {/* 时间输入框 - 仅在定时模式显示 */}
+                            {formData.nightMode.mode === 'timed' && (
+                                <div className="space-y-2 p-3 bg-white/5 rounded-lg border border-white/10">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="block">
+                                            <span className="text-xs text-gray-400 mb-1 block">开始时间</span>
+                                            <input
+                                                type="time"
+                                                value={formData.nightMode.startTime}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    nightMode: {...formData.nightMode, startTime: e.target.value}
+                                                })}
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                            />
+                                        </label>
+                                        <label className="block">
+                                            <span className="text-xs text-gray-400 mb-1 block">结束时间</span>
+                                            <input
+                                                type="time"
+                                                value={formData.nightMode.endTime}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    nightMode: {...formData.nightMode, endTime: e.target.value}
+                                                })}
+                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                            />
+                                        </label>
+                                    </div>
+                                    <p className="text-xs text-gray-500">
+                                        支持跨天时段（例如 21:00–06:00）
+                                    </p>
+                                </div>
+                            )}
+                        </div>
 
                         <div>
                             <span className="text-gray-300 text-sm font-medium mb-2 block">预览卡片标签开关</span>

@@ -267,6 +267,38 @@ router.post('/groups/:id/config', async (req, res) => {
             updates.aiTemperature = temp;
         }
 
+        // 验证 nightMode 配置（如果提供）
+        if (updates.hasOwnProperty('nightMode')) {
+            const nightMode = updates.nightMode;
+
+            if (!nightMode || typeof nightMode !== 'object') {
+                return res.status(400).json({ error: 'nightMode must be an object' });
+            }
+
+            // 校验 mode
+            if (!['on', 'off', 'timed'].includes(nightMode.mode)) {
+                return res.status(400).json({ error: 'nightMode.mode must be "on", "off", or "timed"' });
+            }
+
+            // 当 mode 为 timed 时，校验时间格式
+            if (nightMode.mode === 'timed') {
+                const timeRegex = /^\d{1,2}:\d{2}$/;
+
+                if (!timeRegex.test(nightMode.startTime) || !timeRegex.test(nightMode.endTime)) {
+                    return res.status(400).json({ error: 'Time format must be HH:mm' });
+                }
+
+                // 解析并校验时间范围
+                const [startH, startM] = nightMode.startTime.split(':').map(Number);
+                const [endH, endM] = nightMode.endTime.split(':').map(Number);
+
+                if (startH < 0 || startH > 23 || startM < 0 || startM > 59 ||
+                    endH < 0 || endH > 23 || endM < 0 || endM > 59) {
+                    return res.status(400).json({ error: 'Time values out of range (00:00-23:59)' });
+                }
+            }
+        }
+
         if (!sysConfig.groupConfigs) {
             sysConfig.groupConfigs = {};
         }
