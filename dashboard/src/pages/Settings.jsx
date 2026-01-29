@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
@@ -25,9 +25,6 @@ const Settings = () => {
   // Modal States
   const [isRestartModalOpen, setIsRestartModalOpen] = useState(false);
   const [mcpToRemove, setMcpToRemove] = useState(null); // Index of server to remove
-
-  // Full Config State (for safe updates)
-  const [fullConfig, setFullConfig] = useState({});
 
   // General Settings State
   const [generalConfig, setGeneralConfig] = useState({
@@ -112,9 +109,6 @@ const Settings = () => {
           api.get('/api/blacklist/global'),
           api.get('/api/bili/global-status')
         ]);
-
-        // Store full config
-        setFullConfig(configRes.data);
 
         // Setup General Config
         setGeneralConfig(extractGeneralConfig(configRes.data));
@@ -212,7 +206,6 @@ const Settings = () => {
       await api.post('/api/config', generalConfig);
       // Re-fetch to confirm persisted state
       const { data: freshConfig } = await api.get('/api/config');
-      setFullConfig(freshConfig);
       setGeneralConfig(extractGeneralConfig(freshConfig));
       show("常规设置已保存！", "success");
     } catch (error) {
@@ -267,8 +260,6 @@ const Settings = () => {
     setSavingAi(true);
     try {
       await api.post('/api/ai', aiConfig);
-      // Update fullConfig with new AI settings locally to keep it in sync
-      setFullConfig(prev => ({ ...prev, ...aiConfig }));
       show("AI 设置已保存！", "success");
     } catch (error) {
       console.error("Failed to save AI settings:", error);
@@ -321,7 +312,6 @@ const Settings = () => {
             aiEmbeddingProxy: newConfig.aiEmbeddingProxy || ''
         }));
 
-        setFullConfig(prev => ({ ...prev, ...newConfig }));
         show("AI 设置已重置为默认值", "success");
     } catch (error) {
         console.error("Failed to reset AI settings:", error);

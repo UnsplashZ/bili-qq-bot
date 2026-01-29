@@ -382,6 +382,16 @@ const config = {
                 admins: []  // 群组管理员列表
             };
 
+            // 确保新群默认开启（自动加入白名单）
+            const enabledGroups = this.enabledGroups;
+            if (Array.isArray(enabledGroups) && enabledGroups.length > 0) {
+                const strId = groupId.toString();
+                if (!enabledGroups.includes(strId)) {
+                    enabledGroups.push(strId);
+                    logger.info(`[Config] 新群 ${groupId} 已自动加入功能白名单`);
+                }
+            }
+
             // Trigger save
             this.save();
 
