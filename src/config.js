@@ -103,11 +103,55 @@ const META = {
     aiTemperature: { env: 'AI_TEMPERATURE', def: 1.0, type: 'float' },
 
     // AI Chat Service Configuration (priority over general AI config)
-    aiChatApiUrl: { env: 'AI_CHAT_API_URL', def: null, type: 'string' },
-    aiChatApiKey: { env: 'AI_CHAT_API_KEY', def: null, type: 'string' },
-    aiChatModel: { env: 'AI_CHAT_MODEL', def: 'gpt-3.5-turbo', type: 'string' },
+    aiChatApiUrl: {
+        env: 'AI_CHAT_API_URL',
+        def: null,
+        type: 'string',
+        get: function() {
+            if ('aiChatApiUrl' in _overrides) return _overrides.aiChatApiUrl;
+            const envVal = process.env.AI_CHAT_API_URL;
+            if (envVal) return envVal;
+            if ('aiApiUrl' in _overrides) return _overrides.aiApiUrl;
+            return process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions';
+        }
+    },
+    aiChatApiKey: {
+        env: 'AI_CHAT_API_KEY',
+        def: null,
+        type: 'string',
+        get: function() {
+            if ('aiChatApiKey' in _overrides) return _overrides.aiChatApiKey;
+            const envVal = process.env.AI_CHAT_API_KEY;
+            if (envVal) return envVal;
+            if ('aiApiKey' in _overrides) return _overrides.aiApiKey;
+            return process.env.AI_API_KEY || '';
+        }
+    },
+    aiChatModel: {
+        env: 'AI_CHAT_MODEL',
+        def: 'gpt-3.5-turbo',
+        type: 'string',
+        get: function() {
+            if ('aiChatModel' in _overrides) return _overrides.aiChatModel;
+            const envVal = process.env.AI_CHAT_MODEL;
+            if (envVal) return envVal;
+            if ('aiModel' in _overrides) return _overrides.aiModel;
+            return process.env.AI_MODEL || this.def;
+        }
+    },
     aiChatProxy: { env: 'AI_CHAT_PROXY', def: null, type: 'string' },
-    aiChatSystemPrompt: { env: 'AI_CHAT_SYSTEM_PROMPT', def: '你是一个有用的助手', type: 'string' },
+    aiChatSystemPrompt: {
+        env: 'AI_CHAT_SYSTEM_PROMPT',
+        def: '你是一个有用的助手',
+        type: 'string',
+        get: function() {
+            if ('aiChatSystemPrompt' in _overrides) return _overrides.aiChatSystemPrompt;
+            const envVal = process.env.AI_CHAT_SYSTEM_PROMPT;
+            if (envVal) return envVal;
+            if ('aiSystemPrompt' in _overrides) return _overrides.aiSystemPrompt;
+            return process.env.AI_SYSTEM_PROMPT || this.def;
+        }
+    },
 
     // AI Embedding Configuration
     aiEmbeddingApiUrl: {
