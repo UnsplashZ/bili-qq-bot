@@ -371,29 +371,44 @@ class UpdateChecker {
                 const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                 if (targetGroups.length > 0) {
-                    const roomUrl = item.link;
+                    const roomId = item.room_id || item.roomid;
+                    const roomUrl = item.link || (roomId ? `https://live.bilibili.com/${roomId}` : '');
                     const title = item.title;
                     const cover = item.cover;
                     const name = item.uname;
 
-                    // Construct live data for renderer
-                    const liveData = {
-                        id: item.room_id || uid, // for dedup
-                        data: {
-                            room_info: {
-                                room_id: item.room_id,
-                                title: title,
-                                cover: cover,
-                                live_status: 1
-                            },
-                            anchor_info: {
-                                base_info: {
-                                    uname: name,
-                                    face: item.face
+                    let liveData = null;
+                    if (roomId) {
+                        const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
+                        if (liveInfo.status === 'success' && liveInfo.data) {
+                            liveData = liveInfo;
+                            liveData.id = roomId;
+                        }
+                    }
+
+                    if (!liveData) {
+                        liveData = {
+                            id: roomId || uid,
+                            data: {
+                                room_info: {
+                                    room_id: roomId,
+                                    title: title,
+                                    cover: cover,
+                                    live_status: 1
+                                },
+                                anchor_info: {
+                                    base_info: {
+                                        uname: name,
+                                        face: item.face
+                                    }
+                                },
+                                watched_show: {
+                                    text_large: '',
+                                    num: 0
                                 }
                             }
-                        }
-                    };
+                        };
+                    }
 
                     await this.notifyGroupsWithImage(targetGroups, liveData, 'live', roomUrl, `${name} 开播了！`);
                 }
@@ -718,29 +733,40 @@ class UpdateChecker {
 
                 // Let's try generatePreviewCard for live
                 try {
-                     // Build data structure matching what the live renderer expects
-                     const liveData = {
-                         id: roomId, // Use room_id for deduplication and imageGenerator
-                         data: {
-                             room_info: {
-                                 room_id: roomId, // Pass actual room_id
-                                 title: title,
-                                 cover: cover,
-                                 live_status: 1 // 1 = live
-                             },
-                             anchor_info: {
-                                 base_info: {
-                                     uname: sub.name,
-                                     face: res.data.face
-                                 }
-                             },
-                             watched_show: {
-                                 text_large: '',
-                                 num: 0
-                             }
-                         }
-                     };
-                     await this.notifyGroupsWithImage(groupsToNotify, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
+                    let liveData = null;
+                    if (roomId) {
+                        const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
+                        if (liveInfo.status === 'success' && liveInfo.data) {
+                            liveData = liveInfo;
+                            liveData.id = roomId;
+                        }
+                    }
+
+                    if (!liveData) {
+                        liveData = {
+                            id: roomId,
+                            data: {
+                                room_info: {
+                                    room_id: roomId,
+                                    title: title,
+                                    cover: cover,
+                                    live_status: 1
+                                },
+                                anchor_info: {
+                                    base_info: {
+                                        uname: sub.name,
+                                        face: res.data.face
+                                    }
+                                },
+                                watched_show: {
+                                    text_large: '',
+                                    num: 0
+                                }
+                            }
+                        };
+                    }
+
+                    await this.notifyGroupsWithImage(groupsToNotify, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
                     this.notifyGroups(groupsToNotify, msg, `live_${roomId}`);
                 }
@@ -775,8 +801,12 @@ class UpdateChecker {
                 const msg = `番剧 ${sub.title} 更新了！\n${newEp.index_show}\nhttps://www.bilibili.com/bangumi/play/ep${newEp.id}`;
 
                 try {
-                    // Generate preview (pass full res object, not res.data)
-                    await this.notifyGroupsWithImage(groupsToNotify, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
+                    const bangumiData = {
+                        ep_id: newEp.id,
+                        season_type: res.data?.season_type,
+                        data: res.data
+                    };
+                    await this.notifyGroupsWithImage(groupsToNotify, bangumiData, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
                 } catch (e) {
                     this.notifyGroups(groupsToNotify, msg, newEp.id);
                 }
@@ -852,8 +882,8 @@ class UpdateChecker {
             const labelConfig = config.getGroupConfig(groupId, 'labelConfig');
             let subtype = type;
             // Attempt to refine subtype from data if possible
-            if (type === 'bangumi' && data && data.season_type) {
-                const st = data.season_type;
+            if (type === 'bangumi') {
+                const st = data?.season_type ?? data?.data?.season_type;
                 if (st === 2) subtype = 'movie';
                 else if (st === 3) subtype = 'doc';
                 else if (st === 4) subtype = 'guocha';

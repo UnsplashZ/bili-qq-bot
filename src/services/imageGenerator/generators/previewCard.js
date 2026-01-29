@@ -23,7 +23,7 @@ function renderTypeBadge(type, data, groupId, currentType) {
         const st = data.data.season_type;
         if (st === 2) subtype = 'movie';
         else if (st === 3) subtype = 'doc';
-        else if (st === 4) subtype = 'guochuang';
+        else if (st === 4) subtype = 'guocha';
         else if (st === 5) subtype = 'tv';
         else if (st === 7) subtype = 'variety';
     }

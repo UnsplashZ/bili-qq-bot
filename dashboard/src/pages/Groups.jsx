@@ -25,6 +25,11 @@ function Groups() {
       live: true,
       article: true,
       bangumi: true,
+      movie: true,
+      tv: true,
+      guocha: true,
+      doc: true,
+      variety: true
     },
     enableCookieSync: false,
     cookieSyncGroupNames: [], // Array of strings
@@ -202,6 +207,11 @@ function Groups() {
             live: labels.live ?? true,
             article: labels.article ?? true,
             bangumi: labels.bangumi ?? true,
+            movie: labels.movie ?? true,
+            tv: labels.tv ?? true,
+            guocha: labels.guocha ?? true,
+            doc: labels.doc ?? true,
+            variety: labels.variety ?? true
           },
           enableCookieSync: config.enableCookieSync ?? false,
           cookieSyncGroupNames: syncGroups,
@@ -823,7 +833,19 @@ function Groups() {
                                             })}
                                             className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900"
                                         />
-                                        <span className="capitalize">{key === 'video' ? '视频' : key === 'live' ? '直播' : key === 'dynamic' ? '动态' : key === 'article' ? '文章' : key === 'bangumi' ? '番剧' : key}</span>
+                                        <span className="capitalize">
+                                            {key === 'video' ? '视频'
+                                                : key === 'live' ? '直播'
+                                                : key === 'dynamic' ? '动态'
+                                                : key === 'article' ? '专栏'
+                                                : key === 'bangumi' ? '番剧'
+                                                : key === 'movie' ? '电影'
+                                                : key === 'tv' ? '电视剧'
+                                                : key === 'guocha' ? '国创'
+                                                : key === 'doc' ? '纪录片'
+                                                : key === 'variety' ? '综艺'
+                                                : key}
+                                        </span>
                                     </label>
                                 ))}
                             </div>

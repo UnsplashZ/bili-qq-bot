@@ -260,7 +260,10 @@ const META = {
     },
     labelConfig: {
         env: null,
-        def: { video: true, bangumi: true, article: true, live: true, dynamic: true, user: true },
+        def: {
+            video: true, bangumi: true, article: true, live: true, dynamic: true, user: true,
+            movie: true, tv: true, guocha: true, doc: true, variety: true
+        },
         type: 'object',
         lazyInit: true
     },
