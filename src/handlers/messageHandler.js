@@ -166,6 +166,8 @@ class MessageHandler {
         let hasProcessedLinks = false;
         for (const link of links) {
             if (!linkHandler.isLinkCached(link.cacheKey)) {
+                // 立即添加到缓存，防止并发请求重复处理
+                linkHandler.addLinkToCache(link.cacheKey);
                 await linkHandler.processSingleLink(link, ws, groupId, userId);
                 hasProcessedLinks = true;
 
