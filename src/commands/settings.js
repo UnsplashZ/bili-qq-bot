@@ -340,9 +340,7 @@ class SettingsCommand {
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                     if (groupId) {
-                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                        config.groupConfigs[groupId].linkCacheTimeout = value;
-                        config.save();
+                        config.setGroupConfig(groupId, 'linkCacheTimeout', value);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群相同链接解析冷却时间已设置为 ${value} 秒。` } }]);
                     } else {
                         // Only Root can set Global
@@ -458,12 +456,8 @@ class SettingsCommand {
                  if (key && (switchState === '开' || switchState === '关')) {
                      const isEnabled = (switchState === '开');
                      if (groupId) {
-                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                        if (!config.groupConfigs[groupId].labelConfig) {
-                             config.groupConfigs[groupId].labelConfig = { ...config.labelConfig };
-                        }
-                        config.groupConfigs[groupId].labelConfig[key] = isEnabled;
-                        config.save();
+                        const currentLabel = config.getGroupConfig(groupId, 'labelConfig') || { ...config.labelConfig };
+                        config.setGroupConfig(groupId, 'labelConfig', { ...currentLabel, [key]: isEnabled });
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 ${category} 标签显示已${switchState}。` } }]);
                      } else {
                         if (!config.labelConfig) config.labelConfig = {};
@@ -486,9 +480,7 @@ class SettingsCommand {
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                      if (groupId) {
-                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                        config.groupConfigs[groupId].aiContextLimit = value;
-                        config.save();
+                        config.setGroupConfig(groupId, 'aiContextLimit', value);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 AI 上下文限制已设置为 ${value} 条。` } }]);
                      } else {
                         config.aiContextLimit = value;
@@ -510,9 +502,7 @@ class SettingsCommand {
                  const value = parseFloat(parts[2]);
                  if (!isNaN(value) && value >= 0 && value <= 1) {
                      if (groupId) {
-                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                        config.groupConfigs[groupId].aiProbability = value;
-                        config.save();
+                        config.setGroupConfig(groupId, 'aiProbability', value);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 AI 随机回复概率已设置为 ${value} (${(value*100).toFixed(0)}%)。` } }]);
                      } else {
                         config.aiProbability = value;
@@ -531,10 +521,8 @@ class SettingsCommand {
                 if (['开', '关', '定时'].includes(mode)) {
                      if (mode === '开') {
                         if (groupId) {
-                            if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                            if (!config.groupConfigs[groupId].nightMode) config.groupConfigs[groupId].nightMode = { ...config.nightMode };
-                            config.groupConfigs[groupId].nightMode.mode = 'on';
-                            config.save();
+                            const existing = config.getGroupConfig(groupId, 'nightMode') || { ...config.nightMode };
+                            config.setGroupConfig(groupId, 'nightMode', { ...existing, mode: 'on' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群深色模式已强制开启。' } }]);
                         } else {
                             config.nightMode.mode = 'on';
@@ -543,10 +531,8 @@ class SettingsCommand {
                         }
                     } else if (mode === '关') {
                         if (groupId) {
-                            if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                            if (!config.groupConfigs[groupId].nightMode) config.groupConfigs[groupId].nightMode = { ...config.nightMode };
-                            config.groupConfigs[groupId].nightMode.mode = 'off';
-                            config.save();
+                            const existing = config.getGroupConfig(groupId, 'nightMode') || { ...config.nightMode };
+                            config.setGroupConfig(groupId, 'nightMode', { ...existing, mode: 'off' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群深色模式已强制关闭。' } }]);
                         } else {
                             config.nightMode.mode = 'off';
@@ -558,12 +544,7 @@ class SettingsCommand {
                         if (timeRange && /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(timeRange)) {
                             const [start, end] = timeRange.split('-');
                             if (groupId) {
-                                if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                                if (!config.groupConfigs[groupId].nightMode) config.groupConfigs[groupId].nightMode = { ...config.nightMode };
-                                config.groupConfigs[groupId].nightMode.mode = 'timed';
-                                config.groupConfigs[groupId].nightMode.startTime = start;
-                                config.groupConfigs[groupId].nightMode.endTime = end;
-                                config.save();
+                                config.setGroupConfig(groupId, 'nightMode', { mode: 'timed', startTime: start, endTime: end });
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群深色模式已设置为定时开启：${start} 至 ${end}。` } }]);
                             } else {
                                 config.nightMode.mode = 'timed';
@@ -592,9 +573,7 @@ class SettingsCommand {
                  if (switchState === '开' || switchState === '关') {
                      const isEnabled = (switchState === '开');
                      if (groupId) {
-                        if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                        config.groupConfigs[groupId].showId = isEnabled;
-                        config.save();
+                        config.setGroupConfig(groupId, 'showId', isEnabled);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 UID 显示已${switchState}。` } }]);
                      } else {
                         config.showId = isEnabled;

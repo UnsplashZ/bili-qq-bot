@@ -336,7 +336,22 @@ else
     echo "ADMIN_QQ=$admin_qq" >> config/.env
 fi
 
-echo -e "${YELLOW}提示: 您可以稍后编辑 config/.env 修改 AI 配置等其他选项。${NC}"
+# --- WebUI 配置 ---
+echo -e "${GREEN}[6.5/8] WebUI 管理面板配置...${NC}"
+read -p "请设置 WebUI 面板端口 (默认: 3000): " webui_port
+webui_port=${webui_port:-3000}
+
+read -p "请设置 WebUI 面板密码 (默认: admin): " dashboard_pwd
+dashboard_pwd=${dashboard_pwd:-admin}
+
+if grep -q "^DASHBOARD_PASSWORD=" config/.env; then
+    sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$dashboard_pwd/" config/.env
+else
+    echo "DASHBOARD_PASSWORD=$dashboard_pwd" >> config/.env
+fi
+
+echo -e "${YELLOW}提示: 部署完成后，可通过 WebUI 面板 (http://<服务器IP>:$webui_port) 管理群组配置、AI 功能、订阅推送等。${NC}"
+echo -e "${YELLOW}      如需配置 AI 功能，请在 WebUI「系统设置」页面中填写 API 地址与密钥，或手动编辑 config/.env。${NC}"
 
 # 7. 配置 docker-compose.yml
 echo -e "${GREEN}[7/8] 准备 Docker Compose...${NC}"
@@ -396,6 +411,12 @@ if [ ! -f "docker-compose.yml" ]; then
      exit 1
 fi
 
+# 更新 WebUI 端口
+if [ "$webui_port" != "3000" ]; then
+    echo "正在更新 docker-compose.yml 端口映射..."
+    sed -i "s/- \"3000:3000\"/- \"$webui_port:3000\"/" docker-compose.yml
+fi
+
 # 8. 启动运行
 echo -e "${GREEN}[8/8] 启动服务...${NC}"
 
@@ -443,6 +464,16 @@ if [ $? -eq 0 ]; then
     echo "---------------------------------------------------"
     echo -e "${GREEN}部署全部完成！${NC}"
     echo "机器人服务已在后台运行。"
+    echo ""
+    echo -e "${GREEN}WebUI 管理面板: http://<服务器IP>:$webui_port${NC}"
+    echo -e "${GREEN}面板密码: $dashboard_pwd${NC}"
+    echo ""
+    echo "在 WebUI 中您可以:"
+    echo "  - 管理群组配置 (启用/禁用、深色模式、标签等)"
+    echo "  - 配置 AI 功能 (API 地址、密钥、模型、系统提示词)"
+    echo "  - 管理订阅推送 (UP 主动态、直播、番剧)"
+    echo "  - 查看实时日志与系统状态"
+    echo ""
     echo -e "${YELLOW}提示: 如需启用 MCP (Model Context Protocol) 扩展能力，请参考 config/mcp_servers.json.example 进行配置。${NC}"
     echo "如需查看机器人日志: docker logs -f bili-qq-bot"
 else

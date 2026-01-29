@@ -65,14 +65,24 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 RUN npm config set registry https://registry.npmmirror.com && npm ci \
     && npm cache clean --force
 
+# 6.5. 预先安装 dashboard 依赖 (利用 Docker 缓存)
+# 创建 dashboard 目录并复制依赖定义文件
+RUN mkdir -p dashboard
+COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
+# 安装依赖 (使用 npm ci 以确保一致性)
+RUN cd dashboard && npm config set registry https://registry.npmmirror.com && npm ci
+
 # 7. 复制项目源代码
 COPY . .
+
+# Build dashboard (依赖已安装，只需构建)
+RUN cd dashboard && npm run build
 
 # 创建必要的目录
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
-# EXPOSE 3000
+EXPOSE 3000
 
 # 启动命令
 CMD ["npm", "start"]

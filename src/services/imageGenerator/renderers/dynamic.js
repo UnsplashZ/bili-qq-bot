@@ -39,7 +39,7 @@ function renderOrigContent(origItemRaw) {
         o_images = o_dynamic.major.opus.pics.map(i => i.url);
     } else if (o_dynamic.major?.archive) {
         o_videoCard = o_dynamic.major.archive;
-        if (!o_text) o_text = o_videoCard.desc;
+        // if (!o_text) o_text = o_videoCard.desc; // Removed fallback
     }
 
     const o_mediaHtml = renderMediaHtml(o_images, o_videoCard, true);
@@ -116,14 +116,20 @@ function renderDynamicContent(data) {
         }
     }
 
+    // 1. Try to get text from desc (user comment)
     if (module_dynamic.desc) {
         text = module_dynamic.desc.text || "";
         richTextNodes = module_dynamic.desc.rich_text_nodes;
-    } else if (module_dynamic.major?.opus) {
-         if (module_dynamic.major.opus.summary) {
-             text = module_dynamic.major.opus.summary.text || "";
-             richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
-         }
+    } 
+    
+    // 2. Fallback to opus summary if text is empty (common in Article shares or raw feed)
+    if (!text && module_dynamic.major?.opus?.summary) {
+         text = module_dynamic.major.opus.summary.text || "";
+         richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
+    }
+
+    // 3. Always try to extract title from Opus if present
+    if (module_dynamic.major?.opus) {
          title = module_dynamic.major.opus.title || "";
     }
 
@@ -140,7 +146,7 @@ function renderDynamicContent(data) {
          images = module_dynamic.major.opus.pics.map(i => i.url);
     } else if (module_dynamic.major?.archive) {
          videoCard = module_dynamic.major.archive;
-         if(!text) text = videoCard.desc;
+         // if(!text) text = videoCard.desc; // Removed fallback
     } else if (liveRcmdInfo) {
          const isLive = liveRcmdInfo.live_status === 1;
          const liveBadge = isLive

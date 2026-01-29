@@ -194,7 +194,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'video', groupId);
                             url = `https://www.bilibili.com/video/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for video ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
@@ -213,7 +212,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ss${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for bangumi ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }], userId);
@@ -234,7 +232,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, cardType, groupId);
                             url = `https://t.bilibili.com/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for dynamic ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }], userId);
@@ -252,7 +249,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/read/cv${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for article ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }], userId);
@@ -271,7 +267,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'live', groupId);
                             url = `https://live.bilibili.com/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for live ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }], userId);
@@ -290,7 +285,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/opus/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for opus ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }], userId);
@@ -308,7 +302,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ep${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for ep ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }], userId);
@@ -327,7 +320,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/media/md${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for media ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }], userId);
@@ -347,7 +339,6 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'user', groupId, showId);
                             url = `https://space.bilibili.com/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
-                            this.addLinkToCache(cacheKey);
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for user ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [

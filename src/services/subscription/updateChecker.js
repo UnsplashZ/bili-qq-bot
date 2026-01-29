@@ -78,25 +78,72 @@ class UpdateChecker {
         // Ensure subscriptions are loaded before checking
         await subscriptionManager._ensureSubscriptionsLoaded();
 
+        // Build active groups set (only groups where isInGroup !== false)
+        const activeGroups = new Set();
+        const groupConfigs = config.groupConfigs || {};
+
+        for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
+            if (groupConfig.isInGroup !== false) {
+                activeGroups.add(groupId);
+            }
+        }
+
+        logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`);
+
+        // Prepare set to track UIDs covered by feed check (to avoid duplicate check)
+        const feedMonitoredUids = new Set();
+
         // 1. Check Feed Updates (Cookie Sync)
-        await this.checkFeedUpdate();
+        // This will populate feedMonitoredUids with UIDs that were checked via feed
+        await this.checkFeedUpdate(feedMonitoredUids, activeGroups);
 
         // 2. Check User Dynamics (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
-            await this.checkUserDynamic(sub);
+            // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped dynamic check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkUserDynamic(sub, targetGroups);
             // Small delay to be nice to API
             await new Promise(r => setTimeout(r, 1000));
         }
 
         // 3. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
-            await this.checkUserLive(sub);
+             // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped live check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkUserLive(sub, targetGroups);
             await new Promise(r => setTimeout(r, 1000));
         }
 
         // 4. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
-            await this.checkBangumi(sub);
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                logger.debug(`[UpdateChecker] Skipped bangumi check for ${sub.seasonId} (${sub.title}): all subscribed groups have left`);
+                continue;
+            }
+
+            await this.checkBangumi(sub, targetGroups);
             await new Promise(r => setTimeout(r, 1000));
         }
 
@@ -104,10 +151,14 @@ class UpdateChecker {
         await this.refreshMissingNames();
     }
 
-    async checkFeedUpdate() {
-        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
-            config.getGroupConfig(gid, 'enableCookieSync')
-        );
+    async checkFeedUpdate(monitoredUidsSet = null, activeGroups = null) {
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
+            // Only check groups that are active (not left)
+            if (activeGroups && !activeGroups.has(gid)) {
+                return false;
+            }
+            return config.getGroupConfig(gid, 'enableCookieSync');
+        });
 
         if (groupsWithSync.length === 0) return;
 
@@ -124,26 +175,37 @@ class UpdateChecker {
         // Loop through accounts
         for (const [uid, groupId] of accountGroups) {
             try {
+                // Collect UIDs monitored by this account
+                if (monitoredUidsSet) {
+                    const followers = subscriptionManager.cookieFollowings[String(uid)] || [];
+                    followers.forEach(f => {
+                         const fid = subscriptionManager.getFollowerId(f);
+                         if (fid) monitoredUidsSet.add(fid);
+                    });
+                }
+
                 // Process Dynamic Feed
-                await this.processDynamicFeed(uid, groupId);
+                await this.processDynamicFeed(uid, groupId, activeGroups);
 
                 // Wait 2s
                 await new Promise(r => setTimeout(r, 2000));
 
                 // Process Live Feed
-                await this.processLiveFeed(uid, groupId);
+                await this.processLiveFeed(uid, groupId, activeGroups);
             } catch (e) {
                 logger.error(`[UpdateChecker] Feed update failed for account ${uid}:`, e);
             }
         }
     }
 
-    async processDynamicFeed(accountUid, groupId) {
+    async processDynamicFeed(accountUid, groupId, activeGroups = null) {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
         if (!followers || followers.length === 0) return;
 
-        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        // Use safe ID generation
+        const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let offset = '';
+        let prevOffset = null;
         let hasMore = true;
         let page = 0;
         let stateChanged = false;
@@ -158,6 +220,8 @@ class UpdateChecker {
             const items = res.data.items || [];
             hasMore = res.data.has_more;
             offset = res.data.offset;
+            if (offset === prevOffset) break; // Prevent infinite loop on unchanged offset
+            prevOffset = offset;
             page++;
 
             if (items.length === 0) break;
@@ -185,13 +249,15 @@ class UpdateChecker {
                             isNew = true;
                         }
                     } catch (e) {
-                        // Fallback string compare if BigInt fails
-                        if (dynamicId !== follower.lastDynamicId) isNew = true;
+                        // Fallback: zero-padded string comparison (safe for large IDs)
+                        const a = dynamicId.padStart(20, '0')
+                        const b = follower.lastDynamicId.padStart(20, '0')
+                        if (a > b) isNew = true
                     }
                 }
 
                 if (isNew) {
-                    const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+                    const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                     if (targetGroups.length > 0) {
                         // Notify
@@ -221,24 +287,60 @@ class UpdateChecker {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, `${name} 发布了新${typeLabel}！`);
+
+                        // Construct Notification Text
+                        let notificationText = `${name} 发布了新${typeLabel}！`; // Default
+
+                        if (dynamicType === 'DYNAMIC_TYPE_AV' && item.modules?.module_dynamic?.major?.archive) {
+                            const title = item.modules.module_dynamic.major.archive.title;
+                            notificationText = `${name} 投稿了新视频：\n${title}`;
+                        } else if (dynamicType === 'DYNAMIC_TYPE_ARTICLE' && item.modules?.module_dynamic?.major?.opus) {
+                             const title = item.modules.module_dynamic.major.opus.title;
+                             notificationText = `${name} 投稿了新专栏：\n${title}`;
+                        } else if (dynamicType === 'DYNAMIC_TYPE_FORWARD') {
+                            const orig = item.orig;
+                            if (orig) {
+                                if (orig.type === 'DYNAMIC_TYPE_AV' && orig.modules?.module_dynamic?.major?.archive) {
+                                     const title = orig.modules.module_dynamic.major.archive.title;
+                                     notificationText = `${name} 转发了视频：\n${title}`;
+                                } else if (orig.type === 'DYNAMIC_TYPE_ARTICLE' && orig.modules?.module_dynamic?.major?.opus) {
+                                     const title = orig.modules.module_dynamic.major.opus.title;
+                                     notificationText = `${name} 转发了专栏：\n${title}`;
+                                } else {
+                                     notificationText = `${name} 转发了一条动态`;
+                                }
+                            }
+                        } else if (dynamicType === 'DYNAMIC_TYPE_WORD') {
+                             notificationText = `${name} 发布了新动态`;
+                        }
+
+                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, notificationText);
                     }
                 }
 
                 // Update state if id is newer or missing
-                if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || 0n)) {
-                    follower.lastDynamicId = dynamicId;
-                    stateChanged = true;
+                try {
+                    if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || '0')) {
+                        follower.lastDynamicId = dynamicId;
+                        stateChanged = true;
+                    }
+                } catch (e) {
+                    const a = String(dynamicId).padStart(20, '0')
+                    const b = String(follower.lastDynamicId || '0').padStart(20, '0')
+                    if (!follower.lastDynamicId || a > b) {
+                        follower.lastDynamicId = dynamicId;
+                        stateChanged = true;
+                    }
                 }
             }
         }
 
         if (stateChanged) {
-            subscriptionManager.setCookieFollowings(accountUid, followers);
+            await subscriptionManager.setCookieFollowings(accountUid, followers);
         }
     }
 
-    async processLiveFeed(accountUid, groupId) {
+    async processLiveFeed(accountUid, groupId, activeGroups = null) {
         const res = await biliApi.getLiveFeed(groupId);
         if (res.status !== 'success' || !res.data || !res.data.list) return;
 
@@ -246,7 +348,8 @@ class UpdateChecker {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
         if (!followers) return;
 
-        const followerMap = new Map(followers.map(f => [String(f.mid), f]));
+        // Use safe ID generation
+        const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let stateChanged = false;
 
         for (const item of liveList) {
@@ -258,7 +361,7 @@ class UpdateChecker {
 
             // Check if status changed from 0 to 1
             if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
-                const targetGroups = this.findTargetGroupsForFollower(accountUid, follower);
+                const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                 if (targetGroups.length > 0) {
                     const roomUrl = item.link;
@@ -305,23 +408,30 @@ class UpdateChecker {
         // For now, let's just update those we see.
 
         if (stateChanged) {
-            subscriptionManager.setCookieFollowings(accountUid, followers);
+            await subscriptionManager.setCookieFollowings(accountUid, followers);
         }
     }
 
-    findTargetGroupsForFollower(accountUid, follower) {
+    findTargetGroupsForUser(accountUid, follower, activeGroups = null) {
         const targetGroups = [];
+        const followerId = subscriptionManager.getFollowerId(follower);
 
-        // Find all groups bound to this account
+        // 1. Find all groups bound to this account (Cookie Sync)
         for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
             if (uid !== String(accountUid)) continue;
+
+            // Filter out inactive groups
+            if (activeGroups && !activeGroups.has(gid)) continue;
 
             // Check if sync enabled
             if (!config.getGroupConfig(gid, 'enableCookieSync')) continue;
 
             // Check Tag filtering
-            const allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames'); // Array of strings
-            if (allowedTags && allowedTags.length > 0) {
+            let allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames');
+            if (typeof allowedTags === 'string') {
+                allowedTags = allowedTags.split(',').map(s => s.trim());
+            }
+            if (Array.isArray(allowedTags) && allowedTags.length > 0) {
                 // follower.biliGroups should be an array of tag names
                 const followerTags = follower.biliGroups || [];
                 // Check intersection
@@ -332,10 +442,28 @@ class UpdateChecker {
             targetGroups.push(gid);
         }
 
+        // 2. Find manual subscriptions for this user (Group Subscription)
+        // Even if the group didn't enable sync, if they manually subscribed, they should get it.
+        // And since we are in the Feed flow, we know this user updated.
+        const manualSub = subscriptionManager.userSubs.find(s => String(s.uid) === followerId);
+        if (manualSub) {
+            manualSub.groupIds.forEach(gid => {
+                // Filter out inactive groups
+                if (activeGroups && !activeGroups.has(gid)) return;
+
+                // Deduplicate: avoid adding if already added via sync
+                if (!targetGroups.includes(String(gid))) {
+                    targetGroups.push(String(gid));
+                }
+            });
+        }
+
         return targetGroups;
     }
 
-    async checkUserDynamic(sub, force = false) {
+    async checkUserDynamic(sub, targetGroups = null, force = false) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
         try {
             const res = await biliApi.getUserDynamic(sub.uid, null, true);
             if (res.status !== 'success') {
@@ -455,22 +583,51 @@ class UpdateChecker {
 
                     // Detect specific types for label filtering and message
                     let typeLabel = '动态';
-                    
+
                     // Handle both numeric and string types
                     if (cardType === 8 || cardType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
                     else if (cardType === 64 || cardType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
                     else if (cardType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
-                    
+
+                    // Construct Notification Text
+                    let notificationText = `${sub.name} 发布了新${typeLabel}！`; // Default
+
+                    if (cardType === 'DYNAMIC_TYPE_AV' || cardType === 8) {
+                         const title = card.modules?.module_dynamic?.major?.archive?.title || card.desc?.title || '';
+                         if (title) notificationText = `${sub.name} 投稿了新视频：\n${title}`;
+                    } else if (cardType === 'DYNAMIC_TYPE_ARTICLE' || cardType === 64) {
+                         const title = card.modules?.module_dynamic?.major?.opus?.title || card.desc?.title || '';
+                         if (title) notificationText = `${sub.name} 投稿了新专栏：\n${title}`;
+                    } else if (cardType === 'DYNAMIC_TYPE_FORWARD') {
+                         const orig = card.orig;
+                         if (orig) {
+                              const oType = orig.type;
+                              if (oType === 'DYNAMIC_TYPE_AV' || oType === 8) {
+                                   const title = orig.modules?.module_dynamic?.major?.archive?.title || '';
+                                   if (title) notificationText = `${sub.name} 转发了视频：\n${title}`;
+                                   else notificationText = `${sub.name} 转发了视频`;
+                              } else if (oType === 'DYNAMIC_TYPE_ARTICLE' || oType === 64) {
+                                   const title = orig.modules?.module_dynamic?.major?.opus?.title || '';
+                                   if (title) notificationText = `${sub.name} 转发了专栏：\n${title}`;
+                                   else notificationText = `${sub.name} 转发了专栏`;
+                              } else {
+                                   notificationText = `${sub.name} 转发了一条动态`;
+                              }
+                         }
+                    } else if (cardType === 'DYNAMIC_TYPE_WORD') {
+                         notificationText = `${sub.name} 发布了新动态`;
+                    }
+
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(sub.groupIds, info, 'dynamic', url, `${sub.name} 发布了新${typeLabel}！`);
-                        
+                        await this.notifyGroupsWithImage(groupsToNotify, info, 'dynamic', url, notificationText);
+
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
                         // Fallback text
-                        const msg = `${sub.name} 发布了新${typeLabel}：\nhttps://t.bilibili.com/${cardId}`;
-                        this.notifyGroups(sub.groupIds, msg, cardId);
+                        const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`;
+                        this.notifyGroups(groupsToNotify, msg, cardId);
                     }
                 }
 
@@ -484,33 +641,62 @@ class UpdateChecker {
         }
     }
 
-    async checkUserLive(sub) {
+    async checkUserLive(sub, targetGroups = null) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
+        // 使用第一个群组的cookie获取用户信息
+        const groupId = groupsToNotify[0];
         try {
-            const res = await biliApi.getUserInfo(sub.uid); // getUserInfo contains live_room
+            const res = await biliApi.getUserInfo(sub.uid, groupId); // getUserInfo contains live_room
             if (res.status !== 'success') return;
 
-            const liveStatus = res.data.live_room?.liveStatus; // 1: live, 0: offline
-            const roomUrl = res.data.live_room?.url;
-            const title = res.data.live_room?.title;
-            const cover = res.data.live_room?.cover;
+            const liveRoom = res.data.live_room || {};
+
+            let liveStatus = liveRoom.liveStatus; // 1: live, 0: offline
+            let roomId = liveRoom.roomid || liveRoom.room_id;
+
+            // roomId 缓存逻辑：如果API返回了roomId，保存到subscription；如果没有，使用缓存的
+            if (roomId) {
+                // API返回了roomId，缓存它
+                if (sub.roomId !== roomId) {
+                    logger.info(`[UpdateChecker] Caching roomId ${roomId} for user ${sub.uid} (${sub.name})`);
+                    await subscriptionManager.updateUserSub(sub.uid, { roomId });
+                    sub.roomId = roomId; // 同步更新内存中的值
+                }
+            } else if (sub.roomId) {
+                // API没有返回roomId，但subscription中有缓存
+                roomId = sub.roomId;
+                logger.debug(`[UpdateChecker] API returned empty live_room for user ${sub.uid} (${sub.name}), using cached roomId ${roomId}`);
+                // 注意：此时liveStatus为undefined，不会触发开播通知，这是期望的行为
+                // 下次API正常时会恢复检查
+            } else {
+                // API没有返回，缓存中也没有，跳过检查
+                logger.warn(`[UpdateChecker] No room ID available for user ${sub.uid} (${sub.name}), skipping live check. User may not have a live room.`);
+                return;
+            }
+
+            const roomUrl = liveRoom.url || `https://live.bilibili.com/${roomId}`;
+            const title = liveRoom.title || '直播间';
+            const cover = liveRoom.cover;
 
             if (liveStatus === 1 && sub.lastLiveStatus === 0) {
                 // Started Streaming
                 const msg = `${sub.name} 开播了！\n标题：${title}\n地址：${roomUrl}`;
-                
+
                 // Try to generate image? Or just text + cover
-                // If cover exists, we can send it. 
+                // If cover exists, we can send it.
                 // Using generic notify with image support if we download cover?
                 // Or just text for now as per original simple logic, or upgrade?
                 // Original code might have used generatePreviewCard for live
-                
+
                 // Let's try generatePreviewCard for live
                 try {
                      // Build data structure matching what the live renderer expects
                      const liveData = {
+                         id: roomId, // Use room_id for deduplication and imageGenerator
                          data: {
                              room_info: {
-                                 room_id: sub.uid,
+                                 room_id: roomId, // Pass actual room_id
                                  title: title,
                                  cover: cover,
                                  live_status: 1 // 1 = live
@@ -527,9 +713,9 @@ class UpdateChecker {
                              }
                          }
                      };
-                     await this.notifyGroupsWithImage(sub.groupIds, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
+                     await this.notifyGroupsWithImage(groupsToNotify, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg, `live_${sub.uid}`);
+                    this.notifyGroups(groupsToNotify, msg, `live_${roomId}`);
                 }
             }
 
@@ -541,7 +727,9 @@ class UpdateChecker {
         }
     }
 
-    async checkBangumi(sub) {
+    async checkBangumi(sub, targetGroups = null) {
+        // Use provided targetGroups or fall back to sub.groupIds
+        const groupsToNotify = targetGroups || sub.groupIds;
         try {
             const res = await biliApi.getBangumiInfo(sub.seasonId);
             if (res.status !== 'success') return;
@@ -561,9 +749,9 @@ class UpdateChecker {
 
                 try {
                     // Generate preview (pass full res object, not res.data)
-                    await this.notifyGroupsWithImage(sub.groupIds, res, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `番剧 ${sub.title} 更新了！`);
+                    await this.notifyGroupsWithImage(groupsToNotify, res.data, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
                 } catch (e) {
-                    this.notifyGroups(sub.groupIds, msg, newEp.id);
+                    this.notifyGroups(groupsToNotify, msg, newEp.id);
                 }
 
                 await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
@@ -702,10 +890,15 @@ class UpdateChecker {
         // Ensure followers are loaded before updating to prevent overwriting with old data
         await subscriptionManager._ensureFollowersLoaded();
 
-        // Get all groups with sync enabled
-        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid =>
-            config.getGroupConfig(gid, 'enableCookieSync')
-        );
+        // Get all groups with sync enabled and bot is still in
+        const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
+            const groupConfig = config.groupConfigs[gid];
+            // Skip groups bot has left
+            if (groupConfig && groupConfig.isInGroup === false) {
+                return false;
+            }
+            return config.getGroupConfig(gid, 'enableCookieSync');
+        });
 
         if (groupsWithSync.length === 0) return;
 
@@ -724,7 +917,7 @@ class UpdateChecker {
                 const myUid = String(myInfo.data.mid);
                 
                 // Update mapping
-                subscriptionManager.setGroupAccountMapping(groupId, myUid);
+                await subscriptionManager.setGroupAccountMapping(groupId, myUid);
                 
                 // If we already refreshed this account in this cycle, skip fetching
                 if (visitedUids.has(myUid)) {
@@ -736,7 +929,7 @@ class UpdateChecker {
                 const res = await biliApi.getMyFollowings(null, groupId);
                 
                 if (res.status === 'success' && res.data) {
-                    subscriptionManager.setCookieFollowings(myUid, res.data);
+                    await subscriptionManager.setCookieFollowings(myUid, res.data);
                     visitedUids.add(myUid);
                 } else {
                     logger.error(`[UpdateChecker] Failed to refresh followings for group ${groupId}:`, res.message);

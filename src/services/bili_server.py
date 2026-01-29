@@ -3,13 +3,46 @@ import json
 import asyncio
 import re
 import aiohttp
+import time
 from bs4 import BeautifulSoup
+import bilibili_api
 from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
 from bilibili_api.utils.network import Api
 import bilibili_api.login_v2 as login
 import io
 from PIL import Image
 import colorsys
+import logging
+
+# 设置日志
+logger = logging.getLogger(__name__)
+
+# 配置 bilibili_api 以避免412错误
+# 1. 更新请求头，添加完整的浏览器特征头部
+bilibili_api.HEADERS.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': 'https://www.bilibili.com',
+    'Origin': 'https://www.bilibili.com',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"'
+})
+
+# 2. bili_ticket 配置
+# 注意: 启用 bili_ticket 可能减少风控触发，但当前版本的 bilibili-api 库
+# 在获取 bili_ticket 时可能失败（KeyError: 'data'），导致每次启动报错
+# 因此暂时禁用。如果遇到 412 错误，可以尝试重新启用并调试
+try:
+    bilibili_api.request_settings.set_enable_bili_ticket(False)  # 暂时禁用
+    logger.info("bili_ticket 已禁用（避免启动时获取ticket失败）")
+except Exception as e:
+    logger.warning(f"无法配置 bili_ticket: {e}")
 
 # Load credentials from a file if they exist
 CREDENTIAL_FILE = 'data/cookies.json'
@@ -38,13 +71,80 @@ def get_credential_file(group_id=None):
     return f'data/cookies_{group_key}.json'
 
 def load_credential(group_id=None):
-    file_path = get_credential_file(group_id)
-    try:
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-            return Credential(sessdata=data.get('SESSDATA'), bili_jct=data.get('BILI_JCT'), buvid3=data.get('BUVID3'))
-    except FileNotFoundError:
-        return None
+    """
+    加载B站凭证，优先级：群组Cookie > 全局Cookie
+
+    Args:
+        group_id: 群组ID，None表示加载全局Cookie
+
+    Returns:
+        Credential对象或None
+    """
+    credential = None
+
+    # 优先尝试加载群组Cookie
+    if group_id:
+        file_path = get_credential_file(group_id)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    sessdata = data.get('SESSDATA')
+                    bili_jct = data.get('BILI_JCT')
+                    buvid3 = data.get('BUVID3')
+
+                    if not buvid3:
+                        logger.warning(f"BUVID3 缺失 (group_id: {group_id}, file: {file_path})，可能导致请求被风控")
+
+                    timestamp = data.get('_timestamp', 0)
+                    if timestamp:
+                        age_days = (time.time() - timestamp) / (24 * 3600)
+                        if age_days > 7:
+                            logger.warning(f"Cookie 可能已过期 (group_id: {group_id}, age: {age_days:.1f} 天)")
+
+                    credential = Credential(
+                        sessdata=sessdata,
+                        bili_jct=bili_jct,
+                        buvid3=buvid3
+                    )
+                    logger.debug(f"使用群组Cookie: {group_id}")
+                    return credential
+            except Exception as e:
+                logger.error(f"加载群组Cookie失败 (group_id: {group_id}): {e}")
+
+        # 群组Cookie不存在，尝试fallback
+        logger.info(f"群组 {group_id} Cookie不存在，尝试使用全局Cookie")
+
+    # 加载全局Cookie
+    if os.path.exists(CREDENTIAL_FILE):
+        try:
+            with open(CREDENTIAL_FILE, 'r') as f:
+                data = json.load(f)
+                sessdata = data.get('SESSDATA')
+                bili_jct = data.get('BILI_JCT')
+                buvid3 = data.get('BUVID3')
+
+                if not buvid3:
+                    logger.warning(f"全局Cookie BUVID3 缺失，可能导致请求被风控")
+
+                timestamp = data.get('_timestamp', 0)
+                if timestamp:
+                    age_days = (time.time() - timestamp) / (24 * 3600)
+                    if age_days > 7:
+                        logger.warning(f"全局Cookie 可能已过期 (age: {age_days:.1f} 天)")
+
+                credential = Credential(
+                    sessdata=sessdata,
+                    bili_jct=bili_jct,
+                    buvid3=buvid3
+                )
+                logger.debug("使用全局Cookie")
+                return credential
+        except Exception as e:
+            logger.error(f"加载全局Cookie失败: {e}")
+
+    logger.debug("未找到可用的Cookie")
+    return None
 
 def save_credential(credential, group_id=None):
     # Determine target file
@@ -71,8 +171,36 @@ def save_credential(credential, group_id=None):
         json.dump({
             'SESSDATA': credential.sessdata,
             'BILI_JCT': credential.bili_jct,
-            'BUVID3': credential.buvid3
+            'BUVID3': credential.buvid3,
+            '_timestamp': int(time.time())  # 添加时间戳用于过期检测
         }, f)
+
+async def _fetch_buvid3():
+    try:
+        timeout = aiohttp.ClientTimeout(total=6)
+        headers = bilibili_api.HEADERS.copy()
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get('https://www.bilibili.com', headers=headers) as resp:
+                for name in resp.cookies:
+                    if name.lower() == 'buvid3':
+                        return resp.cookies[name].value
+                for item in resp.headers.getall('Set-Cookie', []):
+                    for part in item.split(';'):
+                        kv = part.strip()
+                        if kv.lower().startswith('buvid3='):
+                            return kv.split('=', 1)[1]
+    except Exception as e:
+        logger.warning(f"获取BUVID3失败: {e}")
+    return None
+
+async def ensure_buvid3(credential, group_id=None):
+    if not credential or credential.buvid3:
+        return credential
+    buvid3 = await _fetch_buvid3()
+    if buvid3:
+        credential.buvid3 = buvid3
+        save_credential(credential, group_id)
+    return credential
 
 async def _fetch_bytes(url: str) -> bytes:
     try:
@@ -153,6 +281,13 @@ async def get_video_info(bvid, group_id=None):
         }
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
+        # 只在非预期错误时打印traceback，已知的cookie无效错误不需要打印
+        if str(e) != "'data'":
+            import traceback
+            traceback.print_exc()
+
+        if str(e) == "'data'":
+             return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
         return {"status": "error", "message": str(e)}
 
 async def get_bangumi_info(season_id, group_id=None):
@@ -374,14 +509,19 @@ async def get_live_room_info(room_id, group_id=None):
 
 async def get_login_url():
     try:
+        logger.info("开始生成登录二维码...")
         # 使用 QrCodeLogin 类获取二维码
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
         await q.generate_qrcode()
+        logger.info("登录二维码生成成功")
         return {"status": "success", "data": {
-            "url": q._QrCodeLogin__qr_link, 
+            "url": q._QrCodeLogin__qr_link,
             "key": q._QrCodeLogin__qr_key
         }}
     except Exception as e:
+        logger.error(f"生成登录二维码失败: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"详细错误: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 async def poll_login(qrcode_key, group_id=None):
@@ -389,23 +529,28 @@ async def poll_login(qrcode_key, group_id=None):
         # 实例化并手动设置 key 以支持轮询
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
         q._QrCodeLogin__qr_key = qrcode_key
-        
+
         event = await q.check_state()
-        
+
         if event == login.QrCodeLoginEvents.DONE:
+            logger.info(f"登录成功 (group_id: {group_id})")
             credential = q.get_credential()
             save_credential(credential, group_id)
+            await ensure_buvid3(credential, group_id)
             return {"status": "success", "message": "登录成功"}
         elif event == login.QrCodeLoginEvents.SCAN:
             return {"status": "pending", "code": 86101, "message": "等待扫码"}
         elif event == login.QrCodeLoginEvents.CONF:
             return {"status": "pending", "code": 86090, "message": "已扫码，请在手机上确认"}
         elif event == login.QrCodeLoginEvents.TIMEOUT:
+            logger.warning("登录二维码已过期")
             return {"status": "error", "code": 86038, "message": "二维码已过期"}
         else:
+            logger.warning(f"未知的登录状态: {event}")
             return {"status": "error", "message": "未知状态"}
-            
+
     except Exception as e:
+        logger.error(f"检查登录状态失败: {type(e).__name__}: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 async def get_user_dynamic(uid, group_id=None):
@@ -494,6 +639,76 @@ async def get_user_dynamic(uid, group_id=None):
                 if 'modules' in item and 'module_author' in item['modules']:
                     pub_ts = item['modules']['module_author'].get('pub_ts', 0)
 
+                # Normalize modules data to ensure text content is available
+                modules = item.get('modules') or {}
+                module_dynamic = modules.get('module_dynamic')
+
+                if module_dynamic:
+                    # Fix missing desc: Extract text from opus.summary if desc is missing
+                    if not module_dynamic.get('desc'):
+                        major = module_dynamic.get('major') or {}
+                        opus = major.get('opus')
+                        if opus and opus.get('summary'):
+                            # Construct desc structure from opus.summary
+                            module_dynamic['desc'] = {
+                                'text': opus['summary'].get('text', ''),
+                                'rich_text_nodes': opus['summary'].get('rich_text_nodes', [])
+                            }
+                            logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Extracted desc from opus.summary")
+
+                    # 话题修复（与 get_dynamic_detail 保持一致）
+                    topic_added = False
+                    try:
+                        topic = module_dynamic.get('topic')
+                        if topic and isinstance(topic, dict):
+                            topic_name = topic.get('name', '')
+                            topic_id = topic.get('id', 0)
+                            if topic_name and topic_id:
+                                # 确保 desc 存在
+                                if not module_dynamic.get('desc'):
+                                    module_dynamic['desc'] = {'text': '', 'rich_text_nodes': []}
+
+                                # 在文本结尾添加话题标签（与 get_dynamic_detail 保持一致）
+                                desc = module_dynamic['desc']
+                                topic_tag = f"#{topic_name}#"
+                                if topic_tag not in desc['text']:
+                                    desc['text'] = desc['text'] + f" #{topic_name}#"
+
+                                # 在 rich_text_nodes 开头添加话题节点
+                                if not desc.get('rich_text_nodes'):
+                                    desc['rich_text_nodes'] = []
+
+                                topic_node = {
+                                    'type': 'RICH_TEXT_NODE_TYPE_TOPIC',
+                                    'text': topic_tag,
+                                    'jump_url': f"https://www.bilibili.com/v/topic/detail/?topic_id={topic_id}",
+                                    'orig_text': topic_tag
+                                }
+
+                                # 检查是否已存在话题节点
+                                if not any(n.get('type') == 'RICH_TEXT_NODE_TYPE_TOPIC' for n in desc['rich_text_nodes']):
+                                    desc['rich_text_nodes'].insert(0, topic_node)
+
+                                topic_added = True
+                                logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Added topic '{topic_name}' from topic field")
+                    except Exception as e:
+                        logger.warning(f"[get_user_dynamic] Failed to process topic: {e}")
+
+                    # 兜底：使用正则表达式修复话题格式（与 get_dynamic_detail 保持一致）
+                    # Keep this as a fallback for cases where topics are embedded in text but not in topic field
+                    if not topic_added:
+                        # 使用 `or {}` 处理 desc 为 None 的情况
+                        desc_text = (module_dynamic.get('desc') or {}).get('text', '')
+                        if desc_text and '#' in desc_text:
+                            # Fix topic hashtag formatting (B站API返回的话题可能格式不完整)
+                            fixed_text = re.sub(r'#([^#\s]+?)#', r'#\1# ', desc_text)
+                            if fixed_text != desc_text:
+                                # 确保 desc 存在且不为 None
+                                if not module_dynamic.get('desc'):
+                                    module_dynamic['desc'] = {'text': '', 'rich_text_nodes': []}
+                                module_dynamic['desc']['text'] = fixed_text
+                                logger.debug(f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting")
+
                 # Construct desc object for backward compatibility with old API format
                 desc = {
                     "dynamic_id_str": item.get('id_str'),
@@ -513,7 +728,7 @@ async def get_user_dynamic(uid, group_id=None):
                     # New API fields
                     "id_str": item.get('id_str'),
                     "type": item.get('type'),
-                    "modules": item.get('modules'),
+                    "modules": modules,  # Use normalized modules
                     "orig": item.get('orig'),
                     "pub_ts": pub_ts,
                     "author": author_info
@@ -646,7 +861,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         # 如果上面没有获取到装饰信息或等级，再尝试通过用户API获取
         if (not pendant_url or not card_url or author_level == 0) and author_uid:
             try:
-                u = user.User(uid=int(author_uid), credential=load_credential())
+                u = user.User(uid=int(author_uid), credential=load_credential(group_id))
                 base = await u.get_user_info()
                 author_level = base.get('level', author_level)  # 保持之前获取到的等级，如果获取不到则使用之前的值
                 profile = await u.get_user_profile()
@@ -698,7 +913,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             vote_id = vobj.get('vote_id')
             if vote_id:
                 from bilibili_api import vote as vote_api
-                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential())
+                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential(group_id))
                 vinfo = await vv.get_info()
                 # Normalize to expected fields for Node renderer
                 # choices may reside under data['choices'] or info['options'] or similar
@@ -935,6 +1150,7 @@ async def get_user_info(uid, group_id=None):
             "likes": likes,
             "archive_view": archive_view,
             "dynamic": latest_dynamic,
+            "live_room": user_info.get('live_room', {}),  # 直播间信息
             "focus": {
                 "avatar": await get_image_focus_color(user_info.get('face', ''))
             }
@@ -1119,6 +1335,61 @@ async def get_my_info(group_id=None):
 
         self_info = await user.get_self_info(credential=cred)
         return {"status": "success", "data": self_info}
+    except Exception as e:
+        # 只在非预期错误时打印traceback，已知的cookie无效错误不需要打印
+        if str(e) != "'data'":
+            import traceback
+            traceback.print_exc()
+
+        if str(e) == "'data'":
+             return {"status": "error", "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid"}
+        return {"status": "error", "message": str(e)}
+
+def _unwrap_bili_response(response, max_depth=5):
+    """
+    Recursively unwrap Bilibili API response to find the actual data list.
+    Handles nested structures like {data: {data: [...]}}, {result: [...}}, etc.
+    Returns the first list found, or empty list if none found.
+    """
+    if max_depth <= 0:
+        return []
+
+    if isinstance(response, list):
+        return response
+
+    if isinstance(response, dict):
+        # Priority search keys (common Bilibili API patterns)
+        for key in ['data', 'result', 'list', 'items']:
+            if key in response:
+                unwrapped = _unwrap_bili_response(response[key], max_depth - 1)
+                if isinstance(unwrapped, list):
+                    return unwrapped
+
+        # If no priority key found, search all dict values
+        for value in response.values():
+            if isinstance(value, (list, dict)):
+                unwrapped = _unwrap_bili_response(value, max_depth - 1)
+                if isinstance(unwrapped, list) and unwrapped:
+                    return unwrapped
+
+    return []
+
+async def get_follow_groups(group_id=None):
+    try:
+        cred = load_credential(group_id)
+        if not cred:
+            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+
+        try:
+            groups_api = Api("https://api.bilibili.com/x/relation/tags", method="GET", credential=cred)
+            groups_raw = await groups_api.result
+
+            # Use deep unwrapping to handle various API response structures
+            groups = _unwrap_bili_response(groups_raw)
+
+            return {"status": "success", "data": groups}
+        except Exception as e:
+            return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1355,6 +1626,16 @@ async def handle_my_info(request):
         logger.error(f"Error in my_info handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+async def handle_get_follow_groups(request):
+    try:
+        data = await request.json()
+        group_id = data.get('group_id')
+        result = await get_follow_groups(group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in get_follow_groups handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
 async def handle_dynamic_feed(request):
     try:
         data = await request.json()
@@ -1386,6 +1667,59 @@ async def on_startup(app):
     # Place to initialize global sessions if needed
     pass
 
+async def handle_credential_info(request):
+    """
+    获取Cookie对应的用户信息
+
+    Request Body:
+        {
+            "group_id": "123456" (可选，用于测试特定群组Cookie)
+        }
+
+    Response:
+        {
+            "status": "success",
+            "data": {
+                "uid": 123456,
+                "username": "用户名",
+                "is_logged_in": true,
+                "timestamp": 1706428800
+            }
+        }
+    """
+    try:
+        data = await request.json()
+        group_id = data.get('group_id')
+
+        # 加载凭证
+        credential = load_credential(group_id)
+        if not credential:
+            return web.json_response({
+                'status': 'error',
+                'message': 'No credential found'
+            })
+        credential = await ensure_buvid3(credential, group_id)
+
+        info = await user.get_self_info(credential=credential)
+
+        return web.json_response({
+            'status': 'success',
+            'data': {
+                'uid': info['mid'],
+                'username': info['name'],
+                'is_logged_in': True,
+                'timestamp': int(time.time())
+            }
+        })
+    except Exception as e:
+        logger.error(f"获取凭证信息失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            'status': 'error',
+            'message': str(e)
+        })
+
 async def on_cleanup(app):
     logger.info("Application shutting down...")
     # Place to close global sessions if needed
@@ -1414,8 +1748,10 @@ def create_app():
         web.post('/user_card', handle_user_card),
         web.post('/my_followings', handle_my_followings),
         web.post('/my_info', handle_my_info),
+        web.post('/get_follow_groups', handle_get_follow_groups),
         web.post('/dynamic_feed', handle_dynamic_feed),
         web.post('/live_feed', handle_live_feed),
+        web.post('/credential_info', handle_credential_info),
         web.get('/health', health_check),
     ])
     return app

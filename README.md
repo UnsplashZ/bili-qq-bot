@@ -9,6 +9,7 @@
 - [✨ 核心特性](#核心特性)
 - [📸 预览效果](#预览效果)
 - [🚀 一键快速部署](#一键快速部署)
+- [🖥️ WebUI 管理面板](#webui-管理面板)
 - [⚙️ 配置说明](#配置说明)
 - [💬 指令列表](#指令列表)
 - [🛠️ 其他部署方式](#其他部署方式)
@@ -43,6 +44,8 @@
     *   支持概率回复和 `@机器人` 触发
 
 *   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、直播、番剧更新
+
+*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、订阅管理、日志查看、B站登录等操作，无需命令行
 
 *   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体
 
@@ -132,6 +135,36 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 4.  **扫码登录**：直接在终端显示 NapCat 日志和二维码，扫码即可完成登录。
 
 如需使用AI功能、接入MCP或修改高级配置，请在部署完成后编辑 `config/.env` 文件（参考 [配置说明](#配置说明)），然后重启容器。
+
+## WebUI 管理面板
+
+部署完成后，访问 `http://<服务器IP>:3000` 即可打开 WebUI 管理面板。
+
+### 登录
+
+首次访问需要输入密码登录。默认密码为 `admin`，可通过 `.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。
+
+### 功能模块
+
+| 模块 | 说明 |
+| :--- | :--- |
+| **仪表盘** | 实时监控 CPU、内存、网络等系统状态，可视化图表展示 |
+| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、订阅管理、关注同步、B站登录 |
+| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站全局登录、AI 参数（模型/密钥/系统提示词）、应用重启 |
+| **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
+
+### 前端开发
+
+WebUI 基于 React + Vite + Tailwind CSS 构建，开发时可独立运行：
+
+```bash
+cd dashboard
+npm install
+npm run dev     # 开发服务器 (端口 5173，自动代理 API 至 3000)
+npm run build   # 生产构建，输出至 dashboard/dist
+```
+
+构建后由主服务 (端口 3000) 托管静态文件，无需额外部署。
 
 ## 配置说明
 
@@ -338,9 +371,17 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     *   `subscriptions.json`: 订阅配置信息 (UP主/番剧/关键词监控)
     *   `subfollowers.json`: 订阅推送目标列表 (群组/用户映射关系)
 *   `fonts/`: 字体文件目录 (支持热更新)
+*   `dashboard/`: WebUI 前端 (React + Vite + Tailwind CSS)
+    *   `src/pages/`: 页面组件 (Dashboard, Groups, Settings, Logs, Login)
+    *   `src/components/`: 通用组件 (GlassCard, GlassModal)
+    *   `dist/`: 生产构建输出 (由主服务托管)
 *   `src/`: 源代码
     *   `bot.js`: 程序入口，WebSocket 连接与消息分发
     *   `config.js`: 配置管理系统 (双重配置架构 + 分群覆盖)
+    *   `dashboard/`: WebUI 后端
+        *   `server.js`: Express 应用，静态文件托管与 WebSocket 日志推送
+        *   `routes/api.js`: RESTful API (配置、群组、订阅、B站登录等)
+        *   `middleware/auth.js`: JWT 认证中间件
     *   `handlers/`: 消息与 AI 处理逻辑
         *   `messageHandler.js`: 链接解析、指令系统、权限管理
         *   `aiHandler.js`: AI 对话、RAG 检索、上下文管理
@@ -377,7 +418,6 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 
 ## 待办计划 (Roadmap)
 
-- [ ] Web 管理后台 (可视化配置订阅与设置)
 - [ ] 订阅关键词监控 (监控动态中的特定关键词)
 - [ ] 消息统计与数据分析
 - [ ] 插件系统 (支持自定义扩展)
@@ -433,7 +473,6 @@ Bot 支持分群配置覆盖。在群聊中发送 `/设置` 指令时，默认�
 
 特别感谢以下 AI 模型与工具在开发过程中的强力支持：
 
-*   **Qwen**
 *   **Gemini**
 *   **Claude**
 *   **Trae**

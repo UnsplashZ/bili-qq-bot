@@ -33,8 +33,13 @@ class AiHandler {
 
     async getReply(message, userId, groupId) {
         try {
-            if (!config.aiApiKey) {
-                logger.warn('[AiHandler] AI_API_KEY is not set. Skipping AI reply.');
+            const apiKey = config.aiChatApiKey || config.aiApiKey;
+            const apiUrl = config.aiChatApiUrl || config.aiApiUrl;
+            const model = config.aiChatModel || config.aiModel;
+            const systemPromptBase = config.aiChatSystemPrompt || config.aiSystemPrompt || '';
+
+            if (!apiKey) {
+                logger.warn('[AiHandler] AI API Key is not set (checked aiChatApiKey and aiApiKey). Skipping AI reply.');
                 return null;
             }
 
@@ -45,6 +50,7 @@ class AiHandler {
             // Limit context for API based on aiContextLimit
             const contextLimit = config.getGroupConfig(groupId, 'aiContextLimit');
             const context = fullContext.slice(-contextLimit);
+            const temperature = config.getGroupConfig(groupId, 'aiTemperature');
 
             // Separate history and current message
             let historyText = "";
@@ -100,7 +106,7 @@ class AiHandler {
             }
 
             // RAG: Retrieve relevant long-term memories
-            let systemPrompt = config.aiSystemPrompt;
+            let systemPrompt = systemPromptBase;
             
             // Inject Core System Rules (Identity, Expression, Fact, Format)
             const CORE_INSTRUCTIONS = `
@@ -144,16 +150,17 @@ class AiHandler {
 
             while (loopCount < MAX_LOOPS) {
                 const requestPayload = {
-                    model: config.aiModel,
-                    messages: currentMessages
+                    model,
+                    messages: currentMessages,
+                    temperature
                 };
                 if (tools.length > 0) {
                     requestPayload.tools = tools;
                 }
 
-                const response = await axios.post(config.aiApiUrl, requestPayload, {
+                const response = await axios.post(apiUrl, requestPayload, {
                     headers: {
-                        'Authorization': `Bearer ${config.aiApiKey}`,
+                        'Authorization': `Bearer ${apiKey}`,
                         'Content-Type': 'application/json'
                     },
                     proxy: proxyConfig,

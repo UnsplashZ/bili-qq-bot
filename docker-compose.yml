@@ -34,6 +34,8 @@ services:
       - ./fonts/custom:/app/fonts/custom
       # 映射此目录以将生成的图片写入 NapCat 可访问的位置
       - ./napcat/qq:/app/.config/QQ
+    ports:
+      - "3000:3000" # WebUI
     networks:
       - bot_network
 
