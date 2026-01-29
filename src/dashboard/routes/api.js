@@ -96,6 +96,12 @@ router.get('/config', async (req, res) => {
     }
 });
 
+// Allowed fields for global config update via WebUI
+const ALLOWED_GLOBAL_CONFIG_KEYS = [
+    'subscriptionCheckInterval',
+    'linkCacheTimeout',
+];
+
 // POST /api/config - Update global config
 router.post('/config', async (req, res) => {
     try {
@@ -104,11 +110,21 @@ router.post('/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' });
         }
 
-        // Update in-memory config
-        Object.assign(sysConfig, newConfig);
+        // Only accept whitelisted fields
+        const filtered = {};
+        for (const key of Object.keys(newConfig)) {
+            if (ALLOWED_GLOBAL_CONFIG_KEYS.includes(key)) {
+                filtered[key] = newConfig[key];
+            }
+        }
+        if (Object.keys(filtered).length === 0) {
+            return res.status(400).json({ error: 'No valid configuration keys provided' });
+        }
+
+        Object.assign(sysConfig, filtered);
         sysConfig.save();
 
-        res.json({ message: 'Configuration updated successfully', config: newConfig });
+        res.json({ message: 'Configuration updated successfully', config: filtered });
     } catch (error) {
         res.status(500).json({ error: 'Failed to save configuration' });
     }

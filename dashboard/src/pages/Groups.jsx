@@ -281,12 +281,11 @@ function Groups() {
 
       await api.post(`/api/groups/${selectedGroupId}/config`, payload);
 
-      // Update local state
-      setGroups(prev => prev.map(g =>
-        g.id === selectedGroupId
-          ? { ...g, config: { ...g.config, ...payload } }
-          : g
-      ));
+      // Re-fetch groups to confirm persisted state
+      const res = await api.get('/api/groups');
+      if (Array.isArray(res.data)) {
+        setGroups(res.data);
+      }
 
       show('配置保存成功', 'success');
     } catch (err) {

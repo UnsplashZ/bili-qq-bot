@@ -15,6 +15,8 @@ class SubscriptionManager {
         // groupToAccountMap: Map<String(groupId), String(uid)>
         this.groupToAccountMap = {};
 
+        this.staleFollowerState = new Map(); // Cache removed followers' state for re-follow recovery
+
         this.dataDir = path.join(process.cwd(), 'data');
         this.subFile = path.join(this.dataDir, 'subscriptions.json');
         this.followersFile = path.join(this.dataDir, 'subfollowers.json');
@@ -235,7 +237,7 @@ class SubscriptionManager {
         }
     }
 
-    setCookieFollowings(accountUid, newFollowings) {
+    async setCookieFollowings(accountUid, newFollowings) {
         if (!accountUid) return;
         const uidStr = String(accountUid);
         const oldFollowings = this.cookieFollowings[uidStr] || [];
@@ -250,6 +252,32 @@ class SubscriptionManager {
             if (id) oldMap.set(id, f);
         });
 
+        // Index new followers
+        const newMap = new Map();
+        newFollowings.forEach(f => {
+            const id = getId(f);
+            if (id) newMap.set(id, f);
+        });
+
+        // Save removed followers' state for potential re-follow recovery
+        for (const [id, f] of oldMap) {
+            if (!newMap.has(id) && (f.lastDynamicId || f.lastLiveStatus)) {
+                this.staleFollowerState.set(id, {
+                    lastDynamicId: f.lastDynamicId,
+                    lastLiveStatus: f.lastLiveStatus
+                });
+            }
+        }
+
+        // Trim staleFollowerState to 1000 entries
+        if (this.staleFollowerState.size > 1000) {
+            const excess = this.staleFollowerState.size - 1000;
+            const iter = this.staleFollowerState.keys();
+            for (let i = 0; i < excess; i++) {
+                this.staleFollowerState.delete(iter.next().value);
+            }
+        }
+
         // Merge new list with old state
         const merged = newFollowings.map(newF => {
             const id = getId(newF);
@@ -263,7 +291,15 @@ class SubscriptionManager {
                     lastLiveStatus: oldF.lastLiveStatus !== undefined ? oldF.lastLiveStatus : 0
                 };
             } else {
-                // Initialize state
+                // Initialize state - check stale cache for re-follow recovery
+                const stale = this.staleFollowerState.get(id);
+                if (stale) {
+                    return {
+                        ...newF,
+                        lastDynamicId: stale.lastDynamicId,
+                        lastLiveStatus: stale.lastLiveStatus
+                    };
+                }
                 return {
                     ...newF,
                     lastDynamicId: null,
@@ -273,14 +309,10 @@ class SubscriptionManager {
         });
 
         this.cookieFollowings[uidStr] = merged;
-
-        // Fire-and-forget save
-        this._saveFollowers().catch(err => {
-            logger.error('[SubscriptionManager] Failed to save followers after setCookieFollowings:', err);
-        });
+        await this._saveFollowers();
     }
 
-    updateCookieFollowerState(accountUid, targetUid, updates) {
+    async updateCookieFollowerState(accountUid, targetUid, updates) {
         if (!accountUid || !targetUid) return;
         const accountStr = String(accountUid);
         const targetStr = String(targetUid);
@@ -291,19 +323,14 @@ class SubscriptionManager {
         const follower = followings.find(f => this.getFollowerId(f) === targetStr);
         if (follower) {
             Object.assign(follower, updates);
-            this._saveFollowers().catch(err => {
-                logger.error(`[SubscriptionManager] Failed to save followers after updating state for ${targetUid}:`, err);
-            });
+            await this._saveFollowers();
         }
     }
 
-    setGroupAccountMapping(groupId, accountUid) {
+    async setGroupAccountMapping(groupId, accountUid) {
         if (!groupId || !accountUid) return;
         this.groupToAccountMap[String(groupId)] = String(accountUid);
-        // We don't necessarily save on every mapping update if it's frequent, but let's be safe
-        this._saveFollowers().catch(err => {
-             logger.error('[SubscriptionManager] Failed to save followers after setGroupAccountMapping:', err);
-        });
+        await this._saveFollowers();
     }
 
     getFollowingsForGroup(groupId) {
@@ -333,7 +360,7 @@ class SubscriptionManager {
 
         if (sub) {
             if (!sub.groupIds.some(id => String(id) === gid)) {
-                sub.groupIds.push(groupId);
+                sub.groupIds.push(gid);
                 await this._saveSubscriptions();
             }
             return sub.name;
@@ -358,7 +385,7 @@ class SubscriptionManager {
         const newSub = {
             uid: uid,
             name: info.data.name,
-            groupIds: [groupId],
+            groupIds: [gid],
             lastDynamicId: lastId,
             lastLiveStatus: 0 // 0: offline, 1: online
         };
@@ -396,7 +423,7 @@ class SubscriptionManager {
         const gid = String(groupId);
         if (sub) {
             if (!sub.groupIds.some(id => String(id) === gid)) {
-                sub.groupIds.push(groupId);
+                sub.groupIds.push(gid);
                 await this._saveSubscriptions();
             }
             return sub.title;
@@ -411,7 +438,7 @@ class SubscriptionManager {
         const newSub = {
             seasonId: seasonId,
             title: info.data.title,
-            groupIds: [groupId],
+            groupIds: [gid],
             lastEpId: null // Will be updated on first check
         };
 
@@ -485,26 +512,6 @@ class SubscriptionManager {
         }
 
         return modified;
-    }
-
-    // Get followings for a specific group
-    getFollowingsForGroup(groupId) {
-        const gid = String(groupId);
-        const accountUid = this.groupToAccountMap[gid];
-        if (accountUid && this.cookieFollowings[accountUid]) {
-            return this.cookieFollowings[accountUid];
-        }
-        
-        // Fallback: If no mapping found but we have only 1 account, maybe return that?
-        // Or check if there's any data?
-        // For now, return empty array to avoid showing wrong data
-        const accountKeys = Object.keys(this.cookieFollowings);
-        if (!accountUid && accountKeys.length === 1) {
-            // If only one account exists globally, assume it's the one (Backward compatibility behavior)
-            return this.cookieFollowings[accountKeys[0]];
-        }
-
-        return [];
     }
 
     async getSubscriptionsByGroup(groupId) {

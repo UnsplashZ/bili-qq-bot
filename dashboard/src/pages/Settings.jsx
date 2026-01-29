@@ -6,6 +6,18 @@ import GlassModal from '../components/GlassModal';
 import { useToast } from '../hooks/useToast';
 import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock, MessageSquare, Edit } from 'lucide-react';
 
+const GENERAL_CONFIG_DEFAULTS = {
+    subscriptionCheckInterval: 300,
+};
+
+function extractGeneralConfig(source) {
+    const result = {};
+    for (const [key, def] of Object.entries(GENERAL_CONFIG_DEFAULTS)) {
+        result[key] = source[key] ?? def;
+    }
+    return result;
+}
+
 const Settings = () => {
   const [loading, setLoading] = useState(true);
   const { show } = useToast();
@@ -105,9 +117,7 @@ const Settings = () => {
         setFullConfig(configRes.data);
 
         // Setup General Config
-        setGeneralConfig({
-            subscriptionCheckInterval: configRes.data.subscriptionCheckInterval ?? 300
-        });
+        setGeneralConfig(extractGeneralConfig(configRes.data));
 
         // Setup AI Config
         const {
@@ -199,24 +209,16 @@ const Settings = () => {
   const saveGeneralSettings = async () => {
     setSavingGeneral(true);
     try {
-      // Merge current general config into full config to prevent data loss
-      const newConfig = {
-          ...fullConfig,
-          ...generalConfig,
-          // Ensure we don't overwrite AI settings with old data from fullConfig if they were changed separately?
-          // Actually AI settings have their own save button.
-          // Ideally we should update fullConfig whenever we save ANY section.
-          // But here we just assume fullConfig is fresh enough or we only care about general fields.
-          // To be safer, we could refetch before save, but that's overkill.
-          // We'll update fullConfig state after successful save.
-      };
-
-      await api.post('/api/config', newConfig);
-      setFullConfig(newConfig);
+      await api.post('/api/config', generalConfig);
+      // Re-fetch to confirm persisted state
+      const { data: freshConfig } = await api.get('/api/config');
+      setFullConfig(freshConfig);
+      setGeneralConfig(extractGeneralConfig(freshConfig));
       show("常规设置已保存！", "success");
     } catch (error) {
       console.error("Failed to save general settings:", error);
-      show("保存常规设置失败", "error");
+      const errorMsg = error.response?.data?.error || '保存常规设置失败';
+      show(errorMsg, "error");
     } finally {
       setSavingGeneral(false);
     }

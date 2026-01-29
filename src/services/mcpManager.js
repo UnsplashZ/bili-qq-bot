@@ -13,6 +13,7 @@ class McpManager {
         this.configPath = path.join(process.cwd(), 'config', 'mcp_servers.json');
         this._lastWorkingConfig = null;  // Last successfully loaded config for rollback
         this._startupStartedAt = null;
+        this._isReloading = false;  // Prevent reconnect during reload
         const delayValue = parseInt(process.env.MCP_CALL_DELAY_MS || '10000', 10);
         this._startupDelayMs = Number.isFinite(delayValue) ? Math.max(delayValue, 0) : 0;
     }
@@ -110,11 +111,17 @@ class McpManager {
     }
 
     async handleDisconnect(serverName, serverConfig) {
+        // Skip reconnect during reload to avoid race conditions
+        if (this._isReloading) {
+            logger.info(`[McpManager] Skipping reconnect for ${serverName} during reload`);
+            return;
+        }
+
         // Clean up existing client if exists
         if (this.clients.has(serverName)) {
             this.clients.delete(serverName);
         }
-        
+
         // Remove tools associated with this server
         for (const [key, value] of this.toolsMap.entries()) {
             if (value.serverName === serverName) {
@@ -203,6 +210,7 @@ class McpManager {
 
     // Reload MCP servers with rollback support
     async reload(newConfig) {
+        this._isReloading = true;
         const oldClients = new Map(this.clients);  // Backup old connections
         const oldToolsMap = new Map(this.toolsMap);
 
@@ -317,6 +325,8 @@ class McpManager {
             this.toolsMap = oldToolsMap;
 
             throw error;  // Re-throw to let API handler know reload failed
+        } finally {
+            this._isReloading = false;
         }
     }
 

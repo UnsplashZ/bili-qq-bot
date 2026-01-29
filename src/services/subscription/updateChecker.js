@@ -205,6 +205,7 @@ class UpdateChecker {
         // Use safe ID generation
         const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let offset = '';
+        let prevOffset = null;
         let hasMore = true;
         let page = 0;
         let stateChanged = false;
@@ -219,6 +220,8 @@ class UpdateChecker {
             const items = res.data.items || [];
             hasMore = res.data.has_more;
             offset = res.data.offset;
+            if (offset === prevOffset) break; // Prevent infinite loop on unchanged offset
+            prevOffset = offset;
             page++;
 
             if (items.length === 0) break;
@@ -246,8 +249,10 @@ class UpdateChecker {
                             isNew = true;
                         }
                     } catch (e) {
-                        // Fallback string compare if BigInt fails
-                        if (dynamicId !== follower.lastDynamicId) isNew = true;
+                        // Fallback: zero-padded string comparison (safe for large IDs)
+                        const a = dynamicId.padStart(20, '0')
+                        const b = follower.lastDynamicId.padStart(20, '0')
+                        if (a > b) isNew = true
                     }
                 }
 
@@ -314,15 +319,24 @@ class UpdateChecker {
                 }
 
                 // Update state if id is newer or missing
-                if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || 0n)) {
-                    follower.lastDynamicId = dynamicId;
-                    stateChanged = true;
+                try {
+                    if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || '0')) {
+                        follower.lastDynamicId = dynamicId;
+                        stateChanged = true;
+                    }
+                } catch (e) {
+                    const a = String(dynamicId).padStart(20, '0')
+                    const b = String(follower.lastDynamicId || '0').padStart(20, '0')
+                    if (!follower.lastDynamicId || a > b) {
+                        follower.lastDynamicId = dynamicId;
+                        stateChanged = true;
+                    }
                 }
             }
         }
 
         if (stateChanged) {
-            subscriptionManager.setCookieFollowings(accountUid, followers);
+            await subscriptionManager.setCookieFollowings(accountUid, followers);
         }
     }
 
@@ -394,7 +408,7 @@ class UpdateChecker {
         // For now, let's just update those we see.
 
         if (stateChanged) {
-            subscriptionManager.setCookieFollowings(accountUid, followers);
+            await subscriptionManager.setCookieFollowings(accountUid, followers);
         }
     }
 
@@ -636,7 +650,11 @@ class UpdateChecker {
 
             const liveRoom = res.data.live_room || {};
             const liveStatus = liveRoom.liveStatus; // 1: live, 0: offline
-            const roomId = liveRoom.roomid || liveRoom.room_id || sub.uid; // Extract room_id with fallback
+            const roomId = liveRoom.roomid || liveRoom.room_id;
+            if (!roomId) {
+                logger.warn(`[UpdateChecker] Missing room ID for user ${sub.uid} (${sub.name}), skipping live check`);
+                return;
+            }
             const roomUrl = liveRoom.url;
             const title = liveRoom.title;
             const cover = liveRoom.cover;
@@ -879,7 +897,7 @@ class UpdateChecker {
                 const myUid = String(myInfo.data.mid);
                 
                 // Update mapping
-                subscriptionManager.setGroupAccountMapping(groupId, myUid);
+                await subscriptionManager.setGroupAccountMapping(groupId, myUid);
                 
                 // If we already refreshed this account in this cycle, skip fetching
                 if (visitedUids.has(myUid)) {
@@ -891,7 +909,7 @@ class UpdateChecker {
                 const res = await biliApi.getMyFollowings(null, groupId);
                 
                 if (res.status === 'success' && res.data) {
-                    subscriptionManager.setCookieFollowings(myUid, res.data);
+                    await subscriptionManager.setCookieFollowings(myUid, res.data);
                     visitedUids.add(myUid);
                 } else {
                     logger.error(`[UpdateChecker] Failed to refresh followings for group ${groupId}:`, res.message);

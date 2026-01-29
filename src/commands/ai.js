@@ -59,11 +59,7 @@ class AiCommand {
                     return true;
                 }
 
-                if (!config.groupConfigs[groupId]) {
-                    config.groupConfigs[groupId] = {};
-                }
-                config.groupConfigs[groupId].aiProbability = value;
-                config.save();
+                config.setGroupConfig(groupId, 'aiProbability', value);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已设置本群AI回复概率为: ${value} (${(value * 100).toFixed(0)}%)` } }]);
                 return true;
             }

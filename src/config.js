@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 const logger = require('./utils/logger');
+const { asyncWriteWithBackup } = require('./utils/storageUtils');
 
 const CONFIG_DIR = path.join(__dirname, '../config');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
@@ -400,8 +401,8 @@ const config = {
             delete _overrides[key];
         });
 
-        // Save changes
-        this._performSave();
+        // Save changes (async, errors handled internally)
+        this._performSave().catch(() => {});
         logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
     },
 
@@ -415,34 +416,24 @@ const config = {
         // Debounce: wait 100ms before actually saving (shortened from 500ms)
         // 100ms is sufficient to merge multiple setter calls from Object.assign
         this._saveTimer = setTimeout(() => {
-            this._performSave();
+            this._performSave().catch(() => {});
         }, 100);
     },
 
-    _performSave: function() {
+    _performSave: async function() {
         const startTime = Date.now();
         const saveCount = (this._saveCount || 0) + 1;
 
         try {
-            const jsonString = JSON.stringify(_overrides, null, 2);
-            fs.writeFile(CONFIG_PATH, jsonString, 'utf8', (err) => {
-                const duration = Date.now() - startTime;
-
-                if (err) {
-                    logger.error(`[Config] Failed to save configuration (took ${duration}ms):`, err);
-                } else {
-                    this._saveCount = saveCount;
-                    logger.info(`[Config] Configuration saved to config.json (took ${duration}ms, total saves: ${this._saveCount})`);
-
-                    // Warn if save is slow (potential disk I/O issue)
-                    if (duration > 100) {
-                        logger.warn(`[Config] Slow save detected (${duration}ms), consider checking disk I/O`);
-                    }
-                }
-            });
-        } catch (e) {
+            await asyncWriteWithBackup(CONFIG_PATH, _overrides, false);
+            this._saveCount = saveCount;
             const duration = Date.now() - startTime;
-            logger.error(`[Config] Error preparing configuration data (took ${duration}ms):`, e);
+            logger.info(`[Config] Configuration saved (${duration}ms, total: ${this._saveCount})`);
+            if (duration > 100) {
+                logger.warn(`[Config] Slow save detected (${duration}ms)`);
+            }
+        } catch (e) {
+            logger.error('[Config] Failed to save configuration:', e);
         }
     }
 };
