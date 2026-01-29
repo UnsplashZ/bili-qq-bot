@@ -337,7 +337,7 @@ else
 fi
 
 # --- WebUI 配置 ---
-echo -e "${GREEN}[6.5/8] WebUI 与 AI 配置...${NC}"
+echo -e "${GREEN}[6.5/8] WebUI 管理面板配置...${NC}"
 read -p "请设置 WebUI 面板端口 (默认: 3000): " webui_port
 webui_port=${webui_port:-3000}
 
@@ -350,80 +350,8 @@ else
     echo "DASHBOARD_PASSWORD=$dashboard_pwd" >> config/.env
 fi
 
-# --- AI 配置 ---
-read -p "是否启用 AI 功能 (OpenAI/DeepSeek 等)? [y/N] " enable_ai
-if [[ "$enable_ai" =~ ^[Yy]$ ]]; then
-    read -p "请输入 AI API 地址 (例如 https://api.openai.com/v1): " ai_url
-    if [ -n "$ai_url" ]; then
-        if grep -q "^AI_API_URL=" config/.env; then
-            sed -i "s|^AI_API_URL=.*|AI_API_URL=$ai_url|" config/.env
-        else
-            echo "AI_API_URL=$ai_url" >> config/.env
-        fi
-    fi
-
-    read -p "请输入 AI API Key: " ai_key
-    if [ -n "$ai_key" ]; then
-        if grep -q "^AI_API_KEY=" config/.env; then
-            sed -i "s/^AI_API_KEY=.*/AI_API_KEY=$ai_key/" config/.env
-        else
-            echo "AI_API_KEY=$ai_key" >> config/.env
-        fi
-    fi
-
-    read -p "请输入模型名称 (例如 gpt-3.5-turbo): " ai_model
-    if [ -n "$ai_model" ]; then
-        if grep -q "^AI_MODEL=" config/.env; then
-            sed -i "s/^AI_MODEL=.*/AI_MODEL=$ai_model/" config/.env
-        else
-            echo "AI_MODEL=$ai_model" >> config/.env
-        fi
-    fi
-
-    read -p "请输入 AI 代理地址 (可选): " ai_proxy
-    if [ -n "$ai_proxy" ]; then
-        if grep -q "^AI_PROXY_URL=" config/.env; then
-            sed -i "s|^AI_PROXY_URL=.*|AI_PROXY_URL=$ai_proxy|" config/.env
-        else
-            echo "AI_PROXY_URL=$ai_proxy" >> config/.env
-        fi
-    fi
-
-    read -p "是否启用 RAG (长期记忆)? [y/N] " enable_rag
-    if [[ "$enable_rag" =~ ^[Yy]$ ]]; then
-        read -p "请输入 Embedding API 地址: " embed_url
-        if [ -n "$embed_url" ]; then
-            if grep -q "^AI_EMBEDDING_API_URL=" config/.env; then
-                sed -i "s|^AI_EMBEDDING_API_URL=.*|AI_EMBEDDING_API_URL=$embed_url|" config/.env
-            else
-                echo "AI_EMBEDDING_API_URL=$embed_url" >> config/.env
-            fi
-        fi
-
-        read -p "请输入 Embedding API Key (留空同 AI Key): " embed_key
-        if [ -z "$embed_key" ]; then
-            embed_key="$ai_key"
-        fi
-        if [ -n "$embed_key" ]; then
-            if grep -q "^AI_EMBEDDING_API_KEY=" config/.env; then
-                sed -i "s/^AI_EMBEDDING_API_KEY=.*/AI_EMBEDDING_API_KEY=$embed_key/" config/.env
-            else
-                echo "AI_EMBEDDING_API_KEY=$embed_key" >> config/.env
-            fi
-        fi
-
-        read -p "请输入 Embedding 模型 (例如 text-embedding-ada-002): " embed_model
-        if [ -n "$embed_model" ]; then
-            if grep -q "^AI_EMBEDDING_MODEL=" config/.env; then
-                sed -i "s/^AI_EMBEDDING_MODEL=.*/AI_EMBEDDING_MODEL=$embed_model/" config/.env
-            else
-                echo "AI_EMBEDDING_MODEL=$embed_model" >> config/.env
-            fi
-        fi
-    fi
-fi
-
-echo -e "${YELLOW}提示: 您可以稍后编辑 config/.env 修改 AI 配置等其他选项。${NC}"
+echo -e "${YELLOW}提示: 部署完成后，可通过 WebUI 面板 (http://<服务器IP>:$webui_port) 管理群组配置、AI 功能、订阅推送等。${NC}"
+echo -e "${YELLOW}      如需配置 AI 功能，请在 WebUI「系统设置」页面中填写 API 地址与密钥，或手动编辑 config/.env。${NC}"
 
 # 7. 配置 docker-compose.yml
 echo -e "${GREEN}[7/8] 准备 Docker Compose...${NC}"
@@ -536,6 +464,16 @@ if [ $? -eq 0 ]; then
     echo "---------------------------------------------------"
     echo -e "${GREEN}部署全部完成！${NC}"
     echo "机器人服务已在后台运行。"
+    echo ""
+    echo -e "${GREEN}WebUI 管理面板: http://<服务器IP>:$webui_port${NC}"
+    echo -e "${GREEN}面板密码: $dashboard_pwd${NC}"
+    echo ""
+    echo "在 WebUI 中您可以:"
+    echo "  - 管理群组配置 (启用/禁用、深色模式、标签等)"
+    echo "  - 配置 AI 功能 (API 地址、密钥、模型、系统提示词)"
+    echo "  - 管理订阅推送 (UP 主动态、直播、番剧)"
+    echo "  - 查看实时日志与系统状态"
+    echo ""
     echo -e "${YELLOW}提示: 如需启用 MCP (Model Context Protocol) 扩展能力，请参考 config/mcp_servers.json.example 进行配置。${NC}"
     echo "如需查看机器人日志: docker logs -f bili-qq-bot"
 else
