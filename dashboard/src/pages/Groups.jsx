@@ -868,9 +868,9 @@ function Groups() {
                                                 {subTypes.find(t => t.value === sub.type)?.label || sub.type}
                                             </td>
                                             <td className="p-3 text-white">
-                                                {sub.name ? (
+                                                {(sub.name || sub.title) ? (
                                                     <div>
-                                                        <div className="font-medium">{sub.name}</div>
+                                                        <div className="font-medium">{sub.name || sub.title}</div>
                                                         <div className="text-xs text-gray-400 font-mono">{sub.value}</div>
                                                     </div>
                                                 ) : (

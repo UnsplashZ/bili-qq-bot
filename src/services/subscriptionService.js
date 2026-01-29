@@ -95,6 +95,10 @@ class SubscriptionService {
             // updateChecker.checkUserDynamic now internally uses bypassCache=true
             // 3rd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
             await updateChecker.checkUserDynamic(tempSub, null, true);
+            
+            // Also force check live status
+            await updateChecker.checkUserLive(tempSub, null, true);
+            
             return true;
         }
         return false;

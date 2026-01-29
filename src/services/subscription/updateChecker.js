@@ -257,6 +257,11 @@ class UpdateChecker {
                 }
 
                 if (isNew) {
+                    // Check for live dynamic to skip (handled by processLiveFeed)
+                    if (this.isLiveDynamic(item)) {
+                        continue;
+                    }
+
                     const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                     if (targetGroups.length > 0) {
@@ -351,9 +356,11 @@ class UpdateChecker {
         // Use safe ID generation
         const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
         let stateChanged = false;
+        const onlineUids = new Set();
 
         for (const item of liveList) {
             const uid = String(item.uid);
+            onlineUids.add(uid);
             if (!followerMap.has(uid)) continue;
 
             const follower = followerMap.get(uid);
@@ -398,14 +405,15 @@ class UpdateChecker {
             }
         }
 
-        // Note: Live Feed only returns online users.
-        // We might want to set offline status for those not in the list?
-        // But for "Feed Polling", we only care about *updates* (going live).
-        // Setting offline status is tricky without full list scan.
-        // We'll stick to detecting "Started Streaming" based on local state vs feed presence.
-        // Actually, if they disappear from feed, they are offline.
-        // But iterating all followers to set offline might be expensive every minute if there are 1000 followers.
-        // For now, let's just update those we see.
+        // Handle offline users
+        // If a user was live (lastLiveStatus === 1) but is no longer in the live list, set them to offline (0)
+        for (const follower of followers) {
+             const uid = subscriptionManager.getFollowerId(follower);
+             if (follower.lastLiveStatus === 1 && !onlineUids.has(uid)) {
+                 follower.lastLiveStatus = 0;
+                 stateChanged = true;
+             }
+        }
 
         if (stateChanged) {
             await subscriptionManager.setCookieFollowings(accountUid, followers);
@@ -461,6 +469,13 @@ class UpdateChecker {
         return targetGroups;
     }
 
+    isLiveDynamic(card) {
+        const t = card.type || (card.desc && card.desc.type);
+        return t === 'DYNAMIC_TYPE_LIVE_RCMD' ||
+               t === 4308 ||
+               (card.modules?.module_dynamic?.major?.type === 'MAJOR_TYPE_LIVE_RCMD');
+    }
+
     async checkUserDynamic(sub, targetGroups = null, force = false) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
@@ -508,19 +523,34 @@ class UpdateChecker {
                 return;
             }
 
-            // If first time (no lastId), just update and return
+            let latestNonLiveCard = null;
+            let latestNonLiveId = null;
+            for (const c of cards) {
+                if (!this.isLiveDynamic(c)) {
+                    latestNonLiveCard = c;
+                    latestNonLiveId = c.id_str || (c.desc && c.desc.dynamic_id_str);
+                    break;
+                }
+            }
+
             if (!sub.lastDynamicId && !force) {
-                await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                if (latestNonLiveId) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestNonLiveId });
+                }
                 return;
             }
 
             if (latestId !== sub.lastDynamicId || force) {
-                // Find all new dynamics or just the latest if force
                 let newCards = [];
                 
                 if (force) {
-                    newCards = [latestCard];
-                    logger.info(`[UpdateChecker] Force checking dynamic for ${sub.name} (ID: ${latestId})`);
+                    if (latestNonLiveCard) {
+                        newCards = [latestNonLiveCard];
+                        logger.info(`[UpdateChecker] Force checking dynamic for ${sub.name} (ID: ${latestNonLiveId})`);
+                    } else {
+                        newCards = [];
+                        logger.info(`[UpdateChecker] Force check found only live dynamic for ${sub.name}, skipping`);
+                    }
                 } else {
                     for (const card of cards) {
                         const currentId = card.id_str || (card.desc && card.desc.dynamic_id_str);
@@ -548,11 +578,7 @@ class UpdateChecker {
                     // Check if this is a live stream start notification
                     // These are auto-posted by Bilibili when a user starts streaming
                     // We want to skip these and let checkUserLive handle the notification to avoid duplicates
-                    const isLiveDynamic = cardType === 'DYNAMIC_TYPE_LIVE_RCMD' ||
-                                          cardType === 4308 || // OLD API Live type
-                                          (card.modules?.module_dynamic?.major?.type === 'MAJOR_TYPE_LIVE_RCMD');
-
-                    if (isLiveDynamic) {
+                    if (this.isLiveDynamic(card)) {
                         logger.info(`[UpdateChecker] Skipping live dynamic for ${sub.name} (ID: ${cardId}) - expecting checkUserLive to handle it`);
                         continue;
                     }
@@ -631,9 +657,10 @@ class UpdateChecker {
                     }
                 }
 
-                // Update lastId (only if not forced check)
                 if (!force) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestId });
+                    if (latestNonLiveId) {
+                        await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestNonLiveId });
+                    }
                 }
             }
         } catch (e) {
@@ -641,7 +668,7 @@ class UpdateChecker {
         }
     }
 
-    async checkUserLive(sub, targetGroups = null) {
+    async checkUserLive(sub, targetGroups = null, force = false) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
         // 使用第一个群组的cookie获取用户信息
@@ -679,8 +706,8 @@ class UpdateChecker {
             const title = liveRoom.title || '直播间';
             const cover = liveRoom.cover;
 
-            if (liveStatus === 1 && sub.lastLiveStatus === 0) {
-                // Started Streaming
+            if ((liveStatus === 1 && sub.lastLiveStatus === 0) || (force && liveStatus === 1)) {
+                // Started Streaming or Force Check
                 const msg = `${sub.name} 开播了！\n标题：${title}\n地址：${roomUrl}`;
 
                 // Try to generate image? Or just text + cover
