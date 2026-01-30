@@ -461,6 +461,22 @@ class UpdateChecker {
         const modules = item.modules || {};
         const dynamic = modules.module_dynamic || {};
         const major = dynamic.major || {};
+        const extractCvId = value => {
+            if (!value) return '';
+            const str = String(value);
+            const match = str.match(/\/read\/cv(\d+)/i) || str.match(/(?:^|[^a-z0-9])cv(\d+)/i);
+            if (match) return match[1];
+            if (/^\d+$/.test(str)) return str;
+            return '';
+        };
+        const resolveCvId = (majorData, itemData, dataRoot) => {
+            const jumpUrl = majorData?.opus?.jump_url || itemData?.basic?.jump_url || dataRoot?.basic?.jump_url;
+            let cvId = extractCvId(jumpUrl);
+            if (!cvId) {
+                cvId = extractCvId(dataRoot?.id || dataRoot?.cvid);
+            }
+            return cvId;
+        };
 
         // Video (in dynamic)
         if (type === 'video' || major.type === 'MAJOR_TYPE_ARCHIVE') {
@@ -470,14 +486,19 @@ class UpdateChecker {
 
         // Article/Opus (in dynamic)
         if (type === 'article' || major.type === 'MAJOR_TYPE_OPUS') {
-            const title = major.opus?.title || '';
-            return title ? `${userName} 投稿了新专栏：\n${title}` : `${userName} 投稿了新专栏`;
+            const title = major.opus?.title || data.title || '';
+            const cvId = resolveCvId(major, item, data);
+            if (cvId) {
+                return title ? `${userName} 投稿了新专栏：\n${title}` : `${userName} 投稿了新专栏`;
+            }
+            return `${userName} 发布了新动态`;
         }
 
         // Forward
         if (type === 'forward' || item.type === 'DYNAMIC_TYPE_FORWARD') {
             const orig = item.orig || {};
-            const origModules = orig.modules || {};
+            const origItem = orig.item || orig;
+            const origModules = origItem.modules || {};
             const origDynamic = origModules.module_dynamic || {};
             const origMajor = origDynamic.major || {};
 
@@ -487,7 +508,11 @@ class UpdateChecker {
             }
             if (origMajor.type === 'MAJOR_TYPE_OPUS') {
                 const title = origMajor.opus?.title || '';
-                return title ? `${userName} 转发了专栏：\n${title}` : `${userName} 转发了专栏`;
+                const cvId = resolveCvId(origMajor, origItem, orig);
+                if (cvId) {
+                    return title ? `${userName} 转发了专栏：\n${title}` : `${userName} 转发了专栏`;
+                }
+                return `${userName} 转发了一条动态`;
             }
             return `${userName} 转发了一条动态`;
         }
