@@ -375,9 +375,28 @@ class SubscriptionManager {
         // Get latest dynamic to initialize
         const dynamicInfo = await biliApi.getUserDynamic(uid);
         let lastId = null;
-        
+
         if (dynamicInfo.status === 'success' && dynamicInfo.data.cards && dynamicInfo.data.cards.length > 0) {
-            const card = dynamicInfo.data.cards[0];
+            const cards = dynamicInfo.data.cards;
+
+            // Sort cards by ID descending to handle sticky posts (which might be old but at top)
+            // This ensures we get the truly latest dynamic ID, not a pinned old one
+            cards.sort((a, b) => {
+                try {
+                    const idAStr = a.id_str || (a.desc && a.desc.dynamic_id_str);
+                    const idBStr = b.id_str || (b.desc && b.desc.dynamic_id_str);
+
+                    if (!idAStr || !idBStr) return 0;
+
+                    const idA = BigInt(idAStr);
+                    const idB = BigInt(idBStr);
+                    return idA < idB ? 1 : idA > idB ? -1 : 0;
+                } catch (e) {
+                    return 0;
+                }
+            });
+
+            const card = cards[0];
             // Try id_str first (new API), then desc.dynamic_id_str (old API)
             lastId = card.id_str || (card.desc && card.desc.dynamic_id_str) || null;
         }

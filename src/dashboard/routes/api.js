@@ -124,6 +124,15 @@ router.post('/config', async (req, res) => {
         Object.assign(sysConfig, filtered);
         sysConfig.save();
 
+        // Real-time update for subscriptionCheckInterval
+        if (filtered.subscriptionCheckInterval !== undefined) {
+            const interval = parseInt(filtered.subscriptionCheckInterval, 10);
+            if (!isNaN(interval) && interval > 0) {
+                subscriptionService.updateCheckInterval(interval);
+                logger.info(`[API] Subscription check interval updated to ${interval}s`);
+            }
+        }
+
         res.json({ message: 'Configuration updated successfully', config: filtered });
     } catch (error) {
         res.status(500).json({ error: 'Failed to save configuration' });
