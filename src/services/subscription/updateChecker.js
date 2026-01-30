@@ -176,12 +176,26 @@ class UpdateChecker {
         for (const [uid, groupId] of accountGroups) {
             try {
                 // Collect UIDs monitored by this account
+                // IMPORTANT: Add users that will be pushed via feed (tag match OR manual subscription)
+                // This optimizes performance by using feed data instead of individual API calls
                 if (monitoredUidsSet) {
                     const followers = subscriptionManager.cookieFollowings[String(uid)] || [];
-                    followers.forEach(f => {
-                         const fid = subscriptionManager.getFollowerId(f);
-                         if (fid) monitoredUidsSet.add(fid);
-                    });
+                    for (const f of followers) {
+                        const fid = subscriptionManager.getFollowerId(f);
+                        if (!fid) continue;
+
+                        // Use findTargetGroupsForUser to determine if this user will be pushed
+                        // This includes both:
+                        // 1. Cookie sync + tag matching groups
+                        // 2. Manual subscription groups (regardless of tag)
+                        const targetGroups = this.findTargetGroupsForUser(uid, f, activeGroups);
+
+                        // If any group will receive this user's updates via feed, mark as monitored
+                        // This prevents redundant API calls in checkUserDynamic
+                        if (targetGroups.length > 0) {
+                            monitoredUidsSet.add(fid);
+                        }
+                    }
                 }
 
                 // Process Dynamic Feed
@@ -265,61 +279,24 @@ class UpdateChecker {
                     const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
 
                     if (targetGroups.length > 0) {
-                        // Notify
-                        const renderInfo = {
-                            id: dynamicId,
-                            type: 'dynamic',
-                            data: {
-                                pub_ts: item.modules?.module_author?.pub_ts,
-                                item: {
-                                    modules: item.modules,
-                                    orig: item.orig,
-                                    id_str: dynamicId,
-                                    type: dynamicType,
-                                    desc: { type: dynamicType },
-                                    author: item.modules?.module_author
-                                }
-                            }
-                        };
+                        // Fetch dynamic detail using standard API (unified with linkHandler)
+                        // This ensures data format consistency with manual subscriptions
+                        const info = await biliApi.getDynamicInfo(dynamicId, groupId);
 
-                        let typeLabel = '动态';
-                        if (dynamicType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
-                        else if (dynamicType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
-                        else if (dynamicType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get dynamic detail for ${dynamicId} in feed, skipping`);
+                            continue;
+                        }
 
-                        const url = `https://t.bilibili.com/${dynamicId}`;
                         const name = follower.uname || item.modules?.module_author?.name;
+                        const url = `https://t.bilibili.com/${dynamicId}`;
+
+                        // Generate notification text using unified function
+                        const notificationText = this.generateNotificationText(name, info);
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-
-                        // Construct Notification Text
-                        let notificationText = `${name} 发布了新${typeLabel}！`; // Default
-
-                        if (dynamicType === 'DYNAMIC_TYPE_AV' && item.modules?.module_dynamic?.major?.archive) {
-                            const title = item.modules.module_dynamic.major.archive.title;
-                            notificationText = `${name} 投稿了新视频：\n${title}`;
-                        } else if (dynamicType === 'DYNAMIC_TYPE_ARTICLE' && item.modules?.module_dynamic?.major?.opus) {
-                             const title = item.modules.module_dynamic.major.opus.title;
-                             notificationText = `${name} 投稿了新专栏：\n${title}`;
-                        } else if (dynamicType === 'DYNAMIC_TYPE_FORWARD') {
-                            const orig = item.orig;
-                            if (orig) {
-                                if (orig.type === 'DYNAMIC_TYPE_AV' && orig.modules?.module_dynamic?.major?.archive) {
-                                     const title = orig.modules.module_dynamic.major.archive.title;
-                                     notificationText = `${name} 转发了视频：\n${title}`;
-                                } else if (orig.type === 'DYNAMIC_TYPE_ARTICLE' && orig.modules?.module_dynamic?.major?.opus) {
-                                     const title = orig.modules.module_dynamic.major.opus.title;
-                                     notificationText = `${name} 转发了专栏：\n${title}`;
-                                } else {
-                                     notificationText = `${name} 转发了一条动态`;
-                                }
-                            }
-                        } else if (dynamicType === 'DYNAMIC_TYPE_WORD') {
-                             notificationText = `${name} 发布了新动态`;
-                        }
-
-                        await this.notifyGroupsWithImage(targetGroups, renderInfo, 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImage(targetGroups, info, info.type || 'dynamic', url, notificationText);
                     }
                 }
 
@@ -372,45 +349,24 @@ class UpdateChecker {
 
                 if (targetGroups.length > 0) {
                     const roomId = item.room_id || item.roomid;
-                    const roomUrl = item.link || (roomId ? `https://live.bilibili.com/${roomId}` : '');
-                    const title = item.title;
-                    const cover = item.cover;
                     const name = item.uname;
 
-                    let liveData = null;
-                    if (roomId) {
-                        const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
-                        if (liveInfo.status === 'success' && liveInfo.data) {
-                            liveData = liveInfo;
-                            liveData.id = roomId;
-                        }
+                    if (!roomId) {
+                        logger.warn(`[UpdateChecker] No room ID for user ${uid} (${name}), skipping live notification`);
+                        continue;
                     }
 
-                    if (!liveData) {
-                        liveData = {
-                            id: roomId || uid,
-                            data: {
-                                room_info: {
-                                    room_id: roomId,
-                                    title: title,
-                                    cover: cover,
-                                    live_status: 1
-                                },
-                                anchor_info: {
-                                    base_info: {
-                                        uname: name,
-                                        face: item.face
-                                    }
-                                },
-                                watched_show: {
-                                    text_large: '',
-                                    num: 0
-                                }
-                            }
-                        };
+                    // Fetch live room detail using standard API (unified with linkHandler)
+                    const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
+                    if (liveInfo.status !== 'success') {
+                        logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${name}), skipping`);
+                        continue;
                     }
 
-                    await this.notifyGroupsWithImage(targetGroups, liveData, 'live', roomUrl, `${name} 开播了！`);
+                    liveInfo.id = roomId;
+                    const roomUrl = `https://live.bilibili.com/${roomId}`;
+
+                    await this.notifyGroupsWithImage(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
                 }
             }
 
@@ -489,6 +445,60 @@ class UpdateChecker {
         return t === 'DYNAMIC_TYPE_LIVE_RCMD' ||
                t === 4308 ||
                (card.modules?.module_dynamic?.major?.type === 'MAJOR_TYPE_LIVE_RCMD');
+    }
+
+    /**
+     * Generate notification text for different content types
+     * Unified logic for both feed and manual subscription pushes
+     * @param {string} userName - User name to display
+     * @param {object} info - Content info object from API (standard format)
+     * @returns {string} - Notification text
+     */
+    generateNotificationText(userName, info) {
+        const type = info.type || 'dynamic';
+        const data = info.data || {};
+        const item = data.item || {};
+        const modules = item.modules || {};
+        const dynamic = modules.module_dynamic || {};
+        const major = dynamic.major || {};
+
+        // Video (in dynamic)
+        if (type === 'video' || major.type === 'MAJOR_TYPE_ARCHIVE') {
+            const title = major.archive?.title || '';
+            return title ? `${userName} 投稿了新视频：\n${title}` : `${userName} 投稿了新视频`;
+        }
+
+        // Article/Opus (in dynamic)
+        if (type === 'article' || major.type === 'MAJOR_TYPE_OPUS') {
+            const title = major.opus?.title || '';
+            return title ? `${userName} 投稿了新专栏：\n${title}` : `${userName} 投稿了新专栏`;
+        }
+
+        // Forward
+        if (type === 'forward' || item.type === 'DYNAMIC_TYPE_FORWARD') {
+            const orig = item.orig || {};
+            const origModules = orig.modules || {};
+            const origDynamic = origModules.module_dynamic || {};
+            const origMajor = origDynamic.major || {};
+
+            if (origMajor.type === 'MAJOR_TYPE_ARCHIVE') {
+                const title = origMajor.archive?.title || '';
+                return title ? `${userName} 转发了视频：\n${title}` : `${userName} 转发了视频`;
+            }
+            if (origMajor.type === 'MAJOR_TYPE_OPUS') {
+                const title = origMajor.opus?.title || '';
+                return title ? `${userName} 转发了专栏：\n${title}` : `${userName} 转发了专栏`;
+            }
+            return `${userName} 转发了一条动态`;
+        }
+
+        // Plain text dynamic
+        if (item.type === 'DYNAMIC_TYPE_WORD') {
+            return `${userName} 发布了新动态`;
+        }
+
+        // Default
+        return `${userName} 发布了新动态`;
     }
 
     async checkUserDynamic(sub, targetGroups = null, force = false) {
@@ -598,71 +608,23 @@ class UpdateChecker {
                         continue;
                     }
 
-                    // Generate Preview
-                    // Construct info object compatible with generator
-                    // The renderer expects { data: { item: { modules: ... } } }
-                    // We need to map our card structure to what the renderer expects
-                    
-                    // Python backend normalizes this somewhat, let's use what we have
-                    const info = {
-                        id: cardId,
-                        type: 'dynamic',
-                        data: {
-                            pub_ts: card.modules?.module_author?.pub_ts || card.desc?.timestamp,
-                            item: {
-                                modules: card.modules,
-                                orig: card.orig,
-                                id_str: cardId,
-                                type: cardType,
-                                desc: {
-                                    type: cardType
-                                },
-                                author: card.author
-                            }
-                        }
-                    };
+                    // Fetch dynamic detail using standard API (unified with linkHandler)
+                    // This ensures data format consistency and completeness
+                    const groupId = groupsToNotify[0];  // Use first group's cookie for API call
+                    const info = await biliApi.getDynamicInfo(cardId, groupId);
 
-                    // Detect specific types for label filtering and message
-                    let typeLabel = '动态';
-
-                    // Handle both numeric and string types
-                    if (cardType === 8 || cardType === 'DYNAMIC_TYPE_AV') typeLabel = '视频';
-                    else if (cardType === 64 || cardType === 'DYNAMIC_TYPE_ARTICLE') typeLabel = '专栏';
-                    else if (cardType === 'DYNAMIC_TYPE_FORWARD') typeLabel = '转发';
-
-                    // Construct Notification Text
-                    let notificationText = `${sub.name} 发布了新${typeLabel}！`; // Default
-
-                    if (cardType === 'DYNAMIC_TYPE_AV' || cardType === 8) {
-                         const title = card.modules?.module_dynamic?.major?.archive?.title || card.desc?.title || '';
-                         if (title) notificationText = `${sub.name} 投稿了新视频：\n${title}`;
-                    } else if (cardType === 'DYNAMIC_TYPE_ARTICLE' || cardType === 64) {
-                         const title = card.modules?.module_dynamic?.major?.opus?.title || card.desc?.title || '';
-                         if (title) notificationText = `${sub.name} 投稿了新专栏：\n${title}`;
-                    } else if (cardType === 'DYNAMIC_TYPE_FORWARD') {
-                         const orig = card.orig;
-                         if (orig) {
-                              const oType = orig.type;
-                              if (oType === 'DYNAMIC_TYPE_AV' || oType === 8) {
-                                   const title = orig.modules?.module_dynamic?.major?.archive?.title || '';
-                                   if (title) notificationText = `${sub.name} 转发了视频：\n${title}`;
-                                   else notificationText = `${sub.name} 转发了视频`;
-                              } else if (oType === 'DYNAMIC_TYPE_ARTICLE' || oType === 64) {
-                                   const title = orig.modules?.module_dynamic?.major?.opus?.title || '';
-                                   if (title) notificationText = `${sub.name} 转发了专栏：\n${title}`;
-                                   else notificationText = `${sub.name} 转发了专栏`;
-                              } else {
-                                   notificationText = `${sub.name} 转发了一条动态`;
-                              }
-                         }
-                    } else if (cardType === 'DYNAMIC_TYPE_WORD') {
-                         notificationText = `${sub.name} 发布了新动态`;
+                    if (info.status !== 'success') {
+                        logger.warn(`[UpdateChecker] Failed to get dynamic detail for ${cardId}, skipping`);
+                        continue;
                     }
+
+                    // Generate notification text using unified function
+                    const notificationText = this.generateNotificationText(sub.name, info);
 
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(groupsToNotify, info, 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImage(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
 
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
@@ -723,52 +685,14 @@ class UpdateChecker {
 
             if ((liveStatus === 1 && sub.lastLiveStatus === 0) || (force && liveStatus === 1)) {
                 // Started Streaming or Force Check
-                const msg = `${sub.name} 开播了！\n标题：${title}\n地址：${roomUrl}`;
+                // Fetch live room detail using standard API (unified with linkHandler)
+                const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
 
-                // Try to generate image? Or just text + cover
-                // If cover exists, we can send it.
-                // Using generic notify with image support if we download cover?
-                // Or just text for now as per original simple logic, or upgrade?
-                // Original code might have used generatePreviewCard for live
-
-                // Let's try generatePreviewCard for live
-                try {
-                    let liveData = null;
-                    if (roomId) {
-                        const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId);
-                        if (liveInfo.status === 'success' && liveInfo.data) {
-                            liveData = liveInfo;
-                            liveData.id = roomId;
-                        }
-                    }
-
-                    if (!liveData) {
-                        liveData = {
-                            id: roomId,
-                            data: {
-                                room_info: {
-                                    room_id: roomId,
-                                    title: title,
-                                    cover: cover,
-                                    live_status: 1
-                                },
-                                anchor_info: {
-                                    base_info: {
-                                        uname: sub.name,
-                                        face: res.data.face
-                                    }
-                                },
-                                watched_show: {
-                                    text_large: '',
-                                    num: 0
-                                }
-                            }
-                        };
-                    }
-
-                    await this.notifyGroupsWithImage(groupsToNotify, liveData, 'live', roomUrl, `${sub.name} 开播了！`);
-                } catch (e) {
-                    this.notifyGroups(groupsToNotify, msg, `live_${roomId}`);
+                if (liveInfo.status !== 'success') {
+                    logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`);
+                } else {
+                    liveInfo.id = roomId;
+                    await this.notifyGroupsWithImage(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
                 }
             }
 
@@ -797,18 +721,15 @@ class UpdateChecker {
             }
 
             if (newEp.id !== sub.lastEpId) {
-                // New Episode
-                const msg = `番剧 ${sub.title} 更新了！\n${newEp.index_show}\nhttps://www.bilibili.com/bangumi/play/ep${newEp.id}`;
+                // New Episode - use standard API response format (unified with linkHandler)
+                const url = `https://www.bilibili.com/bangumi/play/ep${newEp.id}`;
+                const notificationText = `${sub.title} 更新了：${newEp.index_show}`;
 
                 try {
-                    const bangumiData = {
-                        ep_id: newEp.id,
-                        season_type: res.data?.season_type,
-                        data: res.data
-                    };
-                    await this.notifyGroupsWithImage(groupsToNotify, bangumiData, 'bangumi', `https://www.bilibili.com/bangumi/play/ep${newEp.id}`, `${sub.title} 更新了：${newEp.index_show}`);
+                    await this.notifyGroupsWithImage(groupsToNotify, res, 'bangumi', url, notificationText);
                 } catch (e) {
-                    this.notifyGroups(groupsToNotify, msg, newEp.id);
+                    logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e);
+                    this.notifyGroups(groupsToNotify, `${notificationText}\n${url}`, newEp.id);
                 }
 
                 await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });

@@ -39,6 +39,14 @@ class LinkHandler {
     extractLinks(rawMessage, groupId) {
         const links = [];
 
+        // Split URLs by '?' to extract only the path part and avoid matching IDs in query parameters
+        // This prevents false matches like 'av0' from 'mid=xzzRgOEjRaNav0HoyyGo3A%3D%3D'
+        const urlParts = rawMessage.split(/\s+/).map(part => {
+            const questionMarkIndex = part.indexOf('?');
+            return questionMarkIndex !== -1 ? part.substring(0, questionMarkIndex) : part;
+        });
+        const cleanedMessage = urlParts.join(' ');
+
         // 检查各种类型的链接
         const linkTypes = [
             { regex: this.bvRegex, type: 'video', extractId: (match) => match[0] },
@@ -53,7 +61,7 @@ class LinkHandler {
         ];
 
         for (const linkType of linkTypes) {
-            const matches = rawMessage.matchAll(new RegExp(linkType.regex, 'g'));
+            const matches = cleanedMessage.matchAll(new RegExp(linkType.regex, 'g'));
             for (const match of matches) {
                 const id = linkType.extractId(match);
                 // Cache key includes groupId to allow same link in different groups
