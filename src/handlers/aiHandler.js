@@ -143,6 +143,14 @@ class AiHandler {
             const tools = mcpManager.getOpenAITools();
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
 
+            // 🆕 动态超时计算: 基础30秒 + 每个工具2秒，最大45秒
+            const BASE_TIMEOUT = 30000;      // 30 seconds
+            const TOOL_TIMEOUT = 2000;       // 2 seconds per tool
+            const MAX_TIMEOUT = 45000;       // 45 seconds max
+            const dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
+
+            logger.debug(`[AiHandler] Dynamic timeout: ${dynamicTimeout}ms (base: ${BASE_TIMEOUT}ms + ${tools.length} tools × ${TOOL_TIMEOUT}ms, max: ${MAX_TIMEOUT}ms)`);
+
             let loopCount = 0;
             const MAX_LOOPS = 10;
             let emptyContentRetries = 0;
@@ -164,7 +172,7 @@ class AiHandler {
                         'Content-Type': 'application/json'
                     },
                     proxy: proxyConfig,
-                    timeout: 60000 // Extended timeout for tool execution
+                    timeout: dynamicTimeout
                 });
 
                 if (!response.data || !response.data.choices || response.data.choices.length === 0) {
@@ -274,7 +282,15 @@ class AiHandler {
             return "Unable to complete request (max steps reached).";
 
         } catch (error) {
-            if (error.response) {
+            // 🆕 增强超时错误处理
+            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                logger.error(`[AiHandler] AI API Timeout after ${dynamicTimeout}ms (${tools.length} tools registered):`, {
+                    timeout: dynamicTimeout,
+                    toolCount: tools.length,
+                    error: error.message
+                });
+                return '抱歉，AI响应超时。请稍后重试。';
+            } else if (error.response) {
                 logger.error(`[AiHandler] AI API Error (Status ${error.response.status}):`, error.response.data);
             } else {
                 logger.error('[AiHandler] AI API Request Error:', error.message);
