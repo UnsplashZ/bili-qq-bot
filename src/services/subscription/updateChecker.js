@@ -21,49 +21,106 @@ class UpdateChecker {
         this.ws = ws;
     }
 
-    start() {
-        if (this.timer) return;
+    /**
+     * 启动订阅检查器
+     * @param {boolean} skipInitialDelay - 是否跳过初始延迟
+     */
+    start(skipInitialDelay = false) {
+        // 🆕 先停止现有定时器，防止泄漏
+        this.stop();
 
-        // Initial check after 10 seconds (Feed & Subs)
+        logger.info('[UpdateChecker] Starting subscription checker', {
+            checkInterval: `${this.checkInterval / 1000}s`,
+            syncInterval: `${this.syncInterval / 1000}s`,
+            skipInitialDelay
+        });
+
+        // Initial check after 10 seconds (Feed & Subs) - or immediately if skipInitialDelay
+        const initialDelay = skipInitialDelay ? 0 : 10000;
         this.initTimer = setTimeout(() => {
             this.checkAll();
             this.initTimer = null;
-        }, 10000);
+        }, initialDelay);
 
         this.timer = setInterval(() => {
             this.checkAll();
         }, this.checkInterval);
 
         // Initial check after 5 seconds (List Sync)
+        const syncDelay = skipInitialDelay ? 0 : 5000;
         this.initSyncTimer = setTimeout(() => {
             this.refreshCookieFollowings();
             this.initSyncTimer = null;
-        }, 5000);
+        }, syncDelay);
 
         this.syncTimer = setInterval(() => {
             this.refreshCookieFollowings();
         }, this.syncInterval);
 
-        logger.info(`[UpdateChecker] Started polling: Feed/Subs every ${this.checkInterval / 1000}s, List Sync every ${this.syncInterval / 1000}s`);
+        logger.info('[UpdateChecker] All timers started successfully');
     }
 
+    /**
+     * 停止订阅检查器
+     */
     stop() {
+        let clearedCount = 0;
+
         if (this.initTimer) {
             clearTimeout(this.initTimer);
             this.initTimer = null;
+            clearedCount++;
         }
+
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
+            clearedCount++;
         }
+
         if (this.initSyncTimer) {
             clearTimeout(this.initSyncTimer);
             this.initSyncTimer = null;
+            clearedCount++;
         }
+
         if (this.syncTimer) {
             clearInterval(this.syncTimer);
             this.syncTimer = null;
+            clearedCount++;
         }
+
+        if (clearedCount > 0) {
+            logger.info(`[UpdateChecker] Stopped subscription checker, cleared ${clearedCount} timers`);
+        }
+    }
+
+    /**
+     * 🆕 重启订阅检查器（先停止再启动）
+     */
+    restart() {
+        logger.info('[UpdateChecker] Restarting subscription checker...');
+        this.stop();
+        this.start(true); // Skip initial delay on restart
+    }
+
+    /**
+     * 🆕 获取定时器状态（用于调试）
+     */
+    getStatus() {
+        return {
+            running: !!(this.timer || this.syncTimer),
+            timers: {
+                initTimer: !!this.initTimer,
+                mainTimer: !!this.timer,
+                initSyncTimer: !!this.initSyncTimer,
+                syncTimer: !!this.syncTimer
+            },
+            intervals: {
+                check: `${this.checkInterval / 1000}s`,
+                sync: `${this.syncInterval / 1000}s`
+            }
+        };
     }
 
     updateCheckInterval(seconds) {
