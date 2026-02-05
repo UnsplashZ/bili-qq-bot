@@ -125,14 +125,58 @@ class ServiceManager {
 
     async restart() {
         this.isRestarting = true;
-        if (this.process) {
-            this.process.kill(); // Default SIGTERM
-            // Wait for exit event to clear this.process
-            while (this.process) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+
+        try {
+            if (this.process) {
+                logger.info('[ServiceManager] Sending SIGTERM to Python server...');
+                this.process.kill('SIGTERM');
+
+                // 🆕 添加10秒超时机制
+                const RESTART_TIMEOUT = 10000; // 10 seconds
+                const startTime = Date.now();
+                let forcedKill = false;
+
+                // Wait for exit event to clear this.process (with timeout)
+                while (this.process) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    const elapsed = Date.now() - startTime;
+                    if (elapsed > RESTART_TIMEOUT) {
+                        logger.warn(`[ServiceManager] Process did not exit after ${RESTART_TIMEOUT}ms, sending SIGKILL...`);
+                        this.process.kill('SIGKILL');
+                        forcedKill = true;
+
+                        // Give SIGKILL 2 more seconds to work
+                        const killStartTime = Date.now();
+                        while (this.process && (Date.now() - killStartTime < 2000)) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+
+                        if (this.process) {
+                            logger.error('[ServiceManager] Process still alive after SIGKILL, giving up');
+                            // Force clear the reference to prevent infinite restart loop
+                            this.process = null;
+                        }
+                        break;
+                    }
+                }
+
+                if (forcedKill) {
+                    logger.warn('[ServiceManager] Process forcefully terminated');
+                } else {
+                    logger.info('[ServiceManager] Process exited gracefully');
+                }
             }
+        } catch (error) {
+            logger.error('[ServiceManager] Error during restart:', error);
+            // Ensure process reference is cleared even on error
+            this.process = null;
+        } finally {
+            // Always clear the restarting flag
+            this.isRestarting = false;
         }
-        this.isRestarting = false;
+
+        // Start the service again
         await this.start();
     }
 }
