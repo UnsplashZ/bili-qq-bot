@@ -3,6 +3,7 @@ import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
+import AiConfigSection from '../components/AiConfigSection';
 import { useToast } from '../hooks/useToast';
 import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2, LogOut, Shield } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -77,7 +78,9 @@ function Groups() {
     aiProbability: 0.1,
     aiContextLimit: 10,
     aiTemperature: 1.0,
-    adminQQ: undefined
+    adminQQ: undefined,
+    aiEnabled: true,
+    aiRagEnabled: true
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
 
@@ -96,7 +99,9 @@ function Groups() {
             aiProbability: res.data.aiProbability || 0.1,
             aiContextLimit: res.data.aiContextLimit || 10,
             aiTemperature: res.data.aiTemperature ?? 1.0,
-            adminQQ: res.data.adminQQ
+            adminQQ: res.data.adminQQ,
+            aiEnabled: res.data.aiEnabled ?? true,
+            aiRagEnabled: res.data.aiRagEnabled ?? true
           });
         }
       } catch (err) {
@@ -468,12 +473,51 @@ function Groups() {
       }
   };
 
+  // AI Config Handlers
+  const handleAiToggle = async (field, value) => {
+    try {
+      const response = await api.put(`/api/groups/${selectedGroupId}/ai-config`, {
+        [field]: value
+      });
+
+      if (response.status === 200) {
+        // Reload group config
+        const res = await api.get('/api/groups');
+        if (Array.isArray(res.data)) {
+          setGroups(res.data);
+        }
+        show('AI配置已更新', 'success');
+      }
+    } catch (error) {
+      console.error('Failed to update AI config:', error);
+      show('更新AI配置失败', 'error');
+    }
+  };
+
+  const handleAiReset = async () => {
+    try {
+      const response = await api.delete(`/api/groups/${selectedGroupId}/ai-config`);
+
+      if (response.status === 200) {
+        const res = await api.get('/api/groups');
+        if (Array.isArray(res.data)) {
+          setGroups(res.data);
+        }
+        show('已重置为全局设置', 'success');
+      }
+    } catch (error) {
+      console.error('Failed to reset AI config:', error);
+      show('重置AI配置失败', 'error');
+    }
+  };
+
   const categories = [
     { name: '常规', icon: Settings },
     { name: '订阅', icon: Bell },
     { name: '黑名单', icon: Ban },
     { name: '管理员', icon: Shield },
     { name: 'AI 设置', icon: Cpu },
+    { name: 'AI 配置', icon: Cpu },
     { name: '关注列表同步', icon: RefreshCw },
   ];
 
@@ -1134,8 +1178,33 @@ function Groups() {
                     </div>
                 </Tab.Panel>
 
+                {/* AI Config Tab */}
+                <Tab.Panel className="focus:outline-none">
+                  <div className="space-y-6">
+                    <h3 className="text-lg font-semibold text-white">AI功能配置</h3>
+                    <AiConfigSection
+                      config={{
+                        aiEnabled: formData.aiEnabled,
+                        aiRagEnabled: formData.aiRagEnabled
+                      }}
+                      globalConfig={{
+                        aiEnabled: globalConfig.aiEnabled,
+                        aiRagEnabled: globalConfig.aiRagEnabled
+                      }}
+                      onToggle={handleAiToggle}
+                      onReset={handleAiReset}
+                      isGroup={true}
+                    />
+                  </div>
+                </Tab.Panel>
+
                 {/* Sync Tab */}
                 <Tab.Panel className="space-y-8 focus:outline-none">
+                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-4">
+                       <p className="text-sm text-blue-800 dark:text-blue-300">
+                         💡 关注同步使用全局Cookie，请在设置页面管理Cookie
+                       </p>
+                     </div>
                      {/* Bilibili Login Section */}
                      <div className="space-y-4">
                          <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
