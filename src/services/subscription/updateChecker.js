@@ -288,7 +288,13 @@ class UpdateChecker {
                 break;
             }
 
-            const items = res.data.items || [];
+            const allItems = res.data.items || [];
+            const items = allItems.filter(item => !this.shouldSkipDynamic(item));
+
+            if (items.length < allItems.length) {
+                logger.info(`[UpdateChecker] Feed: Filtered ${allItems.length - items.length} auto-post dynamics`);
+            }
+
             hasMore = res.data.has_more;
             offset = res.data.offset;
             if (offset === prevOffset) break; // Prevent infinite loop on unchanged offset
@@ -505,6 +511,34 @@ class UpdateChecker {
     }
 
     /**
+     * Check if a dynamic should be skipped (video/article auto-post dynamics)
+     * @param {object} item - Dynamic item from API
+     * @returns {boolean} - True if should skip this dynamic
+     */
+    shouldSkipDynamic(item) {
+        if (!item) return false;
+
+        const major = item?.modules?.module_dynamic?.major;
+
+        // Skip video post auto-dynamic
+        if (major?.type === 'MAJOR_TYPE_ARCHIVE' || item.type === 'DYNAMIC_TYPE_AV') {
+            logger.debug(`[UpdateChecker] Skipping video dynamic: ${item.id_str}`);
+            return true;
+        }
+
+        // Skip article post auto-dynamic (check for cv ID in jump URL)
+        if (major?.type === 'MAJOR_TYPE_OPUS') {
+            const jumpUrl = major.opus?.jump_url || '';
+            if (/\/read\/cv\d+/i.test(jumpUrl)) {
+                logger.debug(`[UpdateChecker] Skipping article dynamic: ${item.id_str}`);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Generate notification text for different content types
      * Unified logic for both feed and manual subscription pushes
      * @param {string} userName - User name to display
@@ -599,10 +633,17 @@ class UpdateChecker {
             // return {"status": "success", "data": {"cards": result_items}}
             // So res.data.cards IS correct for the Python output wrapper.
             // BUT, the fields INSIDE the card objects have changed/expanded.
-            
+
             if (!res.data.cards || res.data.cards.length === 0) return;
 
-            const cards = res.data.cards;
+            const allCards = res.data.cards;
+            const cards = allCards.filter(card => !this.shouldSkipDynamic(card));
+
+            if (cards.length < allCards.length) {
+                logger.info(`[UpdateChecker] Filtered ${allCards.length - cards.length} auto-post dynamics for ${sub.name}`);
+            }
+
+            if (cards.length === 0) return;
 
             // Sort cards by ID descending to handle sticky posts (which might be old but at top)
             // ensuring the first card is truly the latest one in time.
