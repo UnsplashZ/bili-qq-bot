@@ -807,9 +807,9 @@ function generateCSS(colorData, viewport) {
                 right: 8px;
                 background: rgba(0, 0, 0, 0.65);
                 color: white;
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-size: 14px;
+                padding: 4px 10px;
+                border-radius: 6px;
+                font-size: 20px;
                 font-weight: 500;
                 backdrop-filter: blur(4px);
             }
@@ -985,27 +985,28 @@ function generateCSS(colorData, viewport) {
             }
             .video-card-title {
                 font-weight: bold;
-                font-size: 14px;
-                margin-bottom: 6px;
+                font-size: 26px;
+                margin-bottom: 8px;
                 color: var(--color-text);
+                line-height: 1.4;
             }
             .stat-inline-container {
                 color: var(--color-subtext);
-                font-size: 13px;
+                font-size: 22px;
                 display: flex;
-                gap: 15px;
+                gap: 20px;
                 align-items: center;
-                margin-top: 4px;
+                margin-top: 8px;
             }
             .stat-inline {
                 display: flex;
                 align-items: center;
-                gap: 4px;
+                gap: 6px;
                 white-space: nowrap;
             }
             .stat-inline svg {
-                width: 16px;
-                height: 16px;
+                width: 24px;
+                height: 24px;
                 fill: var(--color-subtext);
             }
          </style>
