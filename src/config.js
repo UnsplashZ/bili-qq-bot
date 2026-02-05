@@ -494,7 +494,13 @@ const config = {
         });
 
         // Save changes (async, errors handled internally)
-        this._performSave().catch(() => {});
+        this._performSave().catch((err) => {
+            logger.error('[Config] Failed to save configuration after reset:', {
+                error: err.message,
+                stack: err.stack,
+                timestamp: new Date().toISOString()
+            });
+        });
         logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
     },
 
@@ -508,7 +514,20 @@ const config = {
         // Debounce: wait 100ms before actually saving (shortened from 500ms)
         // 100ms is sufficient to merge multiple setter calls from Object.assign
         this._saveTimer = setTimeout(() => {
-            this._performSave().catch(() => {});
+            this._performSave().catch((err) => {
+                logger.error('[Config] Failed to save configuration:', {
+                    error: err.message,
+                    stack: err.stack,
+                    timestamp: new Date().toISOString()
+                });
+
+                // Track repeated failures
+                this._saveErrorCount = (this._saveErrorCount || 0) + 1;
+                if (this._saveErrorCount >= 5) {
+                    logger.error('[Config] CRITICAL: Configuration save has failed 5 times in a row!');
+                    this._saveErrorCount = 0; // Reset counter
+                }
+            });
         }, 100);
     },
 
