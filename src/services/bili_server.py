@@ -72,50 +72,18 @@ def get_credential_file(group_id=None):
 
 def load_credential(group_id=None):
     """
-    加载B站凭证，优先级：群组Cookie > 全局Cookie
+    加载B站凭证，仅使用全局Cookie (cookies.json)
+
+    注意：group_id参数保留用于兼容性，但已被忽略。
+    自2026-02-05起，群级Cookie支持已移除。
 
     Args:
-        group_id: 群组ID，None表示加载全局Cookie
+        group_id: （已废弃）群组ID，保留参数仅用于向后兼容
 
     Returns:
         Credential对象或None
     """
-    credential = None
-
-    # 优先尝试加载群组Cookie
-    if group_id:
-        file_path = get_credential_file(group_id)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    data = json.load(f)
-                    sessdata = data.get('SESSDATA')
-                    bili_jct = data.get('BILI_JCT')
-                    buvid3 = data.get('BUVID3')
-
-                    if not buvid3:
-                        logger.warning(f"BUVID3 缺失 (group_id: {group_id}, file: {file_path})，可能导致请求被风控")
-
-                    timestamp = data.get('_timestamp', 0)
-                    if timestamp:
-                        age_days = (time.time() - timestamp) / (24 * 3600)
-                        if age_days > 7:
-                            logger.warning(f"Cookie 可能已过期 (group_id: {group_id}, age: {age_days:.1f} 天)")
-
-                    credential = Credential(
-                        sessdata=sessdata,
-                        bili_jct=bili_jct,
-                        buvid3=buvid3
-                    )
-                    logger.debug(f"使用群组Cookie: {group_id}")
-                    return credential
-            except Exception as e:
-                logger.error(f"加载群组Cookie失败 (group_id: {group_id}): {e}")
-
-        # 群组Cookie不存在，尝试fallback
-        logger.info(f"群组 {group_id} Cookie不存在，尝试使用全局Cookie")
-
-    # 加载全局Cookie
+    # 仅加载全局Cookie (cookies.json)
     if os.path.exists(CREDENTIAL_FILE):
         try:
             with open(CREDENTIAL_FILE, 'r') as f:
@@ -125,7 +93,7 @@ def load_credential(group_id=None):
                 buvid3 = data.get('BUVID3')
 
                 if not buvid3:
-                    logger.warning(f"全局Cookie BUVID3 缺失，可能导致请求被风控")
+                    logger.warning("全局Cookie BUVID3 缺失，可能导致请求被风控")
 
                 timestamp = data.get('_timestamp', 0)
                 if timestamp:
