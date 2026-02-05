@@ -14,14 +14,83 @@ const mcpManager = require('../../services/mcpManager');
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
 
+// 🆕 P2-1: 登录速率限制器（内存实现）
+const loginAttempts = new Map(); // IP -> { count, lockUntil }
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const attempt = loginAttempts.get(ip);
+
+    // 清理过期记录
+    if (attempt && attempt.lockUntil && now > attempt.lockUntil) {
+        loginAttempts.delete(ip);
+        return { allowed: true };
+    }
+
+    // 检查是否被锁定
+    if (attempt && attempt.lockUntil && now < attempt.lockUntil) {
+        const remainingMs = attempt.lockUntil - now;
+        return {
+            allowed: false,
+            remainingSeconds: Math.ceil(remainingMs / 1000)
+        };
+    }
+
+    return { allowed: true };
+}
+
+function recordFailedAttempt(ip) {
+    const now = Date.now();
+    const attempt = loginAttempts.get(ip) || { count: 0, lockUntil: null };
+
+    attempt.count++;
+
+    if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
+        attempt.lockUntil = now + LOCKOUT_DURATION;
+        logger.warn(`[Security] IP ${ip} locked out after ${MAX_LOGIN_ATTEMPTS} failed attempts`);
+    }
+
+    loginAttempts.set(ip, attempt);
+}
+
+function resetAttempts(ip) {
+    loginAttempts.delete(ip);
+}
+
+// 定期清理过期记录（每10分钟）
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, attempt] of loginAttempts.entries()) {
+        if (attempt.lockUntil && now > attempt.lockUntil) {
+            loginAttempts.delete(ip);
+        }
+    }
+}, 10 * 60 * 1000);
+
 // --- Public Routes ---
 
 // POST /api/login - Dashboard Login
 router.post('/login', (req, res) => {
     const { password } = req.body;
+    const ip = req.ip || req.connection.remoteAddress;
+
+    // 🆕 检查速率限制
+    const rateLimit = checkRateLimit(ip);
+    if (!rateLimit.allowed) {
+        logger.warn(`[Security] Login attempt from locked IP ${ip} (${rateLimit.remainingSeconds}s remaining)`);
+        return res.status(429).json({
+            error: 'Too many failed attempts',
+            retryAfter: rateLimit.remainingSeconds
+        });
+    }
 
     // Compare with configured dashboard password
     if (password === sysConfig.dashboardPassword) {
+        // 🆕 成功登录，重置失败计数
+        resetAttempts(ip);
+
         // Generate JWT token
         const token = jwt.sign(
             { role: 'admin', timestamp: Date.now() },
@@ -29,11 +98,20 @@ router.post('/login', (req, res) => {
             { expiresIn: '24h' }
         );
 
-        logger.info(`Successful login from ${req.ip}`);
+        logger.info(`[Security] Successful login from ${ip}`);
         res.json({ token });
     } else {
-        logger.warn(`Failed login attempt from ${req.ip}`);
-        res.status(401).json({ error: 'Invalid password' });
+        // 🆕 记录失败尝试
+        recordFailedAttempt(ip);
+
+        const attempt = loginAttempts.get(ip);
+        const remainingAttempts = MAX_LOGIN_ATTEMPTS - (attempt?.count || 0);
+
+        logger.warn(`[Security] Failed login attempt from ${ip} (${remainingAttempts} attempts remaining)`);
+        res.status(401).json({
+            error: 'Invalid password',
+            remainingAttempts: Math.max(0, remainingAttempts)
+        });
     }
 });
 
