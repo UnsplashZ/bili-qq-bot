@@ -150,6 +150,28 @@ class BiliApi {
     }
 
     /**
+     * 获取用户视频列表
+     * @param {string|number} uid - 用户UID
+     * @param {string} groupId - 群组ID（用于Cookie）
+     * @returns {Promise<Object>} 视频列表
+     */
+    async getUserVideos(uid, groupId = null) {
+        // No cache for video list (need fresh data for subscription)
+        return serviceManager.sendCommand('user_videos', { uid: String(uid), group_id: groupId });
+    }
+
+    /**
+     * 获取用户专栏列表
+     * @param {string|number} uid - 用户UID
+     * @param {string} groupId - 群组ID（用于Cookie）
+     * @returns {Promise<Object>} 专栏列表
+     */
+    async getUserArticles(uid, groupId = null) {
+        // No cache for article list (need fresh data for subscription)
+        return serviceManager.sendCommand('user_articles', { uid: String(uid), group_id: groupId });
+    }
+
+    /**
      * 获取全局Cookie的用户信息
      * @returns {Promise<{status: string, data?: {uid, username, is_logged_in, timestamp}, message?: string}>}
      */

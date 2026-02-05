@@ -173,7 +173,45 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 3. Check User Live Status (Manual Subs)
+        // 3. Check User Videos (Manual Subs)
+        logger.info('[UpdateChecker] Checking user videos...');
+        for (const sub of subscriptionManager.userSubs) {
+            // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                continue;
+            }
+
+            await this.checkUserVideo(sub, targetGroups);
+            // Slightly longer delay for video API
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        // 4. Check User Articles (Manual Subs)
+        logger.info('[UpdateChecker] Checking user articles...');
+        for (const sub of subscriptionManager.userSubs) {
+            // Skip if this user is already monitored by feed check
+            if (feedMonitoredUids.has(String(sub.uid))) {
+                continue;
+            }
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                continue;
+            }
+
+            await this.checkUserArticle(sub, targetGroups);
+            // Slightly longer delay for article API
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        // 5. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
              // Skip if this user is already monitored by feed check
             if (feedMonitoredUids.has(String(sub.uid))) {
@@ -191,7 +229,7 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 4. Check Bangumi Updates
+        // 6. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
             // Filter out inactive groups
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
@@ -204,7 +242,7 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 5. Refresh missing names (maintenance)
+        // 7. Refresh missing names (maintenance)
         await this.refreshMissingNames();
     }
 
@@ -859,6 +897,159 @@ class UpdateChecker {
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e);
+        }
+    }
+
+    /**
+     * 检查用户视频更新
+     */
+    async checkUserVideo(sub, targetGroups = null, force = false) {
+        const groupsToNotify = targetGroups || sub.groupIds;
+        try {
+            const groupId = groupsToNotify[0];
+            const res = await biliApi.getUserVideos(sub.uid, groupId);
+
+            if (res.status !== 'success' || !res.data.videos || res.data.videos.length === 0) {
+                return;
+            }
+
+            const videos = res.data.videos;
+
+            // 按时间排序（最新的在前）
+            videos.sort((a, b) => b.created - a.created);
+
+            const latestVideo = videos[0];
+            const latestBvid = latestVideo.bvid;
+
+            // 首次检查：记录最新视频但不推送
+            if (!sub.lastVideoId && !force) {
+                await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
+                logger.info(`[UpdateChecker] Initialized lastVideoId for ${sub.name}: ${latestBvid}`);
+                return;
+            }
+
+            // 检查是否有新视频
+            if (latestBvid !== sub.lastVideoId || force) {
+                // 找出所有新视频
+                const newVideos = [];
+                for (const video of videos) {
+                    if (video.bvid === sub.lastVideoId) break;
+                    newVideos.push(video);
+                }
+
+                // 只推送最新的一个（避免订阅时推送历史视频）
+                const videoToPush = force ? [latestVideo] : [newVideos[0]];
+
+                for (const video of videoToPush) {
+                    try {
+                        const bvid = video.bvid;
+
+                        // 使用linkHandler的逻辑获取视频详情
+                        const info = await biliApi.getVideoInfo(bvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`);
+                            continue;
+                        }
+
+                        // 生成通知文本
+                        const notificationText = `${sub.name} 投稿了新视频：\n${info.data.title}`;
+
+                        // 推送
+                        const url = `https://www.bilibili.com/video/${bvid}`;
+                        await this.notifyGroupsWithImage(groupsToNotify, info, 'video', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new video for ${sub.name}: ${bvid}`);
+
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e);
+                    }
+                }
+
+                // 更新lastVideoId
+                if (!force) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
+                }
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking videos for ${sub.name}:`, e);
+        }
+    }
+
+    /**
+     * 检查用户专栏更新
+     */
+    async checkUserArticle(sub, targetGroups = null, force = false) {
+        const groupsToNotify = targetGroups || sub.groupIds;
+        try {
+            const groupId = groupsToNotify[0];
+            const res = await biliApi.getUserArticles(sub.uid, groupId);
+
+            if (res.status !== 'success' || !res.data.articles || res.data.articles.length === 0) {
+                return;
+            }
+
+            const articles = res.data.articles;
+
+            // 按时间排序（最新的在前）
+            articles.sort((a, b) => b.publish_time - a.publish_time);
+
+            const latestArticle = articles[0];
+            const latestCvid = `cv${latestArticle.id}`;
+
+            // 首次检查：记录最新专栏但不推送
+            if (!sub.lastArticleId && !force) {
+                await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
+                logger.info(`[UpdateChecker] Initialized lastArticleId for ${sub.name}: ${latestCvid}`);
+                return;
+            }
+
+            // 检查是否有新专栏
+            if (latestCvid !== sub.lastArticleId || force) {
+                // 找出所有新专栏
+                const newArticles = [];
+                for (const article of articles) {
+                    const cvid = `cv${article.id}`;
+                    if (cvid === sub.lastArticleId) break;
+                    newArticles.push(article);
+                }
+
+                // 只推送最新的一个
+                const articleToPush = force ? [latestArticle] : [newArticles[0]];
+
+                for (const article of articleToPush) {
+                    try {
+                        const cvid = `cv${article.id}`;
+
+                        // 使用linkHandler的逻辑获取专栏详情
+                        const info = await biliApi.getArticleInfo(cvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get article detail for ${cvid}`);
+                            continue;
+                        }
+
+                        // 生成通知文本
+                        const notificationText = `${sub.name} 发布了新专栏：\n${info.data.title}`;
+
+                        // 推送
+                        const url = `https://www.bilibili.com/read/${cvid}`;
+                        await this.notifyGroupsWithImage(groupsToNotify, info, 'article', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new article for ${sub.name}: ${cvid}`);
+
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push article cv${article.id}:`, e);
+                    }
+                }
+
+                // 更新lastArticleId
+                if (!force) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
+                }
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking articles for ${sub.name}:`, e);
         }
     }
 
