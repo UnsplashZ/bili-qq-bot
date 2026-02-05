@@ -15,7 +15,9 @@ let ws = null;
 let reconnectCount = 0;
 let reconnectTimer = null;
 let isManualClose = false;
-const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
+// 🆕 移除固定重连间隔，改用指数退避
+// const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
+const MAX_RECONNECT_DELAY = 60000; // 最大重连延迟60秒
 const GROUP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const GROUP_LIST_ECHO_PREFIX = 'get_group_list#';
 let groupRefreshTimer = null;
@@ -248,12 +250,19 @@ function scheduleReconnect() {
     }
 
     reconnectCount++;
-    logger.info(`Scheduling reconnect in ${RECONNECT_INTERVAL / 1000} seconds (attempt ${reconnectCount})...`);
+
+    // 🆕 指数退避策略: 1s → 2s → 4s → 8s → 16s → 32s → 60s (max)
+    // 公式: delay = min(1000 * 2^(reconnectCount-1), 60000)
+    const baseDelay = 1000; // 1秒基础延迟
+    const exponentialDelay = baseDelay * Math.pow(2, reconnectCount - 1);
+    const delay = Math.min(exponentialDelay, MAX_RECONNECT_DELAY);
+
+    logger.info(`Scheduling reconnect in ${(delay / 1000).toFixed(1)}s (attempt ${reconnectCount}, backoff ${reconnectCount - 1})...`);
 
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         createWebSocketConnection();
-    }, RECONNECT_INTERVAL);
+    }, delay);
 }
 
 // 优雅关闭
