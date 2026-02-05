@@ -8,7 +8,28 @@ const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 
 class MessageHandler {
-    
+
+    /**
+     * Send a private message to a user
+     * @param {WebSocket} ws - WebSocket connection
+     * @param {string} userId - User ID
+     * @param {string} message - Message text
+     */
+    sendPrivateMessage(ws, userId, message) {
+        if (!ws || ws.readyState !== ws.OPEN) {
+            logger.warn(`[MessageHandler] Cannot send private message: WebSocket not open`);
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            action: 'send_private_msg',
+            params: {
+                user_id: userId,
+                message: [{ type: 'text', data: { text: message } }]
+            }
+        }));
+    }
+
     async handleMessage(ws, messageData) {
         const message = messageData.message;
         let rawMessage = messageData.raw_message;
@@ -20,13 +41,18 @@ class MessageHandler {
             return;
         }
 
-        // Handle Private Messages
+        // Private chat permission check
         if (messageData.message_type === 'private') {
-            // Only respond to Root Admin
-            if (!config.isRootAdmin(userId)) {
+            const isRootAdmin = config.isRootAdmin(userId);
+
+            if (!isRootAdmin) {
+                // Non-root admin: reject with message
+                this.sendPrivateMessage(ws, userId, '此功能仅限管理员使用');
+                logger.info(`[MessageHandler] Rejected private message from non-admin user ${userId}`);
                 return;
             }
-            // Assign virtual group ID for private messages to reuse existing logic
+
+            // Root admin: allow and use virtual groupId
             groupId = `private_${userId}`;
             logger.info(`[MessageHandler] Processing private message from Root Admin ${userId} as virtual group ${groupId}`);
         }
