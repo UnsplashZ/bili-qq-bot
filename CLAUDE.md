@@ -148,6 +148,22 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 - Cookie-based follow syncing (per-group)
 - Notifications sent to all subscribed groups
 
+**Feed Deduplication:**
+
+订阅系统自动跳过视频/专栏投稿的自动动态，避免重复推送：
+
+**跳过规则：**
+- 视频投稿自动动态：`major.type === 'MAJOR_TYPE_ARCHIVE'` 或 `item.type === 'DYNAMIC_TYPE_AV'`
+- 专栏投稿自动动态：`major.type === 'MAJOR_TYPE_OPUS'` 且 `jump_url` 匹配 `/read/cv\d+`
+
+**保留推送：**
+- 图文动态（Opus但不含专栏链接）
+- 转发动态、纯文字动态、直播推荐等
+
+**实现位置：**
+- `updateChecker.js` - `shouldSkipDynamic()` 方法
+- 在 `checkUserDynamic()` 和 `processDynamicFeed()` 中调用
+
 ### Critical Code Locations
 
 | Feature | Primary File | Key Function/Class |
@@ -188,6 +204,51 @@ groupConfig.myNewKey = 'group-specific value'
 ### Config Persistence
 
 All `config.json` writes are debounced (500ms) via `saveConfigDebounced()` to prevent I/O storms.
+
+### AI Function Toggles
+
+AI功能支持全局和群级分级开关：
+
+**全局配置（META）：**
+- `aiEnabled`: 全局AI开关（默认true）
+- `aiRagEnabled`: 全局RAG开关（默认true）
+
+**群级配置（groupConfigs[groupId]）：**
+```javascript
+{
+  aiEnabled?: boolean,      // 可选，不设置则继承全局
+  aiRagEnabled?: boolean    // 可选，不设置则继承全局
+}
+```
+
+**权限检查函数：**
+```javascript
+// 检查群是否启用AI功能
+config.isAiEnabledForGroup(groupId)
+
+// 检查群是否启用RAG功能（依赖AI启用）
+config.isRagEnabledForGroup(groupId)
+```
+
+**依赖关系：**
+- RAG功能需要AI功能启用（AI关闭时RAG自动不可用）
+- 群级配置优先于全局配置
+- 全局开关可以强制关闭所有群的功能
+
+**使用位置：**
+- `aiHandler.js` - AI回复前检查`isAiEnabledForGroup()`
+- `aiHandler.js` - 向量检索前检查`isRagEnabledForGroup()`
+- Dashboard - Settings页面管理全局开关
+- Dashboard - Groups页面管理群级开关
+
+### Cookie Management
+
+系统仅使用全局Cookie（`data/cookies.json`）进行Bilibili API认证：
+
+- 所有群组共享同一个全局Cookie
+- 群级Cookie文件（`cookies_{groupId}.json`）已废弃
+- Dashboard Settings页面管理全局Cookie
+- Dashboard Groups页面不再显示Cookie管理选项
 
 ## Message Handler Pipeline
 
@@ -548,6 +609,25 @@ if (!isRoot) {
 }
 ```
 
+### Private Chat Restriction
+
+私聊功能仅限Root管理员（`ADMIN_QQ`）使用：
+
+```javascript
+// messageHandler.js
+if (messageData.message_type === 'private') {
+    const isRootAdmin = config.isRootAdmin(userId);
+    if (!isRootAdmin) {
+        // 非Root管理员，发送提示并返回
+        this.sendPrivateMessage(ws, userId, '此功能仅限管理员使用');
+        return;
+    }
+    // Root管理员继续处理
+}
+```
+
+群管理员（非Root）无法使用私聊功能。
+
 ## Performance Optimization
 
 ### Caching Strategy
@@ -581,6 +661,8 @@ if (!isRoot) {
 5. **WebSocket Reconnection:** Connection state managed in `bot.js`. Never manually reconnect in handlers.
 
 6. **Atomic Write Violations:** Always use `asyncWriteWithBackup()` for data files to prevent corruption.
+
+7. **GroupId类型不一致**：JavaScript对象键必须是字符串。确保所有groupId在使用前转换为字符串：`String(groupId)`。WebSocket消息中的groupId可能是数字类型，必须立即转换以确保配置访问正确（`groupConfigs[123] !== groupConfigs["123"]`）。
 
 ## Useful Code Patterns
 
