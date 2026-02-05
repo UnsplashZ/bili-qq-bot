@@ -166,12 +166,48 @@ class MessageHandler {
         let hasProcessedLinks = false;
         for (const link of links) {
             if (!linkHandler.isLinkCached(link.cacheKey)) {
-                // 立即添加到缓存，防止并发请求重复处理
-                linkHandler.addLinkToCache(link.cacheKey);
-                await linkHandler.processSingleLink(link, ws, groupId, userId);
-                hasProcessedLinks = true;
+                let processSuccess = false;
 
-                // 添加延迟避免并发问题（如果还有更多链接要处理）
+                try {
+                    // 先尝试处理链接
+                    await linkHandler.processSingleLink(link, ws, groupId, userId);
+                    processSuccess = true;
+                    hasProcessedLinks = true;
+
+                    logger.debug(`[MessageHandler] Successfully processed link: ${link.match}`);
+                } catch (error) {
+                    logger.error(`[MessageHandler] Failed to process link ${link.match}:`, {
+                        error: error.message,
+                        stack: error.stack,
+                        groupId,
+                        userId,
+                        linkType: link.type,
+                        linkId: link.id
+                    });
+
+                    // 不添加到缓存，允许用户重试
+                    // 向用户发送错误提示
+                    try {
+                        await linkHandler.sendGroupMessage(ws, groupId, [
+                            {
+                                type: 'text',
+                                data: {
+                                    text: `处理链接失败: ${error.message || '未知错误'}\n您可以稍后重新发送链接重试`
+                                }
+                            }
+                        ], userId);
+                    } catch (sendError) {
+                        logger.error('[MessageHandler] Failed to send error message:', sendError);
+                    }
+                }
+
+                // 只在成功处理后添加到缓存
+                if (processSuccess) {
+                    linkHandler.addLinkToCache(link.cacheKey);
+                    logger.debug(`[MessageHandler] Added link to cache: ${link.cacheKey}`);
+                }
+
+                // 处理完成后延迟，避免并发冲突
                 const linkIndex = links.indexOf(link);
                 if (linkIndex < links.length - 1) {
                     logger.info(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
