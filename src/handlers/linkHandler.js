@@ -5,6 +5,7 @@ const config = require('../config');
 const cacheManager = require('../utils/cacheManager');
 const notificationService = require('../services/notificationService');
 const https = require('https');
+const { monitorRegex } = require('../utils/regexMonitor');
 
 class LinkHandler {
     constructor() {
@@ -37,6 +38,38 @@ class LinkHandler {
 
     // 提取消息中的所有链接及其类型
     extractLinks(rawMessage, groupId) {
+        // 🆕 输入验证
+        if (!rawMessage || typeof rawMessage !== 'string') {
+            logger.warn('[LinkHandler] Invalid message type:', typeof rawMessage);
+            return [];
+        }
+
+        const MAX_MESSAGE_LENGTH = 10000; // 10KB
+
+        // 🆕 快速预检：消息中是否包含bilibili域名（在截断前检查，优化性能）
+        // 对于超长消息，只检查前10KB是否包含关键词
+        const checkLength = Math.min(rawMessage.length, MAX_MESSAGE_LENGTH);
+        const checkStr = rawMessage.substring(0, checkLength);
+        const hasBilibiliDomain = checkStr.includes('bilibili.com') ||
+                                 checkStr.includes('b23.tv') ||
+                                 checkStr.includes('bilibili');
+
+        if (!hasBilibiliDomain) {
+            logger.debug('[LinkHandler] No bilibili links found in message (quick check)');
+            return [];
+        }
+
+        // 🆕 长度限制（只在确认有bilibili链接后才执行截断）
+        const originalLength = rawMessage.length;
+        if (originalLength > MAX_MESSAGE_LENGTH) {
+            logger.warn(`[LinkHandler] Message too long (${originalLength} chars), truncating to ${MAX_MESSAGE_LENGTH}`, {
+                groupId,
+                originalLength,
+                truncatedLength: MAX_MESSAGE_LENGTH
+            });
+            rawMessage = rawMessage.substring(0, MAX_MESSAGE_LENGTH);
+        }
+
         const links = [];
 
         // Split URLs by '?' to extract only the path part and avoid matching IDs in query parameters
@@ -61,7 +94,15 @@ class LinkHandler {
         ];
 
         for (const linkType of linkTypes) {
-            const matches = cleanedMessage.matchAll(new RegExp(linkType.regex, 'g'));
+            // 🆕 使用正则监控包装 matchAll 调用
+            const globalRegex = new RegExp(linkType.regex, 'g');
+            const matches = monitorRegex(
+                `${linkType.type}Regex`,
+                globalRegex,
+                cleanedMessage,
+                (regex, input) => Array.from(input.matchAll(regex))
+            );
+
             for (const match of matches) {
                 const id = linkType.extractId(match);
                 // Cache key includes groupId to allow same link in different groups
