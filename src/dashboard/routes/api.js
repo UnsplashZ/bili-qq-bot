@@ -14,6 +14,11 @@ const mcpManager = require('../../services/mcpManager');
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
 
+// Helper: Convert groupId from request params to string
+function normalizeGroupId(groupId) {
+    return groupId ? String(groupId) : null;
+}
+
 // 🆕 P2-1: 登录速率限制器（内存实现）
 const loginAttempts = new Map(); // IP -> { count, lockUntil }
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -281,7 +286,7 @@ router.get('/groups', async (req, res) => {
 // POST /api/groups/:id/toggle - Toggle group enabled status
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
 
@@ -315,7 +320,7 @@ router.post('/groups/:id/toggle', async (req, res) => {
 // POST /api/groups/:id/config - Update specific group config
 router.post('/groups/:id/config', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
         const updates = req.body;
@@ -434,7 +439,7 @@ router.post('/groups/:id/config', async (req, res) => {
 // DELETE /api/groups/:id - Delete config for a left group
 router.delete('/groups/:id', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
         const groupConfig = sysConfig.groupConfigs?.[groupIdStr];
@@ -493,7 +498,7 @@ router.delete('/groups/:id', async (req, res) => {
 // GET /api/groups/:id/bili-groups - Get Bilibili follow groups
 router.get('/groups/:id/bili-groups', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const result = await biliApi.getFollowGroups(groupId);
         if (result && result.status === 'success') {
             res.json(result.data);
@@ -643,7 +648,7 @@ router.post('/bili/logout', async (req, res) => {
 // GET /api/groups/:id/subscriptions - List subscriptions for a group
 router.get('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const subs = await subscriptionService.getSubscriptionsByGroup(groupId);
         // Merge users and bangumis into a single array
         const mergedSubs = [
@@ -660,7 +665,7 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
 // POST /api/groups/:id/subscriptions - Add a subscription
 router.post('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const { type, value } = req.body;
 
         if (!type || !value) {
@@ -686,7 +691,7 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
 // DELETE /api/groups/:id/subscriptions - Remove a subscription
 router.delete('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         // Support both body and query params
         const type = req.body.type || req.query.type;
         const value = req.body.value || req.query.value;

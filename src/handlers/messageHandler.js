@@ -12,8 +12,8 @@ class MessageHandler {
     async handleMessage(ws, messageData) {
         const message = messageData.message;
         let rawMessage = messageData.raw_message;
-        const userId = messageData.user_id;
-        let groupId = messageData.group_id;
+        const userId = messageData.user_id ? String(messageData.user_id) : null;
+        let groupId = messageData.group_id ? String(messageData.group_id) : null;
 
         // Prevent self-trigger
         if (userId === messageData.self_id) {
