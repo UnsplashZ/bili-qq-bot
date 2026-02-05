@@ -28,12 +28,20 @@ class LinkHandler {
         this.mediaRegex = /bangumi\/media\/md([0-9]+)/;
         // Regex for User (space.bilibili.com/xxxx)
         this.userRegex = /(?:space\.bilibili\.com\/|(?:https?:\/\/)?[^/]*bilibili\.com\/space\/)([0-9]+)/;
-        
+
         // Regex for Short Links (b23.tv/xxxx)
         this.shortLinkRegex = /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/;
-        
+
         // Link processing cache
         this.linkCache = new Map();
+
+        // 🆕 Request ID counter for error tracking
+        this.requestIdCounter = 0;
+    }
+
+    // 🆕 生成唯一的请求ID用于错误追踪
+    generateRequestId() {
+        return `LH-${Date.now()}-${++this.requestIdCounter}`;
     }
 
     // 提取消息中的所有链接及其类型
@@ -231,6 +239,10 @@ class LinkHandler {
     async processSingleLink(link, ws, groupId, userId = null) {
         const { type, id, cacheKey } = link;
 
+        // 🆕 生成唯一请求ID用于错误追踪
+        const requestId = this.generateRequestId();
+        logger.debug(`[LinkHandler] [${requestId}] Starting to process ${type} link: ${id}`);
+
         try {
             let info, base64Image, url;
 
@@ -404,9 +416,43 @@ class LinkHandler {
                     break;
             } // switch end
         } catch (e) {
-            logger.error(`[LinkHandler] Error processing ${type} link ${id}:`, e);
+            // 🆕 增强错误上下文和日志记录
+            const errorContext = {
+                requestId,
+                type,
+                id,
+                cacheKey,
+                groupId,
+                userId,
+                matchedUrl: link.match,
+                errorMessage: e.message,
+                errorCode: e.code,
+                errorName: e.name,
+                stack: e.stack
+            };
+
+            logger.error(`[LinkHandler] [${requestId}] Error processing ${type} link ${id}:`, {
+                ...errorContext,
+                stack: e.stack // 完整堆栈跟踪
+            });
+
+            // 🆕 根据错误类型提供更友好的用户消息
+            let userMessage = `处理链接 ${link.match} 时发生错误`;
+
+            if (e.code === 'ECONNREFUSED' || e.code === 'ETIMEDOUT') {
+                userMessage += '：网络连接失败，请稍后重试';
+            } else if (e.response && e.response.status === 412) {
+                userMessage += '：B站风控，请更新Cookie';
+            } else if (e.response && e.response.status === 404) {
+                userMessage += '：内容不存在或已被删除';
+            } else {
+                userMessage += `：${e.message || '未知错误'}`;
+            }
+
+            userMessage += `\n错误ID: ${requestId}`;
+
             this.sendGroupMessage(ws, groupId, [
-                { type: 'text', data: { text: `处理链接 ${link.match} 时发生错误: ${e.message || '未知错误'}` } }
+                { type: 'text', data: { text: userMessage } }
             ], userId);
         }
     }
