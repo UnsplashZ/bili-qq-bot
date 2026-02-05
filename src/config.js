@@ -102,6 +102,10 @@ const META = {
     aiContextLimit: { env: null, def: 10, type: 'int' },
     aiTemperature: { env: 'AI_TEMPERATURE', def: 1.0, type: 'float' },
 
+    // AI Function Toggles
+    aiEnabled: { env: 'AI_ENABLED', def: true, type: 'bool' },
+    aiRagEnabled: { env: 'AI_RAG_ENABLED', def: true, type: 'bool' },
+
     // AI Chat Service Configuration (priority over general AI config)
     aiChatApiUrl: {
         env: 'AI_CHAT_API_URL',
@@ -586,4 +590,53 @@ Object.keys(META).forEach(key => {
     });
 });
 
+/**
+ * Check if AI is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean} - True if AI is enabled for this group
+ */
+function isAiEnabledForGroup(groupId) {
+    // 1. Global AI switch must be on
+    if (!config.aiEnabled) {
+        return false;
+    }
+
+    // 2. Check group-level override
+    const groupConfig = config.groupConfigs[String(groupId)];
+    if (groupConfig && 'aiEnabled' in groupConfig) {
+        return groupConfig.aiEnabled;
+    }
+
+    // 3. Default: inherit global setting
+    return true;
+}
+
+/**
+ * Check if RAG is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean} - True if RAG is enabled for this group
+ */
+function isRagEnabledForGroup(groupId) {
+    // 1. AI must be enabled first
+    if (!isAiEnabledForGroup(groupId)) {
+        return false;
+    }
+
+    // 2. Global RAG switch must be on
+    if (!config.aiRagEnabled) {
+        return false;
+    }
+
+    // 3. Check group-level override
+    const groupConfig = config.groupConfigs[String(groupId)];
+    if (groupConfig && 'aiRagEnabled' in groupConfig) {
+        return groupConfig.aiRagEnabled;
+    }
+
+    // 4. Default: inherit global setting
+    return true;
+}
+
 module.exports = config;
+module.exports.isAiEnabledForGroup = isAiEnabledForGroup;
+module.exports.isRagEnabledForGroup = isRagEnabledForGroup;
