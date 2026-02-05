@@ -12,14 +12,43 @@ class ServiceManager {
         ServiceManager.instance = this;
 
         this.process = null;
-        this.port = config.biliServerPort || 10001;
+
+        // 🆕 验证端口参数
+        const rawPort = config.biliServerPort || 10001;
+        this.port = this.validatePort(rawPort);
+
         this.scriptPath = path.resolve(process.cwd(), config.biliScriptPath || 'src/services/bili_server.py');
         this.baseUrl = `http://127.0.0.1:${this.port}`;
         this.lastRequestTime = Date.now();
         this.isRestarting = false;
-        
+
         // Idle check interval (every hour)
         this.idleCheckInterval = setInterval(() => this.checkIdle(), 60 * 60 * 1000);
+    }
+
+    // 🆕 验证端口号是否有效
+    validatePort(port) {
+        const MIN_PORT = 1024;  // 非特权端口起始
+        const MAX_PORT = 65535; // 最大端口号
+
+        // 类型检查
+        const portNum = typeof port === 'string' ? parseInt(port, 10) : port;
+
+        if (isNaN(portNum) || !Number.isInteger(portNum)) {
+            const errorMsg = `Invalid port type: ${port} (type: ${typeof port}). Port must be an integer.`;
+            logger.error(`[ServiceManager] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+
+        // 范围检查
+        if (portNum < MIN_PORT || portNum > MAX_PORT) {
+            const errorMsg = `Invalid port ${portNum}. Port must be between ${MIN_PORT} and ${MAX_PORT}.`;
+            logger.error(`[ServiceManager] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+
+        logger.info(`[ServiceManager] Port ${portNum} validated successfully`);
+        return portNum;
     }
 
     async start() {
