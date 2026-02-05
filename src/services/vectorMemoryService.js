@@ -23,6 +23,19 @@ class VectorMemoryService {
         // Debounced save timers
         this.saveTimers = new Map(); // groupId -> timer
 
+        // 🆕 Eviction lock to prevent concurrent evictions
+        this.evictionLock = false;
+
+        // 🆕 Single group size limit (max 50% of total memory)
+        this.maxSingleGroupSize = this.maxL1MemoryBytes * 0.5;
+
+        logger.info('[VectorMemory] Service initialized', {
+            maxL1Memory: `${(this.maxL1MemoryBytes / 1024 / 1024).toFixed(0)}MB`,
+            maxCachedGroups: this.maxCachedGroups,
+            maxQueryCacheSize: this.maxQueryCacheSize,
+            maxSingleGroup: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(0)}MB`
+        });
+
         this.init();
     }
 
@@ -48,9 +61,11 @@ class VectorMemoryService {
             };
             this.groupCache.set(groupId, cache);
 
-            // Evict LRU group if cache is full
+            // Evict LRU group if cache is full (async, fire and forget)
             if (this.groupCache.size > this.maxCachedGroups) {
-                this.evictLRUGroup();
+                this.evictLRUGroup().catch(err => {
+                    logger.error('[VectorMemory] Failed to evict during cache update:', err);
+                });
             }
         } else {
             cache.lastAccess = Date.now();
@@ -63,42 +78,76 @@ class VectorMemoryService {
         }
     }
 
-    // Evict least recently used group from L2 cache
-    evictLRUGroup() {
-        let oldestGroupId = null;
-        let oldestTime = Infinity;
-
-        for (const [groupId, cache] of this.groupCache.entries()) {
-            if (cache.lastAccess < oldestTime) {
-                oldestTime = cache.lastAccess;
-                oldestGroupId = groupId;
-            }
+    // 🆕 Evict least recently used group from L2 cache (with lock protection)
+    async evictLRUGroup() {
+        // Prevent concurrent evictions
+        if (this.evictionLock) {
+            logger.debug('[VectorMemory] Eviction already in progress, skipping');
+            return;
         }
 
-        if (oldestGroupId) {
-            // Save pending changes before eviction to prevent data loss
-            if (this.saveTimers.has(oldestGroupId)) {
-                clearTimeout(this.saveTimers.get(oldestGroupId));
-                this.saveTimers.delete(oldestGroupId);
-
-                // Synchronously save the memory data
-                const memory = this.memories.get(oldestGroupId);
-                if (memory) {
-                    try {
-                        const filePath = path.join(this.dataDir, `${oldestGroupId}.json`);
-                        // Use synchronous write to ensure data is saved before eviction
-                        storageUtils.writeWithBackup(filePath, memory);
-                        logger.info(`[VectorMemory] Saved pending changes for group ${oldestGroupId} before eviction`);
-                    } catch (e) {
-                        logger.error(`[VectorMemory] Failed to save before eviction for group ${oldestGroupId}:`, e);
-                    }
-                }
+        this.evictionLock = true;
+        try {
+            const entries = Array.from(this.groupCache.entries());
+            if (entries.length === 0) {
+                logger.debug('[VectorMemory] No groups to evict');
+                return;
             }
 
+            // Sort by lastAccess time to find oldest
+            entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+            const [oldestGroupId, cacheEntry] = entries[0];
+
+            logger.info(`[VectorMemory] Evicting LRU group: ${oldestGroupId}`, {
+                lastAccess: new Date(cacheEntry.lastAccess).toISOString(),
+                memoryUsage: `${(this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)}MB`
+            });
+
+            // Save pending changes before eviction to prevent data loss
+            if (this.saveTimers.has(oldestGroupId)) {
+                await this._flushGroupToStorage(oldestGroupId);
+            }
+
+            // Clear caches
             this.groupCache.delete(oldestGroupId);
-            // Also remove from L1 cache (memories) to prevent memory leak
             this.memories.delete(oldestGroupId);
-            logger.debug(`[VectorMemory] Evicted group ${oldestGroupId} from caches`);
+
+            logger.info(`[VectorMemory] Successfully evicted group ${oldestGroupId}`);
+        } catch (error) {
+            logger.error('[VectorMemory] Failed to evict LRU group:', error);
+            throw error;
+        } finally {
+            this.evictionLock = false;
+        }
+    }
+
+    /**
+     * 🆕 Flush group data to storage (async)
+     */
+    async _flushGroupToStorage(groupId) {
+        try {
+            // Clear timer
+            const timer = this.saveTimers.get(groupId);
+            if (timer) {
+                clearTimeout(timer);
+                this.saveTimers.delete(groupId);
+            }
+
+            // Get memory data
+            const memory = this.memories.get(groupId);
+            if (!memory) {
+                logger.debug(`[VectorMemory] No data to flush for group ${groupId}`);
+                return;
+            }
+
+            // Async write
+            const filePath = path.join(this.dataDir, `${groupId}.json`);
+            await storageUtils.asyncWriteWithBackup(filePath, memory);
+
+            logger.debug(`[VectorMemory] Flushed ${memory.length} memories for group ${groupId}`);
+        } catch (error) {
+            logger.error(`[VectorMemory] Failed to flush group ${groupId}:`, error);
+            throw error;
         }
     }
 
@@ -109,49 +158,79 @@ class VectorMemoryService {
         this.updateCacheAccess(groupId);
     }
 
-    // Load memories for a group (Lazy load)
+    // Load memories for a group (Lazy load) - 🆕 Enhanced with memory limits
     async loadGroupMemory(groupId) {
         if (this.memories.has(groupId)) {
             this.updateCacheAccess(groupId);
             return this.memories.get(groupId);
         }
 
-        // 加载前检查 L1 缓存总内存使用量
-        const currentMemory = this.calculateTotalL1Memory();
-        if (currentMemory > this.maxL1MemoryBytes) {
-            logger.warn(`[VectorMemory] L1 cache exceeds ${(this.maxL1MemoryBytes/1024/1024).toFixed(0)}MB (current: ${(currentMemory/1024/1024).toFixed(1)}MB), forcing eviction`);
-            this.evictLRUGroup();
+        logger.info(`[VectorMemory] Loading group ${groupId} into memory`);
+
+        // 🆕 Pre-load memory check: ensure 80% space available
+        let currentMemory = this.calculateTotalL1Memory();
+        const targetMemory = this.maxL1MemoryBytes * 0.8;
+
+        while (currentMemory > targetMemory && this.groupCache.size > 0) {
+            logger.info(`[VectorMemory] Memory usage ${(currentMemory / 1024 / 1024).toFixed(2)}MB exceeds target ${(targetMemory / 1024 / 1024).toFixed(2)}MB, evicting...`);
+            await this.evictLRUGroup();
+            currentMemory = this.calculateTotalL1Memory();
         }
 
         const filePath = path.join(this.dataDir, `${groupId}.json`);
         try {
+            let data = [];
             if (fs.existsSync(filePath)) {
-                // Check file size and log if large
-                const stats = await fs.promises.stat(filePath);
-                if (stats.size > 1024 * 1024) { // > 1MB
-                    logger.info(`[VectorMemory] Loading large file (${(stats.size / 1024 / 1024).toFixed(1)}MB) for group ${groupId}`);
-                }
-
                 const startTime = Date.now();
-                const data = await storageUtils.safeReadJSON(filePath, []);
+                data = await storageUtils.safeReadJSON(filePath, []);
                 const loadTime = Date.now() - startTime;
 
-                if (loadTime > 100) {
-                    logger.info(`[VectorMemory] Loaded ${data.length} memories in ${loadTime}ms for group ${groupId}`);
+                // 🆕 Check single file size
+                const fileSize = JSON.stringify(data).length;
+                if (fileSize > this.maxSingleGroupSize) {
+                    logger.warn(`[VectorMemory] Group ${groupId} exceeds max single group size`, {
+                        currentSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
+                        maxSize: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(2)}MB`,
+                        memoryCount: data.length
+                    });
+
+                    // Trim to appropriate size (keep newest 70%)
+                    const keepCount = Math.floor(data.length * 0.7);
+                    const removed = data.length - keepCount;
+                    data = data.slice(-keepCount); // Keep last keepCount items
+
+                    logger.info(`[VectorMemory] Trimmed group ${groupId}: removed ${removed} oldest memories, kept ${keepCount}`);
+
+                    // Immediately save trimmed data
+                    await storageUtils.asyncWriteWithBackup(filePath, data);
                 }
 
-                this.memories.set(groupId, data);
-                this.initGroupCache(groupId);
-                return data;
+                logger.info(`[VectorMemory] Loaded ${data.length} memories for group ${groupId}`, {
+                    size: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
+                    loadTime: `${loadTime}ms`,
+                    totalMemory: `${(this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)}MB`
+                });
             }
+
+            this.memories.set(groupId, data);
+            this.initGroupCache(groupId);
+
+            // 🆕 Post-load memory check
+            currentMemory = this.calculateTotalL1Memory();
+            while (currentMemory > this.maxL1MemoryBytes && this.groupCache.size > 1) {
+                logger.warn(`[VectorMemory] Memory usage ${(currentMemory / 1024 / 1024).toFixed(2)}MB exceeds limit ${(this.maxL1MemoryBytes / 1024 / 1024).toFixed(2)}MB, evicting...`);
+                await this.evictLRUGroup();
+                currentMemory = this.calculateTotalL1Memory();
+            }
+
+            return data;
         } catch (e) {
             logger.error(`[VectorMemory] Failed to load memory for group ${groupId}:`, e);
+            const empty = [];
+            this.memories.set(groupId, empty);
+            this.initGroupCache(groupId);
+            return empty;
         }
-
-        const empty = [];
-        this.memories.set(groupId, empty);
-        this.initGroupCache(groupId);
-        return empty;
     }
 
     // Calculate Cosine Similarity
