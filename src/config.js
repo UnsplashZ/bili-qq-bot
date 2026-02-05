@@ -221,16 +221,46 @@ const META = {
         env: 'JWT_SECRET',
         def: '',
         type: 'string',
-        // Special handling: generate random secret if not set
+        // Special handling: generate random secret if not set, and persist it
         get: function() {
             if ('jwtSecret' in _overrides) return _overrides.jwtSecret;
             let envVal = process.env.JWT_SECRET;
             if (envVal) return envVal;
-            // Generate random secret
+
+            // Check for persisted secret file
             const crypto = require('crypto');
+            const fs = require('fs');
+            const path = require('path');
+            const secretPath = path.join(__dirname, '../config/.jwtSecret');
+
+            try {
+                if (fs.existsSync(secretPath)) {
+                    const saved = fs.readFileSync(secretPath, 'utf8').trim();
+                    if (saved && saved.length === 64) { // Validate format (32 bytes hex = 64 chars)
+                        logger.info('[Config] Loaded JWT_SECRET from .jwtSecret file');
+                        return saved;
+                    }
+                }
+            } catch (err) {
+                logger.warn('[Config] Failed to read .jwtSecret:', err.message);
+            }
+
+            // Generate new secret and persist it
             const secret = crypto.randomBytes(32).toString('hex');
-            process.env.JWT_SECRET = secret;
-            logger.warn('JWT_SECRET not set in .env, generated a temporary random secret. Tokens will be invalid after restart.');
+            try {
+                // Ensure directory exists
+                const dir = path.dirname(secretPath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+                // Write file with restricted permissions (owner read/write only)
+                fs.writeFileSync(secretPath, secret, { mode: 0o600 });
+                logger.warn('[Config] JWT_SECRET generated and saved to config/.jwtSecret');
+                logger.warn('[Config] Consider moving this to .env file for better security');
+            } catch (err) {
+                logger.error('[Config] Failed to save JWT_SECRET:', err);
+            }
+
             return secret;
         }
     },
