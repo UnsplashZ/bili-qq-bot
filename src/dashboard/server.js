@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const apiRoutes = require('./routes/api');
 const sysConfig = require('../config');
+const { csrfProtection } = require('./middleware/auth'); // 🆕 P2-2
 
 let server = null;
 let wss = null;
@@ -24,6 +25,9 @@ function start(port = 3000) {
             // Middleware
             app.use(cors());
             app.use(express.json());
+
+            // 🆕 P2-2: CSRF保护（应用于所有API路由）
+            app.use('/api', csrfProtection);
 
             // Health check endpoint (Public, must be before API routes middleware)
             app.get('/api/status', (req, res) => {
