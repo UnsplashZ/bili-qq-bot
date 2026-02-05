@@ -747,7 +747,7 @@ function Groups() {
                         {saving ? '保存中...' : '保存更改'}
                     </button>
                  </div>
-                 <Tab.List className="flex space-x-1">
+                 <Tab.List className="flex space-x-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/20">
                   {categories.map((category) => (
                     <Tab
                       key={category.name}

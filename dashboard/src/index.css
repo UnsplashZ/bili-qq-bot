@@ -19,3 +19,39 @@ html, body {
   min-height: 100vh;
   background: linear-gradient(to bottom right, #111827, #1e293b, #000000);
 }
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  /* 防止横向滚动 */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* 优化按钮点击区域 */
+  button {
+    min-height: 44px;
+  }
+
+  /* 优化表单输入框 */
+  input, textarea, select {
+    font-size: 16px; /* 防止iOS自动缩放 */
+  }
+}
+
+/* 自定义滚动条 */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
