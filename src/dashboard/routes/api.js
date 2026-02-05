@@ -501,7 +501,7 @@ router.post('/bili/logout', async (req, res) => {
     try {
         const { groupId } = req.body;
 
-        // 验证 groupId 以防止路径遍历攻击
+        // 🆕 增强路径穿越防护
         if (groupId && (!/^\d+$/.test(String(groupId)) || String(groupId).includes('..'))) {
             return res.status(400).json({ error: 'Invalid groupId' });
         }
@@ -511,8 +511,28 @@ router.post('/bili/logout', async (req, res) => {
             ? path.resolve(__dirname, `../../../data/cookies_${groupId}.json`)
             : path.resolve(__dirname, '../../../data/cookies.json');
 
+        // 🆕 三层安全验证
+        // 1. 提取基础文件名（防止路径穿越）
+        const fileName = path.basename(cookieFile);
+
+        // 2. 白名单验证（只允许特定格式的cookie文件）
+        const cookieFilePattern = /^cookies(_\d+)?\.json$/;
+        if (!cookieFilePattern.test(fileName)) {
+            logger.warn(`[Security] Attempted to delete non-cookie file: ${fileName}`);
+            return res.status(400).json({ error: 'Invalid cookie file name' });
+        }
+
+        // 3. 路径前缀检查（确保文件在data目录下）
+        const dataDir = path.resolve(__dirname, '../../../data');
+        const resolvedPath = path.resolve(cookieFile);
+        if (!resolvedPath.startsWith(dataDir + path.sep) && resolvedPath !== dataDir) {
+            logger.warn(`[Security] Attempted path traversal: ${resolvedPath}`);
+            return res.status(400).json({ error: 'Path traversal detected' });
+        }
+
         try {
             await fs.unlink(cookieFile);
+            logger.info(`[Security] Cookie file deleted: ${fileName}`);
         } catch (err) {
             // File doesn't exist - that's OK
             if (err.code !== 'ENOENT') {
