@@ -183,6 +183,8 @@ router.get('/config', async (req, res) => {
 const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'subscriptionCheckInterval',
     'linkCacheTimeout',
+    'aiEnabled',
+    'aiRagEnabled',
 ];
 
 // POST /api/config - Update global config
@@ -492,6 +494,129 @@ router.delete('/groups/:id', async (req, res) => {
     } catch (error) {
         logger.error('Error deleting group config:', error);
         res.status(500).json({ error: 'Failed to delete group config' });
+    }
+});
+
+// GET /api/groups/:groupId/ai-config - Get group-level AI configuration
+router.get('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Return group overrides (null means inherit from global)
+        res.json({
+            aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
+            aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error fetching AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to fetch AI configuration' });
+    }
+});
+
+// PUT /api/groups/:groupId/ai-config - Update group-level AI configuration
+router.put('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        const { aiEnabled, aiRagEnabled } = req.body;
+
+        // Validate request body
+        if (aiEnabled === undefined && aiRagEnabled === undefined) {
+            return res.status(400).json({
+                error: 'At least one of aiEnabled or aiRagEnabled must be provided'
+            });
+        }
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Update or delete fields based on null values
+        if (aiEnabled !== undefined) {
+            if (aiEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiEnabled;
+            } else if (typeof aiEnabled === 'boolean') {
+                groupConfig.aiEnabled = aiEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiEnabled must be a boolean or null'
+                });
+            }
+        }
+
+        if (aiRagEnabled !== undefined) {
+            if (aiRagEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiRagEnabled;
+            } else if (typeof aiRagEnabled === 'boolean') {
+                groupConfig.aiRagEnabled = aiRagEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiRagEnabled must be a boolean or null'
+                });
+            }
+        }
+
+        // Save configuration
+        sysConfig.save();
+
+        logger.info(`[API] Updated AI config for group ${groupId}`);
+
+        // Return updated configuration
+        res.json({
+            message: 'AI configuration updated successfully',
+            aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
+            aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error updating AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to update AI configuration' });
+    }
+});
+
+// DELETE /api/groups/:groupId/ai-config - Reset group-level AI configuration
+router.delete('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Delete AI config overrides
+        delete groupConfig.aiEnabled;
+        delete groupConfig.aiRagEnabled;
+
+        // Save configuration
+        sysConfig.save();
+
+        logger.info(`[API] Reset AI config for group ${groupId} to global defaults`);
+
+        res.json({
+            message: 'AI configuration reset to global defaults',
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error resetting AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to reset AI configuration' });
     }
 });
 
