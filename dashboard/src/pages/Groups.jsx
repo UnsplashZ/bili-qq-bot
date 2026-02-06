@@ -235,8 +235,8 @@ function Groups() {
         if (selectedTabIndex === 1) {
             fetchSubscriptions(selectedGroupId);
         }
-        // If on sync tab, fetch bili groups (index changed from 4 to 5 after adding Admin tab)
-        if (selectedTabIndex === 5) {
+        // If on sync tab, fetch bili groups (index is 4 after merging tabs)
+        if (selectedTabIndex === 4) {
             fetchBiliGroups(selectedGroupId);
             // 🆕 Check global Bilibili login status
             checkGlobalBiliStatus();
@@ -509,11 +509,9 @@ function Groups() {
   const categories = [
     { name: '常规', icon: Settings },
     { name: '订阅', icon: Bell },
-    { name: '黑名单', icon: Ban },
-    { name: '管理员', icon: Shield },
-    { name: 'AI 设置', icon: Cpu },
-    { name: 'AI 配置', icon: Cpu },
-    { name: '关注列表同步', icon: RefreshCw },
+    { name: '权限', icon: Shield },
+    { name: 'AI', icon: Cpu },
+    { name: '关注同步', icon: RefreshCw },
   ];
 
   const subTypes = [
@@ -841,116 +839,149 @@ function Groups() {
                     </div>
                 </Tab.Panel>
 
-                {/* Blacklist Tab */}
-                <Tab.Panel className="focus:outline-none">
-                    <div className="space-y-4">
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                placeholder="输入 QQ 号码..."
-                                value={blacklistInput}
-                                onChange={(e) => setBlacklistInput(e.target.value)}
-                                className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddBlacklist()}
-                            />
-                            <button
-                                onClick={handleAddBlacklist}
-                                className="px-4 py-2 bg-red-600/80 hover:bg-red-500 rounded-lg text-white font-medium transition-colors flex items-center gap-2"
-                            >
-                                <Plus size={16} />
-                                添加黑名单
-                            </button>
-                        </div>
-
-                        <div className="bg-black/20 rounded-lg border border-white/5 overflow-hidden">
-                            <div className="p-3 bg-white/5 text-sm font-medium text-gray-400">已拉黑 QQ 用户 ({formData.blacklistedQQs.length})</div>
-                            {formData.blacklistedQQs.length === 0 ? (
-                                <div className="p-8 text-center text-gray-400">无黑名单记录</div>
-                            ) : (
-                                <ul className="divide-y divide-white/5">
-                                    {formData.blacklistedQQs.map((qq) => (
-                                        <li key={qq} className="flex justify-between items-center p-3 hover:bg-white/5 transition-colors">
-                                            <span className="font-mono text-white">{qq}</span>
-                                            <button
-                                                onClick={() => handleRemoveBlacklist(qq)}
-                                                className="text-gray-400 hover:text-red-400 text-sm flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded transition-colors"
-                                            >
-                                                移除
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    </div>
-                </Tab.Panel>
-
-                {/* Admin Tab */}
+                {/* Permission Tab (合并黑名单+管理员) */}
                 <Tab.Panel className="focus:outline-none">
                   <div className="space-y-6">
-                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-                      <p className="text-sm text-white/70">
-                        群组管理员可以使用所有机器人指令，不受其他限制。
-                        {globalConfig.adminQQ && (
-                          <span className="block mt-2 text-yellow-300">
-                            根管理员: {globalConfig.adminQQ}
-                          </span>
-                        )}
-                      </p>
-                    </div>
+                    {/* 管理员配置 */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-yellow-400" />
+                        <h3 className="text-lg font-semibold text-white">群组管理员</h3>
+                      </div>
 
-                    {/* 添加管理员 */}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="输入 QQ 号..."
-                        value={adminInput}
-                        onChange={(e) => setAdminInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddAdmin()}
-                        className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"
-                      />
-                      <button
-                        onClick={handleAddAdmin}
-                        disabled={!adminInput}
-                        className="px-4 py-2 bg-yellow-600/20 text-yellow-300 border border-yellow-500/30 hover:bg-yellow-600/30 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        添加
-                      </button>
-                    </div>
+                      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                        <p className="text-sm text-white/70">
+                          群组管理员可以使用所有机器人指令，不受其他限制。
+                          {globalConfig.adminQQ && (
+                            <span className="block mt-2 text-yellow-300">
+                              根管理员: {globalConfig.adminQQ}
+                            </span>
+                          )}
+                        </p>
+                      </div>
 
-                    {/* 管理员列表 */}
-                    <div className="space-y-2">
-                      {formData.admins && formData.admins.length > 0 ? (
-                        formData.admins.map((qq) => (
-                          <div key={qq} className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg p-3">
-                            <div className="flex items-center gap-3">
-                              <Shield className="w-5 h-5 text-yellow-400" />
-                              <span className="font-mono text-white">{qq}</span>
+                      {/* 添加管理员 */}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="输入 QQ 号..."
+                          value={adminInput}
+                          onChange={(e) => setAdminInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleAddAdmin()}
+                          className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-yellow-500 focus:outline-none"
+                        />
+                        <button
+                          onClick={handleAddAdmin}
+                          disabled={!adminInput}
+                          className="px-4 py-2 bg-yellow-600/20 text-yellow-300 border border-yellow-500/30 hover:bg-yellow-600/30 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          添加
+                        </button>
+                      </div>
+
+                      {/* 管理员列表 */}
+                      <div className="space-y-2">
+                        {formData.admins && formData.admins.length > 0 ? (
+                          formData.admins.map((qq) => (
+                            <div key={qq} className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg p-3">
+                              <div className="flex items-center gap-3">
+                                <Shield className="w-5 h-5 text-yellow-400" />
+                                <span className="font-mono text-white">{qq}</span>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveAdmin(qq)}
+                                className="text-gray-400 hover:text-red-400 transition-colors"
+                              >
+                                <Trash2 size={18} />
+                              </button>
                             </div>
-                            <button
-                              onClick={() => handleRemoveAdmin(qq)}
-                              className="text-gray-400 hover:text-red-400 transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                          ))
+                        ) : (
+                          <div className="text-center text-gray-500 py-4">
+                            暂无管理员
                           </div>
-                        ))
-                      ) : (
-                        <div className="text-center text-gray-500 py-4">
-                          暂无管理员
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 黑名单配置 */}
+                    <div className="space-y-4 pt-6 border-t border-white/10">
+                      <div className="flex items-center gap-2">
+                        <Ban className="w-5 h-5 text-red-400" />
+                        <h3 className="text-lg font-semibold text-white">黑名单</h3>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="输入 QQ 号码..."
+                          value={blacklistInput}
+                          onChange={(e) => setBlacklistInput(e.target.value)}
+                          className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                          onKeyDown={(e) => e.key === 'Enter' && handleAddBlacklist()}
+                        />
+                        <button
+                          onClick={handleAddBlacklist}
+                          className="px-4 py-2 bg-red-600/80 hover:bg-red-500 rounded-lg text-white font-medium transition-colors flex items-center gap-2"
+                        >
+                          <Plus size={16} />
+                          添加黑名单
+                        </button>
+                      </div>
+
+                      <div className="bg-black/20 rounded-lg border border-white/5 overflow-hidden">
+                        <div className="p-3 bg-white/5 text-sm font-medium text-gray-400">已拉黑 QQ 用户 ({formData.blacklistedQQs.length})</div>
+                        {formData.blacklistedQQs.length === 0 ? (
+                          <div className="p-8 text-center text-gray-400">无黑名单记录</div>
+                        ) : (
+                          <ul className="divide-y divide-white/5">
+                            {formData.blacklistedQQs.map((qq) => (
+                              <li key={qq} className="flex justify-between items-center p-3 hover:bg-white/5 transition-colors">
+                                <span className="font-mono text-white">{qq}</span>
+                                <button
+                                  onClick={() => handleRemoveBlacklist(qq)}
+                                  className="text-gray-400 hover:text-red-400 text-sm flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded transition-colors"
+                                >
+                                  移除
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </Tab.Panel>
 
-                {/* AI Settings Tab */}
+                {/* AI Tab (合并AI设置+AI配置) */}
                 <Tab.Panel className="focus:outline-none">
-                    {/* AI 响应配置 */}
+                  <div className="space-y-6">
+                    {/* AI 功能开关 */}
                     <div className="space-y-4">
                       <div className="flex items-center gap-2">
                         <Cpu className="w-5 h-5 text-purple-400" />
-                        <h3 className="text-lg font-semibold text-white">AI 响应配置</h3>
+                        <h3 className="text-lg font-semibold text-white">AI 功能开关</h3>
+                      </div>
+                      <AiConfigSection
+                        config={{
+                          aiEnabled: formData.aiEnabled,
+                          aiRagEnabled: formData.aiRagEnabled
+                        }}
+                        globalConfig={{
+                          aiEnabled: globalConfig.aiEnabled,
+                          aiRagEnabled: globalConfig.aiRagEnabled
+                        }}
+                        onToggle={handleAiToggle}
+                        onReset={handleAiReset}
+                        isGroup={true}
+                      />
+                    </div>
+
+                    {/* AI 响应参数 */}
+                    <div className="space-y-4 pt-6 border-t border-white/10">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="w-5 h-5 text-purple-400" />
+                        <h3 className="text-lg font-semibold text-white">AI 响应参数</h3>
                       </div>
 
                       <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
@@ -1057,25 +1088,6 @@ function Groups() {
                         </p>
                       </div>
                     </div>
-                </Tab.Panel>
-
-                {/* AI Config Tab */}
-                <Tab.Panel className="focus:outline-none">
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold text-white">AI功能配置</h3>
-                    <AiConfigSection
-                      config={{
-                        aiEnabled: formData.aiEnabled,
-                        aiRagEnabled: formData.aiRagEnabled
-                      }}
-                      globalConfig={{
-                        aiEnabled: globalConfig.aiEnabled,
-                        aiRagEnabled: globalConfig.aiRagEnabled
-                      }}
-                      onToggle={handleAiToggle}
-                      onReset={handleAiReset}
-                      isGroup={true}
-                    />
                   </div>
                 </Tab.Panel>
 

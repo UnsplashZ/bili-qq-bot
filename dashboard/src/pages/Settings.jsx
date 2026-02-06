@@ -827,12 +827,6 @@ const Settings = () => {
           <h2 className="text-xl font-semibold text-white">B站全局Cookie</h2>
         </div>
         <GlassCard>
-          <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg p-4 mb-4">
-            <p className="text-sm text-white/70">
-              全局Cookie用于所有未单独登录的群组。优先级：群组Cookie &gt; 全局Cookie
-            </p>
-          </div>
-
           {biliGlobalStatus.isLoggedIn ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-lg p-4">
