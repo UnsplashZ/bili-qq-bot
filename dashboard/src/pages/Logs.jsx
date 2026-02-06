@@ -143,7 +143,7 @@ const Logs = () => {
             <Terminal size={12} />
             <span>root@bot-server:~/logs/stream</span>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-1 custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 font-mono text-sm space-y-1 custom-scrollbar">
             {logs.length === 0 && (
                 <div className="text-gray-600 italic text-center mt-10">等待日志数据...</div>
             )}

@@ -554,7 +554,7 @@ function Groups() {
             群组 ({groups.length})
           </h2>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
           {loading ? (
              <div className="text-center p-4 text-gray-400">加载中...</div>
           ) : groups.length === 0 ? (
@@ -802,7 +802,7 @@ function Groups() {
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto bg-black/20 rounded-lg border border-white/5">
+                    <div className="flex-1 min-h-0 overflow-y-auto bg-black/20 rounded-lg border border-white/5">
                         {subsLoading ? (
                             <div className="p-4 text-center text-gray-400">加载订阅中...</div>
                         ) : subscriptions.length === 0 ? (
