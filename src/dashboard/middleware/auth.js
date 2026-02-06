@@ -40,14 +40,32 @@ function csrfProtection(req, res, next) {
 
         try {
             const originUrl = new URL(origin);
+
+            // 检查是否在允许的origin列表中
             const isAllowed = allowedOrigins.some(allowed => {
                 const allowedUrl = new URL(allowed);
                 return originUrl.origin === allowedUrl.origin;
             });
 
+            // 🆕 如果不在列表中，检查是否是内网IP（Tailscale、局域网等）
             if (!isAllowed) {
-                logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
-                return res.status(403).json({ error: 'CSRF validation failed: Invalid origin' });
+                const hostname = originUrl.hostname;
+                const isPrivateIP =
+                    // Tailscale IP range: 100.64.0.0/10
+                    /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(hostname) ||
+                    // Private IP ranges
+                    /^10\./.test(hostname) ||
+                    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
+                    /^192\.168\./.test(hostname) ||
+                    // IPv6 private ranges
+                    /^(fe80|fc00|fd00):/.test(hostname);
+
+                if (isPrivateIP) {
+                    logger.debug(`[Security] CSRF: Allowing private IP origin: ${origin}`);
+                } else {
+                    logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
+                    return res.status(403).json({ error: 'CSRF validation failed: Invalid origin' });
+                }
             }
         } catch (e) {
             // URL解析失败（如 Origin: null 或格式错误），拒绝请求
