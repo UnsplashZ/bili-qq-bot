@@ -769,7 +769,7 @@ const Settings = () => {
   }
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="px-6 pt-6 space-y-8 pb-12">
       <header>
         <h1 className="text-3xl font-bold text-white mb-2">系统设置</h1>
         <p className="text-gray-400">管理全局 AI 配置、常规选项和系统扩展。</p>

@@ -114,7 +114,7 @@ const Logs = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
+    <div className="px-6 pt-6 h-[calc(100vh-8rem)] flex flex-col space-y-4">
       <header className="flex justify-between items-center">
         <div>
            <h1 className="text-3xl font-bold text-white mb-2">系统日志</h1>
