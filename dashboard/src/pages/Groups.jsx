@@ -624,8 +624,8 @@ function Groups() {
       <div className="w-full lg:w-2/3 flex flex-col">
         {selectedGroupId ? (
           <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden">
-            <Tab.Group selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
-              <div className="border-b border-white/10 bg-white/5 px-4 pt-4">
+            <Tab.Group as="div" className="flex flex-col h-full" selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
+              <div className="flex-shrink-0 border-b border-white/10 bg-white/5 px-4 pt-4">
                  <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold">
                         {groups.find(g => g.id === selectedGroupId)?.name || '群组设置'}
@@ -661,7 +661,7 @@ function Groups() {
                 </Tab.List>
               </div>
 
-              <Tab.Panels className="flex-1 p-6 overflow-y-auto">
+              <Tab.Panels className="flex-1 min-h-0 p-6 overflow-y-auto">
                 {/* General Tab */}
                 <Tab.Panel className="space-y-6 focus:outline-none">
                     <div className="space-y-4">
