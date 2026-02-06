@@ -176,10 +176,8 @@ class UpdateChecker {
         // 3. Check User Videos (Manual Subs)
         logger.info('[UpdateChecker] Checking user videos...');
         for (const sub of subscriptionManager.userSubs) {
-            // Skip if this user is already monitored by feed check
-            if (feedMonitoredUids.has(String(sub.uid))) {
-                continue;
-            }
+            // 不再跳过feed监控的用户，因为feed流会过滤视频动态
+            // Cookie-sync用户也需要独立的视频检查
 
             // Filter out inactive groups
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
@@ -195,10 +193,8 @@ class UpdateChecker {
         // 4. Check User Articles (Manual Subs)
         logger.info('[UpdateChecker] Checking user articles...');
         for (const sub of subscriptionManager.userSubs) {
-            // Skip if this user is already monitored by feed check
-            if (feedMonitoredUids.has(String(sub.uid))) {
-                continue;
-            }
+            // 不再跳过feed监控的用户，因为feed流会过滤专栏动态
+            // Cookie-sync用户也需要独立的专栏检查
 
             // Filter out inactive groups
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
@@ -339,7 +335,10 @@ class UpdateChecker {
             prevOffset = offset;
             page++;
 
-            if (items.length === 0) break;
+            if (items.length === 0) {
+                logger.debug(`[UpdateChecker] Page ${page} all filtered, continuing to next page`);
+                continue;
+            }
 
             for (const item of items) {
                 const authorUid = String(item.modules?.module_author?.mid);
@@ -938,7 +937,27 @@ class UpdateChecker {
                 }
 
                 // 只推送最新的一个（避免订阅时推送历史视频）
-                const videoToPush = force ? [latestVideo] : [newVideos[0]];
+                let videoToPush;
+
+                if (newVideos.length === 0) {
+                    // 场景1：无新视频
+                    if (!force) {
+                        // 正常检查 → 更新状态，静默跳过
+                        await subscriptionManager.updateUserSub(sub.uid, {
+                            lastVideoId: latestBvid
+                        });
+                        logger.debug(`[UpdateChecker] No new videos for ${sub.name}, updated tracking to ${latestBvid}`);
+                        return;
+                    } else {
+                        // 强制检查 → 推送最新视频
+                        logger.debug(`[UpdateChecker] Force check: pushing latest video for ${sub.name}: ${latestBvid}`);
+                        videoToPush = [latestVideo];
+                    }
+                } else {
+                    // 场景2：有新视频 → 推送最新的一个
+                    videoToPush = [newVideos[0]];
+                    logger.debug(`[UpdateChecker] Found ${newVideos.length} new video(s) for ${sub.name}, pushing latest: ${newVideos[0].bvid}`);
+                }
 
                 for (const video of videoToPush) {
                     try {
@@ -966,10 +985,8 @@ class UpdateChecker {
                     }
                 }
 
-                // 更新lastVideoId
-                if (!force) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
-                }
+                // 更新lastVideoId（始终更新以保持状态一致性）
+                await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking videos for ${sub.name}:`, e);
@@ -1015,7 +1032,27 @@ class UpdateChecker {
                 }
 
                 // 只推送最新的一个
-                const articleToPush = force ? [latestArticle] : [newArticles[0]];
+                let articleToPush;
+
+                if (newArticles.length === 0) {
+                    // 场景1：无新专栏
+                    if (!force) {
+                        // 正常检查 → 更新状态，静默跳过
+                        await subscriptionManager.updateUserSub(sub.uid, {
+                            lastArticleId: latestCvid
+                        });
+                        logger.debug(`[UpdateChecker] No new articles for ${sub.name}, updated tracking to ${latestCvid}`);
+                        return;
+                    } else {
+                        // 强制检查 → 推送最新专栏
+                        logger.debug(`[UpdateChecker] Force check: pushing latest article for ${sub.name}: ${latestCvid}`);
+                        articleToPush = [latestArticle];
+                    }
+                } else {
+                    // 场景2：有新专栏 → 推送最新的一个
+                    articleToPush = [newArticles[0]];
+                    logger.debug(`[UpdateChecker] Found ${newArticles.length} new article(s) for ${sub.name}, pushing latest: cv${newArticles[0].id}`);
+                }
 
                 for (const article of articleToPush) {
                     try {
@@ -1043,10 +1080,8 @@ class UpdateChecker {
                     }
                 }
 
-                // 更新lastArticleId
-                if (!force) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
-                }
+                // 更新lastArticleId（始终更新以保持状态一致性）
+                await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking articles for ${sub.name}:`, e);
