@@ -267,7 +267,7 @@ const Settings = () => {
 
   const handleGlobalAiToggle = async (field, value) => {
     try {
-      await api.put('/api/config', { [field]: value });
+      await api.post('/api/config', { [field]: value });
       setAiConfig(prev => ({ ...prev, [field]: value }));
       show('全局AI配置已更新', 'success');
     } catch (error) {

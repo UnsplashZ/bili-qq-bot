@@ -226,6 +226,8 @@ function Groups() {
           aiProbability: config.aiProbability ?? null,
           aiContextLimit: config.aiContextLimit ?? null,
           aiTemperature: config.aiTemperature ?? null,
+          aiEnabled: config.aiEnabled ?? null,           // null表示继承全局
+          aiRagEnabled: config.aiRagEnabled ?? null,     // null表示继承全局
           // 加载深色模式配置
           nightMode: config.nightMode || {
             mode: "off",
