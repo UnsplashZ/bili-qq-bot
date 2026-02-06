@@ -114,11 +114,11 @@ const Logs = () => {
   };
 
   return (
-    <div className="px-6 pt-6 h-[calc(100vh-8rem)] flex flex-col space-y-4">
-      <header className="flex justify-between items-center">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 flex flex-col space-y-4 pb-6 min-h-[calc(100vh-8rem)]">
+      <header className="flex justify-between items-center flex-wrap gap-2">
         <div>
-           <h1 className="text-3xl font-bold text-white mb-2">系统日志</h1>
-           <p className="text-gray-400">实时监控系统运行状态</p>
+           <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">系统日志</h1>
+           <p className="text-sm md:text-base text-gray-400">实时监控系统运行状态</p>
         </div>
         <div className="flex gap-2">
             <button

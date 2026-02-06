@@ -537,17 +537,17 @@ function Groups() {
   };
 
   return (
-    <div className="px-6 pt-6 space-y-6">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 space-y-4 md:space-y-6 pb-6">
       {/* Page Header */}
       <header>
-        <h1 className="text-3xl font-bold text-white mb-2">群组管理</h1>
-        <p className="text-gray-400">管理QQ群组配置、订阅和权限设置</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">群组管理</h1>
+        <p className="text-sm md:text-base text-gray-400">管理QQ群组配置、订阅和权限设置</p>
       </header>
 
       {/* Main Content */}
-      <div className="h-[calc(100vh-12rem)] flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-4 md:gap-6 lg:h-[calc(100vh-12rem)]">
         {/* Left Column: Master List */}
-      <GlassCard className="w-1/3 flex flex-col p-0 overflow-hidden">
+      <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[50vh] lg:max-h-none">
         <div className="p-4 border-b border-white/10 bg-white/5">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <MessageSquare size={18} />
@@ -621,7 +621,7 @@ function Groups() {
       </GlassCard>
 
       {/* Right Column: Detail View */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-full lg:w-2/3 flex flex-col">
         {selectedGroupId ? (
           <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden">
             <Tab.Group selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
