@@ -6,6 +6,7 @@ import GlassModal from '../components/GlassModal';
 import AiConfigSection from '../components/AiConfigSection';
 import { useToast } from '../hooks/useToast';
 import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, Loader2, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 
 function Groups() {
@@ -1115,12 +1116,12 @@ function Groups() {
                              <p className="text-sm text-white/70 mb-3">
                                  关注列表同步需要先在系统设置中登录B站账号
                              </p>
-                             <a
-                                 href="#/settings"
+                             <Link
+                                 to="/settings"
                                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
                              >
                                  前往系统设置
-                             </a>
+                             </Link>
                          </div>
                      )}
 
