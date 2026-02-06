@@ -545,7 +545,7 @@ function Groups() {
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-col lg:flex-row gap-4 md:gap-6 lg:h-[calc(100vh-12rem)]">
+      <div className="flex flex-col lg:flex-row gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
         {/* Left Column: Master List */}
       <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[50vh] lg:max-h-none">
         <div className="p-4 border-b border-white/10 bg-white/5">
