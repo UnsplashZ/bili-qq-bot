@@ -502,6 +502,38 @@ class LinkHandler {
             req.end();
         });
     }
+
+    /**
+     * 🆕 添加链接到缓存（供外部调用）
+     * 用于订阅推送后，将链接加入缓存避免重复解析
+     *
+     * @param {string} url - B站链接
+     * @param {string} groupId - 群组ID
+     */
+    addUrlToCache(url, groupId) {
+        if (!url || !groupId) {
+            logger.warn('[LinkHandler] Invalid url or groupId for cache');
+            return;
+        }
+
+        // 提取链接信息
+        const links = this.extractLinks(url, groupId);
+        if (links.length === 0) {
+            logger.debug('[LinkHandler] No valid bili links found in url:', url);
+            return;
+        }
+
+        // 获取群组的缓存超时配置
+        const groupConfig = config.groupConfigs[groupId] || {};
+        const timeout = (groupConfig.linkCacheTimeout ?? config.linkCacheTimeout ?? 600) * 1000;
+
+        // 添加所有提取到的链接到缓存
+        for (const link of links) {
+            const { cacheKey } = link;
+            this.linkCache.set(cacheKey, Date.now() + timeout);
+            logger.debug(`[LinkHandler] Added to cache: ${cacheKey} (timeout: ${timeout}ms)`);
+        }
+    }
 }
 
 module.exports = new LinkHandler();

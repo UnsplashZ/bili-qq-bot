@@ -396,7 +396,7 @@ class UpdateChecker {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImage(targetGroups, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, info.type || 'dynamic', url, notificationText);
                     }
                 }
 
@@ -466,7 +466,7 @@ class UpdateChecker {
                     liveInfo.id = roomId;
                     const roomUrl = `https://live.bilibili.com/${roomId}`;
 
-                    await this.notifyGroupsWithImage(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
                 }
             }
 
@@ -784,7 +784,7 @@ class UpdateChecker {
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
 
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
@@ -852,7 +852,7 @@ class UpdateChecker {
                     logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`);
                 } else {
                     liveInfo.id = roomId;
-                    await this.notifyGroupsWithImage(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
                 }
             }
 
@@ -886,7 +886,7 @@ class UpdateChecker {
                 const notificationText = `${sub.title} 更新了：${newEp.index_show}`;
 
                 try {
-                    await this.notifyGroupsWithImage(groupsToNotify, res, 'bangumi', url, notificationText);
+                    await this.notifyGroupsWithImageAndCache(groupsToNotify, res, 'bangumi', url, notificationText);
                 } catch (e) {
                     logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e);
                     this.notifyGroups(groupsToNotify, `${notificationText}\n${url}`, newEp.id);
@@ -976,7 +976,7 @@ class UpdateChecker {
 
                         // 推送
                         const url = `https://www.bilibili.com/video/${bvid}`;
-                        await this.notifyGroupsWithImage(groupsToNotify, info, 'video', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'video', url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new video for ${sub.name}: ${bvid}`);
 
@@ -1071,7 +1071,7 @@ class UpdateChecker {
 
                         // 推送
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImage(groupsToNotify, info, 'article', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'article', url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new article for ${sub.name}: ${cvid}`);
 
@@ -1210,6 +1210,21 @@ class UpdateChecker {
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl;
                 this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`, dedupId);
             }
+        }
+    }
+
+    /**
+     * 🆕 推送消息并添加链接到缓存
+     * 封装notifyGroupsWithImage + 缓存逻辑，避免重复代码
+     */
+    async notifyGroupsWithImageAndCache(groupIds, data, type, textUrl, descriptionText = '') {
+        // 推送消息
+        await this.notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText);
+
+        // 添加链接到缓存
+        const linkHandler = require('../../handlers/linkHandler');
+        for (const groupId of groupIds) {
+            linkHandler.addUrlToCache(textUrl, groupId);
         }
     }
 

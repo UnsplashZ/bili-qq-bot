@@ -623,8 +623,8 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
 // GET /api/groups/:id/bili-groups - Get Bilibili follow groups
 router.get('/groups/:id/bili-groups', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id);
-        const result = await biliApi.getFollowGroups(groupId);
+        // 🆕 使用全局Cookie获取关注分组列表（不再使用群组Cookie）
+        const result = await biliApi.getFollowGroups(null);
         if (result && result.status === 'success') {
             res.json(result.data);
         } else {
@@ -632,7 +632,7 @@ router.get('/groups/:id/bili-groups', async (req, res) => {
             res.json([]);
         }
     } catch (error) {
-        logger.error(`Error fetching Bilibili groups for group ${req.params.id}:`, error);
+        logger.error('Error fetching Bilibili groups (global cookie):', error);
         res.status(500).json({ error: 'Failed to fetch Bilibili groups' });
     }
 });

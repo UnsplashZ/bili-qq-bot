@@ -5,9 +5,8 @@ import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import AiConfigSection from '../components/AiConfigSection';
 import { useToast } from '../hooks/useToast';
-import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, QrCode, Loader2, LogOut, Shield } from 'lucide-react';
+import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, Loader2, Shield } from 'lucide-react';
 import { clsx } from 'clsx';
-import QRCode from 'qrcode';
 
 function Groups() {
   const [groups, setGroups] = useState([]);
@@ -60,18 +59,16 @@ function Groups() {
   // Admin State
   const [adminInput, setAdminInput] = useState('');
 
-  // Login State
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginQrCode, setLoginQrCode] = useState('');
-  const [loginStatus, setLoginStatus] = useState('idle'); // idle, waiting, success, expired
-  const checkLoginTimerRef = useRef(null);
-
-  // Bilibili User Info State
-  const [biliUserInfo, setBiliUserInfo] = useState(null); // { mid, name, face }
-
   // Bilibili Groups State (Follow Groups)
   const [biliGroups, setBiliGroups] = useState([]);
   const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
+
+  // 🆕 Global Bilibili Status
+  const [globalBiliStatus, setGlobalBiliStatus] = useState({
+    isLoggedIn: false,
+    uid: null,
+    username: ''
+  });
 
   // 全局配置（包括AI配置和系统配置）
   const [globalConfig, setGlobalConfig] = useState({
@@ -167,31 +164,27 @@ function Groups() {
       }
   }, []);
 
-  // Check existing Bilibili login
-  const checkExistingLogin = useCallback(async (groupId) => {
+  // 🆕 Check global Bilibili login status
+  const checkGlobalBiliStatus = useCallback(async () => {
       try {
-          const res = await api.get(`/api/bili/my-info?groupId=${groupId}`);
-          if (res.data && res.data.status === 'success' && res.data.data) {
-              setBiliUserInfo({
-                  mid: res.data.data.mid,
-                  name: res.data.data.name,
-                  face: res.data.data.face
-              });
-          } else {
-              // Not logged in or cookie expired
-              setBiliUserInfo(null);
-          }
-      } catch {
-          // API call failed, treat as not logged in
-          setBiliUserInfo(null);
+          const res = await api.get('/api/bili/global-status');
+          setGlobalBiliStatus({
+              isLoggedIn: res.data.isLoggedIn || false,
+              uid: res.data.uid || null,
+              username: res.data.username || ''
+          });
+      } catch (error) {
+          console.error('Failed to check global bili status:', error);
+          setGlobalBiliStatus({
+              isLoggedIn: false,
+              uid: null,
+              username: ''
+          });
       }
-  }, []); // No dependencies needed since it doesn't use any props/state
+  }, []);
 
   useEffect(() => {
     if (selectedGroupId) {
-      // 切换群组时重置B站登录状态
-      setBiliUserInfo(null);
-
       const group = groups.find(g => g.id === selectedGroupId);
       if (group) {
         const config = group.config || {};
@@ -245,12 +238,12 @@ function Groups() {
         // If on sync tab, fetch bili groups (index changed from 4 to 5 after adding Admin tab)
         if (selectedTabIndex === 5) {
             fetchBiliGroups(selectedGroupId);
-            // Check Bilibili login status
-            checkExistingLogin(selectedGroupId);
+            // 🆕 Check global Bilibili login status
+            checkGlobalBiliStatus();
         }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkExistingLogin]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -527,120 +520,6 @@ function Groups() {
       { value: 'user', label: 'UP主' },
       { value: 'bangumi', label: '番剧' },
   ];
-
-  // Login Handlers
-  const startLogin = async () => {
-      try {
-          setLoginStatus('waiting');
-          setIsLoginModalOpen(true);
-          const res = await api.get('/api/bili/login-url');
-
-          // 检查返回的状态
-          if (res.data && res.data.status === 'error') {
-              // 后端返回了错误信息
-              show(`获取登录二维码失败: ${res.data.message || '未知错误'}`, 'error');
-              setIsLoginModalOpen(false);
-              return;
-          }
-
-          if (res.data && res.data.data && res.data.data.url) {
-              // Generate QR Code
-              const qrDataUrl = await QRCode.toDataURL(res.data.data.url);
-              setLoginQrCode(qrDataUrl);
-
-              // Start polling
-              if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
-              checkLoginTimerRef.current = setInterval(() => checkLoginStatus(res.data.data.key), 3000);
-          } else {
-              show('获取登录二维码失败: 响应格式错误', 'error');
-              setIsLoginModalOpen(false);
-          }
-      } catch (err) {
-          console.error('Login error:', err);
-          const errorMsg = err.response?.data?.error || err.message || '未知错误';
-          show(`启动登录失败: ${errorMsg}`, 'error');
-          setIsLoginModalOpen(false);
-      }
-  };
-
-  const checkLoginStatus = async (key) => {
-      try {
-          const res = await api.post('/api/bili/check-login', { key, groupId: selectedGroupId });
-          // Check status in response
-          // Python script usually returns: { status: 'success'/'waiting'/'expired', ... }
-          // Or data: { status: ... } depending on biliApi wrapper
-
-          const status = res.data.data ? res.data.data.status : res.data.status;
-
-          if (status === 'success') {
-              clearInterval(checkLoginTimerRef.current);
-              setLoginStatus('success');
-              show('登录成功！', 'success');
-
-              // Fetch user info
-              try {
-                  const userRes = await api.get(`/api/bili/my-info?groupId=${selectedGroupId}`);
-                  if (userRes.data && userRes.data.status === 'success' && userRes.data.data) {
-                      setBiliUserInfo({
-                          mid: userRes.data.data.mid,
-                          name: userRes.data.data.name,
-                          face: userRes.data.data.face
-                      });
-                  }
-              } catch (err) {
-                  console.error('Failed to fetch user info:', err);
-              }
-
-              // Maybe reload bili groups?
-              setTimeout(() => {
-                  setIsLoginModalOpen(false);
-                  fetchBiliGroups(selectedGroupId);
-              }, 1500);
-          } else if (status === 'expired') { // Or whatever code Bili returns
-               // handle expiry
-          }
-      } catch (err) {
-          console.error('Check login error', err);
-      }
-  };
-
-  const closeLoginModal = () => {
-      if (checkLoginTimerRef.current) clearInterval(checkLoginTimerRef.current);
-      setIsLoginModalOpen(false);
-      setLoginStatus('idle');
-  };
-
-  const handleLogout = async () => {
-      if (!window.confirm('确定要登出吗？这将清除该群组的B站登录信息。')) {
-          return;
-      }
-
-      try {
-          await api.post(`/api/bili/logout`, { groupId: selectedGroupId });
-          setBiliUserInfo(null);
-          setBiliGroups([]);
-          setFormData({
-              ...formData,
-              enableCookieSync: false,
-              cookieSyncGroupNames: []
-          });
-          show('已登出', 'success');
-      } catch (err) {
-          console.error('Logout error:', err);
-          const errorMsg = err.response?.data?.error || err.message || '未知错误';
-          show(`登出失败: ${errorMsg}`, 'error');
-      }
-  };
-
-  // Cleanup timer on component unmount
-  useEffect(() => {
-      return () => {
-          // 组件卸载时清理定时器
-          if (checkLoginTimerRef.current) {
-              clearInterval(checkLoginTimerRef.current);
-          }
-      };
-  }, []);
 
   // Sync Group Checkbox Handler
   const toggleSyncGroup = (groupName) => {
@@ -1202,62 +1081,36 @@ function Groups() {
 
                 {/* Sync Tab */}
                 <Tab.Panel className="space-y-8 focus:outline-none">
-                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-4">
-                       <p className="text-sm text-blue-800 dark:text-blue-300">
-                         💡 关注同步使用全局Cookie，请在设置页面管理Cookie
-                       </p>
-                     </div>
-                     {/* Bilibili Login Section */}
-                     <div className="space-y-4">
-                         <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
-                             <QrCode size={20} className="text-pink-400" />
-                             Bilibili 账号
-                         </h3>
-                         <p className="text-gray-400 text-sm mb-4">
-                             登录 Bilibili 账号以获取关注列表和更高清的视频解析。Cookie 将仅用于此群组（或同步）。
-                         </p>
+                     {/* 🆕 未登录提示 */}
+                     {!globalBiliStatus.isLoggedIn && (
+                         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                             <p className="text-sm text-yellow-300 mb-2">
+                                 ⚠️ 未检测到全局B站登录
+                             </p>
+                             <p className="text-sm text-white/70 mb-3">
+                                 关注列表同步需要先在系统设置中登录B站账号
+                             </p>
+                             <a
+                                 href="#/settings"
+                                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
+                             >
+                                 前往系统设置
+                             </a>
+                         </div>
+                     )}
 
-                         {biliUserInfo ? (
-                             /* Logged in state */
-                             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                                 <div className="flex items-center gap-3">
-                                     {/* <img
-                                         src={biliUserInfo.face}
-                                         alt={biliUserInfo.name}
-                                         className="w-12 h-12 rounded-full border-2 border-green-400"
-                                     /> */}
-                                     <div className="flex-1">
-                                         <div className="flex items-center gap-2">
-                                             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                                             <span className="text-green-400 text-sm font-medium">已登录</span>
-                                         </div>
-                                         <div className="text-white font-medium mt-1">{biliUserInfo.name}</div>
-                                         <div className="text-white/50 text-xs">UID: {biliUserInfo.mid}</div>
-                                     </div>
-                                     <button
-                                         onClick={handleLogout}
-                                         className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors flex items-center gap-2"
-                                     >
-                                         <LogOut className="w-4 h-4" />
-                                         <span className="text-sm">登出</span>
-                                     </button>
+                     {/* 🆕 已登录时显示同步配置 */}
+                     {globalBiliStatus.isLoggedIn && (
+                         <div>
+                             {/* 登录状态显示 */}
+                             <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg mb-4">
+                                 <div className="flex items-center gap-2 text-green-400 text-sm">
+                                     <div className="w-2 h-2 rounded-full bg-green-400"></div>
+                                     <span>已使用全局B站账号：{globalBiliStatus.username} (UID: {globalBiliStatus.uid})</span>
                                  </div>
                              </div>
-                         ) : (
-                             /* Not logged in state */
-                             <button
-                                 onClick={startLogin}
-                                 className="w-full px-4 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center justify-center gap-2"
-                             >
-                                 <QrCode className="w-5 h-5" />
-                                 <span>扫码登录 Bilibili</span>
-                             </button>
-                         )}
-                     </div>
 
-                     {/* Sync Config Section - Only show when logged in */}
-                     {biliUserInfo && (
-                         <div>
+                             {/* 同步开关 */}
                              <div className="p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
                                  <label className="flex items-center justify-between cursor-pointer">
                                      <div>
@@ -1276,6 +1129,7 @@ function Groups() {
                                  </label>
                              </div>
 
+                             {/* 分组选择 */}
                              <div className={clsx("transition-opacity", !formData.enableCookieSync && "opacity-50 pointer-events-none")}>
                                 <h4 className="text-sm font-medium text-gray-300 mb-3">选择要同步的关注分组</h4>
 
@@ -1291,7 +1145,6 @@ function Groups() {
                                 ) : (
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                         {biliGroups.map((group) => {
-                                            // group is likely { tagid, name, count, tip } or just string
                                             const groupName = typeof group === 'string' ? group : group.name;
                                             return (
                                                 <label key={groupName} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
@@ -1322,47 +1175,6 @@ function Groups() {
           </GlassCard>
         )}
       </div>
-
-      {/* Login Modal */}
-      <GlassModal
-        isOpen={isLoginModalOpen}
-        onClose={closeLoginModal}
-        title="扫码登录 Bilibili"
-        footer={
-            <button onClick={closeLoginModal} className="px-4 py-2 text-gray-300 hover:text-white transition-colors">
-                关闭
-            </button>
-        }
-      >
-        <div className="flex flex-col items-center justify-center p-4">
-            {loginStatus === 'success' ? (
-                <div className="text-green-400 font-medium text-lg flex flex-col items-center">
-                    <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mb-4 text-3xl">
-                        ✓
-                    </div>
-                    登录成功！
-                </div>
-            ) : (
-                <>
-                    <div className="bg-white p-2 rounded-lg mb-4">
-                        {loginQrCode ? (
-                            <img src={loginQrCode} alt="Login QR" className="w-48 h-48" />
-                        ) : (
-                            <div className="w-48 h-48 flex items-center justify-center text-gray-400">
-                                <Loader2 size={32} className="animate-spin" />
-                            </div>
-                        )}
-                    </div>
-                    <p className="text-gray-300 text-center mb-2">
-                        请使用 Bilibili 手机客户端扫码登录
-                    </p>
-                    <p className="text-sm text-gray-500">
-                        {loginStatus === 'waiting' ? '等待扫码...' : '已过期，请重试'}
-                    </p>
-                </>
-            )}
-        </div>
-      </GlassModal>
 
       {/* Add Subscription Modal */}
       <GlassModal
