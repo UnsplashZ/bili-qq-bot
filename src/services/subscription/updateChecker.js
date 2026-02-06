@@ -173,41 +173,27 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 3. Check User Videos (Manual Subs)
-        logger.info('[UpdateChecker] Checking user videos...');
-        for (const sub of subscriptionManager.userSubs) {
-            // 不再跳过feed监控的用户，因为feed流会过滤视频动态
-            // Cookie-sync用户也需要独立的视频检查
+        // 3. Build unified user check list (Manual Subs + Cookie Sync)
+        const userCheckList = this.buildUserCheckList(activeGroups);
+        logger.info(`[UpdateChecker] Built unified user check list: ${userCheckList.length} users (manual: ${subscriptionManager.userSubs.length}, after merge)`);
 
-            // Filter out inactive groups
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
-            if (targetGroups.length === 0) {
-                continue;
-            }
-
-            await this.checkUserVideo(sub, targetGroups);
+        // 4. Check User Videos (Manual Subs + Cookie Sync)
+        logger.info('[UpdateChecker] Checking user videos (unified)...');
+        for (const userItem of userCheckList) {
+            await this.checkUserVideoUnified(userItem);
             // Slightly longer delay for video API
             await new Promise(r => setTimeout(r, 1500));
         }
 
-        // 4. Check User Articles (Manual Subs)
-        logger.info('[UpdateChecker] Checking user articles...');
-        for (const sub of subscriptionManager.userSubs) {
-            // 不再跳过feed监控的用户，因为feed流会过滤专栏动态
-            // Cookie-sync用户也需要独立的专栏检查
-
-            // Filter out inactive groups
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
-            if (targetGroups.length === 0) {
-                continue;
-            }
-
-            await this.checkUserArticle(sub, targetGroups);
+        // 5. Check User Articles (Manual Subs + Cookie Sync)
+        logger.info('[UpdateChecker] Checking user articles (unified)...');
+        for (const userItem of userCheckList) {
+            await this.checkUserArticleUnified(userItem);
             // Slightly longer delay for article API
             await new Promise(r => setTimeout(r, 1500));
         }
 
-        // 5. Check User Live Status (Manual Subs)
+        // 6. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
              // Skip if this user is already monitored by feed check
             if (feedMonitoredUids.has(String(sub.uid))) {
@@ -225,7 +211,7 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 6. Check Bangumi Updates
+        // 7. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
             // Filter out inactive groups
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
@@ -238,8 +224,66 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 7. Refresh missing names (maintenance)
+        // 8. Refresh missing names (maintenance)
         await this.refreshMissingNames();
+    }
+
+    /**
+     * 构建需要检查视频/专栏的统一用户列表
+     * 合并手动订阅用户 + Cookie同步用户，自动去重
+     * @param {Set} activeGroups - 活跃群组集合
+     * @returns {Array<{uid, name, targetGroups, source, manualSub?, cookieFollower?, accountUid?}>} 用户检查列表
+     */
+    buildUserCheckList(activeGroups) {
+        const userMap = new Map(); // uid -> {uid, name, targetGroups, source}
+
+        // 1. 添加手动订阅用户
+        for (const sub of subscriptionManager.userSubs) {
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) continue;
+
+            userMap.set(sub.uid, {
+                uid: sub.uid,
+                name: sub.name,
+                targetGroups: targetGroups,
+                source: 'manual',
+                manualSub: sub // 保留原始订阅对象的引用
+            });
+        }
+
+        // 2. 添加Cookie同步用户
+        for (const [accountUid, followers] of Object.entries(subscriptionManager.cookieFollowings)) {
+            for (const follower of followers) {
+                const fid = subscriptionManager.getFollowerId(follower);
+                if (!fid) continue;
+
+                // 使用 findTargetGroupsForUser 判断哪些群组需要推送
+                const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
+                if (targetGroups.length === 0) continue;
+
+                // 如果用户已存在（手动订阅），合并目标群组
+                if (userMap.has(fid)) {
+                    const existing = userMap.get(fid);
+                    // 合并群组（去重）
+                    const mergedGroups = [...new Set([...existing.targetGroups, ...targetGroups])];
+                    existing.targetGroups = mergedGroups;
+                    existing.source = 'both'; // 标记为双重来源
+                    existing.cookieFollower = follower; // 添加Cookie follower引用
+                    existing.accountUid = accountUid; // Cookie所属账号
+                } else {
+                    userMap.set(fid, {
+                        uid: fid,
+                        name: follower.name || `User_${fid}`,
+                        targetGroups: targetGroups,
+                        source: 'cookie',
+                        cookieFollower: follower,
+                        accountUid: accountUid // Cookie所属账号
+                    });
+                }
+            }
+        }
+
+        return Array.from(userMap.values());
     }
 
     async checkFeedUpdate(monitoredUidsSet = null, activeGroups = null) {
@@ -994,6 +1038,92 @@ class UpdateChecker {
     }
 
     /**
+     * 统一的视频检查方法（支持手动订阅和Cookie同步）
+     * @param {Object} userItem - 从buildUserCheckList返回的用户对象
+     * @param {boolean} force - 是否强制检查
+     */
+    async checkUserVideoUnified(userItem, force = false) {
+        const { uid, name, targetGroups, source, manualSub, cookieFollower, accountUid } = userItem;
+
+        try {
+            const groupId = targetGroups[0];
+            const res = await biliApi.getUserVideos(uid, groupId);
+
+            if (res.status !== 'success' || !res.data.videos || res.data.videos.length === 0) {
+                return;
+            }
+
+            const videos = res.data.videos;
+            videos.sort((a, b) => b.created - a.created);
+            const latestVideo = videos[0];
+            const latestBvid = latestVideo.bvid;
+
+            // 获取lastVideoId（优先从手动订阅，其次从Cookie follower）
+            let lastVideoId = null;
+            if (manualSub) {
+                lastVideoId = manualSub.lastVideoId;
+            } else if (cookieFollower) {
+                lastVideoId = cookieFollower.lastVideoId;
+            }
+
+            // 首次检查：记录最新视频但不推送
+            if (!lastVideoId && !force) {
+                await this.updateVideoState(userItem, latestBvid);
+                logger.info(`[UpdateChecker] Initialized lastVideoId for ${name} (${source}): ${latestBvid}`);
+                return;
+            }
+
+            // 检查是否有新视频
+            if (latestBvid !== lastVideoId || force) {
+                const newVideos = [];
+                for (const video of videos) {
+                    if (video.bvid === lastVideoId) break;
+                    newVideos.push(video);
+                }
+
+                let videoToPush;
+                if (newVideos.length === 0) {
+                    if (!force) {
+                        await this.updateVideoState(userItem, latestBvid);
+                        logger.debug(`[UpdateChecker] No new videos for ${name}, updated tracking to ${latestBvid}`);
+                        return;
+                    } else {
+                        logger.debug(`[UpdateChecker] Force check: pushing latest video for ${name}: ${latestBvid}`);
+                        videoToPush = [latestVideo];
+                    }
+                } else {
+                    videoToPush = [newVideos[0]];
+                    logger.debug(`[UpdateChecker] Found ${newVideos.length} new video(s) for ${name}, pushing latest: ${newVideos[0].bvid}`);
+                }
+
+                for (const video of videoToPush) {
+                    try {
+                        const bvid = video.bvid;
+                        const info = await biliApi.getVideoInfo(bvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`);
+                            continue;
+                        }
+
+                        const notificationText = `${name} 投稿了新视频：\n${info.data.title}`;
+                        const url = `https://www.bilibili.com/video/${bvid}`;
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, 'video', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new video for ${name} (${source}): ${bvid}`);
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e);
+                    }
+                }
+
+                await this.updateVideoState(userItem, latestBvid);
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking videos for ${name} (${source}):`, e);
+        }
+    }
+
+    /**
      * 检查用户专栏更新
      */
     async checkUserArticle(sub, targetGroups = null, force = false) {
@@ -1085,6 +1215,147 @@ class UpdateChecker {
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking articles for ${sub.name}:`, e);
+        }
+    }
+
+    /**
+     * 统一的专栏检查方法（支持手动订阅和Cookie同步）
+     * @param {Object} userItem - 从buildUserCheckList返回的用户对象
+     * @param {boolean} force - 是否强制检查
+     */
+    async checkUserArticleUnified(userItem, force = false) {
+        const { uid, name, targetGroups, source, manualSub, cookieFollower, accountUid } = userItem;
+
+        try {
+            const groupId = targetGroups[0];
+            const res = await biliApi.getUserArticles(uid, groupId);
+
+            if (res.status !== 'success' || !res.data.articles || res.data.articles.length === 0) {
+                return;
+            }
+
+            const articles = res.data.articles;
+            articles.sort((a, b) => b.publish_time - a.publish_time);
+            const latestArticle = articles[0];
+            const latestCvid = `cv${latestArticle.id}`;
+
+            // 获取lastArticleId（优先从手动订阅，其次从Cookie follower）
+            let lastArticleId = null;
+            if (manualSub) {
+                lastArticleId = manualSub.lastArticleId;
+            } else if (cookieFollower) {
+                lastArticleId = cookieFollower.lastArticleId;
+            }
+
+            // 首次检查：记录最新专栏但不推送
+            if (!lastArticleId && !force) {
+                await this.updateArticleState(userItem, latestCvid);
+                logger.info(`[UpdateChecker] Initialized lastArticleId for ${name} (${source}): ${latestCvid}`);
+                return;
+            }
+
+            // 检查是否有新专栏
+            if (latestCvid !== lastArticleId || force) {
+                const newArticles = [];
+                for (const article of articles) {
+                    const cvid = `cv${article.id}`;
+                    if (cvid === lastArticleId) break;
+                    newArticles.push(article);
+                }
+
+                let articleToPush;
+                if (newArticles.length === 0) {
+                    if (!force) {
+                        await this.updateArticleState(userItem, latestCvid);
+                        logger.debug(`[UpdateChecker] No new articles for ${name}, updated tracking to ${latestCvid}`);
+                        return;
+                    } else {
+                        logger.debug(`[UpdateChecker] Force check: pushing latest article for ${name}: ${latestCvid}`);
+                        articleToPush = [latestArticle];
+                    }
+                } else {
+                    articleToPush = [newArticles[0]];
+                    logger.debug(`[UpdateChecker] Found ${newArticles.length} new article(s) for ${name}, pushing latest: cv${newArticles[0].id}`);
+                }
+
+                for (const article of articleToPush) {
+                    try {
+                        const cvid = `cv${article.id}`;
+                        const info = await biliApi.getArticleInfo(cvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get article detail for ${cvid}`);
+                            continue;
+                        }
+
+                        const notificationText = `${name} 发布了新专栏：\n${info.data.title}`;
+                        const url = `https://www.bilibili.com/read/${cvid}`;
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, 'article', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`);
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push article cv${article.id}:`, e);
+                    }
+                }
+
+                await this.updateArticleState(userItem, latestCvid);
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking articles for ${name} (${source}):`, e);
+        }
+    }
+
+    /**
+     * 更新用户的视频状态
+     * @param {Object} userItem - 用户对象
+     * @param {string} videoId - 最新视频ID (BVID)
+     */
+    async updateVideoState(userItem, videoId) {
+        const { source, manualSub, cookieFollower, accountUid, uid } = userItem;
+
+        try {
+            // 更新手动订阅的状态
+            if (manualSub) {
+                await subscriptionManager.updateUserSub(uid, { lastVideoId: videoId });
+            }
+
+            // 更新Cookie follower的状态
+            if (cookieFollower) {
+                cookieFollower.lastVideoId = videoId;
+                const followers = subscriptionManager.cookieFollowings[accountUid];
+                if (followers) {
+                    await subscriptionManager.setCookieFollowings(accountUid, followers);
+                }
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Failed to update video state for ${uid} (${source}):`, e);
+        }
+    }
+
+    /**
+     * 更新用户的专栏状态
+     * @param {Object} userItem - 用户对象
+     * @param {string} articleId - 最新专栏ID (cvXXXXX)
+     */
+    async updateArticleState(userItem, articleId) {
+        const { source, manualSub, cookieFollower, accountUid, uid } = userItem;
+
+        try {
+            // 更新手动订阅的状态
+            if (manualSub) {
+                await subscriptionManager.updateUserSub(uid, { lastArticleId: articleId });
+            }
+
+            // 更新Cookie follower的状态
+            if (cookieFollower) {
+                cookieFollower.lastArticleId = articleId;
+                const followers = subscriptionManager.cookieFollowings[accountUid];
+                if (followers) {
+                    await subscriptionManager.setCookieFollowings(accountUid, followers);
+                }
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Failed to update article state for ${uid} (${source}):`, e);
         }
     }
 

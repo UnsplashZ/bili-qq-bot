@@ -288,7 +288,9 @@ class SubscriptionManager {
                 return {
                     ...newF,
                     lastDynamicId: oldF.lastDynamicId !== undefined ? oldF.lastDynamicId : null,
-                    lastLiveStatus: oldF.lastLiveStatus !== undefined ? oldF.lastLiveStatus : 0
+                    lastLiveStatus: oldF.lastLiveStatus !== undefined ? oldF.lastLiveStatus : 0,
+                    lastVideoId: oldF.lastVideoId !== undefined ? oldF.lastVideoId : null,
+                    lastArticleId: oldF.lastArticleId !== undefined ? oldF.lastArticleId : null
                 };
             } else {
                 // Initialize state - check stale cache for re-follow recovery
@@ -297,13 +299,17 @@ class SubscriptionManager {
                     return {
                         ...newF,
                         lastDynamicId: stale.lastDynamicId,
-                        lastLiveStatus: stale.lastLiveStatus
+                        lastLiveStatus: stale.lastLiveStatus,
+                        lastVideoId: stale.lastVideoId,
+                        lastArticleId: stale.lastArticleId
                     };
                 }
                 return {
                     ...newF,
                     lastDynamicId: null,
-                    lastLiveStatus: 0
+                    lastLiveStatus: 0,
+                    lastVideoId: null,
+                    lastArticleId: null
                 };
             }
         });
