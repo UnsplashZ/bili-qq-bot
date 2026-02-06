@@ -38,6 +38,15 @@ function csrfProtection(req, res, next) {
             `http://127.0.0.1:${config.dashboardPort || 3000}`
         ];
 
+        // 🆕 添加用户配置的允许来源（用于公网部署）
+        if (config.dashboardAllowedOrigins) {
+            const customOrigins = config.dashboardAllowedOrigins
+                .split(',')
+                .map(o => o.trim())
+                .filter(o => o.length > 0);
+            allowedOrigins.push(...customOrigins);
+        }
+
         try {
             const originUrl = new URL(origin);
 
@@ -64,7 +73,12 @@ function csrfProtection(req, res, next) {
                     logger.debug(`[Security] CSRF: Allowing private IP origin: ${origin}`);
                 } else {
                     logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
-                    return res.status(403).json({ error: 'CSRF validation failed: Invalid origin' });
+                    logger.warn(`[Security] CSRF: If accessing from public network, add to DASHBOARD_ALLOWED_ORIGINS env: ${originUrl.origin}`);
+                    return res.status(403).json({
+                        error: 'CSRF validation failed: Invalid origin',
+                        message: 'Access from public network requires configuration. Set DASHBOARD_ALLOWED_ORIGINS environment variable.',
+                        origin: originUrl.origin
+                    });
                 }
             }
         } catch (e) {

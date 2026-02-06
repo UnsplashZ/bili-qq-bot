@@ -221,6 +221,7 @@ const META = {
     },
     dashboardPort: { env: 'DASHBOARD_PORT', def: 3000, type: 'int' },
     dashboardPassword: { env: 'DASHBOARD_PASSWORD', def: 'admin', type: 'string' },
+    dashboardAllowedOrigins: { env: 'DASHBOARD_ALLOWED_ORIGINS', def: '', type: 'string' },
     jwtSecret: {
         env: 'JWT_SECRET',
         def: '',
