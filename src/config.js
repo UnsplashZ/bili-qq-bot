@@ -102,6 +102,10 @@ const META = {
     aiContextLimit: { env: null, def: 10, type: 'int' },
     aiTemperature: { env: 'AI_TEMPERATURE', def: 1.0, type: 'float' },
 
+    // AI Function Toggles
+    aiEnabled: { env: 'AI_ENABLED', def: true, type: 'bool' },
+    aiRagEnabled: { env: 'AI_RAG_ENABLED', def: true, type: 'bool' },
+
     // AI Chat Service Configuration (priority over general AI config)
     aiChatApiUrl: {
         env: 'AI_CHAT_API_URL',
@@ -217,20 +221,51 @@ const META = {
     },
     dashboardPort: { env: 'DASHBOARD_PORT', def: 3000, type: 'int' },
     dashboardPassword: { env: 'DASHBOARD_PASSWORD', def: 'admin', type: 'string' },
+    dashboardAllowedOrigins: { env: 'DASHBOARD_ALLOWED_ORIGINS', def: '', type: 'string' },
     jwtSecret: {
         env: 'JWT_SECRET',
         def: '',
         type: 'string',
-        // Special handling: generate random secret if not set
+        // Special handling: generate random secret if not set, and persist it
         get: function() {
             if ('jwtSecret' in _overrides) return _overrides.jwtSecret;
             let envVal = process.env.JWT_SECRET;
             if (envVal) return envVal;
-            // Generate random secret
+
+            // Check for persisted secret file
             const crypto = require('crypto');
+            const fs = require('fs');
+            const path = require('path');
+            const secretPath = path.join(__dirname, '../config/.jwtSecret');
+
+            try {
+                if (fs.existsSync(secretPath)) {
+                    const saved = fs.readFileSync(secretPath, 'utf8').trim();
+                    if (saved && saved.length === 64) { // Validate format (32 bytes hex = 64 chars)
+                        logger.info('[Config] Loaded JWT_SECRET from .jwtSecret file');
+                        return saved;
+                    }
+                }
+            } catch (err) {
+                logger.warn('[Config] Failed to read .jwtSecret:', err.message);
+            }
+
+            // Generate new secret and persist it
             const secret = crypto.randomBytes(32).toString('hex');
-            process.env.JWT_SECRET = secret;
-            logger.warn('JWT_SECRET not set in .env, generated a temporary random secret. Tokens will be invalid after restart.');
+            try {
+                // Ensure directory exists
+                const dir = path.dirname(secretPath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+                // Write file with restricted permissions (owner read/write only)
+                fs.writeFileSync(secretPath, secret, { mode: 0o600 });
+                logger.warn('[Config] JWT_SECRET generated and saved to config/.jwtSecret');
+                logger.warn('[Config] Consider moving this to .env file for better security');
+            } catch (err) {
+                logger.error('[Config] Failed to save JWT_SECRET:', err);
+            }
+
             return secret;
         }
     },
@@ -464,7 +499,13 @@ const config = {
         });
 
         // Save changes (async, errors handled internally)
-        this._performSave().catch(() => {});
+        this._performSave().catch((err) => {
+            logger.error('[Config] Failed to save configuration after reset:', {
+                error: err.message,
+                stack: err.stack,
+                timestamp: new Date().toISOString()
+            });
+        });
         logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
     },
 
@@ -478,7 +519,20 @@ const config = {
         // Debounce: wait 100ms before actually saving (shortened from 500ms)
         // 100ms is sufficient to merge multiple setter calls from Object.assign
         this._saveTimer = setTimeout(() => {
-            this._performSave().catch(() => {});
+            this._performSave().catch((err) => {
+                logger.error('[Config] Failed to save configuration:', {
+                    error: err.message,
+                    stack: err.stack,
+                    timestamp: new Date().toISOString()
+                });
+
+                // Track repeated failures
+                this._saveErrorCount = (this._saveErrorCount || 0) + 1;
+                if (this._saveErrorCount >= 5) {
+                    logger.error('[Config] CRITICAL: Configuration save has failed 5 times in a row!');
+                    this._saveErrorCount = 0; // Reset counter
+                }
+            });
         }, 100);
     },
 
@@ -537,4 +591,53 @@ Object.keys(META).forEach(key => {
     });
 });
 
+/**
+ * Check if AI is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean} - True if AI is enabled for this group
+ */
+function isAiEnabledForGroup(groupId) {
+    // 1. Global AI switch must be on
+    if (!config.aiEnabled) {
+        return false;
+    }
+
+    // 2. Check group-level override
+    const groupConfig = config.groupConfigs[String(groupId)];
+    if (groupConfig && 'aiEnabled' in groupConfig) {
+        return groupConfig.aiEnabled;
+    }
+
+    // 3. Default: inherit global setting
+    return true;
+}
+
+/**
+ * Check if RAG is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean} - True if RAG is enabled for this group
+ */
+function isRagEnabledForGroup(groupId) {
+    // 1. AI must be enabled first
+    if (!isAiEnabledForGroup(groupId)) {
+        return false;
+    }
+
+    // 2. Global RAG switch must be on
+    if (!config.aiRagEnabled) {
+        return false;
+    }
+
+    // 3. Check group-level override
+    const groupConfig = config.groupConfigs[String(groupId)];
+    if (groupConfig && 'aiRagEnabled' in groupConfig) {
+        return groupConfig.aiRagEnabled;
+    }
+
+    // 4. Default: inherit global setting
+    return true;
+}
+
 module.exports = config;
+module.exports.isAiEnabledForGroup = isAiEnabledForGroup;
+module.exports.isRagEnabledForGroup = isRagEnabledForGroup;

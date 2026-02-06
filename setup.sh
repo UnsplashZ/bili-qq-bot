@@ -350,6 +350,51 @@ else
     echo "DASHBOARD_PASSWORD=$dashboard_pwd" >> config/.env
 fi
 
+# --- 公网访问配置 ---
+echo ""
+echo -e "${YELLOW}公网部署配置 (仅在公网服务器部署时需要)：${NC}"
+echo "说明："
+echo "  - 本地访问 (localhost/127.0.0.1) 无需配置"
+echo "  - 内网访问 (Tailscale/局域网) 无需配置"
+echo "  - 公网访问需要配置允许的域名或IP地址"
+echo ""
+read -p "是否配置公网访问？[y/N]: " config_public_access
+
+if [[ "$config_public_access" =~ ^[Yy]$ ]]; then
+    read -p "请输入服务器IP或域名 (示例: https://bot.example.com 或 http://1.2.3.4:3000): " allowed_origins
+
+    if [ -n "$allowed_origins" ]; then
+        # 检查是否包含协议
+        if [[ ! "$allowed_origins" =~ ^https?:// ]]; then
+            echo -e "${YELLOW}警告: 检测到未包含协议 (http:// 或 https://)，将自动添加 http://${NC}"
+            allowed_origins="http://$allowed_origins"
+        fi
+
+        # 如果指定了非标准端口，添加端口号
+        if [ "$webui_port" != "3000" ] && [ "$webui_port" != "80" ] && [ "$webui_port" != "443" ]; then
+            if [[ ! "$allowed_origins" =~ :[0-9]+$ ]]; then
+                allowed_origins="$allowed_origins:$webui_port"
+            fi
+        fi
+
+        if grep -q "^DASHBOARD_ALLOWED_ORIGINS=" config/.env; then
+            sed -i "s|^DASHBOARD_ALLOWED_ORIGINS=.*|DASHBOARD_ALLOWED_ORIGINS=$allowed_origins|" config/.env
+        else
+            echo "DASHBOARD_ALLOWED_ORIGINS=$allowed_origins" >> config/.env
+        fi
+        echo -e "${GREEN}已配置公网访问白名单: $allowed_origins${NC}"
+    else
+        echo -e "${YELLOW}未填写，将仅允许本地和内网访问${NC}"
+    fi
+else
+    echo -e "${YELLOW}跳过公网配置，将仅允许本地和内网访问${NC}"
+    # 确保配置文件中存在该字段（即使为空）
+    if ! grep -q "^DASHBOARD_ALLOWED_ORIGINS=" config/.env; then
+        echo "DASHBOARD_ALLOWED_ORIGINS=" >> config/.env
+    fi
+fi
+
+echo ""
 echo -e "${YELLOW}提示: 部署完成后，可通过 WebUI 面板 (http://<服务器IP>:$webui_port) 管理群组配置、AI 功能、订阅推送等。${NC}"
 echo -e "${YELLOW}      如需配置 AI 功能，请在 WebUI「系统设置」页面中填写 API 地址与密钥，或手动编辑 config/.env。${NC}"
 

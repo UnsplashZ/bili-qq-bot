@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
+import AiConfigSection from '../components/AiConfigSection';
 import { useToast } from '../hooks/useToast';
 import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Terminal, Shield, Settings as SettingsIcon, Clock, MessageSquare, Edit } from 'lucide-react';
 
@@ -57,7 +58,10 @@ const Settings = () => {
     aiEmbeddingApiUrl: '',
     aiEmbeddingApiKey: '',
     aiEmbeddingModel: 'text-embedding-3-small',
-    aiEmbeddingProxy: ''
+    aiEmbeddingProxy: '',
+    // AI Toggles
+    aiEnabled: true,
+    aiRagEnabled: true
   });
   const [savingAi, setSavingAi] = useState(false);
   const [resettingAi, setResettingAi] = useState(false);
@@ -131,7 +135,9 @@ const Settings = () => {
           aiEmbeddingApiUrl,
           aiEmbeddingApiKey,
           aiEmbeddingModel,
-          aiEmbeddingProxy
+          aiEmbeddingProxy,
+          aiEnabled,
+          aiRagEnabled
         } = configRes.data;
 
         setAiConfig({
@@ -146,6 +152,9 @@ const Settings = () => {
             // Chat Service
             aiChatApiUrl: aiChatApiUrl || '',
             aiChatApiKey: aiChatApiKey || '',
+            // AI Toggles
+            aiEnabled: aiEnabled ?? true,
+            aiRagEnabled: aiRagEnabled ?? true,
             aiChatModel: aiChatModel || 'gpt-3.5-turbo',
             aiChatProxy: aiChatProxy || '',
             aiChatSystemPrompt: aiChatSystemPrompt || '你是一个有用的助手',
@@ -254,6 +263,17 @@ const Settings = () => {
   // AI Handlers
   const handleAiChange = (field, value) => {
     setAiConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleGlobalAiToggle = async (field, value) => {
+    try {
+      await api.post('/api/config', { [field]: value });
+      setAiConfig(prev => ({ ...prev, [field]: value }));
+      show('全局AI配置已更新', 'success');
+    } catch (error) {
+      console.error('Failed to update global AI config:', error);
+      show('更新全局AI配置失败', 'error');
+    }
   };
 
   const saveAiSettings = async () => {
@@ -749,10 +769,10 @@ const Settings = () => {
   }
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 space-y-6 md:space-y-8 pb-12">
       <header>
-        <h1 className="text-3xl font-bold text-white mb-2">系统设置</h1>
-        <p className="text-gray-400">管理全局 AI 配置、常规选项和系统扩展。</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">系统设置</h1>
+        <p className="text-sm md:text-base text-gray-400">管理全局 AI 配置、常规选项和系统扩展。</p>
       </header>
 
       {/* General Settings Section */}
@@ -807,12 +827,6 @@ const Settings = () => {
           <h2 className="text-xl font-semibold text-white">B站全局Cookie</h2>
         </div>
         <GlassCard>
-          <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg p-4 mb-4">
-            <p className="text-sm text-white/70">
-              全局Cookie用于所有未单独登录的群组。优先级：群组Cookie &gt; 全局Cookie
-            </p>
-          </div>
-
           {biliGlobalStatus.isLoggedIn ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-lg p-4">
@@ -926,6 +940,22 @@ const Settings = () => {
             <h2 className="text-xl font-semibold text-white">AI 配置</h2>
         </div>
         <GlassCard>
+            {/* Global AI Toggle Section */}
+            <div className="mb-6 pb-6 border-b border-white/10">
+                <h3 className="text-lg font-semibold text-white mb-4">全局AI功能</h3>
+                <AiConfigSection
+                    config={{
+                        aiEnabled: aiConfig.aiEnabled,
+                        aiRagEnabled: aiConfig.aiRagEnabled
+                    }}
+                    globalConfig={null}
+                    onToggle={handleGlobalAiToggle}
+                    onReset={null}
+                    isGroup={false}
+                />
+            </div>
+
+            <h3 className="text-lg font-semibold text-white mb-4">AI 参数设置</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">

@@ -14,14 +14,88 @@ const mcpManager = require('../../services/mcpManager');
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
 
+// Helper: Convert groupId from request params to string
+function normalizeGroupId(groupId) {
+    return groupId ? String(groupId) : null;
+}
+
+// 🆕 P2-1: 登录速率限制器（内存实现）
+const loginAttempts = new Map(); // IP -> { count, lockUntil }
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const attempt = loginAttempts.get(ip);
+
+    // 清理过期记录
+    if (attempt && attempt.lockUntil && now > attempt.lockUntil) {
+        loginAttempts.delete(ip);
+        return { allowed: true };
+    }
+
+    // 检查是否被锁定
+    if (attempt && attempt.lockUntil && now < attempt.lockUntil) {
+        const remainingMs = attempt.lockUntil - now;
+        return {
+            allowed: false,
+            remainingSeconds: Math.ceil(remainingMs / 1000)
+        };
+    }
+
+    return { allowed: true };
+}
+
+function recordFailedAttempt(ip) {
+    const now = Date.now();
+    const attempt = loginAttempts.get(ip) || { count: 0, lockUntil: null };
+
+    attempt.count++;
+
+    if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
+        attempt.lockUntil = now + LOCKOUT_DURATION;
+        logger.warn(`[Security] IP ${ip} locked out after ${MAX_LOGIN_ATTEMPTS} failed attempts`);
+    }
+
+    loginAttempts.set(ip, attempt);
+}
+
+function resetAttempts(ip) {
+    loginAttempts.delete(ip);
+}
+
+// 定期清理过期记录（每10分钟）
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, attempt] of loginAttempts.entries()) {
+        if (attempt.lockUntil && now > attempt.lockUntil) {
+            loginAttempts.delete(ip);
+        }
+    }
+}, 10 * 60 * 1000);
+
 // --- Public Routes ---
 
 // POST /api/login - Dashboard Login
 router.post('/login', (req, res) => {
     const { password } = req.body;
+    const ip = req.ip || req.connection.remoteAddress;
+
+    // 🆕 检查速率限制
+    const rateLimit = checkRateLimit(ip);
+    if (!rateLimit.allowed) {
+        logger.warn(`[Security] Login attempt from locked IP ${ip} (${rateLimit.remainingSeconds}s remaining)`);
+        return res.status(429).json({
+            error: 'Too many failed attempts',
+            retryAfter: rateLimit.remainingSeconds
+        });
+    }
 
     // Compare with configured dashboard password
     if (password === sysConfig.dashboardPassword) {
+        // 🆕 成功登录，重置失败计数
+        resetAttempts(ip);
+
         // Generate JWT token
         const token = jwt.sign(
             { role: 'admin', timestamp: Date.now() },
@@ -29,11 +103,20 @@ router.post('/login', (req, res) => {
             { expiresIn: '24h' }
         );
 
-        logger.info(`Successful login from ${req.ip}`);
+        logger.info(`[Security] Successful login from ${ip}`);
         res.json({ token });
     } else {
-        logger.warn(`Failed login attempt from ${req.ip}`);
-        res.status(401).json({ error: 'Invalid password' });
+        // 🆕 记录失败尝试
+        recordFailedAttempt(ip);
+
+        const attempt = loginAttempts.get(ip);
+        const remainingAttempts = MAX_LOGIN_ATTEMPTS - (attempt?.count || 0);
+
+        logger.warn(`[Security] Failed login attempt from ${ip} (${remainingAttempts} attempts remaining)`);
+        res.status(401).json({
+            error: 'Invalid password',
+            remainingAttempts: Math.max(0, remainingAttempts)
+        });
     }
 });
 
@@ -100,6 +183,8 @@ router.get('/config', async (req, res) => {
 const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'subscriptionCheckInterval',
     'linkCacheTimeout',
+    'aiEnabled',
+    'aiRagEnabled',
 ];
 
 // POST /api/config - Update global config
@@ -203,7 +288,7 @@ router.get('/groups', async (req, res) => {
 // POST /api/groups/:id/toggle - Toggle group enabled status
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
 
@@ -237,7 +322,7 @@ router.post('/groups/:id/toggle', async (req, res) => {
 // POST /api/groups/:id/config - Update specific group config
 router.post('/groups/:id/config', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
         const updates = req.body;
@@ -356,7 +441,7 @@ router.post('/groups/:id/config', async (req, res) => {
 // DELETE /api/groups/:id - Delete config for a left group
 router.delete('/groups/:id', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const groupIdStr = String(groupId);
         const groupIdNum = Number(groupIdStr);
         const groupConfig = sysConfig.groupConfigs?.[groupIdStr];
@@ -412,11 +497,134 @@ router.delete('/groups/:id', async (req, res) => {
     }
 });
 
+// GET /api/groups/:groupId/ai-config - Get group-level AI configuration
+router.get('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Return group overrides (null means inherit from global)
+        res.json({
+            aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
+            aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error fetching AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to fetch AI configuration' });
+    }
+});
+
+// PUT /api/groups/:groupId/ai-config - Update group-level AI configuration
+router.put('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        const { aiEnabled, aiRagEnabled } = req.body;
+
+        // Validate request body
+        if (aiEnabled === undefined && aiRagEnabled === undefined) {
+            return res.status(400).json({
+                error: 'At least one of aiEnabled or aiRagEnabled must be provided'
+            });
+        }
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Update or delete fields based on null values
+        if (aiEnabled !== undefined) {
+            if (aiEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiEnabled;
+            } else if (typeof aiEnabled === 'boolean') {
+                groupConfig.aiEnabled = aiEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiEnabled must be a boolean or null'
+                });
+            }
+        }
+
+        if (aiRagEnabled !== undefined) {
+            if (aiRagEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiRagEnabled;
+            } else if (typeof aiRagEnabled === 'boolean') {
+                groupConfig.aiRagEnabled = aiRagEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiRagEnabled must be a boolean or null'
+                });
+            }
+        }
+
+        // Save configuration
+        sysConfig.save();
+
+        logger.info(`[API] Updated AI config for group ${groupId}`);
+
+        // Return updated configuration
+        res.json({
+            message: 'AI configuration updated successfully',
+            aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
+            aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error updating AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to update AI configuration' });
+    }
+});
+
+// DELETE /api/groups/:groupId/ai-config - Reset group-level AI configuration
+router.delete('/groups/:groupId/ai-config', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+
+        // Ensure group config exists
+        sysConfig.ensureGroupConfig(groupId);
+
+        const groupConfig = sysConfig.groupConfigs[groupId];
+
+        // Delete AI config overrides
+        delete groupConfig.aiEnabled;
+        delete groupConfig.aiRagEnabled;
+
+        // Save configuration
+        sysConfig.save();
+
+        logger.info(`[API] Reset AI config for group ${groupId} to global defaults`);
+
+        res.json({
+            message: 'AI configuration reset to global defaults',
+            global: {
+                aiEnabled: sysConfig.aiEnabled,
+                aiRagEnabled: sysConfig.aiRagEnabled
+            }
+        });
+    } catch (error) {
+        logger.error(`Error resetting AI config for group ${req.params.groupId}:`, error);
+        res.status(500).json({ error: 'Failed to reset AI configuration' });
+    }
+});
+
 // GET /api/groups/:id/bili-groups - Get Bilibili follow groups
 router.get('/groups/:id/bili-groups', async (req, res) => {
     try {
-        const groupId = req.params.id;
-        const result = await biliApi.getFollowGroups(groupId);
+        // 🆕 使用全局Cookie获取关注分组列表（不再使用群组Cookie）
+        const result = await biliApi.getFollowGroups(null);
         if (result && result.status === 'success') {
             res.json(result.data);
         } else {
@@ -424,7 +632,7 @@ router.get('/groups/:id/bili-groups', async (req, res) => {
             res.json([]);
         }
     } catch (error) {
-        logger.error(`Error fetching Bilibili groups for group ${req.params.id}:`, error);
+        logger.error('Error fetching Bilibili groups (global cookie):', error);
         res.status(500).json({ error: 'Failed to fetch Bilibili groups' });
     }
 });
@@ -501,7 +709,7 @@ router.post('/bili/logout', async (req, res) => {
     try {
         const { groupId } = req.body;
 
-        // 验证 groupId 以防止路径遍历攻击
+        // 🆕 增强路径穿越防护
         if (groupId && (!/^\d+$/.test(String(groupId)) || String(groupId).includes('..'))) {
             return res.status(400).json({ error: 'Invalid groupId' });
         }
@@ -511,8 +719,28 @@ router.post('/bili/logout', async (req, res) => {
             ? path.resolve(__dirname, `../../../data/cookies_${groupId}.json`)
             : path.resolve(__dirname, '../../../data/cookies.json');
 
+        // 🆕 三层安全验证
+        // 1. 提取基础文件名（防止路径穿越）
+        const fileName = path.basename(cookieFile);
+
+        // 2. 白名单验证（只允许特定格式的cookie文件）
+        const cookieFilePattern = /^cookies(_\d+)?\.json$/;
+        if (!cookieFilePattern.test(fileName)) {
+            logger.warn(`[Security] Attempted to delete non-cookie file: ${fileName}`);
+            return res.status(400).json({ error: 'Invalid cookie file name' });
+        }
+
+        // 3. 路径前缀检查（确保文件在data目录下）
+        const dataDir = path.resolve(__dirname, '../../../data');
+        const resolvedPath = path.resolve(cookieFile);
+        if (!resolvedPath.startsWith(dataDir + path.sep) && resolvedPath !== dataDir) {
+            logger.warn(`[Security] Attempted path traversal: ${resolvedPath}`);
+            return res.status(400).json({ error: 'Path traversal detected' });
+        }
+
         try {
             await fs.unlink(cookieFile);
+            logger.info(`[Security] Cookie file deleted: ${fileName}`);
         } catch (err) {
             // File doesn't exist - that's OK
             if (err.code !== 'ENOENT') {
@@ -545,7 +773,7 @@ router.post('/bili/logout', async (req, res) => {
 // GET /api/groups/:id/subscriptions - List subscriptions for a group
 router.get('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const subs = await subscriptionService.getSubscriptionsByGroup(groupId);
         // Merge users and bangumis into a single array
         const mergedSubs = [
@@ -562,7 +790,7 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
 // POST /api/groups/:id/subscriptions - Add a subscription
 router.post('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         const { type, value } = req.body;
 
         if (!type || !value) {
@@ -588,7 +816,7 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
 // DELETE /api/groups/:id/subscriptions - Remove a subscription
 router.delete('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = req.params.id;
+        const groupId = normalizeGroupId(req.params.id);
         // Support both body and query params
         const type = req.body.type || req.query.type;
         const value = req.body.value || req.query.value;

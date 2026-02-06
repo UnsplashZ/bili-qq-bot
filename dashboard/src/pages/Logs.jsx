@@ -114,11 +114,11 @@ const Logs = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
-      <header className="flex justify-between items-center">
+    <div className="px-4 md:px-6 pt-4 md:pt-6 flex flex-col space-y-4 pb-6 min-h-[calc(100vh-8rem)]">
+      <header className="flex justify-between items-center flex-wrap gap-2">
         <div>
-           <h1 className="text-3xl font-bold text-white mb-2">系统日志</h1>
-           <p className="text-gray-400">实时监控系统运行状态</p>
+           <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">系统日志</h1>
+           <p className="text-sm md:text-base text-gray-400">实时监控系统运行状态</p>
         </div>
         <div className="flex gap-2">
             <button
@@ -143,7 +143,7 @@ const Logs = () => {
             <Terminal size={12} />
             <span>root@bot-server:~/logs/stream</span>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-1 custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 font-mono text-sm space-y-1 custom-scrollbar">
             {logs.length === 0 && (
                 <div className="text-gray-600 italic text-center mt-10">等待日志数据...</div>
             )}

@@ -5,6 +5,7 @@ const config = require('../config');
 const cacheManager = require('../utils/cacheManager');
 const notificationService = require('../services/notificationService');
 const https = require('https');
+const { monitorRegex } = require('../utils/regexMonitor');
 
 class LinkHandler {
     constructor() {
@@ -27,16 +28,56 @@ class LinkHandler {
         this.mediaRegex = /bangumi\/media\/md([0-9]+)/;
         // Regex for User (space.bilibili.com/xxxx)
         this.userRegex = /(?:space\.bilibili\.com\/|(?:https?:\/\/)?[^/]*bilibili\.com\/space\/)([0-9]+)/;
-        
+
         // Regex for Short Links (b23.tv/xxxx)
         this.shortLinkRegex = /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/;
-        
+
         // Link processing cache
         this.linkCache = new Map();
+
+        // 🆕 Request ID counter for error tracking
+        this.requestIdCounter = 0;
+    }
+
+    // 🆕 生成唯一的请求ID用于错误追踪
+    generateRequestId() {
+        return `LH-${Date.now()}-${++this.requestIdCounter}`;
     }
 
     // 提取消息中的所有链接及其类型
     extractLinks(rawMessage, groupId) {
+        // 🆕 输入验证
+        if (!rawMessage || typeof rawMessage !== 'string') {
+            logger.warn('[LinkHandler] Invalid message type:', typeof rawMessage);
+            return [];
+        }
+
+        const MAX_MESSAGE_LENGTH = 10000; // 10KB
+
+        // 🆕 快速预检：消息中是否包含bilibili域名（在截断前检查，优化性能）
+        // 对于超长消息，只检查前10KB是否包含关键词
+        const checkLength = Math.min(rawMessage.length, MAX_MESSAGE_LENGTH);
+        const checkStr = rawMessage.substring(0, checkLength);
+        const hasBilibiliDomain = checkStr.includes('bilibili.com') ||
+                                 checkStr.includes('b23.tv') ||
+                                 checkStr.includes('bilibili');
+
+        if (!hasBilibiliDomain) {
+            logger.debug('[LinkHandler] No bilibili links found in message (quick check)');
+            return [];
+        }
+
+        // 🆕 长度限制（只在确认有bilibili链接后才执行截断）
+        const originalLength = rawMessage.length;
+        if (originalLength > MAX_MESSAGE_LENGTH) {
+            logger.warn(`[LinkHandler] Message too long (${originalLength} chars), truncating to ${MAX_MESSAGE_LENGTH}`, {
+                groupId,
+                originalLength,
+                truncatedLength: MAX_MESSAGE_LENGTH
+            });
+            rawMessage = rawMessage.substring(0, MAX_MESSAGE_LENGTH);
+        }
+
         const links = [];
 
         // Split URLs by '?' to extract only the path part and avoid matching IDs in query parameters
@@ -61,7 +102,15 @@ class LinkHandler {
         ];
 
         for (const linkType of linkTypes) {
-            const matches = cleanedMessage.matchAll(new RegExp(linkType.regex, 'g'));
+            // 🆕 使用正则监控包装 matchAll 调用
+            const globalRegex = new RegExp(linkType.regex, 'g');
+            const matches = monitorRegex(
+                `${linkType.type}Regex`,
+                globalRegex,
+                cleanedMessage,
+                (regex, input) => Array.from(input.matchAll(regex))
+            );
+
             for (const match of matches) {
                 const id = linkType.extractId(match);
                 // Cache key includes groupId to allow same link in different groups
@@ -189,6 +238,10 @@ class LinkHandler {
     // 处理单个链接
     async processSingleLink(link, ws, groupId, userId = null) {
         const { type, id, cacheKey } = link;
+
+        // 🆕 生成唯一请求ID用于错误追踪
+        const requestId = this.generateRequestId();
+        logger.debug(`[LinkHandler] [${requestId}] Starting to process ${type} link: ${id}`);
 
         try {
             let info, base64Image, url;
@@ -363,10 +416,48 @@ class LinkHandler {
                     break;
             } // switch end
         } catch (e) {
-            logger.error(`[LinkHandler] Error processing ${type} link ${id}:`, e);
+            // 🆕 增强错误上下文和日志记录
+            const errorContext = {
+                requestId,
+                type,
+                id,
+                cacheKey,
+                groupId,
+                userId,
+                matchedUrl: link.match,
+                errorMessage: e.message,
+                errorCode: e.code,
+                errorName: e.name,
+                stack: e.stack
+            };
+
+            logger.error(`[LinkHandler] [${requestId}] Error processing ${type} link ${id}:`, {
+                ...errorContext,
+                stack: e.stack // 完整堆栈跟踪
+            });
+
+            // 🆕 根据错误类型提供更友好的用户消息
+            let userMessage = `处理链接 ${link.match} 时发生错误`;
+
+            if (e.code === 'ECONNREFUSED' || e.code === 'ETIMEDOUT') {
+                userMessage += '：网络连接失败，请稍后重试';
+            } else if (e.response && e.response.status === 412) {
+                userMessage += '：B站风控，请更新Cookie';
+            } else if (e.response && e.response.status === 404) {
+                userMessage += '：内容不存在或已被删除';
+            } else {
+                userMessage += `：${e.message || '未知错误'}`;
+            }
+
+            userMessage += `\n错误ID: ${requestId}`;
+
             this.sendGroupMessage(ws, groupId, [
-                { type: 'text', data: { text: `处理链接 ${link.match} 时发生错误: ${e.message || '未知错误'}` } }
+                { type: 'text', data: { text: userMessage } }
             ], userId);
+
+            // 重新抛出错误，让调用者知道处理失败
+            // 这样失败的链接不会被缓存，允许用户重试
+            throw e;
         }
     }
 
@@ -410,6 +501,38 @@ class LinkHandler {
 
             req.end();
         });
+    }
+
+    /**
+     * 🆕 添加链接到缓存（供外部调用）
+     * 用于订阅推送后，将链接加入缓存避免重复解析
+     *
+     * @param {string} url - B站链接
+     * @param {string} groupId - 群组ID
+     */
+    addUrlToCache(url, groupId) {
+        if (!url || !groupId) {
+            logger.warn('[LinkHandler] Invalid url or groupId for cache');
+            return;
+        }
+
+        // 提取链接信息
+        const links = this.extractLinks(url, groupId);
+        if (links.length === 0) {
+            logger.debug('[LinkHandler] No valid bili links found in url:', url);
+            return;
+        }
+
+        // 获取群组的缓存超时配置
+        const groupConfig = config.groupConfigs[groupId] || {};
+        const timeout = (groupConfig.linkCacheTimeout ?? config.linkCacheTimeout ?? 600) * 1000;
+
+        // 添加所有提取到的链接到缓存
+        for (const link of links) {
+            const { cacheKey } = link;
+            this.linkCache.set(cacheKey, Date.now() + timeout);
+            logger.debug(`[LinkHandler] Added to cache: ${cacheKey} (timeout: ${timeout}ms)`);
+        }
     }
 }
 

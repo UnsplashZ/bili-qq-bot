@@ -34,8 +34,8 @@ function renderMediaHtml(images, videoCard, isOrig) {
                         ${videoCard.liveBadge ? `<div style="position:absolute; top:10px; right:10px;">${videoCard.liveBadge}</div>` : ''}
                     </div>
                     <div style="padding:15px; background:#f9f9f9;">
-                        <div style="font-weight:bold; font-size:18px; margin-bottom:8px;">${videoCard.title}</div>
-                        <div style="color:#666; font-size:14px; display:flex; gap:15px;">
+                        <div style="font-weight:bold; font-size:26px; margin-bottom:8px; line-height:1.4;">${videoCard.title}</div>
+                        <div style="color:#666; font-size:22px; display:flex; gap:20px;">
                             <span>${videoCard.area}</span>
                             <span>${videoCard.watched}</span>
                         </div>

@@ -8,25 +8,51 @@ const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 
 class MessageHandler {
-    
-    async handleMessage(ws, messageData) {
-        const message = messageData.message;
-        let rawMessage = messageData.raw_message;
-        const userId = messageData.user_id;
-        let groupId = messageData.group_id;
 
-        // Prevent self-trigger
-        if (userId === messageData.self_id) {
+    /**
+     * Send a private message to a user
+     * @param {WebSocket} ws - WebSocket connection
+     * @param {string} userId - User ID
+     * @param {string} message - Message text
+     */
+    sendPrivateMessage(ws, userId, message) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            logger.warn(`[MessageHandler] Cannot send private message: WebSocket not open`);
             return;
         }
 
-        // Handle Private Messages
+        ws.send(JSON.stringify({
+            action: 'send_private_msg',
+            params: {
+                user_id: userId,
+                message: [{ type: 'text', data: { text: message } }]
+            }
+        }));
+    }
+
+    async handleMessage(ws, messageData) {
+        const message = messageData.message;
+        let rawMessage = messageData.raw_message;
+        const userId = messageData.user_id ? String(messageData.user_id) : null;
+        let groupId = messageData.group_id ? String(messageData.group_id) : null;
+
+        // Prevent self-trigger
+        if (userId === String(messageData.self_id)) {
+            return;
+        }
+
+        // Private chat permission check
         if (messageData.message_type === 'private') {
-            // Only respond to Root Admin
-            if (!config.isRootAdmin(userId)) {
+            const isRootAdmin = config.isRootAdmin(userId);
+
+            if (!isRootAdmin) {
+                // Non-root admin: reject with message
+                this.sendPrivateMessage(ws, userId, '此功能仅限管理员使用');
+                logger.info(`[MessageHandler] Rejected private message from non-admin user ${userId}`);
                 return;
             }
-            // Assign virtual group ID for private messages to reuse existing logic
+
+            // Root admin: allow and use virtual groupId
             groupId = `private_${userId}`;
             logger.info(`[MessageHandler] Processing private message from Root Admin ${userId} as virtual group ${groupId}`);
         }
@@ -166,12 +192,48 @@ class MessageHandler {
         let hasProcessedLinks = false;
         for (const link of links) {
             if (!linkHandler.isLinkCached(link.cacheKey)) {
-                // 立即添加到缓存，防止并发请求重复处理
-                linkHandler.addLinkToCache(link.cacheKey);
-                await linkHandler.processSingleLink(link, ws, groupId, userId);
-                hasProcessedLinks = true;
+                let processSuccess = false;
 
-                // 添加延迟避免并发问题（如果还有更多链接要处理）
+                try {
+                    // 先尝试处理链接
+                    await linkHandler.processSingleLink(link, ws, groupId, userId);
+                    processSuccess = true;
+                    hasProcessedLinks = true;
+
+                    logger.debug(`[MessageHandler] Successfully processed link: ${link.match}`);
+                } catch (error) {
+                    logger.error(`[MessageHandler] Failed to process link ${link.match}:`, {
+                        error: error.message,
+                        stack: error.stack,
+                        groupId,
+                        userId,
+                        linkType: link.type,
+                        linkId: link.id
+                    });
+
+                    // 不添加到缓存，允许用户重试
+                    // 向用户发送错误提示
+                    try {
+                        await linkHandler.sendGroupMessage(ws, groupId, [
+                            {
+                                type: 'text',
+                                data: {
+                                    text: `处理链接失败: ${error.message || '未知错误'}\n您可以稍后重新发送链接重试`
+                                }
+                            }
+                        ], userId);
+                    } catch (sendError) {
+                        logger.error('[MessageHandler] Failed to send error message:', sendError);
+                    }
+                }
+
+                // 只在成功处理后添加到缓存
+                if (processSuccess) {
+                    linkHandler.addLinkToCache(link.cacheKey);
+                    logger.debug(`[MessageHandler] Added link to cache: ${link.cacheKey}`);
+                }
+
+                // 处理完成后延迟，避免并发冲突
                 const linkIndex = links.indexOf(link);
                 if (linkIndex < links.length - 1) {
                     logger.info(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);

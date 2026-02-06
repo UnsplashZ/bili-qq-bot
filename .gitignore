@@ -21,6 +21,7 @@ __pycache__/
 config/.env
 config/config.json
 config/mcp_servers.json
+config/.jwtSecret
 
 # Data (Runtime)
 data/cookies*

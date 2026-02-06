@@ -12,14 +12,43 @@ class ServiceManager {
         ServiceManager.instance = this;
 
         this.process = null;
-        this.port = config.biliServerPort || 10001;
+
+        // 🆕 验证端口参数
+        const rawPort = config.biliServerPort || 10001;
+        this.port = this.validatePort(rawPort);
+
         this.scriptPath = path.resolve(process.cwd(), config.biliScriptPath || 'src/services/bili_server.py');
         this.baseUrl = `http://127.0.0.1:${this.port}`;
         this.lastRequestTime = Date.now();
         this.isRestarting = false;
-        
+
         // Idle check interval (every hour)
         this.idleCheckInterval = setInterval(() => this.checkIdle(), 60 * 60 * 1000);
+    }
+
+    // 🆕 验证端口号是否有效
+    validatePort(port) {
+        const MIN_PORT = 1024;  // 非特权端口起始
+        const MAX_PORT = 65535; // 最大端口号
+
+        // 类型检查
+        const portNum = typeof port === 'string' ? parseInt(port, 10) : port;
+
+        if (isNaN(portNum) || !Number.isInteger(portNum)) {
+            const errorMsg = `Invalid port type: ${port} (type: ${typeof port}). Port must be an integer.`;
+            logger.error(`[ServiceManager] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+
+        // 范围检查
+        if (portNum < MIN_PORT || portNum > MAX_PORT) {
+            const errorMsg = `Invalid port ${portNum}. Port must be between ${MIN_PORT} and ${MAX_PORT}.`;
+            logger.error(`[ServiceManager] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+
+        logger.info(`[ServiceManager] Port ${portNum} validated successfully`);
+        return portNum;
     }
 
     async start() {
@@ -125,14 +154,58 @@ class ServiceManager {
 
     async restart() {
         this.isRestarting = true;
-        if (this.process) {
-            this.process.kill(); // Default SIGTERM
-            // Wait for exit event to clear this.process
-            while (this.process) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+
+        try {
+            if (this.process) {
+                logger.info('[ServiceManager] Sending SIGTERM to Python server...');
+                this.process.kill('SIGTERM');
+
+                // 🆕 添加10秒超时机制
+                const RESTART_TIMEOUT = 10000; // 10 seconds
+                const startTime = Date.now();
+                let forcedKill = false;
+
+                // Wait for exit event to clear this.process (with timeout)
+                while (this.process) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    const elapsed = Date.now() - startTime;
+                    if (elapsed > RESTART_TIMEOUT) {
+                        logger.warn(`[ServiceManager] Process did not exit after ${RESTART_TIMEOUT}ms, sending SIGKILL...`);
+                        this.process.kill('SIGKILL');
+                        forcedKill = true;
+
+                        // Give SIGKILL 2 more seconds to work
+                        const killStartTime = Date.now();
+                        while (this.process && (Date.now() - killStartTime < 2000)) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+
+                        if (this.process) {
+                            logger.error('[ServiceManager] Process still alive after SIGKILL, giving up');
+                            // Force clear the reference to prevent infinite restart loop
+                            this.process = null;
+                        }
+                        break;
+                    }
+                }
+
+                if (forcedKill) {
+                    logger.warn('[ServiceManager] Process forcefully terminated');
+                } else {
+                    logger.info('[ServiceManager] Process exited gracefully');
+                }
             }
+        } catch (error) {
+            logger.error('[ServiceManager] Error during restart:', error);
+            // Ensure process reference is cleared even on error
+            this.process = null;
+        } finally {
+            // Always clear the restarting flag
+            this.isRestarting = false;
         }
-        this.isRestarting = false;
+
+        // Start the service again
         await this.start();
     }
 }

@@ -42,8 +42,16 @@ class CacheManager {
             const data = await fs.readFile(filePath, 'utf8');
             // Update mtime to indicate recent access (LRU-like behavior)
             // Use utimes to update access and modification time
-            // We ignore errors here as it's not critical
-            fs.utimes(filePath, now, now).catch(() => {});
+            fs.utimes(filePath, now, now).catch((err) => {
+                // File not existing is normal (may have been cleaned up)
+                if (err.code !== 'ENOENT') {
+                    logger.warn('[CacheManager] Failed to update file access time:', {
+                        file: path.basename(filePath),
+                        error: err.message
+                    });
+                }
+                // Don't block cache operation from continuing
+            });
             return JSON.parse(data);
         } catch (error) {
             if (error.code !== 'ENOENT') {

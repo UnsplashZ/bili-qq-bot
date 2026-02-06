@@ -72,50 +72,18 @@ def get_credential_file(group_id=None):
 
 def load_credential(group_id=None):
     """
-    加载B站凭证，优先级：群组Cookie > 全局Cookie
+    加载B站凭证，仅使用全局Cookie (cookies.json)
+
+    注意：group_id参数保留用于兼容性，但已被忽略。
+    自2026-02-05起，群级Cookie支持已移除。
 
     Args:
-        group_id: 群组ID，None表示加载全局Cookie
+        group_id: （已废弃）群组ID，保留参数仅用于向后兼容
 
     Returns:
         Credential对象或None
     """
-    credential = None
-
-    # 优先尝试加载群组Cookie
-    if group_id:
-        file_path = get_credential_file(group_id)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    data = json.load(f)
-                    sessdata = data.get('SESSDATA')
-                    bili_jct = data.get('BILI_JCT')
-                    buvid3 = data.get('BUVID3')
-
-                    if not buvid3:
-                        logger.warning(f"BUVID3 缺失 (group_id: {group_id}, file: {file_path})，可能导致请求被风控")
-
-                    timestamp = data.get('_timestamp', 0)
-                    if timestamp:
-                        age_days = (time.time() - timestamp) / (24 * 3600)
-                        if age_days > 7:
-                            logger.warning(f"Cookie 可能已过期 (group_id: {group_id}, age: {age_days:.1f} 天)")
-
-                    credential = Credential(
-                        sessdata=sessdata,
-                        bili_jct=bili_jct,
-                        buvid3=buvid3
-                    )
-                    logger.debug(f"使用群组Cookie: {group_id}")
-                    return credential
-            except Exception as e:
-                logger.error(f"加载群组Cookie失败 (group_id: {group_id}): {e}")
-
-        # 群组Cookie不存在，尝试fallback
-        logger.info(f"群组 {group_id} Cookie不存在，尝试使用全局Cookie")
-
-    # 加载全局Cookie
+    # 仅加载全局Cookie (cookies.json)
     if os.path.exists(CREDENTIAL_FILE):
         try:
             with open(CREDENTIAL_FILE, 'r') as f:
@@ -125,7 +93,7 @@ def load_credential(group_id=None):
                 buvid3 = data.get('BUVID3')
 
                 if not buvid3:
-                    logger.warning(f"全局Cookie BUVID3 缺失，可能导致请求被风控")
+                    logger.warning("全局Cookie BUVID3 缺失，可能导致请求被风控")
 
                 timestamp = data.get('_timestamp', 0)
                 if timestamp:
@@ -761,6 +729,121 @@ async def get_user_live(uid, group_id=None):
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
+
+async def get_user_videos(uid, group_id=None):
+    """
+    获取用户视频列表
+
+    Args:
+        uid: 用户UID
+        group_id: 群组ID（用于Cookie）
+
+    Returns:
+        {
+            "status": "success",
+            "data": {
+                "videos": [
+                    {
+                        "bvid": "BV...",
+                        "aid": 123456,
+                        "title": "视频标题",
+                        "created": 1234567890,
+                        "pic": "封面URL",
+                        "description": "简介",
+                        "play": 1000,
+                        "video_review": 100
+                    },
+                    ...
+                ]
+            }
+        }
+    """
+    try:
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
+
+        # 获取视频列表（只获取第一页，pn=1）
+        result = await u.get_videos(pn=1, ps=30)
+
+        # 提取视频列表
+        if 'list' in result and 'vlist' in result['list']:
+            videos = result['list']['vlist']
+
+            return {
+                "status": "success",
+                "data": {
+                    "videos": videos
+                }
+            }
+        else:
+            return {
+                "status": "success",
+                "data": {"videos": []}
+            }
+
+    except Exception as e:
+        logger.error(f"获取用户视频列表失败 (UID: {uid}): {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+async def get_user_articles(uid, group_id=None):
+    """
+    获取用户专栏列表
+
+    Args:
+        uid: 用户UID
+        group_id: 群组ID（用于Cookie）
+
+    Returns:
+        {
+            "status": "success",
+            "data": {
+                "articles": [
+                    {
+                        "id": 45123193,
+                        "title": "专栏标题",
+                        "publish_time": 1234567890,
+                        "summary": "摘要",
+                        "banner_url": "封面URL",
+                        "view": 1000,
+                        "reply": 100
+                    },
+                    ...
+                ]
+            }
+        }
+    """
+    try:
+        u = user.User(uid=int(uid), credential=load_credential(group_id))
+
+        # 获取专栏列表（只获取第一页，pn=1）
+        result = await u.get_articles(pn=1, ps=30)
+
+        # 提取专栏列表
+        if 'articles' in result:
+            articles = result['articles']
+
+            return {
+                "status": "success",
+                "data": {
+                    "articles": articles
+                }
+            }
+        else:
+            return {
+                "status": "success",
+                "data": {"articles": []}
+            }
+
+    except Exception as e:
+        logger.error(f"获取用户专栏列表失败 (UID: {uid}): {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 
 async def get_dynamic_detail(dynamic_id, group_id=None):
     try:
@@ -1535,6 +1618,44 @@ async def handle_user_live(request):
         logger.error(f"Error in user_live handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+async def handle_user_videos(request):
+    """HTTP处理器：获取用户视频列表"""
+    try:
+        data = await request.json()
+        uid = data.get('uid')
+        group_id = data.get('group_id')
+
+        if not uid:
+            return web.json_response({
+                "status": "error",
+                "message": "缺少参数: uid"
+            })
+
+        result = await get_user_videos(uid, group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in user_videos handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
+async def handle_user_articles(request):
+    """HTTP处理器：获取用户专栏列表"""
+    try:
+        data = await request.json()
+        uid = data.get('uid')
+        group_id = data.get('group_id')
+
+        if not uid:
+            return web.json_response({
+                "status": "error",
+                "message": "缺少参数: uid"
+            })
+
+        result = await get_user_articles(uid, group_id)
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in user_articles handler: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
+
 async def handle_dynamic_detail(request):
     try:
         data = await request.json()
@@ -1740,6 +1861,8 @@ def create_app():
         web.post('/login_check', handle_login_check),
         web.post('/user_dynamic', handle_user_dynamic),
         web.post('/user_live', handle_user_live),
+        web.post('/user_videos', handle_user_videos),
+        web.post('/user_articles', handle_user_articles),
         web.post('/dynamic_detail', handle_dynamic_detail),
         web.post('/opus', handle_opus),
         web.post('/ep', handle_ep),

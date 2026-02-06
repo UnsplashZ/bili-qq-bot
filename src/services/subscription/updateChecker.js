@@ -21,49 +21,106 @@ class UpdateChecker {
         this.ws = ws;
     }
 
-    start() {
-        if (this.timer) return;
+    /**
+     * 启动订阅检查器
+     * @param {boolean} skipInitialDelay - 是否跳过初始延迟
+     */
+    start(skipInitialDelay = false) {
+        // 🆕 先停止现有定时器，防止泄漏
+        this.stop();
 
-        // Initial check after 10 seconds (Feed & Subs)
+        logger.info('[UpdateChecker] Starting subscription checker', {
+            checkInterval: `${this.checkInterval / 1000}s`,
+            syncInterval: `${this.syncInterval / 1000}s`,
+            skipInitialDelay
+        });
+
+        // Initial check after 10 seconds (Feed & Subs) - or immediately if skipInitialDelay
+        const initialDelay = skipInitialDelay ? 0 : 10000;
         this.initTimer = setTimeout(() => {
             this.checkAll();
             this.initTimer = null;
-        }, 10000);
+        }, initialDelay);
 
         this.timer = setInterval(() => {
             this.checkAll();
         }, this.checkInterval);
 
         // Initial check after 5 seconds (List Sync)
+        const syncDelay = skipInitialDelay ? 0 : 5000;
         this.initSyncTimer = setTimeout(() => {
             this.refreshCookieFollowings();
             this.initSyncTimer = null;
-        }, 5000);
+        }, syncDelay);
 
         this.syncTimer = setInterval(() => {
             this.refreshCookieFollowings();
         }, this.syncInterval);
 
-        logger.info(`[UpdateChecker] Started polling: Feed/Subs every ${this.checkInterval / 1000}s, List Sync every ${this.syncInterval / 1000}s`);
+        logger.info('[UpdateChecker] All timers started successfully');
     }
 
+    /**
+     * 停止订阅检查器
+     */
     stop() {
+        let clearedCount = 0;
+
         if (this.initTimer) {
             clearTimeout(this.initTimer);
             this.initTimer = null;
+            clearedCount++;
         }
+
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
+            clearedCount++;
         }
+
         if (this.initSyncTimer) {
             clearTimeout(this.initSyncTimer);
             this.initSyncTimer = null;
+            clearedCount++;
         }
+
         if (this.syncTimer) {
             clearInterval(this.syncTimer);
             this.syncTimer = null;
+            clearedCount++;
         }
+
+        if (clearedCount > 0) {
+            logger.info(`[UpdateChecker] Stopped subscription checker, cleared ${clearedCount} timers`);
+        }
+    }
+
+    /**
+     * 🆕 重启订阅检查器（先停止再启动）
+     */
+    restart() {
+        logger.info('[UpdateChecker] Restarting subscription checker...');
+        this.stop();
+        this.start(true); // Skip initial delay on restart
+    }
+
+    /**
+     * 🆕 获取定时器状态（用于调试）
+     */
+    getStatus() {
+        return {
+            running: !!(this.timer || this.syncTimer),
+            timers: {
+                initTimer: !!this.initTimer,
+                mainTimer: !!this.timer,
+                initSyncTimer: !!this.initSyncTimer,
+                syncTimer: !!this.syncTimer
+            },
+            intervals: {
+                check: `${this.checkInterval / 1000}s`,
+                sync: `${this.syncInterval / 1000}s`
+            }
+        };
     }
 
     updateCheckInterval(seconds) {
@@ -116,7 +173,41 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 3. Check User Live Status (Manual Subs)
+        // 3. Check User Videos (Manual Subs)
+        logger.info('[UpdateChecker] Checking user videos...');
+        for (const sub of subscriptionManager.userSubs) {
+            // 不再跳过feed监控的用户，因为feed流会过滤视频动态
+            // Cookie-sync用户也需要独立的视频检查
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                continue;
+            }
+
+            await this.checkUserVideo(sub, targetGroups);
+            // Slightly longer delay for video API
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        // 4. Check User Articles (Manual Subs)
+        logger.info('[UpdateChecker] Checking user articles...');
+        for (const sub of subscriptionManager.userSubs) {
+            // 不再跳过feed监控的用户，因为feed流会过滤专栏动态
+            // Cookie-sync用户也需要独立的专栏检查
+
+            // Filter out inactive groups
+            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+            if (targetGroups.length === 0) {
+                continue;
+            }
+
+            await this.checkUserArticle(sub, targetGroups);
+            // Slightly longer delay for article API
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        // 5. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
              // Skip if this user is already monitored by feed check
             if (feedMonitoredUids.has(String(sub.uid))) {
@@ -134,7 +225,7 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 4. Check Bangumi Updates
+        // 6. Check Bangumi Updates
         for (const sub of subscriptionManager.bangumiSubs) {
             // Filter out inactive groups
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
@@ -147,7 +238,7 @@ class UpdateChecker {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        // 5. Refresh missing names (maintenance)
+        // 7. Refresh missing names (maintenance)
         await this.refreshMissingNames();
     }
 
@@ -231,14 +322,23 @@ class UpdateChecker {
                 break;
             }
 
-            const items = res.data.items || [];
+            const allItems = res.data.items || [];
+            const items = allItems.filter(item => !this.shouldSkipDynamic(item));
+
+            if (items.length < allItems.length) {
+                logger.info(`[UpdateChecker] Feed: Filtered ${allItems.length - items.length} auto-post dynamics`);
+            }
+
             hasMore = res.data.has_more;
             offset = res.data.offset;
             if (offset === prevOffset) break; // Prevent infinite loop on unchanged offset
             prevOffset = offset;
             page++;
 
-            if (items.length === 0) break;
+            if (items.length === 0) {
+                logger.debug(`[UpdateChecker] Page ${page} all filtered, continuing to next page`);
+                continue;
+            }
 
             for (const item of items) {
                 const authorUid = String(item.modules?.module_author?.mid);
@@ -296,7 +396,7 @@ class UpdateChecker {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImage(targetGroups, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, info.type || 'dynamic', url, notificationText);
                     }
                 }
 
@@ -366,7 +466,7 @@ class UpdateChecker {
                     liveInfo.id = roomId;
                     const roomUrl = `https://live.bilibili.com/${roomId}`;
 
-                    await this.notifyGroupsWithImage(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
                 }
             }
 
@@ -445,6 +545,34 @@ class UpdateChecker {
         return t === 'DYNAMIC_TYPE_LIVE_RCMD' ||
                t === 4308 ||
                (card.modules?.module_dynamic?.major?.type === 'MAJOR_TYPE_LIVE_RCMD');
+    }
+
+    /**
+     * Check if a dynamic should be skipped (video/article auto-post dynamics)
+     * @param {object} item - Dynamic item from API
+     * @returns {boolean} - True if should skip this dynamic
+     */
+    shouldSkipDynamic(item) {
+        if (!item) return false;
+
+        const major = item?.modules?.module_dynamic?.major;
+
+        // Skip video post auto-dynamic
+        if (major?.type === 'MAJOR_TYPE_ARCHIVE' || item.type === 'DYNAMIC_TYPE_AV') {
+            logger.debug(`[UpdateChecker] Skipping video dynamic: ${item.id_str}`);
+            return true;
+        }
+
+        // Skip article post auto-dynamic (check for cv ID in jump URL)
+        if (major?.type === 'MAJOR_TYPE_OPUS') {
+            const jumpUrl = major.opus?.jump_url || '';
+            if (/\/read\/cv\d+/i.test(jumpUrl)) {
+                logger.debug(`[UpdateChecker] Skipping article dynamic: ${item.id_str}`);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -542,10 +670,17 @@ class UpdateChecker {
             // return {"status": "success", "data": {"cards": result_items}}
             // So res.data.cards IS correct for the Python output wrapper.
             // BUT, the fields INSIDE the card objects have changed/expanded.
-            
+
             if (!res.data.cards || res.data.cards.length === 0) return;
 
-            const cards = res.data.cards;
+            const allCards = res.data.cards;
+            const cards = allCards.filter(card => !this.shouldSkipDynamic(card));
+
+            if (cards.length < allCards.length) {
+                logger.info(`[UpdateChecker] Filtered ${allCards.length - cards.length} auto-post dynamics for ${sub.name}`);
+            }
+
+            if (cards.length === 0) return;
 
             // Sort cards by ID descending to handle sticky posts (which might be old but at top)
             // ensuring the first card is truly the latest one in time.
@@ -649,7 +784,7 @@ class UpdateChecker {
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImage(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
 
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
@@ -717,7 +852,7 @@ class UpdateChecker {
                     logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`);
                 } else {
                     liveInfo.id = roomId;
-                    await this.notifyGroupsWithImage(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
                 }
             }
 
@@ -751,7 +886,7 @@ class UpdateChecker {
                 const notificationText = `${sub.title} 更新了：${newEp.index_show}`;
 
                 try {
-                    await this.notifyGroupsWithImage(groupsToNotify, res, 'bangumi', url, notificationText);
+                    await this.notifyGroupsWithImageAndCache(groupsToNotify, res, 'bangumi', url, notificationText);
                 } catch (e) {
                     logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e);
                     this.notifyGroups(groupsToNotify, `${notificationText}\n${url}`, newEp.id);
@@ -761,6 +896,195 @@ class UpdateChecker {
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e);
+        }
+    }
+
+    /**
+     * 检查用户视频更新
+     */
+    async checkUserVideo(sub, targetGroups = null, force = false) {
+        const groupsToNotify = targetGroups || sub.groupIds;
+        try {
+            const groupId = groupsToNotify[0];
+            const res = await biliApi.getUserVideos(sub.uid, groupId);
+
+            if (res.status !== 'success' || !res.data.videos || res.data.videos.length === 0) {
+                return;
+            }
+
+            const videos = res.data.videos;
+
+            // 按时间排序（最新的在前）
+            videos.sort((a, b) => b.created - a.created);
+
+            const latestVideo = videos[0];
+            const latestBvid = latestVideo.bvid;
+
+            // 首次检查：记录最新视频但不推送
+            if (!sub.lastVideoId && !force) {
+                await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
+                logger.info(`[UpdateChecker] Initialized lastVideoId for ${sub.name}: ${latestBvid}`);
+                return;
+            }
+
+            // 检查是否有新视频
+            if (latestBvid !== sub.lastVideoId || force) {
+                // 找出所有新视频
+                const newVideos = [];
+                for (const video of videos) {
+                    if (video.bvid === sub.lastVideoId) break;
+                    newVideos.push(video);
+                }
+
+                // 只推送最新的一个（避免订阅时推送历史视频）
+                let videoToPush;
+
+                if (newVideos.length === 0) {
+                    // 场景1：无新视频
+                    if (!force) {
+                        // 正常检查 → 更新状态，静默跳过
+                        await subscriptionManager.updateUserSub(sub.uid, {
+                            lastVideoId: latestBvid
+                        });
+                        logger.debug(`[UpdateChecker] No new videos for ${sub.name}, updated tracking to ${latestBvid}`);
+                        return;
+                    } else {
+                        // 强制检查 → 推送最新视频
+                        logger.debug(`[UpdateChecker] Force check: pushing latest video for ${sub.name}: ${latestBvid}`);
+                        videoToPush = [latestVideo];
+                    }
+                } else {
+                    // 场景2：有新视频 → 推送最新的一个
+                    videoToPush = [newVideos[0]];
+                    logger.debug(`[UpdateChecker] Found ${newVideos.length} new video(s) for ${sub.name}, pushing latest: ${newVideos[0].bvid}`);
+                }
+
+                for (const video of videoToPush) {
+                    try {
+                        const bvid = video.bvid;
+
+                        // 使用linkHandler的逻辑获取视频详情
+                        const info = await biliApi.getVideoInfo(bvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`);
+                            continue;
+                        }
+
+                        // 生成通知文本
+                        const notificationText = `${sub.name} 投稿了新视频：\n${info.data.title}`;
+
+                        // 推送
+                        const url = `https://www.bilibili.com/video/${bvid}`;
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'video', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new video for ${sub.name}: ${bvid}`);
+
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e);
+                    }
+                }
+
+                // 更新lastVideoId（始终更新以保持状态一致性）
+                await subscriptionManager.updateUserSub(sub.uid, { lastVideoId: latestBvid });
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking videos for ${sub.name}:`, e);
+        }
+    }
+
+    /**
+     * 检查用户专栏更新
+     */
+    async checkUserArticle(sub, targetGroups = null, force = false) {
+        const groupsToNotify = targetGroups || sub.groupIds;
+        try {
+            const groupId = groupsToNotify[0];
+            const res = await biliApi.getUserArticles(sub.uid, groupId);
+
+            if (res.status !== 'success' || !res.data.articles || res.data.articles.length === 0) {
+                return;
+            }
+
+            const articles = res.data.articles;
+
+            // 按时间排序（最新的在前）
+            articles.sort((a, b) => b.publish_time - a.publish_time);
+
+            const latestArticle = articles[0];
+            const latestCvid = `cv${latestArticle.id}`;
+
+            // 首次检查：记录最新专栏但不推送
+            if (!sub.lastArticleId && !force) {
+                await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
+                logger.info(`[UpdateChecker] Initialized lastArticleId for ${sub.name}: ${latestCvid}`);
+                return;
+            }
+
+            // 检查是否有新专栏
+            if (latestCvid !== sub.lastArticleId || force) {
+                // 找出所有新专栏
+                const newArticles = [];
+                for (const article of articles) {
+                    const cvid = `cv${article.id}`;
+                    if (cvid === sub.lastArticleId) break;
+                    newArticles.push(article);
+                }
+
+                // 只推送最新的一个
+                let articleToPush;
+
+                if (newArticles.length === 0) {
+                    // 场景1：无新专栏
+                    if (!force) {
+                        // 正常检查 → 更新状态，静默跳过
+                        await subscriptionManager.updateUserSub(sub.uid, {
+                            lastArticleId: latestCvid
+                        });
+                        logger.debug(`[UpdateChecker] No new articles for ${sub.name}, updated tracking to ${latestCvid}`);
+                        return;
+                    } else {
+                        // 强制检查 → 推送最新专栏
+                        logger.debug(`[UpdateChecker] Force check: pushing latest article for ${sub.name}: ${latestCvid}`);
+                        articleToPush = [latestArticle];
+                    }
+                } else {
+                    // 场景2：有新专栏 → 推送最新的一个
+                    articleToPush = [newArticles[0]];
+                    logger.debug(`[UpdateChecker] Found ${newArticles.length} new article(s) for ${sub.name}, pushing latest: cv${newArticles[0].id}`);
+                }
+
+                for (const article of articleToPush) {
+                    try {
+                        const cvid = `cv${article.id}`;
+
+                        // 使用linkHandler的逻辑获取专栏详情
+                        const info = await biliApi.getArticleInfo(cvid, groupId);
+
+                        if (info.status !== 'success') {
+                            logger.warn(`[UpdateChecker] Failed to get article detail for ${cvid}`);
+                            continue;
+                        }
+
+                        // 生成通知文本
+                        const notificationText = `${sub.name} 发布了新专栏：\n${info.data.title}`;
+
+                        // 推送
+                        const url = `https://www.bilibili.com/read/${cvid}`;
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'article', url, notificationText);
+
+                        logger.info(`[UpdateChecker] Pushed new article for ${sub.name}: ${cvid}`);
+
+                    } catch (e) {
+                        logger.error(`[UpdateChecker] Failed to push article cv${article.id}:`, e);
+                    }
+                }
+
+                // 更新lastArticleId（始终更新以保持状态一致性）
+                await subscriptionManager.updateUserSub(sub.uid, { lastArticleId: latestCvid });
+            }
+        } catch (e) {
+            logger.error(`[UpdateChecker] Error checking articles for ${sub.name}:`, e);
         }
     }
 
@@ -886,6 +1210,21 @@ class UpdateChecker {
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl;
                 this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`, dedupId);
             }
+        }
+    }
+
+    /**
+     * 🆕 推送消息并添加链接到缓存
+     * 封装notifyGroupsWithImage + 缓存逻辑，避免重复代码
+     */
+    async notifyGroupsWithImageAndCache(groupIds, data, type, textUrl, descriptionText = '') {
+        // 推送消息
+        await this.notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText);
+
+        // 添加链接到缓存
+        const linkHandler = require('../../handlers/linkHandler');
+        for (const groupId of groupIds) {
+            linkHandler.addUrlToCache(textUrl, groupId);
         }
     }
 

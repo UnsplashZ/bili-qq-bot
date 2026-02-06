@@ -14,7 +14,6 @@
 - [💬 指令列表](#指令列表)
 - [🛠️ 其他部署方式](#其他部署方式)
 - [📂 项目结构](#项目结构)
-- [📝 待办计划](#待办计划-roadmap)
 - [❓ 常见问题](#常见问题-faq)
 - [🙏 致谢](#致谢-acknowledgments)
 - [⚠️ 免责声明](#免责声明)
@@ -140,6 +139,12 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 部署完成后，访问 `http://<服务器IP>:3000` 即可打开 WebUI 管理面板。
 
+### 访问说明
+
+*   **本地访问**：`localhost` 或 `127.0.0.1` 无需额外配置，自动允许访问
+*   **内网访问**：通过 Tailscale 或局域网 IP 访问，自动检测并允许
+*   **公网部署**：如需通过公网域名或 IP 访问，必须配置 `.env` 中的 `DASHBOARD_ALLOWED_ORIGINS`（参考 [配置说明](#配置说明)）
+
 ### 登录
 
 首次访问需要输入密码登录。默认密码为 `admin`，可通过 `.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。
@@ -149,8 +154,8 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | 模块 | 说明 |
 | :--- | :--- |
 | **仪表盘** | 实时监控 CPU、内存、网络等系统状态，可视化图表展示 |
-| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、订阅管理、关注同步、B站登录 |
-| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站全局登录、AI 参数（模型/密钥/系统提示词）、应用重启 |
+| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、订阅管理、关注同步 |
+| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站登录、AI 参数（模型/密钥/系统提示词）、应用重启 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
 ### 前端开发
@@ -196,6 +201,8 @@ npm run build   # 生产构建，输出至 dashboard/dist
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
+| `DASHBOARD_PASSWORD` | WebUI 管理面板登录密码 | `admin` |
+| `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
 
 ### 2. 动态配置 (config.json)
 这些配置随bot运行自动创建，支持热更新（通过 `/设置` 和 `/AI` 相关指令），无需手动修改：
@@ -319,7 +326,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 
 3.  **启动服务**
     ```bash
-    docker-compose up -d
+    docker compose up -d
     ```
 
 4.  **查看日志与登录**
@@ -328,7 +335,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     ```
 
 **高级选项：**
-*   **自行构建镜像**：修改 `docker-compose.yml`，注释掉 `image: ...`，取消注释 `build: .`，使用 `docker-compose up -d --build` 构建并启动。
+*   **自行构建镜像**：修改 `docker-compose.yml`，注释掉 `image: ...`，取消注释 `build: .`，使用 `docker compose up -d --build` 构建并启动。
 *   **已有 NapCat**：如果您已有 NapCat 服务，可自行修改 `docker-compose.yml` ，并更新 `config/.env` 中的 `WS_URL` (如 `ws://localhost:3001`) 和 `NAPCAT_TEMP_PATH` 路径映射。
 
 </details>
@@ -339,16 +346,51 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 适用于开发调试或非 Docker 环境。
 
 1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Chrome/Chromium。
-2.  **安装依赖**：克隆项目到本地后运行以下命令安装依赖，如果要使用虚拟环境，请先激活环境，并更新 `.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
+
+2.  **克隆项目**：
+    ```bash
+    git clone https://github.com/UnsplashZ/bili-qq-bot.git
+    cd bili-qq-bot
+    ```
+
+3.  **安装 Node.js 依赖**：
     ```bash
     npm install
-    pip install bilibili-api-python
     ```
-3.  **配置**：同上，复制并编辑 `config/.env`。**注意**：本地运行时，请确保 `.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
-4.  **运行**：
+
+4.  **安装 Python 依赖**：
+    如果使用虚拟环境，请先激活环境，并更新 `.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
+    ```bash
+    # 使用 requirements.txt 安装所有依赖
+    pip install -r requirements.txt
+
+    # 或使用虚拟环境（推荐）
+    python3 -m venv venv
+    source venv/bin/activate  # Windows: venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+5.  **构建 WebUI**：
+    ```bash
+    cd dashboard
+    npm install
+    npm run build  # 构建生产版本
+    cd ..
+    ```
+
+6.  **配置**：复制并编辑 `config/.env`。
+    ```bash
+    cp config/.env.example config/.env
+    nano config/.env  # 或使用其他编辑器
+    ```
+    **注意**：本地运行时，请确保 `.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
+
+7.  **运行**：
     ```bash
     npm start
     ```
+
+8.  **访问 WebUI**：打开浏览器访问 `http://localhost:3000`
 </details>
 
 ## 项目结构
@@ -416,11 +458,6 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 
 </details>
 
-## 待办计划 (Roadmap)
-
-- [ ] 订阅关键词监控 (监控动态中的特定关键词)
-- [ ] 消息统计与数据分析
-- [ ] 插件系统 (支持自定义扩展)
 
 ## 常见问题 (FAQ)
 

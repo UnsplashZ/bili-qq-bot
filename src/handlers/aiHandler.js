@@ -32,6 +32,10 @@ class AiHandler {
     }
 
     async getReply(message, userId, groupId) {
+        // 提升变量声明到try块外部，使catch块可以访问
+        let tools = [];
+        let dynamicTimeout = 30000; // 默认30秒
+
         try {
             const apiKey = config.aiChatApiKey || config.aiApiKey;
             const apiUrl = config.aiChatApiUrl || config.aiApiUrl;
@@ -121,9 +125,16 @@ class AiHandler {
             systemPrompt += `【时间事实】当前参考时间为 ${new Date().toLocaleString()}，仅用于判断相对时间。\n你已具备正确的时间感知能力，可以理解“昨天、刚才、几分钟前、几小时前”等相对时间含义；这些能力仅用于理解上下文，不需要在回复中提及、解释或展示任何时间计算或系统信息；历史消息中的内容仅用于理解上下文，请忽略所有标记与格式说明，用纯文本、以自然对话方式直接回复当前消息。\n历史消息：${historyText}`;
 
             try {
-                const relevantMemories = await vectorMemory.search(contextKey, message);
+                let relevantMemories = [];
+                if (config.isRagEnabledForGroup(groupId)) {
+                    relevantMemories = await vectorMemory.search(contextKey, message);
+                    logger.debug(`[AiHandler] RAG enabled, retrieved ${relevantMemories.length} memories`);
+                } else {
+                    logger.debug(`[AiHandler] RAG disabled for group ${groupId}`);
+                }
+
                 if (relevantMemories.length > 0) {
-                    const memoryText = relevantMemories.map(m => 
+                    const memoryText = relevantMemories.map(m =>
                         `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
                     ).join('\n');
                     systemPrompt += `\n\n<rag_memory>\n${memoryText}\n</rag_memory>\n(IMPORTANT: These are historical conversations. Use this information to answer naturally. DO NOT explicitly mention "According to my memory" or "checking records" unless specifically asked about what you remember.)`;
@@ -140,8 +151,16 @@ class AiHandler {
                 { role: 'user', content: currentMessageContent || message } // Fallback to raw message if context empty
             ];
 
-            const tools = mcpManager.getOpenAITools();
+            tools = mcpManager.getOpenAITools();
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
+
+            // 🆕 动态超时计算: 基础30秒 + 每个工具2秒，最大45秒
+            const BASE_TIMEOUT = 30000;      // 30 seconds
+            const TOOL_TIMEOUT = 2000;       // 2 seconds per tool
+            const MAX_TIMEOUT = 45000;       // 45 seconds max
+            dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
+
+            logger.debug(`[AiHandler] Dynamic timeout: ${dynamicTimeout}ms (base: ${BASE_TIMEOUT}ms + ${tools.length} tools × ${TOOL_TIMEOUT}ms, max: ${MAX_TIMEOUT}ms)`);
 
             let loopCount = 0;
             const MAX_LOOPS = 10;
@@ -164,7 +183,7 @@ class AiHandler {
                         'Content-Type': 'application/json'
                     },
                     proxy: proxyConfig,
-                    timeout: 60000 // Extended timeout for tool execution
+                    timeout: dynamicTimeout
                 });
 
                 if (!response.data || !response.data.choices || response.data.choices.length === 0) {
@@ -274,7 +293,15 @@ class AiHandler {
             return "Unable to complete request (max steps reached).";
 
         } catch (error) {
-            if (error.response) {
+            // 🆕 增强超时错误处理
+            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                logger.error(`[AiHandler] AI API Timeout after ${dynamicTimeout}ms (${tools.length} tools registered):`, {
+                    timeout: dynamicTimeout,
+                    toolCount: tools.length,
+                    error: error.message
+                });
+                return '抱歉，AI响应超时。请稍后重试。';
+            } else if (error.response) {
                 logger.error(`[AiHandler] AI API Error (Status ${error.response.status}):`, error.response.data);
             } else {
                 logger.error('[AiHandler] AI API Request Error:', error.message);
@@ -284,6 +311,12 @@ class AiHandler {
     }
 
     shouldReply(message, isAt, groupId) {
+        // Check if AI is enabled for this group
+        if (!config.isAiEnabledForGroup(groupId)) {
+            logger.debug(`[AiHandler] AI disabled for group ${groupId}`);
+            return false;
+        }
+
         if (isAt) return true;
         // Check probability (support group override)
         const probability = config.getGroupConfig(groupId, 'aiProbability');

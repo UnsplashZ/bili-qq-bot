@@ -15,7 +15,9 @@ let ws = null;
 let reconnectCount = 0;
 let reconnectTimer = null;
 let isManualClose = false;
-const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
+// 🆕 移除固定重连间隔，改用指数退避
+// const RECONNECT_INTERVAL = 5000; // 5秒重连间隔
+const MAX_RECONNECT_DELAY = 60000; // 最大重连延迟60秒
 const GROUP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const GROUP_LIST_ECHO_PREFIX = 'get_group_list#';
 let groupRefreshTimer = null;
@@ -248,17 +250,24 @@ function scheduleReconnect() {
     }
 
     reconnectCount++;
-    logger.info(`Scheduling reconnect in ${RECONNECT_INTERVAL / 1000} seconds (attempt ${reconnectCount})...`);
+
+    // 🆕 指数退避策略: 1s → 2s → 4s → 8s → 16s → 32s → 60s (max)
+    // 公式: delay = min(1000 * 2^(reconnectCount-1), 60000)
+    const baseDelay = 1000; // 1秒基础延迟
+    const exponentialDelay = baseDelay * Math.pow(2, reconnectCount - 1);
+    const delay = Math.min(exponentialDelay, MAX_RECONNECT_DELAY);
+
+    logger.info(`Scheduling reconnect in ${(delay / 1000).toFixed(1)}s (attempt ${reconnectCount}, backoff ${reconnectCount - 1})...`);
 
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         createWebSocketConnection();
-    }, RECONNECT_INTERVAL);
+    }, delay);
 }
 
 // 优雅关闭
-async function gracefulShutdown() {
-    logger.info('Initiating graceful shutdown...');
+async function gracefulShutdown(exitCode = 0) {
+    logger.info(`Initiating graceful shutdown with exit code ${exitCode}...`);
     isManualClose = true;
 
     // 清除重连定时器
@@ -298,35 +307,95 @@ async function gracefulShutdown() {
     }
 
     logger.info('Shutdown complete');
-    process.exit(0);
+    process.exit(exitCode);
 }
 
 // 监听进程退出信号
 process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 
-// 初始连接
-(async () => {
+/**
+ * 初始化应用程序
+ * @throws {Error} 如果任何关键组件启动失败
+ */
+async function initializeBot() {
     try {
-        logger.info('Starting Service Manager...');
+        logger.info('=================================================');
+        logger.info('Starting Bili QQ Bot...');
+        logger.info('=================================================');
+
+        // 启动Python服务
+        logger.info('[Init] Step 1/4: Starting Python Service Manager...');
         await ServiceManager.start();
-        logger.info('Service Manager started successfully');
-    } catch (e) {
-        logger.error('Failed to start Service Manager:', e);
-    }
+        logger.info('[Init] ✓ Python Service Manager started');
 
-    try {
+        // 初始化MCP Manager
+        logger.info('[Init] Step 2/4: Initializing MCP Manager...');
         await mcpManager.init();
-    } catch (e) {
-        logger.error('Failed to initialize MCP Manager:', e);
-    }
+        logger.info('[Init] ✓ MCP Manager initialized');
 
-    try {
-        logger.info('Starting Dashboard Server...');
+        // 启动Dashboard服务器
+        logger.info('[Init] Step 3/4: Starting Dashboard Server...');
         await dashboardServer.start(config.dashboardPort);
-    } catch (e) {
-        logger.error('Failed to start Dashboard Server:', e);
-    }
+        logger.info(`[Init] ✓ Dashboard Server started on port ${config.dashboardPort}`);
 
-    createWebSocketConnection();
-})();
+        // 创建WebSocket连接
+        logger.info('[Init] Step 4/4: Connecting to NapCat WebSocket...');
+        createWebSocketConnection();
+        logger.info('[Init] ✓ WebSocket connection initiated');
+
+        logger.info('=================================================');
+        logger.info('Bili QQ Bot initialization completed successfully!');
+        logger.info('=================================================');
+    } catch (error) {
+        logger.error('=================================================');
+        logger.error('FATAL: Bot initialization failed!');
+        logger.error('=================================================');
+        logger.error('[Init] Error:', error.message);
+        logger.error('[Init] Stack trace:', error.stack);
+        logger.error('[Init] Please check your configuration and try again.');
+        logger.error('=================================================');
+
+        // 优雅清理
+        try {
+            await gracefulShutdown();
+        } catch (cleanupError) {
+            logger.error('[Init] Cleanup failed:', cleanupError);
+        }
+
+        // 退出进程
+        process.exit(1);
+    }
+}
+
+// 启动应用
+initializeBot().catch(err => {
+    logger.error('[Init] Unhandled promise rejection during initialization:', err);
+    process.exit(1);
+});
+
+// 全局未处理Promise拒绝处理器
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('=================================================');
+    logger.error('CRITICAL: Unhandled Promise Rejection!');
+    logger.error('=================================================');
+    logger.error('Reason:', reason);
+    logger.error('Promise:', promise);
+    if (reason instanceof Error) {
+        logger.error('Stack trace:', reason.stack);
+    }
+    logger.error('=================================================');
+    // 在生产环境中可能想要退出
+    // process.exit(1);
+});
+
+// 全局未捕获异常处理器
+process.on('uncaughtException', (error) => {
+    logger.error('=================================================');
+    logger.error('CRITICAL: Uncaught Exception!');
+    logger.error('=================================================');
+    logger.error('Error:', error.message);
+    logger.error('Stack trace:', error.stack);
+    logger.error('=================================================');
+    process.exit(1);
+});
