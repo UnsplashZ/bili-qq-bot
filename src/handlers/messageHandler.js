@@ -37,7 +37,7 @@ class MessageHandler {
         let groupId = messageData.group_id ? String(messageData.group_id) : null;
 
         // Prevent self-trigger
-        if (userId === messageData.self_id) {
+        if (userId === String(messageData.self_id)) {
             return;
         }
 

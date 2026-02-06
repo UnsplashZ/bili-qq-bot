@@ -32,6 +32,10 @@ class AiHandler {
     }
 
     async getReply(message, userId, groupId) {
+        // 提升变量声明到try块外部，使catch块可以访问
+        let tools = [];
+        let dynamicTimeout = 30000; // 默认30秒
+
         try {
             const apiKey = config.aiChatApiKey || config.aiApiKey;
             const apiUrl = config.aiChatApiUrl || config.aiApiUrl;
@@ -147,14 +151,14 @@ class AiHandler {
                 { role: 'user', content: currentMessageContent || message } // Fallback to raw message if context empty
             ];
 
-            const tools = mcpManager.getOpenAITools();
+            tools = mcpManager.getOpenAITools();
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
 
             // 🆕 动态超时计算: 基础30秒 + 每个工具2秒，最大45秒
             const BASE_TIMEOUT = 30000;      // 30 seconds
             const TOOL_TIMEOUT = 2000;       // 2 seconds per tool
             const MAX_TIMEOUT = 45000;       // 45 seconds max
-            const dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
+            dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
 
             logger.debug(`[AiHandler] Dynamic timeout: ${dynamicTimeout}ms (base: ${BASE_TIMEOUT}ms + ${tools.length} tools × ${TOOL_TIMEOUT}ms, max: ${MAX_TIMEOUT}ms)`);
 
