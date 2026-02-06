@@ -252,6 +252,11 @@ function Groups() {
       }
   }, [selectedTabIndex, selectedGroupId, fetchSubscriptions]);
 
+  // 🆕 Check global Bilibili status on mount
+  useEffect(() => {
+    checkGlobalBiliStatus();
+  }, [checkGlobalBiliStatus]);
+
   const handleToggleGroup = async (e, group) => {
     e.stopPropagation();
     const newStatus = !group.isEnabled;
