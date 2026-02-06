@@ -537,8 +537,16 @@ function Groups() {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-6">
-      {/* Left Column: Master List */}
+    <div className="space-y-6">
+      {/* Page Header */}
+      <header>
+        <h1 className="text-3xl font-bold text-white mb-2">群组管理</h1>
+        <p className="text-gray-400">管理QQ群组配置、订阅和权限设置</p>
+      </header>
+
+      {/* Main Content */}
+      <div className="h-[calc(100vh-14rem)] flex gap-6">
+        {/* Left Column: Master List */}
       <GlassCard className="w-1/3 flex flex-col p-0 overflow-hidden">
         <div className="p-4 border-b border-white/10 bg-white/5">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -1191,6 +1199,7 @@ function Groups() {
              <p>从列表中选择一个群组以查看和编辑其配置。</p>
           </GlassCard>
         )}
+      </div>
       </div>
 
       {/* Add Subscription Modal */}
