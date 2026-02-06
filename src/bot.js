@@ -266,8 +266,8 @@ function scheduleReconnect() {
 }
 
 // 优雅关闭
-async function gracefulShutdown() {
-    logger.info('Initiating graceful shutdown...');
+async function gracefulShutdown(exitCode = 0) {
+    logger.info(`Initiating graceful shutdown with exit code ${exitCode}...`);
     isManualClose = true;
 
     // 清除重连定时器
@@ -307,7 +307,7 @@ async function gracefulShutdown() {
     }
 
     logger.info('Shutdown complete');
-    process.exit(0);
+    process.exit(exitCode);
 }
 
 // 监听进程退出信号

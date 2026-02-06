@@ -38,15 +38,21 @@ function csrfProtection(req, res, next) {
             `http://127.0.0.1:${config.dashboardPort || 3000}`
         ];
 
-        const originUrl = new URL(origin);
-        const isAllowed = allowedOrigins.some(allowed => {
-            const allowedUrl = new URL(allowed);
-            return originUrl.origin === allowedUrl.origin;
-        });
+        try {
+            const originUrl = new URL(origin);
+            const isAllowed = allowedOrigins.some(allowed => {
+                const allowedUrl = new URL(allowed);
+                return originUrl.origin === allowedUrl.origin;
+            });
 
-        if (!isAllowed) {
-            logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
-            return res.status(403).json({ error: 'CSRF validation failed: Invalid origin' });
+            if (!isAllowed) {
+                logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
+                return res.status(403).json({ error: 'CSRF validation failed: Invalid origin' });
+            }
+        } catch (e) {
+            // URL解析失败（如 Origin: null 或格式错误），拒绝请求
+            logger.warn(`[Security] CSRF: Invalid origin header: ${origin}`, e.message);
+            return res.status(403).json({ error: 'CSRF validation failed: Invalid origin header' });
         }
     }
 

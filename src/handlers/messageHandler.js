@@ -16,7 +16,7 @@ class MessageHandler {
      * @param {string} message - Message text
      */
     sendPrivateMessage(ws, userId, message) {
-        if (!ws || ws.readyState !== ws.OPEN) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
             logger.warn(`[MessageHandler] Cannot send private message: WebSocket not open`);
             return;
         }

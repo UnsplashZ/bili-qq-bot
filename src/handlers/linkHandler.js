@@ -454,6 +454,10 @@ class LinkHandler {
             this.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: userMessage } }
             ], userId);
+
+            // 重新抛出错误，让调用者知道处理失败
+            // 这样失败的链接不会被缓存，允许用户重试
+            throw e;
         }
     }
 
