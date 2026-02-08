@@ -72,9 +72,9 @@ const Dashboard = () => {
             <p className="text-gray-400 text-sm truncate">内存使用</p>
             <p className="text-2xl font-bold text-white truncate">
               {formatBytes(stats.memory.used)}
-              <span className="text-sm text-gray-500 ml-1">
-                / {formatBytes(stats.memory.total)}
-              </span>
+            </p>
+            <p className="text-sm text-gray-500">
+              / {formatBytes(stats.memory.total)}
             </p>
           </div>
         </GlassCard>
