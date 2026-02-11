@@ -8,6 +8,46 @@ Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to 
 
 **Tech Stack:** Node.js 18+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
 
+## Project Structure
+
+```
+bili-qq-bot/
+├── src/                    # Main application source
+│   ├── bot.js              # Entry point, WebSocket connection
+│   ├── config.js           # Configuration management
+│   ├── commands/           # Command modules
+│   ├── handlers/           # Message, link, AI handlers
+│   ├── services/           # Core services (BiliApi, ImageGenerator, etc.)
+│   ├── utils/              # Utilities (logger, storage, cache)
+│   └── dashboard/          # Dashboard backend (Express)
+├── dashboard/              # Dashboard frontend (React/Vite)
+│   ├── src/                # React components and pages
+│   └── dist/               # Production build (served by bot)
+├── test/                   # Test files and scripts
+│   └── (test files here)   # Unit tests, integration tests, debugging tools
+├── docs/                   # Documentation
+│   ├── plans/              # Design documents and implementation plans
+│   ├── diagnosis/          # Bug investigation and fix records
+│   └── README.md           # Project documentation
+├── data/                   # Persistent data (not in git)
+│   ├── cache/              # API response cache
+│   ├── contexts/           # AI conversation history
+│   ├── vectors/            # Vector embeddings
+│   ├── cookies.json        # Bilibili credentials
+│   └── subscriptions.json  # Subscription mappings
+├── config/                 # Configuration files
+│   └── mcp_servers.json    # MCP tool definitions
+├── fonts/                  # Custom fonts for image rendering
+├── logs/                   # Application logs
+└── napcat/                 # NapCat QQ client data
+```
+
+**Key Directories:**
+- **test/** - All test files, debugging scripts, and test utilities go here
+- **docs/plans/** - Implementation plans, design documents (markdown format)
+- **docs/diagnosis/** - Bug investigation records and postmortems
+- **data/** - Runtime data (excluded from git, auto-created on first run)
+
 ## Common Development Commands
 
 ### Starting the Application
@@ -144,9 +184,32 @@ Memory is auto-trimmed when size limits are exceeded (10% default trim ratio).
 
 Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.js`):
 - Periodic polling (default 60s interval)
-- Detects: new dynamics, live status changes, bangumi episodes
+- Detects: new dynamics, videos, articles, live status changes, bangumi episodes
 - Cookie-based follow syncing (per-group)
 - Notifications sent to all subscribed groups
+
+**Content Type Detection:**
+
+订阅系统支持多种内容类型推送：
+
+1. **视频投稿** (`checkUserVideo`):
+   - 使用 `/user_videos` API端点获取最新视频
+   - 状态追踪：`lastVideoId`
+   - 空数组处理：区分初始化/正常检查/强制检查三种场景
+
+2. **专栏文章** (`checkUserArticle`):
+   - 使用 `/user_articles` API端点获取最新专栏
+   - 状态追踪：`lastArticleId`
+   - 空数组处理：同视频投稿
+
+3. **动态更新** (`checkUserDynamic`):
+   - 获取用户动态流
+   - 状态追踪：`lastDynamicId`
+   - 应用去重逻辑（见下方）
+
+4. **直播状态** (`checkUserLive`):
+   - 检测开播/下播事件
+   - 状态追踪：`lastLiveStatus`
 
 **Feed Deduplication:**
 
@@ -160,8 +223,15 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 - 图文动态（Opus但不含专栏链接）
 - 转发动态、纯文字动态、直播推荐等
 
+**状态持久化：**
+- Cookie同步用户：状态存储在 `subscriptions.json` 的 `cookieFollowings` 字段
+- 手动订阅用户：状态存储在 `subscriptions` 数组中
+- 定期刷新（每小时）时必须保留所有状态字段
+
 **实现位置：**
-- `updateChecker.js` - `shouldSkipDynamic()` 方法
+- `updateChecker.js` - `shouldSkipDynamic()` 方法（去重逻辑）
+- `updateChecker.js` - `checkUserVideo()` 和 `checkUserArticle()` 方法（视频/专栏检查）
+- `subscriptionManager.js` - `setCookieFollowings()` 方法（状态保留）
 - 在 `checkUserDynamic()` 和 `processDynamicFeed()` 中调用
 
 ### Critical Code Locations
@@ -454,28 +524,162 @@ Located in `/dashboard/src/`:
 
 ## Testing Strategy
 
-Currently no automated tests exist (`npm test` is a placeholder).
+All test files and debugging scripts are organized in the `/test/` directory.
 
-### Recommended Test Structure
+### Test Organization
 
-**Unit Tests (to be added):**
+**Directory Structure:**
+```
+test/
+├── unit/               # Unit tests
+├── integration/        # Integration tests
+├── debug/              # Debugging scripts (one-off tools)
+└── fixtures/           # Test data and fixtures
+```
+
+**Naming Convention:**
+- Test files: `*.test.js` or `test_*.js`
+- Debug scripts: Descriptive names (e.g., `test_dynamic_types.js`)
+- Cleanup after use: Remove debug scripts once investigation is complete
+
+### Current Testing Status
+
+Currently no automated tests exist (`npm test` is a placeholder). Tests should be added to `/test/` directory.
+
+### Recommended Test Coverage
+
+**Unit Tests (to be added in test/unit/):**
 - Config resolution logic (`.env` → `config.json` → defaults)
 - Link extraction regex patterns
 - Vector memory LRU eviction
 - AI context message cleaning (CQ code removal)
 - Storage utils (size checks, atomic writes)
+- Subscription system state management
 
-**Integration Tests (to be added):**
+**Integration Tests (to be added in test/integration/):**
 - WebSocket message routing
 - Python service communication
 - Dashboard API routes
 - Subscription polling cycle
+- Image generation pipeline
+
+**Debug Scripts (examples):**
+- Type validation tools (e.g., dynamic type checker)
+- Config validation scripts
+- API endpoint testing
+- State consistency checks
 
 **Mocking Targets:**
 - `ws` for WebSocket events
 - `axios` for Bilibili API responses
 - `fs` for file I/O operations
 - `puppeteer` browser instances
+
+### Running Tests
+
+```bash
+# Run all tests (when implemented)
+npm test
+
+# Run specific test file
+node test/unit/config.test.js
+
+# Run debug script
+node test/debug/test_dynamic_types.js
+```
+
+## Documentation Organization
+
+All documentation is organized in the `/docs/` directory with specific subdirectories for different purposes.
+
+### Directory Structure
+
+**docs/plans/** - Implementation plans and design documents:
+- Markdown format (`.md` files)
+- Named with date prefix: `YYYY-MM-DD-feature-name-design.md`
+- Contains: requirements, approach, implementation steps, risks
+- Written BEFORE implementing complex features
+- Examples: `2026-02-06-array-bounds-fix-design.md`
+
+**docs/diagnosis/** - Bug investigation and postmortems:
+- Detailed investigation records for complex bugs
+- Root cause analysis and solutions
+- Lessons learned and prevention strategies
+- Named with date prefix: `YYYY-MM-DD-issue-description.md`
+- Examples: `2026-02-06-subscription-video-article-fix.md`
+
+**docs/images/** - Screenshots and diagrams:
+- Architecture diagrams
+- UI screenshots
+- Flow charts and visualizations
+
+### Documentation Best Practices
+
+**When to Create a Plan Document:**
+- Multi-file changes affecting 3+ files
+- Complex logic changes (e.g., subscription system)
+- New feature implementation
+- Refactoring with architectural impact
+
+**When to Create a Diagnosis Document:**
+- Non-obvious bugs requiring investigation
+- Issues affecting multiple components
+- Bugs with instructive lessons for future development
+- Production incidents requiring postmortem
+
+**Naming Convention:**
+```
+docs/plans/YYYY-MM-DD-{feature}-{action}-{type}.md
+docs/diagnosis/YYYY-MM-DD-{issue-description}.md
+```
+
+Examples:
+- `docs/plans/2026-02-06-cookie-sync-state-preservation-fix.md`
+- `docs/diagnosis/2026-02-06-subscription-video-article-fix.md`
+
+**Template Structure for Plans:**
+```markdown
+# Feature Name
+
+## Context
+[Background and motivation]
+
+## Problem
+[What needs to be fixed/implemented]
+
+## Solution
+[Proposed approach]
+
+## Implementation Steps
+1. [Step 1]
+2. [Step 2]
+
+## Risks and Mitigations
+[Potential issues and how to handle them]
+
+## Testing Strategy
+[How to verify the solution works]
+```
+
+**Template Structure for Diagnosis:**
+```markdown
+# Issue Title
+
+## Symptoms
+[Observable problems]
+
+## Investigation
+[Steps taken to identify root cause]
+
+## Root Cause
+[What actually caused the issue]
+
+## Solution
+[How it was fixed]
+
+## Prevention
+[How to prevent similar issues in the future]
+```
 
 ## Docker Deployment Notes
 
@@ -523,15 +727,31 @@ Edit `/src/utils/logger.js` to set log level:
 logger.level = 'DEBUG'  // Change from INFO
 ```
 
+**Important:** Critical checks should use `logger.info()` or higher to ensure they're visible in production.
+
 ### Monitor Python Service
 
 ```bash
+# Check if Python service is running
+lsof -i :10001
+
 # View Python service logs
 docker logs bili-qq-bot | grep PyServer
 
 # Or in local dev
 tail -f logs/application.log | grep bili_server
+
+# Test Python service health
+curl http://localhost:10001/health
+
+# Verify API endpoints exist
+curl -X POST http://localhost:10001/user_videos -H "Content-Type: application/json" -d '{"uid": "123"}'
 ```
+
+**Python Service Troubleshooting:**
+- If API returns 404: Check if service is running old version (orphan process)
+- If service not responding: Check logs for startup errors
+- If authentication fails: Verify `data/cookies.json` has valid BUVID3
 
 ### Inspect WebSocket Messages
 
@@ -556,6 +776,56 @@ function getCacheStats() {
     }
 }
 ```
+
+### Subscription State Debugging
+
+Check current subscription states:
+```javascript
+// In subscriptionManager.js or via Dashboard API
+const state = {
+    manualSubs: subscriptions,
+    cookieSubs: cookieFollowings
+}
+console.log(JSON.stringify(state, null, 2))
+```
+
+Look for:
+- Missing `lastVideoId` or `lastArticleId` fields (indicates state not persisted)
+- Null values (indicates initialization state)
+- Unexpected resets (indicates refresh overwrote state)
+
+### Creating Debug Scripts
+
+When investigating complex issues, create debug scripts in `/test/debug/`:
+
+```javascript
+// test/debug/test_subscription_state.js
+const subscriptionManager = require('../../src/services/subscription/subscriptionManager')
+
+async function main() {
+    // Load current state
+    await subscriptionManager.loadSubscriptions()
+
+    // Test specific functionality
+    const user = subscriptionManager.getCookieFollowingState('123456')
+    console.log('User state:', user)
+
+    // Verify state preservation after refresh
+    await subscriptionManager.refreshCookieFollowings()
+    const userAfter = subscriptionManager.getCookieFollowingState('123456')
+    console.log('User state after refresh:', userAfter)
+
+    // Compare states
+    console.log('State preserved:', JSON.stringify(user) === JSON.stringify(userAfter))
+}
+
+main().catch(console.error)
+```
+
+**Remember to:**
+- Document findings in `/docs/diagnosis/`
+- Remove debug scripts after investigation
+- Add relevant insights to MEMORY.md
 
 ## Code Style Conventions
 
@@ -663,6 +933,14 @@ if (messageData.message_type === 'private') {
 6. **Atomic Write Violations:** Always use `asyncWriteWithBackup()` for data files to prevent corruption.
 
 7. **GroupId类型不一致**：JavaScript对象键必须是字符串。确保所有groupId在使用前转换为字符串：`String(groupId)`。WebSocket消息中的groupId可能是数字类型，必须立即转换以确保配置访问正确（`groupConfigs[123] !== groupConfigs["123"]`）。
+
+8. **数组越界访问**：在访问数组元素前必须检查数组长度。订阅系统中的 `newVideos[0]` 和 `newArticles[0]` 在空数组时会返回 `undefined`。使用提前失败原则：`if (array.length === 0) return`。
+
+9. **Python服务版本不匹配**：Bot退出后Python服务可能成为孤儿进程继续运行。重启Bot前先检查进程：`lsof -i :10001`，必要时手动终止旧进程。考虑在启动时验证必需的API端点是否可用。
+
+10. **订阅状态字段丢失**：`refreshCookieFollowings()` 定期刷新会覆盖状态。在 `setCookieFollowings()` 中必须保留所有状态字段（`lastDynamicId`、`lastLiveStatus`、`lastVideoId`、`lastArticleId`），不能只保留部分。
+
+11. **Python API字段名不一致**：不同API端点返回的用户名字段可能不同（`uname` vs `name`）。使用前先检查Python服务返回的实际字段名，必要时使用 `||` 运算符提供回退：`follower.name || follower.uname || 'Unknown'`。
 
 ## Useful Code Patterns
 

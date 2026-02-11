@@ -261,10 +261,12 @@ class SubscriptionManager {
 
         // Save removed followers' state for potential re-follow recovery
         for (const [id, f] of oldMap) {
-            if (!newMap.has(id) && (f.lastDynamicId || f.lastLiveStatus)) {
+            if (!newMap.has(id) && (f.lastDynamicId || f.lastLiveStatus || f.lastVideoId || f.lastArticleId)) {
                 this.staleFollowerState.set(id, {
                     lastDynamicId: f.lastDynamicId,
-                    lastLiveStatus: f.lastLiveStatus
+                    lastLiveStatus: f.lastLiveStatus,
+                    lastVideoId: f.lastVideoId,
+                    lastArticleId: f.lastArticleId
                 });
             }
         }

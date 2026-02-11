@@ -357,7 +357,9 @@ class UpdateChecker {
         let prevOffset = null;
         let hasMore = true;
         let page = 0;
-        let stateChanged = false;
+        // 使用 pendingUpdates 追踪变更，而非直接修改 followers 元素，
+        // 避免 refreshCookieFollowings 并发替换数组引用时发生竞态条件
+        const pendingUpdates = new Map(); // uid → { lastDynamicId }
 
         while (hasMore && page < 5) {
             const res = await biliApi.getDynamicFeed(offset, groupId);
@@ -444,25 +446,28 @@ class UpdateChecker {
                     }
                 }
 
-                // Update state if id is newer or missing
+                // 追踪最新 dynamicId（取 follower 原始值与已记录的 pending 值中的最大值作为基准）
+                const pendingMax = pendingUpdates.has(authorUid)
+                    ? pendingUpdates.get(authorUid).lastDynamicId
+                    : follower.lastDynamicId;
                 try {
-                    if (!follower.lastDynamicId || BigInt(dynamicId) > BigInt(follower.lastDynamicId || '0')) {
-                        follower.lastDynamicId = dynamicId;
-                        stateChanged = true;
+                    if (!pendingMax || BigInt(dynamicId) > BigInt(pendingMax || '0')) {
+                        pendingUpdates.set(authorUid, { lastDynamicId: dynamicId });
                     }
                 } catch (e) {
                     const a = String(dynamicId).padStart(20, '0')
-                    const b = String(follower.lastDynamicId || '0').padStart(20, '0')
-                    if (!follower.lastDynamicId || a > b) {
-                        follower.lastDynamicId = dynamicId;
-                        stateChanged = true;
+                    const b = String(pendingMax || '0').padStart(20, '0')
+                    if (!pendingMax || a > b) {
+                        pendingUpdates.set(authorUid, { lastDynamicId: dynamicId })
                     }
                 }
             }
         }
 
-        if (stateChanged) {
-            await subscriptionManager.setCookieFollowings(accountUid, followers);
+        // 使用 updateCookieFollowerState 逐一写入，始终操作 cookieFollowings 的当前引用，
+        // 避免最终 setCookieFollowings 调用因竞态条件覆盖状态
+        for (const [uid, updates] of pendingUpdates) {
+            await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
         }
     }
 
@@ -476,7 +481,8 @@ class UpdateChecker {
 
         // Use safe ID generation
         const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
-        let stateChanged = false;
+        // 使用 pendingUpdates 追踪变更，避免竞态条件
+        const pendingUpdates = new Map(); // uid → { lastLiveStatus }
         const onlineUids = new Set();
 
         for (const item of liveList) {
@@ -515,23 +521,23 @@ class UpdateChecker {
             }
 
             if (follower.lastLiveStatus !== liveStatus) {
-                follower.lastLiveStatus = liveStatus;
-                stateChanged = true;
+                pendingUpdates.set(uid, { lastLiveStatus: liveStatus });
             }
         }
 
         // Handle offline users
         // If a user was live (lastLiveStatus === 1) but is no longer in the live list, set them to offline (0)
         for (const follower of followers) {
-             const uid = subscriptionManager.getFollowerId(follower);
-             if (follower.lastLiveStatus === 1 && !onlineUids.has(uid)) {
-                 follower.lastLiveStatus = 0;
-                 stateChanged = true;
-             }
+            const uid = subscriptionManager.getFollowerId(follower);
+            if (follower.lastLiveStatus === 1 && !onlineUids.has(uid)) {
+                pendingUpdates.set(uid, { lastLiveStatus: 0 });
+            }
         }
 
-        if (stateChanged) {
-            await subscriptionManager.setCookieFollowings(accountUid, followers);
+        // 使用 updateCookieFollowerState 逐一写入，始终操作 cookieFollowings 的当前引用，
+        // 避免最终 setCookieFollowings 调用因竞态条件覆盖状态
+        for (const [uid, updates] of pendingUpdates) {
+            await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
         }
     }
 
@@ -1320,12 +1326,10 @@ class UpdateChecker {
             }
 
             // 更新Cookie follower的状态
+            // 使用 updateCookieFollowerState 直接操作当前数组中的对象，
+            // 避免 refreshCookieFollowings 并发替换数组引用导致的竞态条件
             if (cookieFollower) {
-                cookieFollower.lastVideoId = videoId;
-                const followers = subscriptionManager.cookieFollowings[accountUid];
-                if (followers) {
-                    await subscriptionManager.setCookieFollowings(accountUid, followers);
-                }
+                await subscriptionManager.updateCookieFollowerState(accountUid, uid, { lastVideoId: videoId });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Failed to update video state for ${uid} (${source}):`, e);
@@ -1347,12 +1351,10 @@ class UpdateChecker {
             }
 
             // 更新Cookie follower的状态
+            // 使用 updateCookieFollowerState 直接操作当前数组中的对象，
+            // 避免 refreshCookieFollowings 并发替换数组引用导致的竞态条件
             if (cookieFollower) {
-                cookieFollower.lastArticleId = articleId;
-                const followers = subscriptionManager.cookieFollowings[accountUid];
-                if (followers) {
-                    await subscriptionManager.setCookieFollowings(accountUid, followers);
-                }
+                await subscriptionManager.updateCookieFollowerState(accountUid, uid, { lastArticleId: articleId });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Failed to update article state for ${uid} (${source}):`, e);
