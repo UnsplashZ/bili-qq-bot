@@ -36,7 +36,7 @@ class MessageHandler {
             return
         }
         if (!messageId) {
-            logger.warn('[MessageHandler] Cannot send emoji reaction: no messageId')
+            logger.warn(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
             return
         }
         ws.send(JSON.stringify({
