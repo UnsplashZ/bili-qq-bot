@@ -222,7 +222,8 @@ class MessageHandler {
 
             let hasErrors = false;
 
-            for (const link of uncachedLinks) {
+            for (let i = 0; i < uncachedLinks.length; i++) {
+                const link = uncachedLinks[i];
                 let processSuccess = false;
 
                 try {
@@ -263,9 +264,8 @@ class MessageHandler {
                 }
 
                 // 处理完成后延迟，避免并发冲突
-                const linkIndex = uncachedLinks.indexOf(link);
-                if (linkIndex < uncachedLinks.length - 1) {
-                    logger.info(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
+                if (i < uncachedLinks.length - 1) {
+                    logger.debug(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }

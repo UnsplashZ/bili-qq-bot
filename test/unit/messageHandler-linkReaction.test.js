@@ -131,6 +131,7 @@ async function runTests() {
         const emojiActions = ws._getEmojiActions()
         assert.strictEqual(emojiActions.length, 3)
         assert.strictEqual(emojiActions[0].params.emoji_id, '66')  // thinking
+        assert.strictEqual(emojiActions[0].params.set, true)
         assert.strictEqual(emojiActions[1].params.emoji_id, '66')  // remove thinking
         assert.strictEqual(emojiActions[1].params.set, false)
         assert.strictEqual(emojiActions[2].params.emoji_id, '5')   // crying
