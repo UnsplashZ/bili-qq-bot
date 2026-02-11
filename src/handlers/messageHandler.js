@@ -30,6 +30,25 @@ class MessageHandler {
         }));
     }
 
+    sendEmojiReaction(ws, messageId, emojiId, set = true) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            logger.warn('[MessageHandler] Cannot send emoji reaction: WebSocket not open')
+            return
+        }
+        if (!messageId) {
+            logger.warn('[MessageHandler] Cannot send emoji reaction: no messageId')
+            return
+        }
+        ws.send(JSON.stringify({
+            action: 'set_msg_emoji_like',
+            params: {
+                message_id: messageId,
+                emoji_id: String(emojiId),
+                set: set
+            }
+        }))
+    }
+
     async handleMessage(ws, messageData) {
         const message = messageData.message;
         let rawMessage = messageData.raw_message;
