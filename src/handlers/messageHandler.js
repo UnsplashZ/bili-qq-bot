@@ -39,14 +39,18 @@ class MessageHandler {
             logger.warn(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
             return
         }
-        ws.send(JSON.stringify({
-            action: 'set_msg_emoji_like',
-            params: {
-                message_id: messageId,
-                emoji_id: String(emojiId),
-                set: set
-            }
-        }))
+        try {
+            ws.send(JSON.stringify({
+                action: 'set_msg_emoji_like',
+                params: {
+                    message_id: messageId,
+                    emoji_id: String(emojiId),
+                    set: set
+                }
+            }))
+        } catch (e) {
+            logger.warn(`[MessageHandler] Failed to send emoji reaction: ${e.message}`)
+        }
     }
 
     async handleMessage(ws, messageData) {
@@ -209,7 +213,12 @@ class MessageHandler {
 
         if (links.length > 0) {
             const messageId = messageData.message_id;
-            const uncachedLinks = links.filter(l => !linkHandler.isLinkCached(l.cacheKey));
+            const seenKeys = new Set();
+            const uncachedLinks = links.filter(l => {
+                if (linkHandler.isLinkCached(l.cacheKey) || seenKeys.has(l.cacheKey)) return false;
+                seenKeys.add(l.cacheKey);
+                return true;
+            });
 
             if (uncachedLinks.length === 0) {
                 // 全部链接在冷却期内

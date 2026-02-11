@@ -157,6 +157,19 @@ async function runTests() {
         assert.strictEqual(emojiActions[emojiActions.length - 1].params.emoji_id, '76')
     })
 
+    // === 场景 7: 同一消息中两个相同 cacheKey 的链接只处理一次（回归测试）===
+    await test('相同 cacheKey 的重复链接只处理一次', async () => {
+        const dupLink = { cacheKey: 'video|BVdup|123456', match: 'BVdup', type: 'video', id: 'BVdup' }
+        linkHandler.extractLinks = () => [dupLink, dupLink]  // 同一链接出现两次
+        linkHandler.isLinkCached = () => false
+        let processCount = 0
+        linkHandler.processSingleLink = async () => { processCount++ }
+        linkHandler.addLinkToCache = () => {}
+        const ws = makeMockWs()
+        await handler.handleMessage(ws, makeMessageData('BVdup BVdup'))
+        assert.strictEqual(processCount, 1, `processSingleLink 应只调用 1 次，实际调用 ${processCount} 次`)
+    })
+
     // === 场景 6: 无链接时 AI 仍可处理（回归测试）===
     await test('无链接时不影响 AI 处理路径（shouldReply 被调用）', async () => {
         linkHandler.extractLinks = () => []

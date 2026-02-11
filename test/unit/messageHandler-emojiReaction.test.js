@@ -82,6 +82,15 @@ async function runTests() {
         assert.strictEqual(ws._sent.length, 0)
     })
 
+    await test('ws.send() 抛异常时不向外传播（不影响调用方）', () => {
+        const ws = {
+            readyState: 1,
+            send() { throw new Error('WebSocket send failed') }
+        }
+        // 不应抛出异常
+        assert.doesNotThrow(() => handler.sendEmojiReaction(ws, 12345, '66'))
+    })
+
     console.log(`\n结果: ${passed} passed, ${failed} failed\n`)
     if (failed > 0) process.exit(1)
 }
