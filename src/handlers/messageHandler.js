@@ -207,18 +207,27 @@ class MessageHandler {
         const safeRawMessage = rawMessage.replace(/\[CQ:[^\]]+\]/g, '');
         const links = linkHandler.extractLinks(safeRawMessage, groupId);
 
-        // Process each link that's not in cache
-        let hasProcessedLinks = false;
-        for (const link of links) {
-            if (!linkHandler.isLinkCached(link.cacheKey)) {
+        if (links.length > 0) {
+            const messageId = messageData.message_id;
+            const uncachedLinks = links.filter(l => !linkHandler.isLinkCached(l.cacheKey));
+
+            if (uncachedLinks.length === 0) {
+                // 全部链接在冷却期内
+                this.sendEmojiReaction(ws, messageId, '21');
+                return;
+            }
+
+            // 有未缓存链接，开始处理
+            this.sendEmojiReaction(ws, messageId, '66');  // 思考中
+
+            let hasErrors = false;
+
+            for (const link of uncachedLinks) {
                 let processSuccess = false;
 
                 try {
-                    // 先尝试处理链接
                     await linkHandler.processSingleLink(link, ws, groupId, userId);
                     processSuccess = true;
-                    hasProcessedLinks = true;
-
                     logger.debug(`[MessageHandler] Successfully processed link: ${link.match}`);
                 } catch (error) {
                     logger.error(`[MessageHandler] Failed to process link ${link.match}:`, {
@@ -229,6 +238,7 @@ class MessageHandler {
                         linkType: link.type,
                         linkId: link.id
                     });
+                    hasErrors = true;
 
                     // 不添加到缓存，允许用户重试
                     // 向用户发送错误提示
@@ -253,16 +263,21 @@ class MessageHandler {
                 }
 
                 // 处理完成后延迟，避免并发冲突
-                const linkIndex = links.indexOf(link);
-                if (linkIndex < links.length - 1) {
+                const linkIndex = uncachedLinks.indexOf(link);
+                if (linkIndex < uncachedLinks.length - 1) {
                     logger.info(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
-        }
 
-        // If we processed any links, don't continue to AI handling
-        if (hasProcessedLinks) {
+            // 撤销思考表情，发送结果表情
+            this.sendEmojiReaction(ws, messageId, '66', false);  // 撤销思考
+            if (hasErrors) {
+                this.sendEmojiReaction(ws, messageId, '5');   // 流泪（失败）
+            } else {
+                this.sendEmojiReaction(ws, messageId, '76');  // OK（完成）
+            }
+
             return;
         }
 
