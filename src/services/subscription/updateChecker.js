@@ -6,6 +6,20 @@ const config = require('../../config');
 const logger = require('../../utils/logger');
 const notificationHistory = require('../../utils/notificationHistory');
 
+/**
+ * 解析专栏推送的实际类型和标题
+ * 新版 B 站专栏（cv号）可能被重定向为 opus/动态格式，需按实际类型处理
+ * @param {Object} info - biliApi.getArticleInfo 返回值
+ * @returns {{ actualType: string, title: string }}
+ */
+function resolveArticleTitle(info) {
+    const actualType = info.type || 'article'
+    const title = actualType === 'dynamic'
+        ? info.data?.item?.modules?.module_dynamic?.major?.opus?.title
+        : info.data?.title
+    return { actualType, title: title || '（无标题）' }
+}
+
 class UpdateChecker {
     constructor() {
         this.checkInterval = (config.subscriptionCheckInterval || 60) * 1000;
@@ -1021,6 +1035,10 @@ class UpdateChecker {
                             continue;
                         }
 
+                        if (video.is_charging_arc) {
+                            info.data.is_charging_arc = true;
+                        }
+
                         // 生成通知文本
                         const notificationText = `${sub.name} 投稿了新视频：\n${info.data.title}`;
 
@@ -1110,6 +1128,10 @@ class UpdateChecker {
                         if (info.status !== 'success') {
                             logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`);
                             continue;
+                        }
+
+                        if (video.is_charging_arc) {
+                            info.data.is_charging_arc = true;
                         }
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`;
@@ -1202,12 +1224,12 @@ class UpdateChecker {
                             continue;
                         }
 
-                        // 生成通知文本
-                        const notificationText = `${sub.name} 发布了新专栏：\n${info.data.title}`;
+                        const { actualType, title: articleTitle } = resolveArticleTitle(info)
+                        const notificationText = `${sub.name} 发布了新专栏：\n${articleTitle}`;
 
                         // 推送
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'article', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, actualType, url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new article for ${sub.name}: ${cvid}`);
 
@@ -1294,9 +1316,10 @@ class UpdateChecker {
                             continue;
                         }
 
-                        const notificationText = `${name} 发布了新专栏：\n${info.data.title}`;
+                        const { actualType, title: articleTitle } = resolveArticleTitle(info)
+                        const notificationText = `${name} 发布了新专栏：\n${articleTitle}`;
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImageAndCache(targetGroups, info, 'article', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, actualType, url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`);
                     } catch (e) {
@@ -1574,4 +1597,5 @@ class UpdateChecker {
     }
 }
 
-module.exports = new UpdateChecker();
+const updateCheckerInstance = new UpdateChecker()
+module.exports = Object.assign(updateCheckerInstance, { resolveArticleTitle })
