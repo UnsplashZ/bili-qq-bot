@@ -210,7 +210,7 @@ function renderDynamicContent(data) {
                     </div>
                     <div class="user-info">
                         <span class="user-name">${authorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
-                        <span class="pub-time">${pubTime}</span>
+                        <span class="pub-time">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
                 <div class="header-right" style="display:flex; align-items:center; gap:12px;">

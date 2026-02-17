@@ -62,6 +62,15 @@ function makeMessageData(rawMsg, messageId = 99999) {
 
 const handler = require(path.join(__dirname, '../../src/handlers/messageHandler'))
 
+// 捕获被 mock 模块的原始方法，用于每次测试后还原
+const _originals = {
+    extractLinks:      linkHandler.extractLinks,
+    isLinkCached:      linkHandler.isLinkCached,
+    processSingleLink: linkHandler.processSingleLink,
+    addLinkToCache:    linkHandler.addLinkToCache,
+    shouldReply:       aiHandler.shouldReply,
+}
+
 // ---- 测试运行器 ----
 let passed = 0
 let failed = 0
@@ -75,6 +84,13 @@ async function test(name, fn) {
         console.error(`  FAIL: ${name}`)
         console.error(`     ${e.message}`)
         failed++
+    } finally {
+        // 每次测试后还原被 mock 的属性，防止状态泄漏到下一个用例
+        linkHandler.extractLinks      = _originals.extractLinks
+        linkHandler.isLinkCached      = _originals.isLinkCached
+        linkHandler.processSingleLink = _originals.processSingleLink
+        linkHandler.addLinkToCache    = _originals.addLinkToCache
+        aiHandler.shouldReply         = _originals.shouldReply
     }
 }
 
@@ -178,7 +194,6 @@ async function runTests() {
         const ws = makeMockWs()
         await handler.handleMessage(ws, makeMessageData('你好'))
         assert.ok(aiCalled, 'aiHandler.shouldReply 应该被调用')
-        aiHandler.shouldReply = () => false  // 还原
     })
 
     console.log(`\n结果: ${passed} passed, ${failed} failed\n`)

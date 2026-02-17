@@ -7,6 +7,14 @@ const linkHandler = require('./linkHandler');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 
+// 表情 ID 常量（NapCat set_msg_emoji_like）
+const LINK_EMOJI = {
+    THINKING: '66',   // 思考中 —— 链接处理开始
+    OK:       '76',   // OK     —— 全部链接处理成功
+    CRYING:   '5',    // 流泪   —— 至少一个链接处理失败
+    SHUSH:    '21',   // 嘘     —— 全部链接在冷却期，跳过
+}
+
 class MessageHandler {
 
     /**
@@ -36,7 +44,7 @@ class MessageHandler {
             return
         }
         if (!messageId) {
-            logger.warn(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
+            logger.debug(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
             return
         }
         try {
@@ -222,12 +230,12 @@ class MessageHandler {
 
             if (uncachedLinks.length === 0) {
                 // 全部链接在冷却期内
-                this.sendEmojiReaction(ws, messageId, '21');
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.SHUSH);
                 return;
             }
 
             // 有未缓存链接，开始处理
-            this.sendEmojiReaction(ws, messageId, '66');  // 思考中
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING);
 
             let hasErrors = false;
 
@@ -279,12 +287,14 @@ class MessageHandler {
                 }
             }
 
-            // 撤销思考表情，发送结果表情
-            this.sendEmojiReaction(ws, messageId, '66', false);  // 撤销思考
+            // 撤销思考表情，发送结果表情。
+            // 注：hasErrors 为 true 表示"至少一个链接失败"，并非全部失败。
+            // 失败链接的具体 URL 已在上方错误提示文字中说明。
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING, false);
             if (hasErrors) {
-                this.sendEmojiReaction(ws, messageId, '5');   // 流泪（失败）
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.CRYING);
             } else {
-                this.sendEmojiReaction(ws, messageId, '76');  // OK（完成）
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.OK);
             }
 
             return;

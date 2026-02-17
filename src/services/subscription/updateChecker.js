@@ -1598,4 +1598,6 @@ class UpdateChecker {
 }
 
 const updateCheckerInstance = new UpdateChecker()
-module.exports = Object.assign(updateCheckerInstance, { resolveArticleTitle })
+// resolveArticleTitle 是模块级工具函数，仅用于测试访问，不属于 UpdateChecker 类方法
+module.exports = updateCheckerInstance
+module.exports.resolveArticleTitle = resolveArticleTitle

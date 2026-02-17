@@ -12,6 +12,7 @@ const config = require('../../../config');
  * 检测是否为充电专属内容
  */
 function detectChargingContent(type, data) {
+    if (!data) return false          // null/undefined guard
     if (type === 'dynamic') {
         // B 站充电专属动态：item.basic.is_only_fans = true
         // 注：字段名含 "fans" 但实际对应充电专属（非粉丝团专属），

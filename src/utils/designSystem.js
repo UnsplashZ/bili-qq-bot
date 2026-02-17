@@ -33,6 +33,13 @@ const DESIGN_SYSTEM = {
         gap: '12px',
         marginBottom: '20px',
         fontWeight: '700'
+    },
+
+    // 充电专属内容颜色
+    charging: {
+        gold:        '#FFB300',
+        goldBg:      'rgba(255, 179, 0, 0.15)',
+        goldBorder:  'rgba(255, 179, 0, 0.4)',
     }
 };
 
@@ -234,9 +241,9 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
             .charging-mark {
                 font-size: ${DESIGN_SYSTEM.typography.small};
                 font-weight: 600;
-                color: #FFB300;
-                background: rgba(255, 179, 0, 0.15);
-                border: 1px solid rgba(255, 179, 0, 0.4);
+                color: ${DESIGN_SYSTEM.charging.gold};
+                background: ${DESIGN_SYSTEM.charging.goldBg};
+                border: 1px solid ${DESIGN_SYSTEM.charging.goldBorder};
                 padding: 4px 12px;
                 border-radius: var(--radius-lg);
                 margin-left: 8px;
