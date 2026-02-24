@@ -8,11 +8,13 @@ const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
+// NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
+// Unicode 表情传十进制码点字符串即可
 const LINK_EMOJI = {
-    THINKING: '66',   // 思考中 —— 链接处理开始
-    OK:       '76',   // OK     —— 全部链接处理成功
-    CRYING:   '5',    // 流泪   —— 至少一个链接处理失败
-    SHUSH:    '21',   // 嘘     —— 全部链接在冷却期，跳过
+    THINKING: '128074',  // 👊 拳头 —— 链接处理开始
+    OK:       '128076',  // 👌 好的 —— 全部链接处理成功
+    CRYING:   '10060',   // ❌ 错误 —— 至少一个链接处理失败
+    SHUSH:    '128164',  // 💤 睡觉 —— 全部链接在冷却期，跳过
 }
 
 class MessageHandler {
