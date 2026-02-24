@@ -9,6 +9,24 @@ const { renderUserContent } = require('../renderers/user');
 const config = require('../../../config');
 
 /**
+ * 检测是否为充电专属内容
+ */
+function detectChargingContent(type, data) {
+    if (!data) return false          // null/undefined guard
+    if (type === 'dynamic') {
+        // B 站充电专属动态：item.basic.is_only_fans = true
+        // 注：字段名含 "fans" 但实际对应充电专属（非粉丝团专属），
+        // 充电专属内容通常伴随 MAJOR_TYPE_BLOCKED 遮蔽，此字段可用于在 badge 层额外标记
+        return data.data?.item?.basic?.is_only_fans === true
+    }
+    if (type === 'video') {
+        // B 站充电专属视频：is_charging_arc = true（来自 /user_videos API 的 vlist 字段）
+        return data.data?.is_charging_arc === true
+    }
+    return false
+}
+
+/**
  * 渲染类型标签
  * @param {String} type - 内容类型
  * @param {Object} data - 内容数据
@@ -34,10 +52,12 @@ function renderTypeBadge(type, data, groupId, currentType) {
 
     if (!isVisible) return '';
 
+    const isCharging = detectChargingContent(type, data)
     return `
         <div class="type-badge">
             <span>${currentType.icon}</span>
             <span>${currentType.label}</span>
+            ${isCharging ? '<span class="charging-mark">⚡ 充电专属</span>' : ''}
         </div>`;
 }
 
@@ -137,5 +157,4 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
     });
 }
 
-
-module.exports = { generatePreviewCard };
+module.exports = { generatePreviewCard, detectChargingContent };

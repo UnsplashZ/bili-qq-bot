@@ -7,6 +7,14 @@ const linkHandler = require('./linkHandler');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 
+// 表情 ID 常量（NapCat set_msg_emoji_like）
+const LINK_EMOJI = {
+    THINKING: '66',   // 思考中 —— 链接处理开始
+    OK:       '76',   // OK     —— 全部链接处理成功
+    CRYING:   '5',    // 流泪   —— 至少一个链接处理失败
+    SHUSH:    '21',   // 嘘     —— 全部链接在冷却期，跳过
+}
+
 class MessageHandler {
 
     /**
@@ -28,6 +36,29 @@ class MessageHandler {
                 message: [{ type: 'text', data: { text: message } }]
             }
         }));
+    }
+
+    sendEmojiReaction(ws, messageId, emojiId, set = true) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            logger.warn('[MessageHandler] Cannot send emoji reaction: WebSocket not open')
+            return
+        }
+        if (!messageId) {
+            logger.debug(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
+            return
+        }
+        try {
+            ws.send(JSON.stringify({
+                action: 'set_msg_emoji_like',
+                params: {
+                    message_id: messageId,
+                    emoji_id: String(emojiId),
+                    set: set
+                }
+            }))
+        } catch (e) {
+            logger.warn(`[MessageHandler] Failed to send emoji reaction: ${e.message}`)
+        }
     }
 
     async handleMessage(ws, messageData) {
@@ -188,18 +219,33 @@ class MessageHandler {
         const safeRawMessage = rawMessage.replace(/\[CQ:[^\]]+\]/g, '');
         const links = linkHandler.extractLinks(safeRawMessage, groupId);
 
-        // Process each link that's not in cache
-        let hasProcessedLinks = false;
-        for (const link of links) {
-            if (!linkHandler.isLinkCached(link.cacheKey)) {
+        if (links.length > 0) {
+            const messageId = messageData.message_id;
+            const seenKeys = new Set();
+            const uncachedLinks = links.filter(l => {
+                if (linkHandler.isLinkCached(l.cacheKey) || seenKeys.has(l.cacheKey)) return false;
+                seenKeys.add(l.cacheKey);
+                return true;
+            });
+
+            if (uncachedLinks.length === 0) {
+                // 全部链接在冷却期内
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.SHUSH);
+                return;
+            }
+
+            // 有未缓存链接，开始处理
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING);
+
+            let hasErrors = false;
+
+            for (let i = 0; i < uncachedLinks.length; i++) {
+                const link = uncachedLinks[i];
                 let processSuccess = false;
 
                 try {
-                    // 先尝试处理链接
                     await linkHandler.processSingleLink(link, ws, groupId, userId);
                     processSuccess = true;
-                    hasProcessedLinks = true;
-
                     logger.debug(`[MessageHandler] Successfully processed link: ${link.match}`);
                 } catch (error) {
                     logger.error(`[MessageHandler] Failed to process link ${link.match}:`, {
@@ -210,6 +256,7 @@ class MessageHandler {
                         linkType: link.type,
                         linkId: link.id
                     });
+                    hasErrors = true;
 
                     // 不添加到缓存，允许用户重试
                     // 向用户发送错误提示
@@ -234,16 +281,22 @@ class MessageHandler {
                 }
 
                 // 处理完成后延迟，避免并发冲突
-                const linkIndex = links.indexOf(link);
-                if (linkIndex < links.length - 1) {
-                    logger.info(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
+                if (i < uncachedLinks.length - 1) {
+                    logger.debug(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
-        }
 
-        // If we processed any links, don't continue to AI handling
-        if (hasProcessedLinks) {
+            // 撤销思考表情，发送结果表情。
+            // 注：hasErrors 为 true 表示"至少一个链接失败"，并非全部失败。
+            // 失败链接的具体 URL 已在上方错误提示文字中说明。
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING, false);
+            if (hasErrors) {
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.CRYING);
+            } else {
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.OK);
+            }
+
             return;
         }
 

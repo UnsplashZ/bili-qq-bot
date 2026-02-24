@@ -1,4 +1,4 @@
-const { formatPubTime, formatNumber } = require('../core/formatters');
+const { formatPubTime, formatNumber, escapeHtml } = require('../core/formatters');
 const { parseRichText } = require('./components/richtext');
 const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderMediaHtml } = require('./components/media');
@@ -99,6 +99,36 @@ function renderDynamicContent(data) {
     const fanColor = authorInfo.fan_color || fanInfo.color || '#555';
     const serial = (fanNumber || authorInfo.card_number || null);
 
+    // 充电专属内容：渲染占位卡片
+    const major = module_dynamic.major;
+    if (major?.type === 'MAJOR_TYPE_BLOCKED') {
+        const hint = major.blocked?.hint_message || '充电专属内容'
+        const lines = hint.split('\n').map(escapeHtml)
+        // 充电专属占位卡片：有意省略 pendant/decoration，保持简洁
+        return `
+        <div class="content">
+            <div class="header">
+                <div class="header-left">
+                    <div class="avatar-wrapper">
+                        <img class="avatar no-frame" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">${escapeHtml(authorName)}</span>
+                        <span class="pub-time">${escapeHtml(String(pubTime))}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="charging-blocked-hint">
+                ${lines.map(l => `<p>${l}</p>`).join('')}
+            </div>
+            <div class="action-bar">
+                <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
+                <div class="action-item">${ICONS.comment} ${formatNumber(module_stat.comment?.count)}</div>
+                <div class="action-item">${ICONS.like} ${formatNumber(module_stat.like?.count)}</div>
+            </div>
+        </div>`
+    }
+
     let text = "";
     let title = "";
     let richTextNodes = null;
@@ -180,7 +210,7 @@ function renderDynamicContent(data) {
                     </div>
                     <div class="user-info">
                         <span class="user-name">${authorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
-                        <span class="pub-time">${pubTime}</span>
+                        <span class="pub-time">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
                 <div class="header-right" style="display:flex; align-items:center; gap:12px;">

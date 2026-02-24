@@ -33,6 +33,13 @@ const DESIGN_SYSTEM = {
         gap: '12px',
         marginBottom: '20px',
         fontWeight: '700'
+    },
+
+    // 充电专属内容颜色
+    charging: {
+        gold:        '#FFB300',
+        goldBg:      'rgba(255, 179, 0, 0.15)',
+        goldBorder:  'rgba(255, 179, 0, 0.4)',
     }
 };
 
@@ -228,6 +235,32 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
 
             .theme-dark .type-badge::before {
                 background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.02) 100%);
+            }
+
+            /* 充电专属标记 */
+            .charging-mark {
+                font-size: ${DESIGN_SYSTEM.typography.small};
+                font-weight: 600;
+                color: ${DESIGN_SYSTEM.charging.gold};
+                background: ${DESIGN_SYSTEM.charging.goldBg};
+                border: 1px solid ${DESIGN_SYSTEM.charging.goldBorder};
+                padding: 4px 12px;
+                border-radius: var(--radius-lg);
+                margin-left: 8px;
+                letter-spacing: 0.02em;
+            }
+
+            /* 充电专属动态占位样式 */
+            .charging-blocked-hint {
+                padding: 20px 0 12px;
+                color: var(--color-subtext);
+                font-size: var(--font-caption);
+                text-align: center;
+                line-height: 1.7;
+            }
+
+            .charging-blocked-hint p {
+                margin: 0;
             }
 
             /* 统一标题样式 */

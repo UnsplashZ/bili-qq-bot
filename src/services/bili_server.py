@@ -104,7 +104,9 @@ def load_credential(group_id=None):
                 credential = Credential(
                     sessdata=sessdata,
                     bili_jct=bili_jct,
-                    buvid3=buvid3
+                    buvid3=buvid3,
+                    dedeuserid=data.get('DEDEUSERID'),
+                    ac_time_value=data.get('AC_TIME_VALUE')
                 )
                 logger.debug("使用全局Cookie")
                 return credential
@@ -140,6 +142,8 @@ def save_credential(credential, group_id=None):
             'SESSDATA': credential.sessdata,
             'BILI_JCT': credential.bili_jct,
             'BUVID3': credential.buvid3,
+            'DEDEUSERID': credential.dedeuserid,
+            'AC_TIME_VALUE': credential.ac_time_value,
             '_timestamp': int(time.time())  # 添加时间戳用于过期检测
         }, f)
 
@@ -160,6 +164,50 @@ async def _fetch_buvid3():
     except Exception as e:
         logger.warning(f"获取BUVID3失败: {e}")
     return None
+
+async def refresh_credential_if_needed():
+    """
+    检查并刷新全局 Cookie。
+    返回:
+      {"status": "ok",    "refreshed": bool, "message": str}
+      {"status": "error", "reason": str,     "message": str}
+    reason: no_credential | no_ac_time_value | invalid | check_failed | refresh_failed
+    """
+    credential = load_credential()
+    if not credential or not credential.sessdata:
+        return {"status": "error", "reason": "no_credential",
+                "message": "未找到Cookie，请先在Dashboard扫码登录"}
+
+    # 检查 Cookie 是否有效
+    try:
+        is_valid = await credential.check_valid()
+        if not is_valid:
+            return {"status": "error", "reason": "invalid",
+                    "message": "Cookie已失效，请在Dashboard重新扫码登录"}
+    except Exception as e:
+        logger.warning(f"[Cookie] check_valid 异常: {e}")
+        return {"status": "error", "reason": "check_failed",
+                "message": f"Cookie有效性检查失败: {e}"}
+
+    # 检查是否需要刷新（需要 ac_time_value）
+    if not credential.ac_time_value:
+        return {"status": "error", "reason": "no_ac_time_value",
+                "message": "Cookie缺少ac_time_value，无法自动刷新。请在Dashboard重新扫码登录以启用自动刷新"}
+
+    try:
+        need_refresh = await credential.check_refresh()
+        if not need_refresh:
+            return {"status": "ok", "refreshed": False, "message": "Cookie有效，无需刷新"}
+
+        await credential.refresh()
+        await ensure_buvid3(credential)  # 确保 BUVID3 仍然有效
+        save_credential(credential)
+        logger.info("[Cookie] Cookie已自动刷新成功")
+        return {"status": "ok", "refreshed": True, "message": "Cookie已自动刷新成功"}
+    except Exception as e:
+        logger.error(f"[Cookie] Cookie刷新失败: {e}")
+        return {"status": "error", "reason": "refresh_failed",
+                "message": f"Cookie刷新失败: {e}"}
 
 async def ensure_buvid3(credential, group_id=None):
     if not credential or credential.buvid3:
@@ -1841,6 +1889,10 @@ async def handle_credential_info(request):
             'message': str(e)
         })
 
+async def handle_refresh_credential(request):
+    result = await refresh_credential_if_needed()
+    return web.json_response(result)
+
 async def on_cleanup(app):
     logger.info("Application shutting down...")
     # Place to close global sessions if needed
@@ -1875,6 +1927,7 @@ def create_app():
         web.post('/dynamic_feed', handle_dynamic_feed),
         web.post('/live_feed', handle_live_feed),
         web.post('/credential_info', handle_credential_info),
+        web.post('/refresh_credential', handle_refresh_credential),
         web.get('/health', health_check),
     ])
     return app

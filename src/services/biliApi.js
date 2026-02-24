@@ -189,6 +189,18 @@ class BiliApi {
             }
         }, bypassCache);
     }
+
+    /**
+     * 检查并自动刷新全局 Cookie
+     * @returns {Promise<{status: string, refreshed?: boolean, reason?: string, message: string}>}
+     */
+    async refreshCredential() {
+        try {
+            return await serviceManager.sendCommand('refresh_credential', {});
+        } catch (error) {
+            return { status: 'error', reason: 'service_unavailable', message: error.message };
+        }
+    }
 }
 
 module.exports = new BiliApi();

@@ -6,6 +6,7 @@ const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
 const mcpManager = require('./services/mcpManager');
 const ServiceManager = require('./services/ServiceManager');
+const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
 
 global.bot = global.bot || { groupList: new Map() };
@@ -328,6 +329,11 @@ async function initializeBot() {
         logger.info('[Init] Step 1/4: Starting Python Service Manager...');
         await ServiceManager.start();
         logger.info('[Init] ✓ Python Service Manager started');
+
+        // 注册 Python 服务崩溃回调，反复崩溃时通知 Admin
+        ServiceManager.onCriticalError = (message) => {
+            updateChecker.notifyAdmin(message);
+        };
 
         // 初始化MCP Manager
         logger.info('[Init] Step 2/4: Initializing MCP Manager...');

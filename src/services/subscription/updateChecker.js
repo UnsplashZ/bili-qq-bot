@@ -6,6 +6,20 @@ const config = require('../../config');
 const logger = require('../../utils/logger');
 const notificationHistory = require('../../utils/notificationHistory');
 
+/**
+ * 解析专栏推送的实际类型和标题
+ * 新版 B 站专栏（cv号）可能被重定向为 opus/动态格式，需按实际类型处理
+ * @param {Object} info - biliApi.getArticleInfo 返回值
+ * @returns {{ actualType: string, title: string }}
+ */
+function resolveArticleTitle(info) {
+    const actualType = info.type || 'article'
+    const title = actualType === 'dynamic'
+        ? info.data?.item?.modules?.module_dynamic?.major?.opus?.title
+        : info.data?.title
+    return { actualType, title: title || '（无标题）' }
+}
+
 class UpdateChecker {
     constructor() {
         this.checkInterval = (config.subscriptionCheckInterval || 60) * 1000;
@@ -15,6 +29,8 @@ class UpdateChecker {
         this.initTimer = null;
         this.initSyncTimer = null;
         this.ws = null;
+        this.credentialRefreshTimer = null;
+        this.CREDENTIAL_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24小时
     }
 
     setWs(ws) {
@@ -57,6 +73,17 @@ class UpdateChecker {
             this.refreshCookieFollowings();
         }, this.syncInterval);
 
+        // 5. Cookie 自动刷新：Bot 启动时立即检查，之后每24小时一次
+        this.checkAndRefreshCredential().catch(e => {
+            logger.error('[UpdateChecker] Unexpected error in credential refresh:', e);
+        });
+        this.credentialRefreshTimer = setInterval(
+            () => { this.checkAndRefreshCredential().catch(e => {
+                logger.error('[UpdateChecker] Unexpected error in credential refresh:', e);
+            }); },
+            this.CREDENTIAL_REFRESH_INTERVAL
+        );
+
         logger.info('[UpdateChecker] All timers started successfully');
     }
 
@@ -90,6 +117,12 @@ class UpdateChecker {
             clearedCount++;
         }
 
+        if (this.credentialRefreshTimer) {
+            clearInterval(this.credentialRefreshTimer);
+            this.credentialRefreshTimer = null;
+            clearedCount++;
+        }
+
         if (clearedCount > 0) {
             logger.info(`[UpdateChecker] Stopped subscription checker, cleared ${clearedCount} timers`);
         }
@@ -105,6 +138,41 @@ class UpdateChecker {
     }
 
     /**
+     * 向 Admin 发送私聊通知
+     * @param {string} message
+     */
+    notifyAdmin(message) {
+        const adminQQ = config.adminQQ;
+        if (!adminQQ) return;
+        if (!this.ws) {
+            logger.warn(`[UpdateChecker] Cannot notify admin (WebSocket not ready): ${message}`);
+            return;
+        }
+        notificationService.sendPrivateMessage(this.ws, adminQQ, `[Bot通知] ${message}`);
+    }
+
+    /**
+     * 检查并自动刷新 B站 Cookie
+     */
+    async checkAndRefreshCredential() {
+        try {
+            const result = await biliApi.refreshCredential();
+            if (result.status === 'error') {
+                logger.warn(`[UpdateChecker] Cookie状态异常: ${result.message}`);
+                this.notifyAdmin(`⚠️ B站Cookie异常：${result.message}`);
+            } else if (result.refreshed) {
+                logger.info('[UpdateChecker] B站Cookie已自动刷新成功');
+                this.notifyAdmin('✅ B站Cookie已自动刷新成功');
+            } else {
+                logger.debug('[UpdateChecker] B站Cookie有效，无需刷新');
+            }
+        } catch (e) {
+            logger.error('[UpdateChecker] Cookie刷新检查失败:', e);
+            // Python 服务不可用时静默（ServiceManager 会处理重启通知）
+        }
+    }
+
+    /**
      * 🆕 获取定时器状态（用于调试）
      */
     getStatus() {
@@ -114,11 +182,13 @@ class UpdateChecker {
                 initTimer: !!this.initTimer,
                 mainTimer: !!this.timer,
                 initSyncTimer: !!this.initSyncTimer,
-                syncTimer: !!this.syncTimer
+                syncTimer: !!this.syncTimer,
+                credentialRefreshTimer: !!this.credentialRefreshTimer
             },
             intervals: {
                 check: `${this.checkInterval / 1000}s`,
-                sync: `${this.syncInterval / 1000}s`
+                sync: `${this.syncInterval / 1000}s`,
+                credentialRefresh: `${this.CREDENTIAL_REFRESH_INTERVAL / 1000}s`
             }
         };
     }
@@ -1021,6 +1091,10 @@ class UpdateChecker {
                             continue;
                         }
 
+                        if (video.is_charging_arc) {
+                            info.data.is_charging_arc = true;
+                        }
+
                         // 生成通知文本
                         const notificationText = `${sub.name} 投稿了新视频：\n${info.data.title}`;
 
@@ -1110,6 +1184,10 @@ class UpdateChecker {
                         if (info.status !== 'success') {
                             logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`);
                             continue;
+                        }
+
+                        if (video.is_charging_arc) {
+                            info.data.is_charging_arc = true;
                         }
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`;
@@ -1202,12 +1280,12 @@ class UpdateChecker {
                             continue;
                         }
 
-                        // 生成通知文本
-                        const notificationText = `${sub.name} 发布了新专栏：\n${info.data.title}`;
+                        const { actualType, title: articleTitle } = resolveArticleTitle(info)
+                        const notificationText = `${sub.name} 发布了新专栏：\n${articleTitle}`;
 
                         // 推送
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, 'article', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, actualType, url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new article for ${sub.name}: ${cvid}`);
 
@@ -1294,9 +1372,10 @@ class UpdateChecker {
                             continue;
                         }
 
-                        const notificationText = `${name} 发布了新专栏：\n${info.data.title}`;
+                        const { actualType, title: articleTitle } = resolveArticleTitle(info)
+                        const notificationText = `${name} 发布了新专栏：\n${articleTitle}`;
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImageAndCache(targetGroups, info, 'article', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(targetGroups, info, actualType, url, notificationText);
 
                         logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`);
                     } catch (e) {
@@ -1518,7 +1597,8 @@ class UpdateChecker {
         if (groupsWithSync.length === 0) return;
 
         const visitedUids = new Set();
-        
+        const failedGroups = [];
+
         for (const groupId of groupsWithSync) {
             try {
                 // First, check who is logged in for this group
@@ -1526,36 +1606,44 @@ class UpdateChecker {
                 if (myInfo.status !== 'success') {
                     // Maybe cookie expired or not set
                     logger.warn(`[UpdateChecker] Failed to get user info for group ${groupId}: ${myInfo.message}`);
+                    failedGroups.push(groupId);
                     continue;
                 }
-                
+
                 const myUid = String(myInfo.data.mid);
-                
+
                 // Update mapping
                 await subscriptionManager.setGroupAccountMapping(groupId, myUid);
-                
+
                 // If we already refreshed this account in this cycle, skip fetching
                 if (visitedUids.has(myUid)) {
                     continue;
                 }
-                
+
                 // Fetch followings
                 logger.info(`[UpdateChecker] Refreshing followings for account ${myUid} via group ${groupId}`);
                 const res = await biliApi.getMyFollowings(null, groupId);
-                
+
                 if (res.status === 'success' && res.data) {
                     await subscriptionManager.setCookieFollowings(myUid, res.data);
                     visitedUids.add(myUid);
                 } else {
                     logger.error(`[UpdateChecker] Failed to refresh followings for group ${groupId}:`, res.message);
+                    failedGroups.push(groupId);
                 }
-                
+
                 // Sleep to avoid rate limiting
                 await new Promise(r => setTimeout(r, 2000));
-                
+
             } catch (e) {
                 logger.error(`[UpdateChecker] Error refreshing cookie followings for group ${groupId}:`, e);
+                failedGroups.push(groupId);
             }
+        }
+
+        // 若所有群的 Cookie 同步均失败，通知 admin
+        if (failedGroups.length > 0 && failedGroups.length === groupsWithSync.length) {
+            this.notifyAdmin(`⚠️ B站关注列表同步失败（${failedGroups.length}个群均失败），订阅推送可能中断。请检查Cookie状态。`);
         }
     }
 
@@ -1574,4 +1662,7 @@ class UpdateChecker {
     }
 }
 
-module.exports = new UpdateChecker();
+const updateCheckerInstance = new UpdateChecker()
+// resolveArticleTitle 是模块级工具函数，仅用于测试访问，不属于 UpdateChecker 类方法
+module.exports = updateCheckerInstance
+module.exports.resolveArticleTitle = resolveArticleTitle
