@@ -22,6 +22,13 @@ class ServiceManager {
         this.lastRequestTime = Date.now();
         this.isRestarting = false;
 
+        // 崩溃计数（5分钟滑动窗口）
+        this.crashCount = 0;
+        this.crashWindowStart = null;
+        this.CRASH_WINDOW_MS = 5 * 60 * 1000;  // 5分钟窗口
+        this.CRASH_THRESHOLD = 3;              // 5分钟内崩溃3次触发通知
+        this.onCriticalError = null;           // 回调，由外部注册
+
         // Idle check interval (every hour)
         this.idleCheckInterval = setInterval(() => this.checkIdle(), 60 * 60 * 1000);
     }
@@ -91,9 +98,22 @@ class ServiceManager {
             this.process.on('exit', (code, signal) => {
                 logger.warn(`[ServiceManager] Python server exited with code ${code}, signal ${signal}`);
                 this.process = null;
-                
-                // Auto-restart if not intentionally stopped/restarting
+
+                // 仅在非主动重启时计入崩溃计数
                 if (!this.isRestarting) {
+                    // 崩溃计数（5分钟滑动窗口）
+                    const now = Date.now();
+                    if (!this.crashWindowStart || now - this.crashWindowStart > this.CRASH_WINDOW_MS) {
+                        this.crashWindowStart = now;
+                        this.crashCount = 1;
+                    } else {
+                        this.crashCount++;
+                    }
+
+                    if (this.crashCount === this.CRASH_THRESHOLD && this.onCriticalError) {
+                        this.onCriticalError(`⚠️ Python服务在5分钟内已崩溃 ${this.crashCount} 次，可能存在严重问题，请检查日志。`);
+                    }
+
                     logger.info('[ServiceManager] Attempting to restart server in 1s...');
                     setTimeout(() => this.start(), 1000);
                 }
