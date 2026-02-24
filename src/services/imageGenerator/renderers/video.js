@@ -31,7 +31,7 @@ function renderVideoContent(data) {
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.like || info.stat?.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.reply || info.stat?.reply)}</span>
             </div>
-            <div class="text-content">${escapeHtml(info.desc || '')}</div>
+            ${info.desc ? `<div class="text-content">${escapeHtml(info.desc)}</div>` : ''}
         </div>
     `;
 }

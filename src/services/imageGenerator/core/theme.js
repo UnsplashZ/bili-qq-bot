@@ -753,6 +753,7 @@ function generateCSS(colorData, viewport) {
                 width: 100%;
                 max-height: 1500px;
                 object-fit: cover;
+                object-position: top;
                 border-radius: var(--radius-lg);
                 display: block;
                 box-shadow: var(--shadow-md);
@@ -763,6 +764,7 @@ function generateCSS(colorData, viewport) {
                 width: 100%;
                 max-height: 1500px;
                 object-fit: cover;
+                object-position: top;
                 border-radius: var(--radius-lg);
                 display: block;
                 box-shadow: var(--shadow-md);

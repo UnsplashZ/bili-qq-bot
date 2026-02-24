@@ -20,8 +20,10 @@ function detectChargingContent(type, data) {
         return data.data?.item?.basic?.is_only_fans === true
     }
     if (type === 'video') {
-        // B 站充电专属视频：is_charging_arc = true（来自 /user_videos API 的 vlist 字段）
-        return data.data?.is_charging_arc === true
+        // B 站充电专属视频：
+        // - is_charging_arc = true（订阅推送时手动注入，来自 /user_videos API 的 vlist 字段）
+        // - rights.is_charging_arc = 1（直接分享链接时，来自标准 /x/web-interface/view 接口）
+        return data.data?.is_charging_arc === true || data.data?.rights?.is_charging_arc === 1
     }
     return false
 }
