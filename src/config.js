@@ -281,6 +281,11 @@ const META = {
     dataCacheTTL: { env: 'DATA_CACHE_TTL', def: 3600, type: 'int' },
     subscriptionCheckInterval: { env: null, def: 60, type: 'int' },
     showId: { env: null, def: true, type: 'bool' },
+    videoDownloadEnabled: { env: null, def: false, type: 'bool' },
+    videoDownloadResolution: { env: null, def: '1080p', type: 'string' },
+    videoDownloadMaxDuration: { env: null, def: 600, type: 'int' },
+    videoDownloadAutoClean: { env: null, def: true, type: 'bool' },
+    videoDownloadCleanTimeout: { env: null, def: 6, type: 'int' },
 
     // State Arrays (lazyInit = true for reference stability)
     blacklistedQQs: { env: null, def: [], type: 'array', lazyInit: true },
@@ -638,6 +643,49 @@ function isRagEnabledForGroup(groupId) {
     return true;
 }
 
+/**
+ * Check if video download is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean}
+ */
+function isVideoDownloadEnabledForGroup(groupId) {
+    if (!config.videoDownloadEnabled) return false
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && 'videoDownloadEnabled' in groupConfig) {
+        return groupConfig.videoDownloadEnabled
+    }
+    return true
+}
+
+/**
+ * Get effective video download resolution for a group (group > global > default)
+ * @param {string} groupId
+ * @returns {string}
+ */
+function getVideoDownloadResolutionForGroup(groupId) {
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && groupConfig.videoDownloadResolution) {
+        return groupConfig.videoDownloadResolution
+    }
+    return config.videoDownloadResolution
+}
+
+/**
+ * Get effective max duration limit for a group, in seconds. 0 means no limit.
+ * @param {string} groupId
+ * @returns {number}
+ */
+function getVideoDownloadMaxDurationForGroup(groupId) {
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && 'videoDownloadMaxDuration' in groupConfig) {
+        return groupConfig.videoDownloadMaxDuration
+    }
+    return config.videoDownloadMaxDuration
+}
+
 module.exports = config;
 module.exports.isAiEnabledForGroup = isAiEnabledForGroup;
 module.exports.isRagEnabledForGroup = isRagEnabledForGroup;
+module.exports.isVideoDownloadEnabledForGroup = isVideoDownloadEnabledForGroup;
+module.exports.getVideoDownloadResolutionForGroup = getVideoDownloadResolutionForGroup;
+module.exports.getVideoDownloadMaxDurationForGroup = getVideoDownloadMaxDurationForGroup;
