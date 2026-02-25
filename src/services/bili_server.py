@@ -1598,7 +1598,8 @@ async def _download_stream_to_file(url: str, output_path: str) -> None:
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(connect=30, sock_read=None)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url, headers=headers) as resp:
             resp.raise_for_status()
             with open(output_path, 'wb') as f:
@@ -1621,7 +1622,10 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
         '1080p': VideoQuality._1080P,
         '1080p+': VideoQuality._1080P_PLUS,
     }
-    target_quality = quality_map.get(resolution, VideoQuality._1080P)
+    target_quality = quality_map.get(resolution)
+    if target_quality is None:
+        logger.warning(f'[download_video_file] Unknown resolution "{resolution}", defaulting to 1080p')
+        target_quality = VideoQuality._1080P
 
     v = video.Video(bvid=bvid, credential=load_credential(group_id))
     info = await v.get_info()
@@ -1642,6 +1646,11 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
     if not streams:
         return {'status': 'error', 'message': 'no_streams_available'}
 
+    # 路径安全验证
+    ALLOWED_BASE = os.path.realpath(os.path.join(os.getcwd(), 'data', 'downloads'))
+    resolved_dir = os.path.realpath(output_dir)
+    if not resolved_dir.startswith(ALLOWED_BASE):
+        return {'status': 'error', 'message': 'invalid output_dir'}
     os.makedirs(output_dir, exist_ok=True)
     timestamp = int(time.time())
     safe_bvid = re.sub(r'[^a-zA-Z0-9_-]', '_', bvid)
@@ -1662,10 +1671,10 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
             proc = await asyncio.create_subprocess_exec(
                 'ffmpeg', '-y', '-i', video_tmp, '-i', audio_tmp,
                 '-c', 'copy', output_path,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            _, stderr = await proc.communicate()
             if proc.returncode != 0:
                 raise RuntimeError(f'FFmpeg failed: {stderr.decode()[:500]}')
         finally:
@@ -1691,7 +1700,12 @@ async def handle_video_download(request):
     try:
         data = await request.json()
         bvid = data.get('bvid', '').strip()
-        page_index = int(data.get('page_index', 0))
+        try:
+            page_index = int(data.get('page_index', 0))
+            if page_index < 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return web.json_response({'status': 'error', 'message': 'invalid page_index'}, status=400)
         resolution = data.get('resolution', '1080p')
         output_dir = data.get('output_dir', '/app/data/downloads')
         group_id = data.get('group_id')
