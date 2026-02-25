@@ -26,7 +26,8 @@ bili-qq-bot/
 ├── test/                   # Test files and scripts
 │   └── (test files here)   # Unit tests, integration tests, debugging tools
 ├── docs/                   # Documentation
-│   ├── plans/              # Design documents and implementation plans
+│   ├── plans/              # Design documents and implementation plans (active)
+│   ├── done/               # Completed implementation plans (archived)
 │   ├── diagnosis/          # Bug investigation and fix records
 │   └── README.md           # Project documentation
 ├── data/                   # Persistent data (not in git)
@@ -44,7 +45,8 @@ bili-qq-bot/
 
 **Key Directories:**
 - **test/** - All test files, debugging scripts, and test utilities go here
-- **docs/plans/** - Implementation plans, design documents (markdown format)
+- **docs/plans/** - Active implementation plans, design documents (markdown format)
+- **docs/done/** - Completed/archived implementation plans (moved here after execution)
 - **docs/diagnosis/** - Bug investigation records and postmortems
 - **data/** - Runtime data (excluded from git, auto-created on first run)
 
@@ -142,10 +144,10 @@ Modular Puppeteer-based system (`/src/services/imageGenerator/`):
 Renderers (Pure HTML) → Generators (Browser + Render) → PNG Output
 ```
 
-- **Renderers:** Pure functions returning HTML strings (video.js, dynamic.js, etc.)
-- **Components:** Reusable pieces (richtext.js, media.js, vote.js)
-- **Generators:** Combine renderers with browser instance (previewCard.js, helpCard.js)
-- **Theme System:** `theme.js` handles dark/light mode with color extraction
+- **Renderers** (`renderers/`): Pure functions returning HTML strings (video.js, dynamic.js, article.js, live.js, bangumi.js, user.js)
+- **Components** (`renderers/components/`): Reusable pieces (richtext.js, media.js, vote.js)
+- **Generators** (`generators/`): Combine renderers with browser instance (previewCard.js, helpCard.js, aiHelpCard.js, subscriptionList.js)
+- **Core** (`core/`): Browser management (browser.js), formatters (formatters.js), theme system (theme.js — dark/light mode with color extraction)
 
 When adding new content types:
 1. Create renderer in `renderers/`
@@ -161,7 +163,9 @@ All data in `/data/` directory:
 ├── cache/              # LRU cache (1GB limit, API responses)
 ├── contexts/           # AI conversation history (per-group JSON)
 ├── vectors/            # Vector embeddings (per-group, 200MB max)
-├── cookies*.json       # Bilibili credentials (global + per-group)
+├── cookies.json        # Bilibili credentials (global only)
+├── cookies_map.json    # Cookie account mapping
+├── subfollowers.json   # Subscription follower state
 └── subscriptions.json  # Subscription mappings
 ```
 
@@ -246,7 +250,7 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 | Vector search | `/src/services/vectorMemoryService.js` | `searchSimilar()` |
 | Config resolution | `/src/config.js` | Lines 84-200 (META) |
 | Image generation | `/src/services/imageGenerator/index.js` | `generate()` |
-| Python API | `/src/services/bili_server.py` | Handler functions (1300+ lines) |
+| Python API | `/src/services/bili_server.py` | Handler functions (1900+ lines) |
 
 ## Configuration System Deep Dive
 
@@ -511,7 +515,7 @@ Located in `/src/dashboard/`:
 ### Frontend (React/Vite)
 
 Located in `/dashboard/src/`:
-- **Pages:** Dashboard, Login, Groups, Subscriptions, Config
+- **Pages:** Dashboard, Login, Groups, Settings, Logs
 - **Components:** GlassCard, GlassModal (Tailwind + glassmorphism)
 - **API Client:** `/dashboard/src/utils/auth.js` with Axios + JWT interceptor
 
@@ -544,7 +548,7 @@ test/
 
 ### Current Testing Status
 
-Currently no automated tests exist (`npm test` is a placeholder). Tests should be added to `/test/` directory.
+Unit tests exist in `test/unit/` (6 files: detectChargingContent, feedState-race, messageHandler-emojiReaction, messageHandler-linkReaction, resolveArticleTitle, updateVideoState-race). `npm test` is still a placeholder — run individual files with `node`.
 
 ### Recommended Test Coverage
 
@@ -594,12 +598,18 @@ All documentation is organized in the `/docs/` directory with specific subdirect
 
 ### Directory Structure
 
-**docs/plans/** - Implementation plans and design documents:
+**docs/plans/** - Active implementation plans and design documents:
 - Markdown format (`.md` files)
 - Named with date prefix: `YYYY-MM-DD-feature-name-design.md`
 - Contains: requirements, approach, implementation steps, risks
 - Written BEFORE implementing complex features
+- **Move to `docs/done/` after plan is fully executed**
 - Examples: `2026-02-06-array-bounds-fix-design.md`
+
+**docs/done/** - Completed/archived plans:
+- Implementation plans that have been fully executed
+- Moved from `docs/plans/` upon completion
+- Preserves history of past decisions and implementations
 
 **docs/diagnosis/** - Bug investigation and postmortems:
 - Detailed investigation records for complex bugs
@@ -629,12 +639,14 @@ All documentation is organized in the `/docs/` directory with specific subdirect
 
 **Naming Convention:**
 ```
-docs/plans/YYYY-MM-DD-{feature}-{action}-{type}.md
+docs/plans/YYYY-MM-DD-{feature}-{action}-{type}.md   # Active plans
+docs/done/YYYY-MM-DD-{feature}-{action}-{type}.md    # Completed plans (moved here)
 docs/diagnosis/YYYY-MM-DD-{issue-description}.md
 ```
 
 Examples:
-- `docs/plans/2026-02-06-cookie-sync-state-preservation-fix.md`
+- `docs/plans/2026-02-06-cookie-sync-state-preservation-fix.md` (active)
+- `docs/done/2026-02-06-array-bounds-fix-design.md` (completed)
 - `docs/diagnosis/2026-02-06-subscription-video-article-fix.md`
 
 **Template Structure for Plans:**
