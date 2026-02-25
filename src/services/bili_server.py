@@ -1592,6 +1592,121 @@ async def handle_video(request):
         logger.error(f"Error in video handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+async def _download_stream_to_file(url: str, output_path: str) -> None:
+    """分块下载单个流到文件"""
+    headers = {
+        'Referer': 'https://www.bilibili.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            resp.raise_for_status()
+            with open(output_path, 'wb') as f:
+                async for chunk in resp.content.iter_chunked(1024 * 1024):
+                    f.write(chunk)
+
+
+async def download_video_file(bvid: str, page_index: int, resolution: str,
+                               output_dir: str, group_id=None) -> dict:
+    """
+    下载视频到本地文件，返回文件路径和元信息。
+    使用 DASH 流时分别下载视频/音频再用 FFmpeg 合并。
+    """
+    from bilibili_api.video import VideoDownloadURLDataDetecter, VideoQuality, VideoCodecs
+
+    quality_map = {
+        '360p':  VideoQuality._360P,
+        '480p':  VideoQuality._480P,
+        '720p':  VideoQuality._720P,
+        '1080p': VideoQuality._1080P,
+        '1080p+': VideoQuality._1080P_PLUS,
+    }
+    target_quality = quality_map.get(resolution, VideoQuality._1080P)
+
+    v = video.Video(bvid=bvid, credential=load_credential(group_id))
+    info = await v.get_info()
+
+    title = info.get('title', bvid)
+    owner = info.get('owner', {}).get('name', 'Unknown')
+    duration = info.get('duration', 0)
+    pages = info.get('pages', [])
+    total_pages = len(pages) if pages else 1
+
+    download_data = await v.get_download_url(page_index=page_index)
+    detector = VideoDownloadURLDataDetecter(download_data)
+    streams = detector.detect_best_streams(
+        video_max_quality=target_quality,
+        video_accepted_codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
+    )
+
+    if not streams:
+        return {'status': 'error', 'message': 'no_streams_available'}
+
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = int(time.time())
+    safe_bvid = re.sub(r'[^a-zA-Z0-9_-]', '_', bvid)
+    output_path = os.path.join(output_dir, f'{safe_bvid}_{timestamp}.mp4')
+
+    if len(streams) == 1:
+        # FLV：单文件，直接下载
+        await _download_stream_to_file(streams[0].url, output_path)
+    else:
+        # DASH：并发下载视频流和音频流，再合并
+        video_tmp = output_path + '_v.tmp'
+        audio_tmp = output_path + '_a.tmp'
+        try:
+            await asyncio.gather(
+                _download_stream_to_file(streams[0].url, video_tmp),
+                _download_stream_to_file(streams[1].url, audio_tmp),
+            )
+            proc = await asyncio.create_subprocess_exec(
+                'ffmpeg', '-y', '-i', video_tmp, '-i', audio_tmp,
+                '-c', 'copy', output_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[:500]}')
+        finally:
+            for tmp in [video_tmp, audio_tmp]:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+
+    return {
+        'status': 'success',
+        'file_path': output_path,
+        'title': title,
+        'owner': owner,
+        'duration': duration,
+        'total_pages': total_pages,
+        'page_index': page_index,
+    }
+
+
+async def handle_video_download(request):
+    try:
+        data = await request.json()
+        bvid = data.get('bvid', '').strip()
+        page_index = int(data.get('page_index', 0))
+        resolution = data.get('resolution', '1080p')
+        output_dir = data.get('output_dir', '/app/data/downloads')
+        group_id = data.get('group_id')
+
+        if not bvid:
+            return web.json_response({'status': 'error', 'message': 'bvid is required'}, status=400)
+
+        result = await download_video_file(bvid, page_index, resolution, output_dir, group_id)
+        return web.json_response(result)
+    except Exception as e:
+        import traceback
+        logger.error(f'[handle_video_download] Error: {e}\n{traceback.format_exc()}')
+        return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+
+
 async def handle_bangumi(request):
     try:
         data = await request.json()
@@ -1928,6 +2043,7 @@ def create_app():
         web.post('/live_feed', handle_live_feed),
         web.post('/credential_info', handle_credential_info),
         web.post('/refresh_credential', handle_refresh_credential),
+        web.post('/video_download', handle_video_download),
         web.get('/health', health_check),
     ])
     return app
