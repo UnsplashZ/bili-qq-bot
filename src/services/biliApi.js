@@ -46,6 +46,25 @@ class BiliApi {
         );
     }
 
+    async downloadVideo(bvid, pageIndex, resolution, outputDir, groupId) {
+        // 下载操作不缓存，超时设为 5 分钟
+        const serviceManager = require('./ServiceManager')
+        const axios = require('axios')
+        if (!serviceManager.process) {
+            await serviceManager.start()
+        }
+        serviceManager.lastRequestTime = Date.now()
+        const url = `${serviceManager.baseUrl}/video_download`
+        const response = await axios.post(url, {
+            bvid,
+            page_index: pageIndex,
+            resolution,
+            output_dir: outputDir,
+            group_id: groupId,
+        }, { timeout: 5 * 60 * 1000 })
+        return response.data
+    }
+
     async getLoginUrl() {
         // No cache for login QR (one-time use)
         return serviceManager.sendCommand('login_url', {});
