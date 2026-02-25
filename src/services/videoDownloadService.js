@@ -3,6 +3,7 @@ const fs = require('fs')
 const biliApi = require('./biliApi')
 const notificationService = require('./notificationService')
 const logger = require('../utils/logger')
+const config = require('../config')
 const {
     isVideoDownloadEnabledForGroup,
     getVideoDownloadResolutionForGroup,
@@ -37,7 +38,6 @@ class VideoDownloadService {
     _cleanupOldFiles() {
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) return
-            const config = require('../config')
             const maxAgeMs = config.videoDownloadCleanTimeout * 60 * 60 * 1000
             const now = Date.now()
             const files = fs.readdirSync(DOWNLOADS_DIR)
@@ -107,7 +107,13 @@ class VideoDownloadService {
 
         logger.info(`[VideoDownload] Starting download: ${bvid} P${pageIndex + 1} @ ${resolution} for group ${groupId}`)
 
-        const result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId)
+        let result
+        try {
+            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId)
+        } catch (e) {
+            logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
+            return
+        }
 
         if (result.status !== 'success') {
             logger.warn(`[VideoDownload] Download error for ${bvid}: ${result.message}`)
@@ -125,13 +131,12 @@ class VideoDownloadService {
 
         const sent = await this._sendForwardMessage(ws, groupId, result)
 
-        const config = require('../config')
-        if (sent && config.videoDownloadAutoClean) {
+        if (sent && config.videoDownloadAutoClean && result.file_path) {
             this.cleanupFile(result.file_path)
         }
 
         // 多P提示（仅首P触发时发送）
-        if (result.total_pages > 1 && pageIndex === 0) {
+        if (sent && result.total_pages > 1 && pageIndex === 0) {
             notificationService.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: `📺 当前视频共 ${result.total_pages}P，已下载第 1P\n回复 /下载 P2 可继续下载其他分集` } }
             ], 'VideoDownload', false)
