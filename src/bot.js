@@ -9,7 +9,7 @@ const ServiceManager = require('./services/ServiceManager');
 const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
 
-global.bot = global.bot || { groupList: new Map() };
+global.bot = global.bot || { groupList: new Map(), selfId: '0' };
 
 // WebSocket连接管理
 let ws = null;
@@ -157,6 +157,11 @@ function createWebSocketConnection() {
             if (payload.post_type === 'message') {
                 if (payload.message_type === 'group') {
                     logger.info(`Received group message from ${payload.user_id} in ${payload.group_id}`);
+                    // 存储 selfId 供视频下载转发消息使用
+                    if (payload.self_id && global.bot.selfId === '0') {
+                        global.bot.selfId = String(payload.self_id)
+                        logger.info(`[Bot] Stored selfId: ${global.bot.selfId}`)
+                    }
                     messageHandler.handleMessage(ws, payload);
                 } else if (payload.message_type === 'private') {
                     logger.info(`Received private message from ${payload.user_id}`);
