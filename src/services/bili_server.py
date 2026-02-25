@@ -1598,7 +1598,7 @@ async def _download_stream_to_file(url: str, output_path: str) -> None:
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    timeout = aiohttp.ClientTimeout(connect=30, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=None)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url, headers=headers) as resp:
             resp.raise_for_status()
@@ -1647,14 +1647,15 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
         return {'status': 'error', 'message': 'no_streams_available'}
 
     # 路径安全验证
-    ALLOWED_BASE = os.path.realpath(os.path.join(os.getcwd(), 'data', 'downloads'))
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    ALLOWED_BASE = os.path.realpath(os.path.join(_SCRIPT_DIR, '..', '..', 'data', 'downloads'))
     resolved_dir = os.path.realpath(output_dir)
-    if not resolved_dir.startswith(ALLOWED_BASE):
+    if resolved_dir != ALLOWED_BASE and not resolved_dir.startswith(ALLOWED_BASE + os.sep):
         return {'status': 'error', 'message': 'invalid output_dir'}
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(resolved_dir, exist_ok=True)
     timestamp = int(time.time())
     safe_bvid = re.sub(r'[^a-zA-Z0-9_-]', '_', bvid)
-    output_path = os.path.join(output_dir, f'{safe_bvid}_{timestamp}.mp4')
+    output_path = os.path.join(resolved_dir, f'{safe_bvid}_{timestamp}.mp4')
 
     if len(streams) == 1:
         # FLV：单文件，直接下载
