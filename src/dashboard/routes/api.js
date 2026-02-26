@@ -185,6 +185,11 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'linkCacheTimeout',
     'aiEnabled',
     'aiRagEnabled',
+    'videoDownloadEnabled',
+    'videoDownloadResolution',
+    'videoDownloadMaxDuration',
+    'videoDownloadAutoClean',
+    'videoDownloadCleanTimeout',
 ];
 
 // POST /api/config - Update global config
@@ -204,6 +209,13 @@ router.post('/config', async (req, res) => {
         }
         if (Object.keys(filtered).length === 0) {
             return res.status(400).json({ error: 'No valid configuration keys provided' });
+        }
+
+        // Validate videoDownloadResolution if provided
+        const VALID_RESOLUTIONS = ['360p', '480p', '720p', '1080p', '1080p+']
+        if (filtered.videoDownloadResolution !== undefined &&
+            !VALID_RESOLUTIONS.includes(filtered.videoDownloadResolution)) {
+            return res.status(400).json({ error: 'invalid videoDownloadResolution' })
         }
 
         Object.assign(sysConfig, filtered);
