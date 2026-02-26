@@ -198,7 +198,7 @@ class MessageHandler {
         if (groupId && rawMessage && !rawMessage.trim().startsWith('/')) {
              const cleanMsg = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
              if (cleanMsg) {
-                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user').catch(e => {
+                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
                      logger.error('[MessageHandler] Failed to save vector memory:', e);
                  });
              }

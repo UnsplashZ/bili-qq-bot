@@ -303,7 +303,7 @@ class VectorMemoryService {
     }
 
     // Add a new memory (with deduplication)
-    async addMemory(groupId, text, role) {
+    async addMemory(groupId, text, role, userId = null, userName = null) {
         // Only index user messages or assistant replies that are meaningful
         const shortThreshold = config.getGroupConfig(groupId, 'aiShortMessageThreshold');
         if (!text || text.length < shortThreshold) {
@@ -312,8 +312,9 @@ class VectorMemoryService {
         }
 
         try {
-            logger.info(`[VectorMemory] Getting embedding for: "${text.substring(0, 20)}..."`);
-            const vector = await this.getEmbedding(text);
+            const embeddingText = (role === 'user' && userName) ? `${userName}: ${text}` : text
+            logger.info(`[VectorMemory] Getting embedding for: "${embeddingText.substring(0, 20)}..."`);
+            const vector = await this.getEmbedding(embeddingText);
             if (!vector) {
                 logger.warn('[VectorMemory] Failed to generate vector, skipping save.');
                 return;
@@ -351,7 +352,9 @@ class VectorMemoryService {
                 vector,
                 timestamp: Date.now(),
                 accessCount: 1,
-                importance: this.calculateImportance(text, role, Date.now(), 1)
+                importance: this.calculateImportance(text, role, Date.now(), 1),
+                userId,
+                userName
             });
 
             logger.info(`[VectorMemory] Added new memory (importance: ${this.calculateImportance(text, role).toFixed(1)})`);
