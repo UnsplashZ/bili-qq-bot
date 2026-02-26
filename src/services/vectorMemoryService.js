@@ -478,25 +478,28 @@ class VectorMemoryService {
     }
 
     // Search for relevant memories (with L3 query caching)
-    async search(groupId, queryText, limit) {
+    async search(groupId, queryText, limit, currentUserId = null) {
         try {
             // Use config value if limit not specified
             if (!limit) {
                 limit = config.getGroupConfig(groupId, 'aiVectorSearchLimit');
             }
 
+            // Build L3 cache key that includes userId to avoid cross-user cache collisions
+            const cacheKey = `${queryText}:${currentUserId || ''}`
+
             // Check L3 query cache if enabled (with TTL)
             if (config.aiEnableVectorCache) {
                 const cache = this.groupCache.get(groupId);
-                if (cache && cache.queryCache.has(queryText)) {
-                    const cached = cache.queryCache.get(queryText);
+                if (cache && cache.queryCache.has(cacheKey)) {
+                    const cached = cache.queryCache.get(cacheKey);
                     // 检查是否过期
                     if (cached.expires > Date.now()) {
                         logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
                         return cached.results;
                     } else {
                         // 过期则删除
-                        cache.queryCache.delete(queryText);
+                        cache.queryCache.delete(cacheKey);
                         logger.debug(`[VectorMemory] L3 cache expired for query: "${queryText.substring(0, 20)}..."`);
                     }
                 }
@@ -508,13 +511,21 @@ class VectorMemoryService {
             const memory = await this.loadGroupMemory(groupId);
             if (memory.length === 0) return [];
 
-            const scored = memory.map(m => ({
-                text: m.text,
-                role: m.role,
-                timestamp: m.timestamp,
-                score: this.cosineSimilarity(queryVector, m.vector),
-                memoryRef: m // Keep reference to update access count
-            }));
+            const scored = memory.map(m => {
+                const semanticScore = this.cosineSimilarity(queryVector, m.vector)
+                const userBoost = (currentUserId && String(currentUserId) === String(m.userId)) ? 0.05 : 0
+                const ageHours = (Date.now() - (m.timestamp || 0)) / (1000 * 60 * 60)
+                const timeBoost = Math.max(0, 0.03 * (1 - ageHours / (24 * 30)))
+                return {
+                    text: m.text,
+                    role: m.role,
+                    timestamp: m.timestamp,
+                    userId: m.userId,
+                    userName: m.userName,
+                    score: semanticScore + userBoost + timeBoost,
+                    memoryRef: m // Keep reference to update access count
+                }
+            });
 
             // Filter by relevance threshold and sort descending
             const threshold = config.getGroupConfig(groupId, 'aiVectorSimilarityThreshold');
@@ -540,6 +551,8 @@ class VectorMemoryService {
                 text: r.text,
                 role: r.role,
                 timestamp: r.timestamp,
+                userId: r.userId,
+                userName: r.userName,
                 score: r.score
             }));
 
@@ -555,7 +568,7 @@ class VectorMemoryService {
                         cache.queryCache.delete(firstKey);
                     }
                     // 存储结果时添加过期时间戳
-                    cache.queryCache.set(queryText, {
+                    cache.queryCache.set(cacheKey, {
                         results: cleanResults,
                         expires: Date.now() + this.queryTTL
                     });

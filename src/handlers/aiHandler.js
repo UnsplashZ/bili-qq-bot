@@ -141,7 +141,7 @@ class AiHandler {
             try {
                 let relevantMemories = [];
                 if (config.isRagEnabledForGroup(groupId)) {
-                    relevantMemories = await vectorMemory.search(contextKey, message);
+                    relevantMemories = await vectorMemory.search(contextKey, message, undefined, userId);
                     logger.debug(`[AiHandler] RAG enabled, retrieved ${relevantMemories.length} memories`);
                 } else {
                     logger.debug(`[AiHandler] RAG disabled for group ${groupId}`);
@@ -244,7 +244,7 @@ class AiHandler {
                                     try {
                                         logger.info(`[AiHandler] Enhancing MCP search with local VectorMemory for: "${queryText}"`);
                                         // Use vectorMemory.search which uses the configured threshold
-                                        const vectorResults = await vectorMemory.search(contextKey, queryText, 5);
+                                        const vectorResults = await vectorMemory.search(contextKey, queryText, 5, userId);
                                         
                                         if (vectorResults.length > 0) {
                                             const vectorText = vectorResults.map(m =>
