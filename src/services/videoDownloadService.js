@@ -129,6 +129,16 @@ class VideoDownloadService {
 
         logger.info(`[VideoDownload] Starting download: ${bvid} P${pageIndex + 1} @ ${resolution} for group ${groupId}`)
 
+        // 提前写入最近下载记录（供 /下载 P2 使用），避免下载期间竞态
+        const gid = String(groupId)
+        lastDownloadInfo.set(gid, {
+            bvid,
+            title: videoInfo?.data?.title ?? bvid,
+            owner: videoInfo?.data?.owner?.name ?? 'Unknown',
+            totalPages: videoInfo?.data?.pages?.length ?? 1,
+            pageIndex,
+        })
+
         this._activeDownloads++
         _inProgressDownloads.add(downloadKey)
         let result
@@ -146,15 +156,6 @@ class VideoDownloadService {
             logger.warn(`[VideoDownload] Download error for ${bvid}: ${result.message}`)
             return
         }
-
-        // 保存群最近下载信息（供 /下载 P2 使用）
-        lastDownloadInfo.set(String(groupId), {
-            bvid,
-            title: result.title,
-            owner: result.owner,
-            totalPages: result.total_pages,
-            pageIndex: result.page_index,
-        })
 
         const sent = await this._sendForwardMessage(ws, groupId, result)
 
