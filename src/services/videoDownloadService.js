@@ -80,6 +80,20 @@ class VideoDownloadService {
     }
 
     /**
+     * 根据文件大小动态延迟清理：基础 60s + 每 100MB 额外 60s，上限 10 分钟
+     */
+    _scheduleCleanup(filePath) {
+        if (!config.videoDownloadAutoClean || !filePath) return
+        let delayMs = 60 * 1000
+        try {
+            const fileSize = fs.statSync(filePath).size
+            const extraDelay = Math.floor(fileSize / (100 * 1024 * 1024)) * 60 * 1000
+            delayMs = Math.min(delayMs + extraDelay, 10 * 60 * 1000)
+        } catch { /* 无法获取大小时使用默认值 */ }
+        setTimeout(() => this.cleanupFile(filePath), delayMs)
+    }
+
+    /**
      * 主入口：检查配置 → 下载 → 发送
      * @param {WebSocket} ws
      * @param {string} groupId
@@ -171,11 +185,8 @@ class VideoDownloadService {
         const sent = await this._sendForwardMessage(ws, groupId, result)
 
         // ws.send() 只是将 JSON 指令推入 WebSocket 缓冲区，NapCat 收到后才异步读取文件上传。
-        // 必须延迟删除，给 NapCat 足够时间读取本地文件（60s），而不是立即删除。
-        if (config.videoDownloadAutoClean && result.file_path) {
-            const filePath = result.file_path
-            setTimeout(() => this.cleanupFile(filePath), 60 * 1000)
-        }
+        // 必须延迟删除，给 NapCat 足够时间读取本地文件，而不是立即删除。
+        this._scheduleCleanup(result.file_path)
 
         // 多P提示（仅首P触发时发送）
         if (sent && result.total_pages > 1 && pageIndex === 0) {
@@ -352,10 +363,7 @@ class VideoDownloadService {
         logger.info(`[VideoDownload] Subscription video ${bvid} sent to ${sentCount}/${enabledGroups.length} groups`)
 
         // 所有群都发完后再清理文件
-        if (config.videoDownloadAutoClean && result.file_path) {
-            const filePath = result.file_path
-            setTimeout(() => this.cleanupFile(filePath), 60 * 1000)
-        }
+        this._scheduleCleanup(result.file_path)
     }
 
     /**
