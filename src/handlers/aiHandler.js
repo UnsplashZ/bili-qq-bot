@@ -112,6 +112,9 @@ class AiHandler {
             // Construct messages array for API (native multi-turn format)
             const historyMsgs = context.length > 0 ? context.slice(0, -1) : []
             const currentMsg = context.length > 0 ? context[context.length - 1] : null
+            if (!currentMsg) {
+                logger.warn('[AiHandler] context was empty at getReply call; falling back to raw message parameter')
+            }
 
             let currentMessages = [
                 // Layer 1: system (identity + core rules + time + RAG memories)
