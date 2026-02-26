@@ -260,7 +260,7 @@ class VideoDownloadService {
             if (!fs.existsSync(DOWNLOADS_DIR)) return true
             let totalSize = 0
             for (const f of fs.readdirSync(DOWNLOADS_DIR)) {
-                if (!f.endsWith('.mp4')) continue  // 只统计 .mp4，忽略下载中的 .tmp 文件
+                if (!f.endsWith('.mp4') && !f.endsWith('.tmp')) continue
                 try {
                     totalSize += fs.statSync(path.join(DOWNLOADS_DIR, f)).size
                 } catch { /* skip */ }
@@ -321,6 +321,11 @@ class VideoDownloadService {
 
         if (!this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping subscription download of ${bvid}`)
+            for (const gid of enabledGroups) {
+                notificationService.sendGroupMessage(ws, gid, [
+                    { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
+                ], 'VideoDownload', false)
+            }
             return
         }
 
