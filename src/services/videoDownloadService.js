@@ -321,9 +321,10 @@ class VideoDownloadService {
 
         if (!this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping subscription download of ${bvid}`)
-            for (const gid of enabledGroups) {
-                notificationService.sendGroupMessage(ws, gid, [
-                    { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
+            const adminQQ = config.adminQQ
+            if (adminQQ && ws && ws.readyState === 1) {
+                notificationService.sendPrivateMessage(ws, adminQQ, [
+                    { type: 'text', data: { text: `⚠️ 下载目录空间不足（超过 5GB），已跳过订阅视频 ${bvid} 的下载。可使用 /清理下载 释放空间` } }
                 ], 'VideoDownload', false)
             }
             return
