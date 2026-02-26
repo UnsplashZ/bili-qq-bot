@@ -40,10 +40,17 @@ class DownloadCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '获取视频信息失败，请稍后重试' } }])
                 return true
             }
-            videoDownloadService.downloadAndSend(ws, groupId, lastInfo.bvid, info, pageIndex).catch(e => {
-                logger.error(`[DownloadCommand] downloadAndSend failed:`, e)
-            })
             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `正在下载 P${pageIndex + 1}，请稍候...` } }])
+            videoDownloadService.downloadAndSend(ws, groupId, lastInfo.bvid, info, pageIndex)
+                .then(res => {
+                    if (res && !res.ok && !res.silent) {
+                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '❌ 下载失败，请稍后重试' } }])
+                    }
+                })
+                .catch(e => {
+                    logger.error(`[DownloadCommand] downloadAndSend failed:`, e)
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '❌ 下载失败，请稍后重试' } }])
+                })
             return true
         }
 

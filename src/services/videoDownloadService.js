@@ -88,13 +88,13 @@ class VideoDownloadService {
      * @param {number} pageIndex - 分P索引（0-based），默认 0
      */
     async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
-        if (!isVideoDownloadEnabledForGroup(groupId)) return
+        if (!isVideoDownloadEnabledForGroup(groupId)) return { ok: false, reason: 'disabled', silent: true }
 
         // 去重：避免 linkHandler 和 updateChecker 同时触发相同视频的重复下载
         const downloadKey = `${String(groupId)}:${bvid}:${pageIndex}`
         if (_inProgressDownloads.has(downloadKey)) {
             logger.info(`[VideoDownload] Already downloading ${bvid} P${pageIndex + 1} for group ${groupId}, skipping duplicate`)
-            return
+            return { ok: false, reason: 'duplicate', silent: true }
         }
 
         // 并发限制
@@ -103,7 +103,7 @@ class VideoDownloadService {
             notificationService.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
             ], 'VideoDownload', false)
-            return
+            return { ok: false, reason: 'max_concurrent', silent: true }
         }
 
         const duration = videoInfo?.data?.duration ?? 0
@@ -116,13 +116,16 @@ class VideoDownloadService {
             notificationService.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: `⚠️ 视频时长 ${durationMin} 分钟，超出当前限制（${limitMin} 分钟），已跳过下载` } }
             ], 'VideoDownload', false)
-            return
+            return { ok: false, reason: 'duration_exceeded', silent: true }
         }
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
         if (!this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping download of ${bvid}`)
-            return
+            notificationService.sendGroupMessage(ws, groupId, [
+                { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
+            ], 'VideoDownload', false)
+            return { ok: false, reason: 'disk_space_full', silent: true }
         }
 
         const resolution = getVideoDownloadResolutionForGroup(groupId)
@@ -154,7 +157,7 @@ class VideoDownloadService {
             result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId, meta)
         } catch (e) {
             logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
-            return
+            return { ok: false, reason: e.message }
         } finally {
             this._activeDownloads--
             _inProgressDownloads.delete(downloadKey)
@@ -162,7 +165,7 @@ class VideoDownloadService {
 
         if (result.status !== 'success') {
             logger.warn(`[VideoDownload] Download error for ${bvid}: ${result.message}`)
-            return
+            return { ok: false, reason: result.message }
         }
 
         const sent = await this._sendForwardMessage(ws, groupId, result)
@@ -180,6 +183,8 @@ class VideoDownloadService {
                 { type: 'text', data: { text: `📺 当前视频共 ${result.total_pages}P，已下载第 1P\n回复 /下载 P2 可继续下载其他分集` } }
             ], 'VideoDownload', false)
         }
+
+        return { ok: sent }
     }
 
     /**
