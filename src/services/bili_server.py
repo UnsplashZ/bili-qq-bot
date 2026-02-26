@@ -1616,7 +1616,7 @@ async def _download_stream_to_file(url: str, output_path: str) -> None:
 
 
 async def download_video_file(bvid: str, page_index: int, resolution: str,
-                               output_dir: str, group_id=None) -> dict:
+                               output_dir: str, group_id=None, video_meta=None) -> dict:
     """
     下载视频到本地文件，返回文件路径和元信息。
     使用 DASH 流时分别下载视频/音频再用 FFmpeg 合并。
@@ -1636,13 +1636,21 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
         target_quality = VideoQuality._1080P
 
     v = video.Video(bvid=bvid, credential=load_credential(group_id))
-    info = await v.get_info()
 
-    title = info.get('title', bvid)
-    owner = info.get('owner', {}).get('name', 'Unknown')
-    duration = info.get('duration', 0)
-    pages = info.get('pages', [])
-    total_pages = len(pages) if pages else 1
+    if video_meta:
+        # 使用 Node 侧传入的元信息，跳过 API 调用
+        title = video_meta.get('title', bvid)
+        owner = video_meta.get('owner', 'Unknown')
+        duration = video_meta.get('duration', 0)
+        total_pages = video_meta.get('total_pages', 1)
+    else:
+        # fallback：自行拉取（兼容其他调用方）
+        info = await v.get_info()
+        title = info.get('title', bvid)
+        owner = info.get('owner', {}).get('name', 'Unknown')
+        duration = info.get('duration', 0)
+        pages = info.get('pages', [])
+        total_pages = len(pages) if pages else 1
 
     download_data = await v.get_download_url(page_index=page_index)
     detector = VideoDownloadURLDataDetecter(download_data)
@@ -1731,6 +1739,7 @@ async def handle_video_download(request):
         resolution = data.get('resolution', '1080p')
         output_dir = data.get('output_dir', '/app/data/downloads')
         group_id = data.get('group_id')
+        video_meta = data.get('video_meta')
 
         if not bvid:
             return web.json_response({'status': 'error', 'message': 'bvid is required'}, status=400)
@@ -1741,7 +1750,7 @@ async def handle_video_download(request):
 
         try:
             result = await asyncio.wait_for(
-                download_video_file(bvid, page_index, resolution, output_dir, group_id),
+                download_video_file(bvid, page_index, resolution, output_dir, group_id, video_meta),
                 timeout=270  # 略低于 Node 侧 300s 超时，确保 Python 先返回错误
             )
         except asyncio.TimeoutError:

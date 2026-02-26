@@ -139,11 +139,19 @@ class VideoDownloadService {
             pageIndex,
         })
 
+        // 构建元信息传递给 Python，避免重复调用 v.get_info()
+        const meta = videoInfo?.data ? {
+            title: videoInfo.data.title,
+            owner: videoInfo.data.owner?.name ?? 'Unknown',
+            duration: videoInfo.data.duration ?? 0,
+            total_pages: videoInfo.data.pages?.length ?? 1,
+        } : null
+
         this._activeDownloads++
         _inProgressDownloads.add(downloadKey)
         let result
         try {
-            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId)
+            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId, meta)
         } catch (e) {
             logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
             return

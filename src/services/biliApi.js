@@ -47,7 +47,7 @@ class BiliApi {
         );
     }
 
-    async downloadVideo(bvid, pageIndex, resolution, outputDir, groupId) {
+    async downloadVideo(bvid, pageIndex, resolution, outputDir, groupId, videoMeta = null) {
         // 下载操作不缓存，超时设为 5 分钟
         try {
             if (!serviceManager.process) {
@@ -55,13 +55,15 @@ class BiliApi {
             }
             serviceManager.lastRequestTime = Date.now()
             const url = `${serviceManager.baseUrl}/video_download`
-            const response = await axios.post(url, {
+            const payload = {
                 bvid,
                 page_index: pageIndex,
                 resolution,
                 output_dir: outputDir,
                 group_id: groupId,
-            }, { timeout: 5 * 60 * 1000 })
+            }
+            if (videoMeta) payload.video_meta = videoMeta
+            const response = await axios.post(url, payload, { timeout: 5 * 60 * 1000 })
             return response.data
         } catch (error) {
             const logger = require('../utils/logger')
