@@ -108,7 +108,34 @@ class AiHandler {
             } catch (err) {
                 logger.error('[AiHandler] Vector search failed:', err);
             }
-            
+
+            // Inject user profiles if enabled
+            if (config.getGroupConfig(groupId, 'aiProfileEnabled')) {
+                try {
+                    // Get up to 5 most recently active users from context
+                    const recentUserIds = [...new Set(
+                        context.filter(m => m.role === 'user' && m.userId)
+                               .map(m => String(m.userId))
+                    )].slice(-5)
+
+                    if (recentUserIds.length > 0) {
+                        const userProfileService = require('../services/userProfileService')
+                        const profiles = await userProfileService.getActiveProfiles(contextKey, recentUserIds)
+                        const validProfiles = profiles.filter(p => p && p.profile)
+
+                        if (validProfiles.length > 0) {
+                            const profileText = validProfiles.map(p =>
+                                `${p.userName || '用户'}: ${p.profile}`
+                            ).join('\n\n')
+                            systemPrompt += `\n\n<user_profiles>\n${profileText}\n</user_profiles>\n(IMPORTANT: These are personality profiles of current participants. Use this to personalize your responses naturally. DO NOT explicitly say "according to your profile" or similar.)`
+                            logger.info(`[AiHandler] Injected ${validProfiles.length} user profiles for group ${groupId}`)
+                        }
+                    }
+                } catch (err) {
+                    logger.error('[AiHandler] User profile injection failed:', err)
+                }
+            }
+
             // Construct messages array for API (native multi-turn format)
             const historyMsgs = context.length > 0 ? context.slice(0, -1) : []
             const currentMsg = context.length > 0 ? context[context.length - 1] : null
