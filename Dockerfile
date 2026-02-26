@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-color-emoji \
     fonts-symbola \
     chromium \
+    ffmpeg \
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
@@ -79,7 +80,7 @@ COPY . .
 RUN cd dashboard && npm run build
 
 # 创建必要的目录
-RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
+RUN mkdir -p logs temp config fonts data/downloads && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
 EXPOSE 3000
