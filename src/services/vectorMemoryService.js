@@ -346,18 +346,20 @@ class VectorMemoryService {
             }
 
             // Not a duplicate - add new memory with metadata
-            memory.push({
+            const importance = this.calculateImportance(text, role, Date.now(), 1)
+            const entry = {
                 text,
                 role,
                 vector,
                 timestamp: Date.now(),
                 accessCount: 1,
-                importance: this.calculateImportance(text, role, Date.now(), 1),
-                userId,
-                userName
-            });
+                importance,
+            }
+            if (userId != null) entry.userId = userId
+            if (userName != null) entry.userName = userName
+            memory.push(entry);
 
-            logger.info(`[VectorMemory] Added new memory (importance: ${this.calculateImportance(text, role).toFixed(1)})`);
+            logger.info(`[VectorMemory] Added new memory (importance: ${importance.toFixed(1)})`);
 
             // Keep max vectors based on memory limit to prevent in-memory bloat
             // Use batch delete for efficiency

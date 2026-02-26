@@ -48,6 +48,8 @@ function buildEmbeddingText(text, role, userName) {
 assert.strictEqual(buildEmbeddingText('我喜欢编程', 'user', '张三'), '张三: 我喜欢编程')
 assert.strictEqual(buildEmbeddingText('好的', 'assistant', null), '好的')
 assert.strictEqual(buildEmbeddingText('消息', 'user', null), '消息') // 无 userName 不加前缀
+assert.strictEqual(buildEmbeddingText('消息', 'user', ''), '消息') // 空字符串 userName 不加前缀
+console.log('✓ Case 3b: 空字符串 userName 不加前缀')
 console.log('✓ Case 3: embedding 文本前缀逻辑正确')
 
 // Case 4: 旧数据无 userId 时 fallback
