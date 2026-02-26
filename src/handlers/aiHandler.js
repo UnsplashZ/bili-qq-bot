@@ -21,9 +21,6 @@ class AiHandler {
         content = content.replace(/\[系统.*?\]|<system.*?>|<\/system>/gi, '');
         content = content.replace(/\[System.*?\]|<SYSTEM.*?>|<\/SYSTEM>/gi, '');
         
-        // 防注入：移除可能的角色切换尝试
-        content = content.replace(/(你现在是|扮演|角色是|身份是|role is|you are now)/gi, '');
-        
         // 防注入：移除多余的换行符（保留最多2个连续换行）
         content = content.replace(/\n{3,}/g, '\n\n');
         
