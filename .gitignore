@@ -30,6 +30,7 @@ data/subfollowers*
 data/contexts/*
 data/vectors/*
 data/cache/*
+data/downloads/*
 data/*.json
 napcat/*
 
