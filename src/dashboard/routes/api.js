@@ -186,6 +186,7 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'linkCacheTimeout',
     'aiEnabled',
     'aiRagEnabled',
+    'aiProfileEnabled',
     'videoDownloadEnabled',
     'videoDownloadResolution',
     'videoDownloadMaxDuration',
@@ -524,9 +525,11 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
         res.json({
             aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
             aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            aiProfileEnabled: groupConfig.aiProfileEnabled !== undefined ? groupConfig.aiProfileEnabled : null,
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {
@@ -539,12 +542,12 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
 router.put('/groups/:groupId/ai-config', async (req, res) => {
     try {
         const groupId = normalizeGroupId(req.params.groupId);
-        const { aiEnabled, aiRagEnabled } = req.body;
+        const { aiEnabled, aiRagEnabled, aiProfileEnabled } = req.body;
 
         // Validate request body
-        if (aiEnabled === undefined && aiRagEnabled === undefined) {
+        if (aiEnabled === undefined && aiRagEnabled === undefined && aiProfileEnabled === undefined) {
             return res.status(400).json({
-                error: 'At least one of aiEnabled or aiRagEnabled must be provided'
+                error: 'At least one of aiEnabled, aiRagEnabled, or aiProfileEnabled must be provided'
             });
         }
 
@@ -580,6 +583,19 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
             }
         }
 
+        if (aiProfileEnabled !== undefined) {
+            if (aiProfileEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiProfileEnabled;
+            } else if (typeof aiProfileEnabled === 'boolean') {
+                groupConfig.aiProfileEnabled = aiProfileEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiProfileEnabled must be a boolean or null'
+                });
+            }
+        }
+
         // Save configuration
         sysConfig.save();
 
@@ -590,9 +606,11 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
             message: 'AI configuration updated successfully',
             aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
             aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            aiProfileEnabled: groupConfig.aiProfileEnabled !== undefined ? groupConfig.aiProfileEnabled : null,
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {
@@ -614,6 +632,7 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
         // Delete AI config overrides
         delete groupConfig.aiEnabled;
         delete groupConfig.aiRagEnabled;
+        delete groupConfig.aiProfileEnabled;
 
         // Save configuration
         sysConfig.save();
@@ -624,7 +643,8 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
             message: 'AI configuration reset to global defaults',
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {

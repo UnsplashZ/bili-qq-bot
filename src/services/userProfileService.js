@@ -5,6 +5,7 @@ const path = require('path')
 const logger = require('../utils/logger')
 const config = require('../config')
 const { asyncWriteWithBackup } = require('../utils/storageUtils')
+const { getAxiosProxyConfig } = require('../utils/proxyUtils')
 
 class UserProfileService {
     constructor() {
@@ -47,7 +48,7 @@ class UserProfileService {
             const data = this.profiles.get(groupId)
             if (!data) return
             try {
-                await asyncWriteWithBackup(this._profilePath(groupId), JSON.stringify(data, null, 2))
+                await asyncWriteWithBackup(this._profilePath(groupId), data)
             } catch (e) {
                 logger.error(`[UserProfile] Failed to save profiles for ${groupId}:`, e)
             }
@@ -154,11 +155,15 @@ class UserProfileService {
 
         const prompt = promptParts.join('\n')
 
-        // 3. 调用 LLM（复用聊天模型配置）
+        // 3. 调用 LLM（复用聊天模型配置，与 aiHandler 保持一致的回退逻辑）
         try {
             const axios = require('axios')
-            const response = await axios.post(config.aiChatApiUrl, {
-                model: config.aiChatModel,
+            const apiUrl = config.aiChatApiUrl || config.aiApiUrl
+            const apiKey = config.aiChatApiKey || config.aiApiKey
+            const model = config.aiChatModel || config.aiModel
+            const proxyConfig = getAxiosProxyConfig(config.aiChatProxy)
+            const response = await axios.post(apiUrl, {
+                model,
                 messages: [
                     { role: 'system', content: '你是一个分析用户画像的助手，请简洁客观地描述用户特征。' },
                     { role: 'user', content: prompt }
@@ -167,9 +172,10 @@ class UserProfileService {
                 temperature: 0.3
             }, {
                 headers: {
-                    'Authorization': `Bearer ${config.aiChatApiKey}`,
+                    'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json'
                 },
+                proxy: proxyConfig,
                 timeout: 30000
             })
 
