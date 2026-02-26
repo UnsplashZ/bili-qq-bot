@@ -607,6 +607,19 @@ class VectorMemoryService {
             pendingSaves: this.saveTimers.size
         };
     }
+
+    /**
+     * 按用户 ID 过滤记忆（供画像生成使用）
+     * 只能过滤存储了 userId 字段的记忆（Task 1 之后存储的新记录）
+     * 旧记忆无 userId 字段，自动被过滤掉
+     */
+    async getMemoriesByUser(groupId, userId, limit = 100) {
+        const memory = await this.loadGroupMemory(groupId)
+        return memory
+            .filter(m => m.userId && String(m.userId) === String(userId))
+            .slice(-limit)
+            .map(m => ({ text: m.text, role: m.role, timestamp: m.timestamp }))
+    }
 }
 
 module.exports = new VectorMemoryService();
