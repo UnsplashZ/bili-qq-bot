@@ -80,6 +80,15 @@ class DownloadCommand {
             return true
         }
 
+        // 兜底：匹配了 /下载 前缀但未命中任何子命令
+        if (text.startsWith('/下载')) {
+            this.sendGroupMessage(ws, groupId, [{
+                type: 'text',
+                data: { text: '用法：\n/下载 P{n} — 下载指定分P\n/下载状态 — 查看下载目录状态\n/清理下载 — 清空下载目录' }
+            }])
+            return true
+        }
+
         return false
     }
 
