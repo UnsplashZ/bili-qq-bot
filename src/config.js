@@ -204,6 +204,12 @@ const META = {
     aiEnableVectorCache: { env: null, def: true, type: 'bool' },
     aiEnableSmartTrim: { env: null, def: true, type: 'bool' },
 
+    // AI User Profile Configuration
+    aiProfileEnabled: { env: null, def: false, type: 'bool' },
+    aiProfileMinMessages: { env: null, def: 30, type: 'int' },
+    aiProfileUpdateInterval: { env: null, def: 50, type: 'int' },
+    aiProfileMaxLength: { env: null, def: 200, type: 'int' },
+
     // System Configuration
     pythonPath: {
         env: 'PYTHON_PATH',
