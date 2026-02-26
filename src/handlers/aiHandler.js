@@ -31,6 +31,20 @@ class AiHandler {
         return content.trim();
     }
 
+    formatRelativeTime(timestamp) {
+        if (!timestamp) return '未知时间'
+        const diff = Date.now() - timestamp
+        const minutes = Math.floor(diff / 60000)
+        if (minutes < 1) return '刚刚'
+        if (minutes < 60) return `${minutes}分钟前`
+        const hours = Math.floor(minutes / 60)
+        if (hours < 24) return `${hours}小时前`
+        const days = Math.floor(hours / 24)
+        if (days < 7) return `${days}天前`
+        if (days < 30) return `${Math.floor(days / 7)}周前`
+        return `${Math.floor(days / 30)}个月前`
+    }
+
     async getReply(message, userId, groupId) {
         // 提升变量声明到try块外部，使catch块可以访问
         let tools = [];
@@ -134,9 +148,11 @@ class AiHandler {
                 }
 
                 if (relevantMemories.length > 0) {
-                    const memoryText = relevantMemories.map(m =>
-                        `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`
-                    ).join('\n');
+                    const memoryText = relevantMemories.map(m => {
+                        const who = m.userName || (m.role === 'assistant' ? 'AI助手' : '某位用户')
+                        const when = this.formatRelativeTime(m.timestamp)
+                        return `(${when}) ${who}: ${m.text}`
+                    }).join('\n');
                     systemPrompt += `\n\n<rag_memory>\n${memoryText}\n</rag_memory>\n(IMPORTANT: These are historical conversations. Use this information to answer naturally. DO NOT explicitly mention "According to my memory" or "checking records" unless specifically asked about what you remember.)`;
                     logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}`);
                 }
@@ -231,8 +247,8 @@ class AiHandler {
                                         const vectorResults = await vectorMemory.search(contextKey, queryText, 5);
                                         
                                         if (vectorResults.length > 0) {
-                                            const vectorText = vectorResults.map(m => 
-                                                `[Local Memory] ${m.role === 'user' ? 'User' : 'Assistant'} (${new Date(m.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}): ${m.text}`
+                                            const vectorText = vectorResults.map(m =>
+                                                `[Local Memory] (${this.formatRelativeTime(m.timestamp)}) ${m.userName || (m.role === 'assistant' ? 'AI助手' : '某位用户')}: ${m.text}`
                                             ).join('\n');
                                             
                                             resultText += `\n\n=== Additional Local Memories ===\n${vectorText}\n(These memories are retrieved from local vector storage to supplement mem0)`;
