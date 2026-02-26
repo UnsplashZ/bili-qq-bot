@@ -1096,6 +1096,14 @@ class UpdateChecker {
                         const url = `https://www.bilibili.com/video/${bvid}`;
                         await this.notifyGroupsWithImageAndCache(targetGroups, info, 'video', url, notificationText);
 
+                        // 订阅推送后为每个目标群触发视频下载
+                        const videoDownloadService = require('../../services/videoDownloadService')
+                        for (const gid of targetGroups) {
+                            videoDownloadService.downloadAndSend(this.ws, gid, bvid, info).catch(e => {
+                                logger.error(`[UpdateChecker] downloadAndSend failed for ${bvid} in group ${gid}:`, e)
+                            })
+                        }
+
                         logger.info(`[UpdateChecker] Pushed new video for ${name} (${source}): ${bvid}`);
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e);
