@@ -5,6 +5,7 @@ const { getAxiosProxyConfig } = require('../utils/proxyUtils');
 const mcpManager = require('../services/mcpManager');
 const vectorMemory = require('../services/vectorMemoryService');
 const aiContextService = require('../services/aiContextService');
+const userProfileService = require('../services/userProfileService');
 
 class AiHandler {
     
@@ -113,15 +114,16 @@ class AiHandler {
             if (config.getGroupConfig(groupId, 'aiProfileEnabled')) {
                 try {
                     // Get up to 5 most recently active users from context
+                    // Reverse first so Set preserves last-seen order, then take first 5
                     const recentUserIds = [...new Set(
                         context.filter(m => m.role === 'user' && m.userId)
                                .map(m => String(m.userId))
-                    )].slice(-5)
+                               .reverse()
+                    )].slice(0, 5)
 
                     if (recentUserIds.length > 0) {
-                        const userProfileService = require('../services/userProfileService')
                         const profiles = await userProfileService.getActiveProfiles(contextKey, recentUserIds)
-                        const validProfiles = profiles.filter(p => p && p.profile)
+                        const validProfiles = profiles.filter(p => p.profile)
 
                         if (validProfiles.length > 0) {
                             const profileText = validProfiles.map(p =>
