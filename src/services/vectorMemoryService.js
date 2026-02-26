@@ -355,7 +355,7 @@ class VectorMemoryService {
                 accessCount: 1,
                 importance,
             }
-            if (userId != null) entry.userId = userId
+            if (userId != null) entry.userId = String(userId)
             if (userName != null) entry.userName = userName
             memory.push(entry);
 
