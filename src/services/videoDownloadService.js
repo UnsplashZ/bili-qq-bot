@@ -44,7 +44,9 @@ class VideoDownloadService {
     _cleanupOldFiles() {
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) return
-            const maxAgeMs = config.videoDownloadCleanTimeout * 60 * 60 * 1000
+            // 最小 1 小时，防止 cleanTimeout=0 导致所有文件被立即删除
+            const cleanTimeout = Math.max(config.videoDownloadCleanTimeout || 24, 1)
+            const maxAgeMs = cleanTimeout * 60 * 60 * 1000
             const now = Date.now()
             const files = fs.readdirSync(DOWNLOADS_DIR)
             for (const file of files) {
