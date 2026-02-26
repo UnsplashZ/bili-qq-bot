@@ -1674,6 +1674,7 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
         # DASH：并发下载视频流和音频流，再合并
         video_tmp = output_path + '_v.tmp'
         audio_tmp = output_path + '_a.tmp'
+        proc = None
         try:
             await asyncio.gather(
                 _download_stream_to_file(streams[0].url, video_tmp),
@@ -1693,6 +1694,12 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
             if proc.returncode != 0:
                 raise RuntimeError(f'FFmpeg failed: {stderr.decode()[:500]}')
         finally:
+            # 确保 FFmpeg 进程被终止（防止 asyncio cancel 导致孤儿进程）
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             for tmp in [video_tmp, audio_tmp]:
                 try:
                     if os.path.exists(tmp):
@@ -1732,7 +1739,15 @@ async def handle_video_download(request):
         if resolution not in VALID_RESOLUTIONS:
             return web.json_response({'status': 'error', 'message': 'invalid resolution'}, status=400)
 
-        result = await download_video_file(bvid, page_index, resolution, output_dir, group_id)
+        try:
+            result = await asyncio.wait_for(
+                download_video_file(bvid, page_index, resolution, output_dir, group_id),
+                timeout=270  # 略低于 Node 侧 300s 超时，确保 Python 先返回错误
+            )
+        except asyncio.TimeoutError:
+            logger.error(f'[handle_video_download] Timeout after 270s for {bvid}')
+            return web.json_response({'status': 'error', 'message': 'download_timeout'})
+
         return web.json_response(result)
     except Exception as e:
         import traceback
