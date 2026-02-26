@@ -16,9 +16,12 @@ const DOWNLOADS_DIR = path.join(process.cwd(), 'data', 'downloads')
 // Map<groupId, { bvid, title, owner, totalPages, pageIndex }>
 const lastDownloadInfo = new Map()
 
+const MAX_CONCURRENT_DOWNLOADS = 3
+
 class VideoDownloadService {
     constructor() {
         this._cleanupTimer = null
+        this._activeDownloads = 0
     }
 
     /**
@@ -84,6 +87,12 @@ class VideoDownloadService {
     async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
         if (!isVideoDownloadEnabledForGroup(groupId)) return
 
+        // 并发限制
+        if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
+            logger.warn(`[VideoDownload] Max concurrent downloads (${MAX_CONCURRENT_DOWNLOADS}) reached, skipping ${bvid}`)
+            return
+        }
+
         const duration = videoInfo?.data?.duration ?? 0
         const maxDuration = getVideoDownloadMaxDurationForGroup(groupId)
 
@@ -107,12 +116,15 @@ class VideoDownloadService {
 
         logger.info(`[VideoDownload] Starting download: ${bvid} P${pageIndex + 1} @ ${resolution} for group ${groupId}`)
 
+        this._activeDownloads++
         let result
         try {
             result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId)
         } catch (e) {
             logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
             return
+        } finally {
+            this._activeDownloads--
         }
 
         if (result.status !== 'success') {
@@ -131,7 +143,8 @@ class VideoDownloadService {
 
         const sent = await this._sendForwardMessage(ws, groupId, result)
 
-        if (sent && config.videoDownloadAutoClean && result.file_path) {
+        // 无论发送是否成功，autoClean 时都清理文件（避免文件积压）
+        if (config.videoDownloadAutoClean && result.file_path) {
             this.cleanupFile(result.file_path)
         }
 
@@ -148,7 +161,10 @@ class VideoDownloadService {
      * @returns {boolean} 是否发送成功
      */
     async _sendForwardMessage(ws, groupId, result) {
-        if (!ws) return false
+        if (!ws || ws.readyState !== 1 /* WebSocket.OPEN */) {
+            logger.warn(`[VideoDownload] WebSocket not open, cannot send forward message for ${result.title}`)
+            return false
+        }
 
         const selfId = global.bot?.selfId || '0'
         const botName = 'Bot'
@@ -198,6 +214,7 @@ class VideoDownloadService {
             if (!fs.existsSync(DOWNLOADS_DIR)) return true
             let totalSize = 0
             for (const f of fs.readdirSync(DOWNLOADS_DIR)) {
+                if (!f.endsWith('.mp4')) continue  // 只统计 .mp4，忽略下载中的 .tmp 文件
                 try {
                     totalSize += fs.statSync(path.join(DOWNLOADS_DIR, f)).size
                 } catch { /* skip */ }

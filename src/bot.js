@@ -122,6 +122,9 @@ function createWebSocketConnection() {
         const videoDownloadService = require('./services/videoDownloadService')
         videoDownloadService.startCleanupScheduler()
 
+        // 主动获取 selfId（供视频下载转发消息使用）
+        ws.send(JSON.stringify({ action: 'get_login_info', params: {}, echo: 'init_self_id' }))
+
         requestGroupList();
         if (groupRefreshTimer) {
             clearInterval(groupRefreshTimer);
@@ -133,6 +136,11 @@ function createWebSocketConnection() {
     ws.on('message', function incoming(data) {
         try {
             const payload = JSON.parse(data);
+
+            if (payload && payload.echo === 'init_self_id' && payload.data && payload.data.user_id) {
+                global.bot.selfId = String(payload.data.user_id)
+                logger.info(`[Bot] selfId initialized from login_info: ${global.bot.selfId}`)
+            }
 
             if (payload && payload.echo && String(payload.echo).startsWith(GROUP_LIST_ECHO_PREFIX)) {
                 const list = Array.isArray(payload.data) ? payload.data : [];

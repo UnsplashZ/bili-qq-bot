@@ -1598,7 +1598,7 @@ async def _download_stream_to_file(url: str, output_path: str) -> None:
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=600, connect=30, sock_read=120)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url, headers=headers) as resp:
             resp.raise_for_status()
@@ -1675,7 +1675,11 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-            _, stderr = await proc.communicate()
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError('FFmpeg timeout after 300s')
             if proc.returncode != 0:
                 raise RuntimeError(f'FFmpeg failed: {stderr.decode()[:500]}')
         finally:
@@ -1713,6 +1717,10 @@ async def handle_video_download(request):
 
         if not bvid:
             return web.json_response({'status': 'error', 'message': 'bvid is required'}, status=400)
+
+        VALID_RESOLUTIONS = {'360p', '480p', '720p', '1080p', '1080p+'}
+        if resolution not in VALID_RESOLUTIONS:
+            return web.json_response({'status': 'error', 'message': 'invalid resolution'}, status=400)
 
         result = await download_video_file(bvid, page_index, resolution, output_dir, group_id)
         return web.json_response(result)
