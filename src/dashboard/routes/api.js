@@ -642,6 +642,21 @@ router.put('/groups/:groupId/video-download-config', async (req, res) => {
         if (!sysConfig.groupConfigs[groupId]) sysConfig.groupConfigs[groupId] = {}
         const { videoDownloadEnabled, videoDownloadResolution, videoDownloadMaxDuration } = req.body
 
+        // 类型验证
+        const VALID_RESOLUTIONS = ['360p', '480p', '720p', '1080p', '1080p+']
+        if (videoDownloadEnabled !== null && videoDownloadEnabled !== undefined && typeof videoDownloadEnabled !== 'boolean') {
+            return res.status(400).json({ error: 'videoDownloadEnabled must be boolean or null' })
+        }
+        if (videoDownloadResolution !== null && videoDownloadResolution !== undefined && !VALID_RESOLUTIONS.includes(videoDownloadResolution)) {
+            return res.status(400).json({ error: `videoDownloadResolution must be one of: ${VALID_RESOLUTIONS.join(', ')} or null` })
+        }
+        if (videoDownloadMaxDuration !== null && videoDownloadMaxDuration !== undefined) {
+            const dur = Number(videoDownloadMaxDuration)
+            if (!Number.isInteger(dur) || dur < 0) {
+                return res.status(400).json({ error: 'videoDownloadMaxDuration must be a non-negative integer or null' })
+            }
+        }
+
         if (videoDownloadEnabled === null || videoDownloadEnabled === undefined) {
             delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
         } else {
