@@ -132,7 +132,7 @@ class MessageHandler {
         // Record message for AI context
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
-        if (rawMessage) {
+        if (rawMessage && !rawMessage.trim().startsWith('/')) {
             aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId, userName);
         }
 
