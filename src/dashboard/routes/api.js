@@ -620,6 +620,67 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
     }
 });
 
+// GET /api/groups/:groupId/video-download-config - Get group-level video download config
+router.get('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        const groupConfig = sysConfig.groupConfigs[groupId] || {}
+        res.json({
+            videoDownloadEnabled: groupConfig.videoDownloadEnabled ?? null,
+            videoDownloadResolution: groupConfig.videoDownloadResolution ?? null,
+            videoDownloadMaxDuration: groupConfig.videoDownloadMaxDuration ?? null,
+        })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
+// PUT /api/groups/:groupId/video-download-config - Update group-level video download config
+router.put('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        if (!sysConfig.groupConfigs[groupId]) sysConfig.groupConfigs[groupId] = {}
+        const { videoDownloadEnabled, videoDownloadResolution, videoDownloadMaxDuration } = req.body
+
+        if (videoDownloadEnabled === null || videoDownloadEnabled === undefined) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
+        } else {
+            sysConfig.groupConfigs[groupId].videoDownloadEnabled = videoDownloadEnabled
+        }
+        if (videoDownloadResolution === null || videoDownloadResolution === undefined) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadResolution
+        } else {
+            sysConfig.groupConfigs[groupId].videoDownloadResolution = videoDownloadResolution
+        }
+        if (videoDownloadMaxDuration === null || videoDownloadMaxDuration === undefined) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadMaxDuration
+        } else {
+            sysConfig.groupConfigs[groupId].videoDownloadMaxDuration = videoDownloadMaxDuration
+        }
+
+        sysConfig.save()
+        res.json({ success: true, config: sysConfig.groupConfigs[groupId] })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
+// DELETE /api/groups/:groupId/video-download-config - Reset group-level video download config
+router.delete('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        if (sysConfig.groupConfigs[groupId]) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
+            delete sysConfig.groupConfigs[groupId].videoDownloadResolution
+            delete sysConfig.groupConfigs[groupId].videoDownloadMaxDuration
+            sysConfig.save()
+        }
+        res.json({ success: true })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
 // GET /api/groups/:id/bili-groups - Get Bilibili follow groups
 router.get('/groups/:id/bili-groups', async (req, res) => {
     try {
