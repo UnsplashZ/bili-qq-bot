@@ -276,6 +276,11 @@ class VideoDownloadService {
     cleanAll() {
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) return 0
+            // 有活跃下载时拒绝清理，防止删除正在使用的文件
+            if (this._activeDownloads > 0) {
+                logger.warn(`[VideoDownload] cleanAll skipped: ${this._activeDownloads} downloads in progress`)
+                return -1
+            }
             // 同时清理 .mp4 和中途中断留下的 .tmp 临时文件
             const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.mp4') || f.endsWith('.tmp'))
             for (const f of files) {

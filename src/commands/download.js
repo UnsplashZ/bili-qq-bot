@@ -65,7 +65,11 @@ class DownloadCommand {
                 return true
             }
             const count = videoDownloadService.cleanAll()
-            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已清理 ${count} 个视频文件` } }])
+            if (count === -1) {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '当前有下载任务进行中，请稍后再清理' } }])
+            } else {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已清理 ${count} 个视频文件` } }])
+            }
             return true
         }
 
