@@ -33,6 +33,10 @@ class DownloadCommand {
             }
 
             const info = await biliApi.getVideoInfo(lastInfo.bvid, groupId)
+            if (!info || info.status !== 'success') {
+                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '获取视频信息失败，请稍后重试' } }])
+                return true
+            }
             videoDownloadService.downloadAndSend(ws, groupId, lastInfo.bvid, info, pageIndex).catch(e => {
                 logger.error(`[DownloadCommand] downloadAndSend failed:`, e)
             })
