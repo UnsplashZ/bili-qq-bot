@@ -283,6 +283,82 @@ class VideoDownloadService {
     }
 
     /**
+     * 下载视频一次，发送到多个群（用于订阅扇出场景）
+     */
+    async downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0) {
+        const enabledGroups = groupIds.filter(gid => isVideoDownloadEnabledForGroup(gid))
+        if (enabledGroups.length === 0) return
+
+        const firstGroup = enabledGroups[0]
+        const downloadKey = `subscription:${bvid}:${pageIndex}`
+
+        if (_inProgressDownloads.has(downloadKey)) {
+            logger.info(`[VideoDownload] Already downloading ${bvid} P${pageIndex + 1} (subscription), skipping`)
+            return
+        }
+
+        if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
+            logger.warn(`[VideoDownload] Max concurrent downloads reached, skipping subscription download for ${bvid}`)
+            return
+        }
+
+        const duration = videoInfo?.data?.duration ?? 0
+        const maxDuration = getVideoDownloadMaxDurationForGroup(firstGroup)
+        if (maxDuration > 0 && duration > maxDuration) return
+
+        if (!this._hasDiskSpace()) {
+            logger.warn(`[VideoDownload] Insufficient disk space, skipping subscription download of ${bvid}`)
+            return
+        }
+
+        const resolution = getVideoDownloadResolutionForGroup(firstGroup)
+        logger.info(`[VideoDownload] Subscription download: ${bvid} P${pageIndex + 1} @ ${resolution} for ${enabledGroups.length} groups`)
+
+        const meta = videoInfo?.data ? {
+            title: videoInfo.data.title,
+            owner: videoInfo.data.owner?.name ?? 'Unknown',
+            duration: videoInfo.data.duration ?? 0,
+            total_pages: videoInfo.data.pages?.length ?? 1,
+        } : null
+
+        this._activeDownloads++
+        _inProgressDownloads.add(downloadKey)
+        let result
+        try {
+            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, firstGroup, meta)
+        } catch (e) {
+            logger.error(`[VideoDownload] Subscription download failed for ${bvid}:`, e)
+            return
+        } finally {
+            this._activeDownloads--
+            _inProgressDownloads.delete(downloadKey)
+        }
+
+        if (result.status !== 'success') {
+            logger.warn(`[VideoDownload] Subscription download error for ${bvid}: ${result.message}`)
+            return
+        }
+
+        // 向所有目标群发送同一文件
+        let sentCount = 0
+        for (const gid of enabledGroups) {
+            try {
+                const sent = await this._sendForwardMessage(ws, gid, result)
+                if (sent) sentCount++
+            } catch (e) {
+                logger.error(`[VideoDownload] Failed to send to group ${gid}:`, e)
+            }
+        }
+        logger.info(`[VideoDownload] Subscription video ${bvid} sent to ${sentCount}/${enabledGroups.length} groups`)
+
+        // 所有群都发完后再清理文件
+        if (config.videoDownloadAutoClean && result.file_path) {
+            const filePath = result.file_path
+            setTimeout(() => this.cleanupFile(filePath), 60 * 1000)
+        }
+    }
+
+    /**
      * 清空下载目录（供 /清理下载 命令使用）
      * @returns {number} 删除的文件数量
      */
