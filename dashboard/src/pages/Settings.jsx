@@ -61,7 +61,8 @@ const Settings = () => {
     aiEmbeddingProxy: '',
     // AI Toggles
     aiEnabled: true,
-    aiRagEnabled: true
+    aiRagEnabled: true,
+    aiProfileEnabled: false
   });
   const [savingAi, setSavingAi] = useState(false);
   const [resettingAi, setResettingAi] = useState(false);
@@ -147,7 +148,8 @@ const Settings = () => {
           aiEmbeddingModel,
           aiEmbeddingProxy,
           aiEnabled,
-          aiRagEnabled
+          aiRagEnabled,
+          aiProfileEnabled
         } = configRes.data;
 
         setAiConfig({
@@ -165,6 +167,7 @@ const Settings = () => {
             // AI Toggles
             aiEnabled: aiEnabled ?? true,
             aiRagEnabled: aiRagEnabled ?? true,
+            aiProfileEnabled: aiProfileEnabled ?? false,
             aiChatModel: aiChatModel || 'gpt-3.5-turbo',
             aiChatProxy: aiChatProxy || '',
             aiChatSystemPrompt: aiChatSystemPrompt || '你是一个有用的助手',
@@ -980,7 +983,8 @@ const Settings = () => {
                 <AiConfigSection
                     config={{
                         aiEnabled: aiConfig.aiEnabled,
-                        aiRagEnabled: aiConfig.aiRagEnabled
+                        aiRagEnabled: aiConfig.aiRagEnabled,
+                        aiProfileEnabled: aiConfig.aiProfileEnabled
                     }}
                     globalConfig={null}
                     onToggle={handleGlobalAiToggle}

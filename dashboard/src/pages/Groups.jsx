@@ -86,7 +86,8 @@ function Groups() {
     aiTemperature: 1.0,
     adminQQ: undefined,
     aiEnabled: true,
-    aiRagEnabled: true
+    aiRagEnabled: true,
+    aiProfileEnabled: false
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
 
@@ -107,7 +108,8 @@ function Groups() {
             aiTemperature: res.data.aiTemperature ?? 1.0,
             adminQQ: res.data.adminQQ,
             aiEnabled: res.data.aiEnabled ?? true,
-            aiRagEnabled: res.data.aiRagEnabled ?? true
+            aiRagEnabled: res.data.aiRagEnabled ?? true,
+            aiProfileEnabled: res.data.aiProfileEnabled ?? false
           });
         }
       } catch (err) {
@@ -230,6 +232,7 @@ function Groups() {
           aiTemperature: config.aiTemperature ?? null,
           aiEnabled: config.aiEnabled ?? null,           // null表示继承全局
           aiRagEnabled: config.aiRagEnabled ?? null,     // null表示继承全局
+          aiProfileEnabled: config.aiProfileEnabled ?? null, // null表示继承全局
           // 加载深色模式配置
           nightMode: config.nightMode || {
             mode: "off",
@@ -1021,11 +1024,13 @@ function Groups() {
                       <AiConfigSection
                         config={{
                           aiEnabled: formData.aiEnabled,
-                          aiRagEnabled: formData.aiRagEnabled
+                          aiRagEnabled: formData.aiRagEnabled,
+                          aiProfileEnabled: formData.aiProfileEnabled
                         }}
                         globalConfig={{
                           aiEnabled: globalConfig.aiEnabled,
-                          aiRagEnabled: globalConfig.aiRagEnabled
+                          aiRagEnabled: globalConfig.aiRagEnabled,
+                          aiProfileEnabled: globalConfig.aiProfileEnabled
                         }}
                         onToggle={handleAiToggle}
                         onReset={handleAiReset}
