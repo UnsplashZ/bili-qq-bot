@@ -3,11 +3,13 @@ const aiCommand = require('./ai');
 const settingsCommand = require('./settings');
 const adminCommand = require('./admin');
 const helpCommand = require('./help');
+const downloadCommand = require('./download');
 const logger = require('../utils/logger');
 
 class CommandManager {
     constructor() {
         this.commands = [
+            downloadCommand,
             subscriptionCommand,
             aiCommand,
             settingsCommand,

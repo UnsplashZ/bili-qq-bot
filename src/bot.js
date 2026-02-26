@@ -119,6 +119,9 @@ function createWebSocketConnection() {
         // subscriptionService.setWs(ws); // 已移除，ws 在 start 中传入
         subscriptionService.start(ws);
 
+        const videoDownloadService = require('./services/videoDownloadService')
+        videoDownloadService.startCleanupScheduler()
+
         requestGroupList();
         if (groupRefreshTimer) {
             clearInterval(groupRefreshTimer);
