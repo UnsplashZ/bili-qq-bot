@@ -1,5 +1,7 @@
 const aiHandler = require('./aiHandler');
 const vectorMemoryService = require('../services/vectorMemoryService');
+const userProfileService = require('../services/userProfileService');
+const aiContextService = require('../services/aiContextService');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const config = require('../config');
@@ -201,6 +203,10 @@ class MessageHandler {
                  vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
                      logger.error('[MessageHandler] Failed to save vector memory:', e);
                  });
+                 // Record message for user profile metadata (no LLM call, always fast)
+                 userProfileService.recordMessage(groupId, userId, userName).catch(e => {
+                     logger.error('[MessageHandler] Failed to record message for user profile:', e);
+                 });
              }
         }
 
@@ -311,6 +317,10 @@ class MessageHandler {
                 this.sendGroupMessage(ws, groupId, [
                     { type: 'text', data: { text: reply } }
                 ]);
+                // Async profile update check (fire-and-forget, only triggers if conditions met)
+                userProfileService.maybeUpdateProfile(groupId, userId, userName, aiContextService, vectorMemoryService).catch(e => {
+                    logger.error('[MessageHandler] Failed to maybe update user profile:', e);
+                });
             }
         }
     }
