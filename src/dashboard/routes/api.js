@@ -10,6 +10,7 @@ const authenticateToken = require('../middleware/auth');
 const subscriptionService = require('../../services/subscriptionService');
 const biliApi = require('../../services/biliApi');
 const mcpManager = require('../../services/mcpManager');
+const userProfileService = require('../../services/userProfileService');
 
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
@@ -1406,6 +1407,35 @@ router.get('/monitor', async (req, res) => {
     } catch (error) {
         logger.error('Error fetching system stats:', error);
         res.status(500).json({ error: 'Failed to fetch system stats' });
+    }
+});
+
+// ==================== User Profiles ====================
+
+// GET /api/profiles/:groupId - Get all user profiles for a group
+router.get('/profiles/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        if (!groupId) return res.status(400).json({ error: 'Invalid groupId' });
+        const profiles = await userProfileService.getAllProfiles(groupId);
+        res.json(profiles);
+    } catch (error) {
+        logger.error('[API] Error fetching user profiles:', error);
+        res.status(500).json({ error: 'Failed to fetch user profiles' });
+    }
+});
+
+// DELETE /api/profiles/:groupId/:userId - Reset a single user's profile
+router.delete('/profiles/:groupId/:userId', authenticateToken, async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        const userId = req.params.userId;
+        if (!groupId || !userId) return res.status(400).json({ error: 'Invalid groupId or userId' });
+        await userProfileService.deleteProfile(groupId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('[API] Error deleting user profile:', error);
+        res.status(500).json({ error: 'Failed to delete user profile' });
     }
 });
 
