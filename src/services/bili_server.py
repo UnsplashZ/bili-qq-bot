@@ -4,6 +4,7 @@ import asyncio
 import re
 import aiohttp
 import time
+import secrets
 from bs4 import BeautifulSoup
 import bilibili_api
 from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
@@ -1662,7 +1663,9 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
     os.makedirs(resolved_dir, exist_ok=True)
     timestamp = int(time.time())
     safe_bvid = re.sub(r'[^a-zA-Z0-9_-]', '_', bvid)
-    output_path = os.path.join(resolved_dir, f'{safe_bvid}_{timestamp}.mp4')
+    safe_group = re.sub(r'[^a-zA-Z0-9_-]', '_', str(group_id or 'default'))
+    rand_suffix = secrets.token_hex(4)
+    output_path = os.path.join(resolved_dir, f'{safe_bvid}_{safe_group}_{timestamp}_{rand_suffix}.mp4')
 
     if len(streams) == 1:
         # FLV：单文件，直接下载
