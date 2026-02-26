@@ -66,6 +66,16 @@ const Settings = () => {
   const [savingAi, setSavingAi] = useState(false);
   const [resettingAi, setResettingAi] = useState(false);
 
+  // Video Download State
+  const [videoDownloadConfig, setVideoDownloadConfig] = useState({
+    videoDownloadEnabled: false,
+    videoDownloadResolution: '1080p',
+    videoDownloadMaxDuration: 600,
+    videoDownloadAutoClean: true,
+    videoDownloadCleanTimeout: 6,
+  });
+  const [savingVideoDownload, setSavingVideoDownload] = useState(false);
+
   // MCP State
   const [mcpConfig, setMcpConfig] = useState({ mcpServers: [] });
   const [savingMcp, setSavingMcp] = useState(false);
@@ -163,6 +173,15 @@ const Settings = () => {
             aiEmbeddingApiKey: aiEmbeddingApiKey || '',
             aiEmbeddingModel: aiEmbeddingModel || 'text-embedding-3-small',
             aiEmbeddingProxy: aiEmbeddingProxy || ''
+        });
+
+        // Setup Video Download Config
+        setVideoDownloadConfig({
+            videoDownloadEnabled: configRes.data.videoDownloadEnabled ?? false,
+            videoDownloadResolution: configRes.data.videoDownloadResolution ?? '1080p',
+            videoDownloadMaxDuration: configRes.data.videoDownloadMaxDuration ?? 600,
+            videoDownloadAutoClean: configRes.data.videoDownloadAutoClean ?? true,
+            videoDownloadCleanTimeout: configRes.data.videoDownloadCleanTimeout ?? 6,
         });
 
         // Setup Blacklist
@@ -338,6 +357,21 @@ const Settings = () => {
         show("重置 AI 设置失败", "error");
     } finally {
         setResettingAi(false);
+    }
+  };
+
+  // Video Download Handlers
+  const saveVideoDownloadSettings = async () => {
+    setSavingVideoDownload(true);
+    try {
+      await api.post('/api/config', videoDownloadConfig);
+      show("视频下载设置已保存！", "success");
+    } catch (error) {
+      console.error("Failed to save video download settings:", error);
+      const errorMsg = error.response?.data?.error || '保存视频下载设置失败';
+      show(errorMsg, "error");
+    } finally {
+      setSavingVideoDownload(false);
     }
   };
 
@@ -1350,6 +1384,98 @@ const Settings = () => {
                 </div>
             )}
         </div>
+      </section>
+
+      {/* 视频下载 Section */}
+      <section>
+        <h2 className="text-xl font-semibold text-white mb-4">视频下载</h2>
+        <GlassCard>
+          <div className="space-y-4">
+            {/* 启用开关 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-medium">启用视频下载</p>
+                <p className="text-sm text-white/60">识别到视频链接时自动下载并发送（合并转发）</p>
+              </div>
+              <button
+                onClick={() => setVideoDownloadConfig(p => ({ ...p, videoDownloadEnabled: !p.videoDownloadEnabled }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${videoDownloadConfig.videoDownloadEnabled ? 'bg-purple-500' : 'bg-white/20'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${videoDownloadConfig.videoDownloadEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {/* 默认分辨率 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-medium">默认分辨率</p>
+                <p className="text-sm text-white/60">DASH 流画质上限</p>
+              </div>
+              <select
+                value={videoDownloadConfig.videoDownloadResolution}
+                onChange={e => setVideoDownloadConfig(p => ({ ...p, videoDownloadResolution: e.target.value }))}
+                className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm"
+              >
+                {['360p', '480p', '720p', '1080p', '1080p+'].map(r => (
+                  <option key={r} value={r} className="bg-gray-800">{r}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 最大时长 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-medium">最大时长限制（秒）</p>
+                <p className="text-sm text-white/60">0 表示不限制</p>
+              </div>
+              <input
+                type="number" min="0"
+                value={videoDownloadConfig.videoDownloadMaxDuration}
+                onChange={e => setVideoDownloadConfig(p => ({ ...p, videoDownloadMaxDuration: parseInt(e.target.value) || 0 }))}
+                className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm w-24 text-right"
+              />
+            </div>
+
+            {/* 发送后自动删除 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-medium">发送后自动删除</p>
+                <p className="text-sm text-white/60">发送成功后立即删除本地文件</p>
+              </div>
+              <button
+                onClick={() => setVideoDownloadConfig(p => ({ ...p, videoDownloadAutoClean: !p.videoDownloadAutoClean }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${videoDownloadConfig.videoDownloadAutoClean ? 'bg-purple-500' : 'bg-white/20'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${videoDownloadConfig.videoDownloadAutoClean ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {/* 清理超时 */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white font-medium">文件清理超时（小时）</p>
+                <p className="text-sm text-white/60">超过此时间的未清理文件将自动删除</p>
+              </div>
+              <input
+                type="number" min="1" max="168"
+                value={videoDownloadConfig.videoDownloadCleanTimeout}
+                onChange={e => setVideoDownloadConfig(p => ({ ...p, videoDownloadCleanTimeout: parseInt(e.target.value) || 6 }))}
+                className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm w-20 text-right"
+              />
+            </div>
+
+            {/* 保存按钮 */}
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={saveVideoDownloadSettings}
+                disabled={savingVideoDownload}
+                className="px-4 py-2 bg-purple-500/80 hover:bg-purple-500 text-white rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                {savingVideoDownload ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </GlassCard>
       </section>
 
       {/* System Actions */}
