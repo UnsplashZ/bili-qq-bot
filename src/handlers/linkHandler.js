@@ -535,7 +535,7 @@ class LinkHandler {
         // 添加所有提取到的链接到缓存
         for (const link of links) {
             const { cacheKey } = link;
-            this.linkCache.set(cacheKey, Date.now() + timeout);
+            this.linkCache.set(cacheKey, Date.now());
             logger.debug(`[LinkHandler] Added to cache: ${cacheKey} (timeout: ${timeout}ms)`);
         }
     }
