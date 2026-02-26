@@ -110,6 +110,7 @@ function createWebSocketConnection() {
 
     logger.info(`Attempting to connect to NapCat WebSocket (attempt ${reconnectCount + 1})...`);
     ws = new WebSocket(`${config.wsUrl}?access_token=${config.wsToken}`);
+    global.bot.ws = ws  // 暴露当前活跃连接供异步任务使用
 
     ws.on('open', function open() {
         logger.info('Connected to NapCat WebSocket');
@@ -236,6 +237,9 @@ function createWebSocketConnection() {
 
     ws.on('close', function close(code, reason) {
         logger.warn(`Disconnected from NapCat (Code: ${code}, Reason: ${reason || 'N/A'})`);
+
+        // 清除全局 ws 引用（仅清空当前实例，避免误清新连接）
+        if (global.bot.ws === ws) global.bot.ws = null
 
         // 清除WebSocket引用，停止订阅检查
         // subscriptionService.setWs(null); // setWs method no longer exists in Facade

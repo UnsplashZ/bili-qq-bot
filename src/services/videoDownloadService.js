@@ -179,7 +179,9 @@ class VideoDownloadService {
      * @returns {boolean} 是否发送成功
      */
     async _sendForwardMessage(ws, groupId, result) {
-        if (!ws || ws.readyState !== 1 /* WebSocket.OPEN */) {
+        // 优先使用全局当前活跃连接，fallback 到传入参数（防止 stale ws）
+        const activeWs = global.bot?.ws || ws
+        if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
             logger.warn(`[VideoDownload] WebSocket not open, cannot send forward message for ${result.title}`)
             return false
         }
@@ -209,13 +211,13 @@ class VideoDownloadService {
         const payload = {
             action: 'send_group_forward_msg',
             params: {
-                group_id: Number(groupId),  // OneBot v11 需要数值类型
+                group_id: Number(groupId),
                 messages: nodes
             }
         }
 
         try {
-            ws.send(JSON.stringify(payload))
+            activeWs.send(JSON.stringify(payload))
             logger.info(`[VideoDownload] Forward message sent to group ${groupId}: ${result.title}`)
             return true
         } catch (e) {
