@@ -9,6 +9,9 @@ class DownloadCommand {
         const { ws, groupId, userId, rawMessage, isAdmin, isRoot } = context
         const text = rawMessage.trim()
 
+        // 快速前缀检查，避免对非下载命令执行正则
+        if (!text.startsWith('/下载') && text !== '/清理下载') return false
+
         // /下载 P{n}
         const partMatch = text.match(/^\/下载\s+[Pp](\d+)$/)
         if (partMatch) {

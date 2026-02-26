@@ -16,6 +16,7 @@ function Groups() {
   const [saving, setSaving] = useState(false);
   const { show } = useToast();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  const VIDEO_DOWNLOAD_TAB_INDEX = 5;  // 视频下载 tab 在 categories 数组中的索引
 
   // Form State
   const [formData, setFormData] = useState({
@@ -250,7 +251,7 @@ function Groups() {
             checkGlobalBiliStatus();
         }
         // If on video download tab (index 5), fetch video download config
-        if (selectedTabIndex === 5) {
+        if (selectedTabIndex === VIDEO_DOWNLOAD_TAB_INDEX) {
             fetchVideoDownloadConfig(selectedGroupId);
         }
       }
@@ -263,13 +264,6 @@ function Groups() {
           fetchSubscriptions(selectedGroupId);
       }
   }, [selectedTabIndex, selectedGroupId, fetchSubscriptions]);
-
-  // Fetch video download config when tab changes to index 5
-  useEffect(() => {
-      if (selectedTabIndex === 5 && selectedGroupId) {
-          fetchVideoDownloadConfig(selectedGroupId);
-      }
-  }, [selectedTabIndex, selectedGroupId, fetchVideoDownloadConfig]);
 
   // 🆕 Check global Bilibili status on mount
   useEffect(() => {

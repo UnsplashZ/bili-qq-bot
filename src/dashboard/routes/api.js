@@ -639,7 +639,7 @@ router.get('/groups/:groupId/video-download-config', async (req, res) => {
 router.put('/groups/:groupId/video-download-config', async (req, res) => {
     try {
         const groupId = String(req.params.groupId)
-        if (!sysConfig.groupConfigs[groupId]) sysConfig.groupConfigs[groupId] = {}
+        sysConfig.ensureGroupConfig(groupId)
         const { videoDownloadEnabled, videoDownloadResolution, videoDownloadMaxDuration } = req.body
 
         // 类型验证

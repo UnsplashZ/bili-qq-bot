@@ -18,6 +18,9 @@ const lastDownloadInfo = new Map()
 
 const MAX_CONCURRENT_DOWNLOADS = 3
 
+// 正在下载中的任务 key 集合，防止同一视频被 linkHandler 和 updateChecker 重复触发
+const _inProgressDownloads = new Set()
+
 class VideoDownloadService {
     constructor() {
         this._cleanupTimer = null
@@ -45,7 +48,7 @@ class VideoDownloadService {
             const now = Date.now()
             const files = fs.readdirSync(DOWNLOADS_DIR)
             for (const file of files) {
-                if (!file.endsWith('.mp4')) continue
+                if (!file.endsWith('.mp4') && !file.endsWith('.tmp')) continue
                 const filePath = path.join(DOWNLOADS_DIR, file)
                 try {
                     const stat = fs.statSync(filePath)
@@ -87,9 +90,19 @@ class VideoDownloadService {
     async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
         if (!isVideoDownloadEnabledForGroup(groupId)) return
 
+        // 去重：避免 linkHandler 和 updateChecker 同时触发相同视频的重复下载
+        const downloadKey = `${String(groupId)}:${bvid}:${pageIndex}`
+        if (_inProgressDownloads.has(downloadKey)) {
+            logger.info(`[VideoDownload] Already downloading ${bvid} P${pageIndex + 1} for group ${groupId}, skipping duplicate`)
+            return
+        }
+
         // 并发限制
         if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
             logger.warn(`[VideoDownload] Max concurrent downloads (${MAX_CONCURRENT_DOWNLOADS}) reached, skipping ${bvid}`)
+            notificationService.sendGroupMessage(ws, groupId, [
+                { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
+            ], 'VideoDownload', false)
             return
         }
 
@@ -117,6 +130,7 @@ class VideoDownloadService {
         logger.info(`[VideoDownload] Starting download: ${bvid} P${pageIndex + 1} @ ${resolution} for group ${groupId}`)
 
         this._activeDownloads++
+        _inProgressDownloads.add(downloadKey)
         let result
         try {
             result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId)
@@ -125,6 +139,7 @@ class VideoDownloadService {
             return
         } finally {
             this._activeDownloads--
+            _inProgressDownloads.delete(downloadKey)
         }
 
         if (result.status !== 'success') {
@@ -143,9 +158,11 @@ class VideoDownloadService {
 
         const sent = await this._sendForwardMessage(ws, groupId, result)
 
-        // 无论发送是否成功，autoClean 时都清理文件（避免文件积压）
+        // ws.send() 只是将 JSON 指令推入 WebSocket 缓冲区，NapCat 收到后才异步读取文件上传。
+        // 必须延迟删除，给 NapCat 足够时间读取本地文件（60s），而不是立即删除。
         if (config.videoDownloadAutoClean && result.file_path) {
-            this.cleanupFile(result.file_path)
+            const filePath = result.file_path
+            setTimeout(() => this.cleanupFile(filePath), 60 * 1000)
         }
 
         // 多P提示（仅首P触发时发送）
@@ -191,7 +208,7 @@ class VideoDownloadService {
         const payload = {
             action: 'send_group_forward_msg',
             params: {
-                group_id: groupId,
+                group_id: Number(groupId),  // OneBot v11 需要数值类型
                 messages: nodes
             }
         }
@@ -256,7 +273,8 @@ class VideoDownloadService {
     cleanAll() {
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) return 0
-            const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.mp4'))
+            // 同时清理 .mp4 和中途中断留下的 .tmp 临时文件
+            const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.mp4') || f.endsWith('.tmp'))
             for (const f of files) {
                 try { fs.unlinkSync(path.join(DOWNLOADS_DIR, f)) } catch { /* skip */ }
             }

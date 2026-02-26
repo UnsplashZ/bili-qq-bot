@@ -649,12 +649,13 @@ function isRagEnabledForGroup(groupId) {
  * @returns {boolean}
  */
 function isVideoDownloadEnabledForGroup(groupId) {
-    if (!config.videoDownloadEnabled) return false
+    // 群级配置可独立覆盖全局开关（设计要求：群可"独立覆盖"）
     const groupConfig = config.groupConfigs[String(groupId)]
     if (groupConfig && 'videoDownloadEnabled' in groupConfig) {
         return groupConfig.videoDownloadEnabled
     }
-    return true
+    // 无群级配置则继承全局
+    return config.videoDownloadEnabled
 }
 
 /**

@@ -9,12 +9,12 @@ const logger = require('../utils/logger');
 class CommandManager {
     constructor() {
         this.commands = [
-            downloadCommand,
             subscriptionCommand,
             aiCommand,
             settingsCommand,
             adminCommand,
-            helpCommand
+            helpCommand,
+            downloadCommand,
         ];
     }
 

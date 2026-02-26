@@ -1592,6 +1592,9 @@ async def handle_video(request):
         logger.error(f"Error in video handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+_MAX_STREAM_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 单流最大 2GB，防止异常响应耗尽磁盘
+
+
 async def _download_stream_to_file(url: str, output_path: str) -> None:
     """分块下载单个流到文件"""
     headers = {
@@ -1602,8 +1605,12 @@ async def _download_stream_to_file(url: str, output_path: str) -> None:
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url, headers=headers) as resp:
             resp.raise_for_status()
+            total_written = 0
             with open(output_path, 'wb') as f:
                 async for chunk in resp.content.iter_chunked(1024 * 1024):
+                    total_written += len(chunk)
+                    if total_written > _MAX_STREAM_FILE_SIZE:
+                        raise RuntimeError(f'Stream file size exceeded {_MAX_STREAM_FILE_SIZE} bytes')
                     f.write(chunk)
 
 
