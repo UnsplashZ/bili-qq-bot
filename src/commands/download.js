@@ -60,7 +60,7 @@ class DownloadCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足' } }])
                 return true
             }
-            const stats = videoDownloadService.getDownloadStats()
+            const stats = await videoDownloadService.getDownloadStats()
             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `下载目录：${stats.count} 个文件，共 ${stats.totalSizeMB} MB` } }])
             return true
         }
@@ -71,7 +71,7 @@ class DownloadCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足' } }])
                 return true
             }
-            const count = videoDownloadService.cleanAll()
+            const count = await videoDownloadService.cleanAll()
             if (count === -1) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '当前有下载任务进行中，请稍后再清理' } }])
             } else {

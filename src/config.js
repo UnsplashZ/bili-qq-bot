@@ -671,7 +671,7 @@ function isVideoDownloadEnabledForGroup(groupId) {
  */
 function getVideoDownloadResolutionForGroup(groupId) {
     const groupConfig = config.groupConfigs[String(groupId)]
-    if (groupConfig && groupConfig.videoDownloadResolution) {
+    if (groupConfig && 'videoDownloadResolution' in groupConfig) {
         return groupConfig.videoDownloadResolution
     }
     return config.videoDownloadResolution

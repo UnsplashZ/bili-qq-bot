@@ -135,7 +135,11 @@ class MessageHandler {
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
         if (rawMessage && !rawMessage.trim().startsWith('/')) {
-            aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId, userName);
+            // 与向量记忆保持一致：存储前清洗 CQ 码，减少上下文噪声 token
+            const cleanForContext = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
+            if (cleanForContext) {
+                aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName);
+            }
         }
 
         // Check for JSON message (Mini Program) and extract URL (before cache check)

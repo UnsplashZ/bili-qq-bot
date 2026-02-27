@@ -12,6 +12,7 @@ class UserProfileService {
         this.dataDir = path.join(process.cwd(), 'data', 'profiles')
         this.profiles = new Map()  // groupId -> { userId -> profileEntry }
         this.saveTimers = new Map()
+        this._pendingUpdates = new Set()  // 正在生成画像的 "groupId:userId" 集合，防止并发重复生成
         this.init()
     }
 
@@ -99,8 +100,19 @@ class UserProfileService {
 
         if (!shouldGenerate) return
 
-        logger.info(`[UserProfile] Generating profile for user ${userId} in group ${groupId}`)
-        await this._generateProfile(String(groupId), userId, userName, entry, contextService, vectorMemoryService)
+        // 并发控制：防止同一用户短时间多次触发 LLM 重复生成
+        const pendingKey = `${String(groupId)}:${String(userId)}`
+        if (this._pendingUpdates.has(pendingKey)) {
+            logger.debug(`[UserProfile] Profile generation already in progress for user ${userId} in group ${groupId}, skipping`)
+            return
+        }
+        this._pendingUpdates.add(pendingKey)
+        try {
+            logger.info(`[UserProfile] Generating profile for user ${userId} in group ${groupId}`)
+            await this._generateProfile(String(groupId), userId, userName, entry, contextService, vectorMemoryService)
+        } finally {
+            this._pendingUpdates.delete(pendingKey)
+        }
     }
 
     async _generateProfile(groupId, userId, userName, entry, contextService, vectorMemoryService) {

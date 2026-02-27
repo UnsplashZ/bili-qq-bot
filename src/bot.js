@@ -169,7 +169,8 @@ function createWebSocketConnection() {
             if (payload.post_type === 'message') {
                 if (payload.message_type === 'group') {
                     logger.info(`Received group message from ${payload.user_id} in ${payload.group_id}`);
-                    // 存储 selfId 供视频下载转发消息使用
+                    // Fallback：如果 get_login_info 响应尚未到达，从首条群消息中提取 selfId
+                    // 正常路径：bot 登录成功后 get_login_info 的响应会先于群消息将 selfId 写入
                     if (payload.self_id && global.bot.selfId === '0') {
                         global.bot.selfId = String(payload.self_id)
                         logger.info(`[Bot] Stored selfId: ${global.bot.selfId}`)

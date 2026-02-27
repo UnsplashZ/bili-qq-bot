@@ -6,6 +6,11 @@ const logger = require('../utils/logger');
 const storageUtils = require('../utils/storageUtils');
 const { getAxiosProxyConfig } = require('../utils/proxyUtils');
 
+// 向量搜索评分加权常量
+const SEARCH_USER_BOOST = 0.05        // 当前用户消息的相关性加成
+const SEARCH_TIME_BOOST_MAX = 0.03    // 时间新鲜度最大加成
+const SEARCH_TIME_DECAY_DAYS = 30     // 时间衰减窗口（天）
+
 class VectorMemoryService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'vectors');
@@ -513,9 +518,9 @@ class VectorMemoryService {
 
             const scored = memory.map(m => {
                 const semanticScore = this.cosineSimilarity(queryVector, m.vector)
-                const userBoost = (currentUserId && String(currentUserId) === String(m.userId)) ? 0.05 : 0
+                const userBoost = (currentUserId && String(currentUserId) === String(m.userId)) ? SEARCH_USER_BOOST : 0
                 const ageHours = (Date.now() - (m.timestamp || 0)) / (1000 * 60 * 60)
-                const timeBoost = Math.max(0, 0.03 * (1 - ageHours / (24 * 30)))
+                const timeBoost = Math.max(0, SEARCH_TIME_BOOST_MAX * (1 - ageHours / (24 * SEARCH_TIME_DECAY_DAYS)))
                 return {
                     text: m.text,
                     role: m.role,

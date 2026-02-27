@@ -47,8 +47,9 @@ class BiliApi {
         );
     }
 
-    async downloadVideo(bvid, pageIndex, resolution, outputDir, groupId, videoMeta = null) {
+    async downloadVideo(bvid, pageIndex, resolution, groupId, videoMeta = null) {
         // 下载操作不缓存，超时设为 5 分钟
+        // output_dir 由 Python 侧固定为脚本相对路径，不再由 Node 侧传入
         try {
             if (!serviceManager.process) {
                 await serviceManager.start()
@@ -59,7 +60,6 @@ class BiliApi {
                 bvid,
                 page_index: pageIndex,
                 resolution,
-                output_dir: outputDir,
                 group_id: groupId,
             }
             if (videoMeta) payload.video_meta = videoMeta

@@ -51,6 +51,10 @@ GROUP_COOKIES_MAP_FILE = 'data/cookies_map.json'
 
 import os
 
+# 视频下载目录（固定为脚本相对路径，不接受外部传入以防路径遍历）
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOADS_ALLOWED_BASE = os.path.realpath(os.path.join(_SCRIPT_DIR, '..', '..', 'data', 'downloads'))
+
 def get_credential_file(group_id=None):
     if not group_id:
         return CREDENTIAL_FILE
@@ -1662,11 +1666,9 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
     if not streams:
         return {'status': 'error', 'message': 'no_streams_available'}
 
-    # 路径安全验证
-    _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    ALLOWED_BASE = os.path.realpath(os.path.join(_SCRIPT_DIR, '..', '..', 'data', 'downloads'))
+    # 路径安全验证（使用模块级 DOWNLOADS_ALLOWED_BASE，防止路径遍历）
     resolved_dir = os.path.realpath(output_dir)
-    if resolved_dir != ALLOWED_BASE and not resolved_dir.startswith(ALLOWED_BASE + os.sep):
+    if resolved_dir != DOWNLOADS_ALLOWED_BASE and not resolved_dir.startswith(DOWNLOADS_ALLOWED_BASE + os.sep):
         return {'status': 'error', 'message': 'invalid output_dir'}
     os.makedirs(resolved_dir, exist_ok=True)
     timestamp = int(time.time())
@@ -1700,7 +1702,7 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
                 proc.kill()
                 raise RuntimeError('FFmpeg timeout after 300s')
             if proc.returncode != 0:
-                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[:500]}')
+                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[-500:]}')
         finally:
             # 确保 FFmpeg 进程被终止（防止 asyncio cancel 导致孤儿进程）
             if proc is not None and proc.returncode is None:
@@ -1737,7 +1739,7 @@ async def handle_video_download(request):
         except (ValueError, TypeError):
             return web.json_response({'status': 'error', 'message': 'invalid page_index'}, status=400)
         resolution = data.get('resolution', '1080p')
-        output_dir = data.get('output_dir', '/app/data/downloads')
+        # output_dir 固定使用模块级 DOWNLOADS_ALLOWED_BASE，不接受外部传入
         group_id = data.get('group_id')
         video_meta = data.get('video_meta')
 
@@ -1750,7 +1752,7 @@ async def handle_video_download(request):
 
         try:
             result = await asyncio.wait_for(
-                download_video_file(bvid, page_index, resolution, output_dir, group_id, video_meta),
+                download_video_file(bvid, page_index, resolution, DOWNLOADS_ALLOWED_BASE, group_id, video_meta),
                 timeout=270  # 略低于 Node 侧 300s 超时，确保 Python 先返回错误
             )
         except asyncio.TimeoutError:

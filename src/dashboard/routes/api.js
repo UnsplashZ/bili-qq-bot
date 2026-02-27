@@ -690,19 +690,20 @@ router.put('/groups/:groupId/video-download-config', async (req, res) => {
             }
         }
 
-        if (videoDownloadEnabled === null || videoDownloadEnabled === undefined) {
+        // 语义：null = 删除群级覆盖（恢复继承全局），undefined = 未传该字段（不修改）
+        if (videoDownloadEnabled === null) {
             delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
-        } else {
+        } else if (videoDownloadEnabled !== undefined) {
             sysConfig.groupConfigs[groupId].videoDownloadEnabled = videoDownloadEnabled
         }
-        if (videoDownloadResolution === null || videoDownloadResolution === undefined) {
+        if (videoDownloadResolution === null) {
             delete sysConfig.groupConfigs[groupId].videoDownloadResolution
-        } else {
+        } else if (videoDownloadResolution !== undefined) {
             sysConfig.groupConfigs[groupId].videoDownloadResolution = videoDownloadResolution
         }
-        if (videoDownloadMaxDuration === null || videoDownloadMaxDuration === undefined) {
+        if (videoDownloadMaxDuration === null) {
             delete sysConfig.groupConfigs[groupId].videoDownloadMaxDuration
-        } else {
+        } else if (videoDownloadMaxDuration !== undefined) {
             sysConfig.groupConfigs[groupId].videoDownloadMaxDuration = videoDownloadMaxDuration
         }
 

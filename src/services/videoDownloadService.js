@@ -1,5 +1,6 @@
 const path = require('path')
 const fs = require('fs')
+const fsPromises = require('fs').promises
 const biliApi = require('./biliApi')
 const notificationService = require('./notificationService')
 const logger = require('../utils/logger')
@@ -21,6 +22,12 @@ const MAX_CONCURRENT_DOWNLOADS = 3
 // 正在下载中的任务 key 集合，防止同一视频被 linkHandler 和 updateChecker 重复触发
 const _inProgressDownloads = new Set()
 
+// 下载分辨率排序（从低到高），用于订阅扇出时取最高分辨率
+const RESOLUTION_ORDER = ['360p', '480p', '720p', '1080p', '1080p+']
+
+// 单次下载兜底超时：330s（高于 axios 300s，确保 _activeDownloads 配额最终释放）
+const DOWNLOAD_TIMEOUT_MS = 330 * 1000
+
 class VideoDownloadService {
     constructor() {
         this._cleanupTimer = null
@@ -33,7 +40,9 @@ class VideoDownloadService {
     startCleanupScheduler() {
         if (this._cleanupTimer) return
         this._cleanupTimer = setInterval(() => {
-            this._cleanupOldFiles()
+            this._cleanupOldFiles().catch(e => {
+                logger.error('[VideoDownload] Error in scheduled cleanup:', e)
+            })
         }, 60 * 60 * 1000)
         logger.info('[VideoDownload] Cleanup scheduler started')
     }
@@ -41,21 +50,25 @@ class VideoDownloadService {
     /**
      * 清理超过 videoDownloadCleanTimeout 小时的下载文件
      */
-    _cleanupOldFiles() {
+    async _cleanupOldFiles() {
         try {
-            if (!fs.existsSync(DOWNLOADS_DIR)) return
+            await fsPromises.access(DOWNLOADS_DIR)
+        } catch {
+            return // 目录不存在，无需清理
+        }
+        try {
             // 最小 1 小时，防止 cleanTimeout=0 导致所有文件被立即删除
             const cleanTimeout = Math.max(config.videoDownloadCleanTimeout || 24, 1)
             const maxAgeMs = cleanTimeout * 60 * 60 * 1000
             const now = Date.now()
-            const files = fs.readdirSync(DOWNLOADS_DIR)
+            const files = await fsPromises.readdir(DOWNLOADS_DIR)
             for (const file of files) {
                 if (!file.endsWith('.mp4') && !file.endsWith('.tmp')) continue
                 const filePath = path.join(DOWNLOADS_DIR, file)
                 try {
-                    const stat = fs.statSync(filePath)
+                    const stat = await fsPromises.stat(filePath)
                     if (now - stat.mtimeMs > maxAgeMs) {
-                        fs.unlinkSync(filePath)
+                        await fsPromises.unlink(filePath)
                         logger.info(`[VideoDownload] Cleaned up old file: ${file}`)
                     }
                 } catch (e) {
@@ -70,29 +83,38 @@ class VideoDownloadService {
     /**
      * 删除单个文件（发送后清理）
      */
-    cleanupFile(filePath) {
+    async cleanupFile(filePath) {
         try {
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath)
-                logger.info(`[VideoDownload] Deleted file: ${filePath}`)
-            }
+            await fsPromises.access(filePath)
+            await fsPromises.unlink(filePath)
+            logger.info(`[VideoDownload] Deleted file: ${filePath}`)
         } catch (e) {
-            logger.error(`[VideoDownload] Failed to delete file ${filePath}:`, e)
+            if (e.code !== 'ENOENT') {
+                logger.error(`[VideoDownload] Failed to delete file ${filePath}:`, e)
+            }
         }
     }
 
     /**
-     * 根据文件大小动态延迟清理：基础 60s + 每 100MB 额外 60s，上限 10 分钟
+     * 根据文件大小和群数量动态延迟清理：基础 60s + 每 100MB 额外 60s，上限 10 分钟
+     * groupCount 为扇出群数量，延迟按群数量系数放大（上限 30 分钟）
      */
-    _scheduleCleanup(filePath) {
+    _scheduleCleanup(filePath, groupCount = 1) {
         if (!config.videoDownloadAutoClean || !filePath) return
         let delayMs = 60 * 1000
-        try {
-            const fileSize = fs.statSync(filePath).size
-            const extraDelay = Math.floor(fileSize / (100 * 1024 * 1024)) * 60 * 1000
+        // 异步读取文件大小，不阻塞当前调用
+        fsPromises.stat(filePath).then(stat => {
+            const extraDelay = Math.floor(stat.size / (100 * 1024 * 1024)) * 60 * 1000
             delayMs = Math.min(delayMs + extraDelay, 10 * 60 * 1000)
-        } catch { /* 无法获取大小时使用默认值 */ }
-        setTimeout(() => this.cleanupFile(filePath), delayMs)
+            const groupFactor = Math.max(1, Math.ceil(groupCount / 2))
+            const adjustedDelay = Math.min(delayMs * groupFactor, 30 * 60 * 1000)
+            setTimeout(() => this.cleanupFile(filePath), adjustedDelay)
+        }).catch(() => {
+            // 无法获取大小时使用默认值（含群数量系数）
+            const groupFactor = Math.max(1, Math.ceil(groupCount / 2))
+            const adjustedDelay = Math.min(delayMs * groupFactor, 30 * 60 * 1000)
+            setTimeout(() => this.cleanupFile(filePath), adjustedDelay)
+        })
     }
 
     /**
@@ -136,7 +158,7 @@ class VideoDownloadService {
         }
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
-        if (!this._hasDiskSpace()) {
+        if (!await this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping download of ${bvid}`)
             notificationService.sendGroupMessage(ws, groupId, [
                 { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
@@ -170,7 +192,13 @@ class VideoDownloadService {
         _inProgressDownloads.add(downloadKey)
         let result
         try {
-            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, groupId, meta)
+            // 兜底超时：防止 Python/axios 超时失效导致配额永久占用
+            result = await Promise.race([
+                biliApi.downloadVideo(bvid, pageIndex, resolution, groupId, meta),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('download_overall_timeout')), DOWNLOAD_TIMEOUT_MS)
+                )
+            ])
         } catch (e) {
             logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
             return { ok: false, reason: e.message }
@@ -255,14 +283,20 @@ class VideoDownloadService {
     /**
      * 检查下载目录大小是否超过 5GB 上限
      */
-    _hasDiskSpace() {
+    async _hasDiskSpace() {
         try {
-            if (!fs.existsSync(DOWNLOADS_DIR)) return true
+            await fsPromises.access(DOWNLOADS_DIR)
+        } catch {
+            return true // 目录不存在，视为有空间
+        }
+        try {
             let totalSize = 0
-            for (const f of fs.readdirSync(DOWNLOADS_DIR)) {
+            const files = await fsPromises.readdir(DOWNLOADS_DIR)
+            for (const f of files) {
                 if (!f.endsWith('.mp4') && !f.endsWith('.tmp')) continue
                 try {
-                    totalSize += fs.statSync(path.join(DOWNLOADS_DIR, f)).size
+                    const stat = await fsPromises.stat(path.join(DOWNLOADS_DIR, f))
+                    totalSize += stat.size
                 } catch { /* skip */ }
             }
             return totalSize < 5 * 1024 * 1024 * 1024 // 5GB
@@ -281,13 +315,21 @@ class VideoDownloadService {
     /**
      * 获取下载目录状态（供 /下载状态 命令使用）
      */
-    getDownloadStats() {
+    async getDownloadStats() {
         try {
-            if (!fs.existsSync(DOWNLOADS_DIR)) return { count: 0, totalSizeMB: 0 }
-            const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.mp4'))
+            await fsPromises.access(DOWNLOADS_DIR)
+        } catch {
+            return { count: 0, totalSizeMB: 0 }
+        }
+        try {
+            const allFiles = await fsPromises.readdir(DOWNLOADS_DIR)
+            const files = allFiles.filter(f => f.endsWith('.mp4'))
             let totalSize = 0
             for (const f of files) {
-                try { totalSize += fs.statSync(path.join(DOWNLOADS_DIR, f)).size } catch { /* skip */ }
+                try {
+                    const stat = await fsPromises.stat(path.join(DOWNLOADS_DIR, f))
+                    totalSize += stat.size
+                } catch { /* skip */ }
             }
             return { count: files.length, totalSizeMB: Math.round(totalSize / 1024 / 1024) }
         } catch {
@@ -297,12 +339,12 @@ class VideoDownloadService {
 
     /**
      * 下载视频一次，发送到多个群（用于订阅扇出场景）
+     * 按群独立过滤时长限制，取所有目标群中最高的分辨率下载
      */
     async downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0) {
         const enabledGroups = groupIds.filter(gid => isVideoDownloadEnabledForGroup(gid))
         if (enabledGroups.length === 0) return
 
-        const firstGroup = enabledGroups[0]
         const downloadKey = `subscription:${bvid}:${pageIndex}`
 
         if (_inProgressDownloads.has(downloadKey)) {
@@ -315,11 +357,18 @@ class VideoDownloadService {
             return
         }
 
+        // 按群独立过滤：只向时长限制内的群发送
         const duration = videoInfo?.data?.duration ?? 0
-        const maxDuration = getVideoDownloadMaxDurationForGroup(firstGroup)
-        if (maxDuration > 0 && duration > maxDuration) return
+        const filteredGroups = enabledGroups.filter(gid => {
+            const maxDur = getVideoDownloadMaxDurationForGroup(gid)
+            return maxDur === 0 || duration <= maxDur
+        })
+        if (filteredGroups.length === 0) {
+            logger.info(`[VideoDownload] All groups exceed duration limit for ${bvid} (${Math.round(duration / 60)}min), skipping`)
+            return
+        }
 
-        if (!this._hasDiskSpace()) {
+        if (!await this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping subscription download of ${bvid}`)
             const adminQQ = config.adminQQ
             if (adminQQ && ws && ws.readyState === 1) {
@@ -330,8 +379,13 @@ class VideoDownloadService {
             return
         }
 
-        const resolution = getVideoDownloadResolutionForGroup(firstGroup)
-        logger.info(`[VideoDownload] Subscription download: ${bvid} P${pageIndex + 1} @ ${resolution} for ${enabledGroups.length} groups`)
+        // 取所有目标群中最高的分辨率，以满足要求最高的群
+        const resolution = filteredGroups.reduce((best, gid) => {
+            const res = getVideoDownloadResolutionForGroup(gid)
+            return RESOLUTION_ORDER.indexOf(res) > RESOLUTION_ORDER.indexOf(best) ? res : best
+        }, '360p')
+
+        logger.info(`[VideoDownload] Subscription download: ${bvid} P${pageIndex + 1} @ ${resolution} for ${filteredGroups.length} groups`)
 
         const meta = videoInfo?.data ? {
             title: videoInfo.data.title,
@@ -344,7 +398,12 @@ class VideoDownloadService {
         _inProgressDownloads.add(downloadKey)
         let result
         try {
-            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, DOWNLOADS_DIR, firstGroup, meta)
+            result = await Promise.race([
+                biliApi.downloadVideo(bvid, pageIndex, resolution, filteredGroups[0], meta),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('download_overall_timeout')), DOWNLOAD_TIMEOUT_MS)
+                )
+            ])
         } catch (e) {
             logger.error(`[VideoDownload] Subscription download failed for ${bvid}:`, e)
             return
@@ -360,7 +419,7 @@ class VideoDownloadService {
 
         // 向所有目标群发送同一文件
         let sentCount = 0
-        for (const gid of enabledGroups) {
+        for (const gid of filteredGroups) {
             try {
                 const sent = await this._sendForwardMessage(ws, gid, result)
                 if (sent) sentCount++
@@ -368,28 +427,33 @@ class VideoDownloadService {
                 logger.error(`[VideoDownload] Failed to send to group ${gid}:`, e)
             }
         }
-        logger.info(`[VideoDownload] Subscription video ${bvid} sent to ${sentCount}/${enabledGroups.length} groups`)
+        logger.info(`[VideoDownload] Subscription video ${bvid} sent to ${sentCount}/${filteredGroups.length} groups`)
 
-        // 所有群都发完后再清理文件
-        this._scheduleCleanup(result.file_path)
+        // 所有群都发完后再清理文件，延迟按群数量系数放大
+        this._scheduleCleanup(result.file_path, filteredGroups.length)
     }
 
     /**
      * 清空下载目录（供 /清理下载 命令使用）
-     * @returns {number} 删除的文件数量
+     * @returns {Promise<number>} 删除的文件数量，-1 表示有活跃下载被拒绝
      */
-    cleanAll() {
+    async cleanAll() {
         try {
-            if (!fs.existsSync(DOWNLOADS_DIR)) return 0
+            await fsPromises.access(DOWNLOADS_DIR)
+        } catch {
+            return 0 // 目录不存在
+        }
+        try {
             // 有活跃下载时拒绝清理，防止删除正在使用的文件
             if (this._activeDownloads > 0) {
                 logger.warn(`[VideoDownload] cleanAll skipped: ${this._activeDownloads} downloads in progress`)
                 return -1
             }
             // 同时清理 .mp4 和中途中断留下的 .tmp 临时文件
-            const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.mp4') || f.endsWith('.tmp'))
+            const allFiles = await fsPromises.readdir(DOWNLOADS_DIR)
+            const files = allFiles.filter(f => f.endsWith('.mp4') || f.endsWith('.tmp'))
             for (const f of files) {
-                try { fs.unlinkSync(path.join(DOWNLOADS_DIR, f)) } catch { /* skip */ }
+                try { await fsPromises.unlink(path.join(DOWNLOADS_DIR, f)) } catch { /* skip */ }
             }
             return files.length
         } catch {

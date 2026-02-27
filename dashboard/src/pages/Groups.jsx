@@ -16,7 +16,7 @@ function Groups() {
   const [saving, setSaving] = useState(false);
   const { show } = useToast();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
-  const VIDEO_DOWNLOAD_TAB_INDEX = 5;  // 视频下载 tab 在 categories 数组中的索引
+  // VIDEO_DOWNLOAD_TAB_INDEX 在 categories 定义后动态计算，见下方
 
   // Form State
   const [formData, setFormData] = useState({
@@ -564,6 +564,8 @@ function Groups() {
     { name: '关注同步', icon: RefreshCw },
     { name: '视频下载', icon: Download },
   ];
+  // 动态计算索引，防止插入新 tab 时遗漏更新（参见 CLAUDE.md 陷阱 #2）
+  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex(c => c.name === '视频下载');
 
   const subTypes = [
       { value: 'user', label: 'UP主' },
