@@ -1661,16 +1661,16 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
     download_data = await v.get_download_url(page_index=page_index)
     detector = VideoDownloadURLDataDetecter(download_data)
     try:
-        # 新版 bilibili-api 支持显式指定可接受编码
+        # 传入编码优先级：优先 AVC，其次 HEV，最后 AV1
         streams = detector.detect_best_streams(
             video_max_quality=target_quality,
-            video_accepted_codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
+            codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
         )
     except TypeError as e:
-        # 兼容旧版签名：不支持 video_accepted_codecs 参数
-        if 'video_accepted_codecs' not in str(e):
+        # 兼容旧版签名：不支持 codecs 参数
+        if 'codecs' not in str(e):
             raise
-        logger.warning('[download_video_file] detect_best_streams does not support video_accepted_codecs, falling back')
+        logger.warning('[download_video_file] detect_best_streams does not support codecs, falling back')
         streams = detector.detect_best_streams(video_max_quality=target_quality)
 
     if not streams:
