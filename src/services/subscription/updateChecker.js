@@ -1039,34 +1039,60 @@ class UpdateChecker {
             videos.sort((a, b) => b.created - a.created);
             const latestVideo = videos[0];
             const latestBvid = latestVideo.bvid;
+            const latestVideoCreatedRaw = Number(latestVideo.created);
+            const latestVideoCreated = Number.isFinite(latestVideoCreatedRaw) ? latestVideoCreatedRaw : null;
 
             // 获取lastVideoId（优先从手动订阅，其次从Cookie follower）
             let lastVideoId = null;
+            let lastVideoCreated = null;
             if (manualSub) {
                 lastVideoId = manualSub.lastVideoId;
+                lastVideoCreated = manualSub.lastVideoCreated;
             } else if (cookieFollower) {
                 lastVideoId = cookieFollower.lastVideoId;
+                lastVideoCreated = cookieFollower.lastVideoCreated;
             }
+            const normalizeTimestamp = value => {
+                if (value === null || value === undefined || value === '') return null;
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+            lastVideoCreated = normalizeTimestamp(lastVideoCreated);
 
             // 首次检查：记录最新视频但不推送
             if (!lastVideoId && !force) {
-                await this.updateVideoState(userItem, latestBvid);
+                await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated });
                 logger.info(`[UpdateChecker] Initialized lastVideoId for ${name} (${source}): ${latestBvid}`);
                 return;
             }
 
             // 检查是否有新视频
             if (latestBvid !== lastVideoId || force) {
+                // 兼容旧状态：仅有 lastVideoId 无时间戳，且 lastVideoId 已不在列表中
+                // 避免升级后的首轮回放旧视频
+                if (!force && lastVideoId && lastVideoCreated === null && !videos.some(v => v.bvid === lastVideoId)) {
+                    await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated });
+                    logger.debug(`[UpdateChecker] Legacy video anchor missing for ${name}, refreshed to ${latestBvid}`);
+                    return;
+                }
+
                 const newVideos = [];
                 for (const video of videos) {
                     if (video.bvid === lastVideoId) break;
+
+                    if (!force && lastVideoCreated !== null) {
+                        const createdRaw = Number(video.created);
+                        const created = Number.isFinite(createdRaw) ? createdRaw : null;
+                        if (created !== null && created <= lastVideoCreated) break;
+                    }
+
                     newVideos.push(video);
                 }
 
                 let videoToPush;
                 if (newVideos.length === 0) {
                     if (!force) {
-                        await this.updateVideoState(userItem, latestBvid);
+                        await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated });
                         logger.debug(`[UpdateChecker] No new videos for ${name}, updated tracking to ${latestBvid}`);
                         return;
                     } else {
@@ -1108,7 +1134,7 @@ class UpdateChecker {
                     }
                 }
 
-                await this.updateVideoState(userItem, latestBvid);
+                await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking videos for ${name} (${source}):`, e);
@@ -1135,35 +1161,61 @@ class UpdateChecker {
             articles.sort((a, b) => b.publish_time - a.publish_time);
             const latestArticle = articles[0];
             const latestCvid = `cv${latestArticle.id}`;
+            const latestArticlePublishRaw = Number(latestArticle.publish_time);
+            const latestArticlePublishTime = Number.isFinite(latestArticlePublishRaw) ? latestArticlePublishRaw : null;
 
             // 获取lastArticleId（优先从手动订阅，其次从Cookie follower）
             let lastArticleId = null;
+            let lastArticlePublishTime = null;
             if (manualSub) {
                 lastArticleId = manualSub.lastArticleId;
+                lastArticlePublishTime = manualSub.lastArticlePublishTime;
             } else if (cookieFollower) {
                 lastArticleId = cookieFollower.lastArticleId;
+                lastArticlePublishTime = cookieFollower.lastArticlePublishTime;
             }
+            const normalizeTimestamp = value => {
+                if (value === null || value === undefined || value === '') return null;
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+            lastArticlePublishTime = normalizeTimestamp(lastArticlePublishTime);
 
             // 首次检查：记录最新专栏但不推送
             if (!lastArticleId && !force) {
-                await this.updateArticleState(userItem, latestCvid);
+                await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime });
                 logger.info(`[UpdateChecker] Initialized lastArticleId for ${name} (${source}): ${latestCvid}`);
                 return;
             }
 
             // 检查是否有新专栏
             if (latestCvid !== lastArticleId || force) {
+                // 兼容旧状态：仅有 lastArticleId 无时间戳，且 lastArticleId 已不在列表中
+                // 避免升级后的首轮回放旧专栏
+                if (!force && lastArticleId && lastArticlePublishTime === null && !articles.some(a => `cv${a.id}` === lastArticleId)) {
+                    await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime });
+                    logger.debug(`[UpdateChecker] Legacy article anchor missing for ${name}, refreshed to ${latestCvid}`);
+                    return;
+                }
+
                 const newArticles = [];
                 for (const article of articles) {
                     const cvid = `cv${article.id}`;
                     if (cvid === lastArticleId) break;
+
+                    if (!force && lastArticlePublishTime !== null) {
+                        const publishRaw = Number(article.publish_time);
+                        const publishTime = Number.isFinite(publishRaw) ? publishRaw : null;
+                        if (publishTime !== null && publishTime <= lastArticlePublishTime) break;
+                    }
+
                     newArticles.push(article);
                 }
 
                 let articleToPush;
                 if (newArticles.length === 0) {
                     if (!force) {
-                        await this.updateArticleState(userItem, latestCvid);
+                        await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime });
                         logger.debug(`[UpdateChecker] No new articles for ${name}, updated tracking to ${latestCvid}`);
                         return;
                     } else {
@@ -1196,7 +1248,7 @@ class UpdateChecker {
                     }
                 }
 
-                await this.updateArticleState(userItem, latestCvid);
+                await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime });
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking articles for ${name} (${source}):`, e);
@@ -1206,22 +1258,34 @@ class UpdateChecker {
     /**
      * 更新用户的视频状态
      * @param {Object} userItem - 用户对象
-     * @param {string} videoId - 最新视频ID (BVID)
+     * @param {Object|string} videoState - 最新视频状态或视频ID
      */
-    async updateVideoState(userItem, videoId) {
+    async updateVideoState(userItem, videoState) {
         const { source, manualSub, cookieFollower, accountUid, uid } = userItem;
+        const state = typeof videoState === 'string'
+            ? { videoId: videoState, videoCreated: null }
+            : (videoState || {});
+        const normalizeTimestamp = value => {
+            if (value === null || value === undefined || value === '') return null
+            const num = Number(value)
+            return Number.isFinite(num) ? num : null
+        }
+        const updates = {
+            lastVideoId: state.videoId || null,
+            lastVideoCreated: normalizeTimestamp(state.videoCreated)
+        };
 
         try {
             // 更新手动订阅的状态
             if (manualSub) {
-                await subscriptionManager.updateUserSub(uid, { lastVideoId: videoId });
+                await subscriptionManager.updateUserSub(uid, updates);
             }
 
             // 更新Cookie follower的状态
             // 使用 updateCookieFollowerState 直接操作当前数组中的对象，
             // 避免 refreshCookieFollowings 并发替换数组引用导致的竞态条件
             if (cookieFollower) {
-                await subscriptionManager.updateCookieFollowerState(accountUid, uid, { lastVideoId: videoId });
+                await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Failed to update video state for ${uid} (${source}):`, e);
@@ -1231,22 +1295,34 @@ class UpdateChecker {
     /**
      * 更新用户的专栏状态
      * @param {Object} userItem - 用户对象
-     * @param {string} articleId - 最新专栏ID (cvXXXXX)
+     * @param {Object|string} articleState - 最新专栏状态或专栏ID
      */
-    async updateArticleState(userItem, articleId) {
+    async updateArticleState(userItem, articleState) {
         const { source, manualSub, cookieFollower, accountUid, uid } = userItem;
+        const state = typeof articleState === 'string'
+            ? { articleId: articleState, articlePublishTime: null }
+            : (articleState || {});
+        const normalizeTimestamp = value => {
+            if (value === null || value === undefined || value === '') return null
+            const num = Number(value)
+            return Number.isFinite(num) ? num : null
+        }
+        const updates = {
+            lastArticleId: state.articleId || null,
+            lastArticlePublishTime: normalizeTimestamp(state.articlePublishTime)
+        };
 
         try {
             // 更新手动订阅的状态
             if (manualSub) {
-                await subscriptionManager.updateUserSub(uid, { lastArticleId: articleId });
+                await subscriptionManager.updateUserSub(uid, updates);
             }
 
             // 更新Cookie follower的状态
             // 使用 updateCookieFollowerState 直接操作当前数组中的对象，
             // 避免 refreshCookieFollowings 并发替换数组引用导致的竞态条件
             if (cookieFollower) {
-                await subscriptionManager.updateCookieFollowerState(accountUid, uid, { lastArticleId: articleId });
+                await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Failed to update article state for ${uid} (${source}):`, e);

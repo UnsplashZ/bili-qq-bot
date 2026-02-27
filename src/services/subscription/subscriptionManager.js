@@ -176,6 +176,10 @@ class SubscriptionManager {
         if (!f) return f;
         if (f.lastDynamicId === undefined) f.lastDynamicId = null;
         if (f.lastLiveStatus === undefined) f.lastLiveStatus = 0;
+        if (f.lastVideoId === undefined) f.lastVideoId = null;
+        if (f.lastVideoCreated === undefined) f.lastVideoCreated = null;
+        if (f.lastArticleId === undefined) f.lastArticleId = null;
+        if (f.lastArticlePublishTime === undefined) f.lastArticlePublishTime = null;
         return f;
     }
 
@@ -261,12 +265,23 @@ class SubscriptionManager {
 
         // Save removed followers' state for potential re-follow recovery
         for (const [id, f] of oldMap) {
-            if (!newMap.has(id) && (f.lastDynamicId || f.lastLiveStatus || f.lastVideoId || f.lastArticleId)) {
+            const hasRecoverableState = Boolean(
+                f.lastDynamicId ||
+                f.lastLiveStatus ||
+                f.lastVideoId ||
+                f.lastArticleId ||
+                f.lastVideoCreated !== undefined && f.lastVideoCreated !== null ||
+                f.lastArticlePublishTime !== undefined && f.lastArticlePublishTime !== null
+            )
+
+            if (!newMap.has(id) && hasRecoverableState) {
                 this.staleFollowerState.set(id, {
                     lastDynamicId: f.lastDynamicId,
                     lastLiveStatus: f.lastLiveStatus,
                     lastVideoId: f.lastVideoId,
-                    lastArticleId: f.lastArticleId
+                    lastVideoCreated: f.lastVideoCreated,
+                    lastArticleId: f.lastArticleId,
+                    lastArticlePublishTime: f.lastArticlePublishTime
                 });
             }
         }
@@ -292,7 +307,9 @@ class SubscriptionManager {
                     lastDynamicId: oldF.lastDynamicId !== undefined ? oldF.lastDynamicId : null,
                     lastLiveStatus: oldF.lastLiveStatus !== undefined ? oldF.lastLiveStatus : 0,
                     lastVideoId: oldF.lastVideoId !== undefined ? oldF.lastVideoId : null,
-                    lastArticleId: oldF.lastArticleId !== undefined ? oldF.lastArticleId : null
+                    lastVideoCreated: oldF.lastVideoCreated !== undefined ? oldF.lastVideoCreated : null,
+                    lastArticleId: oldF.lastArticleId !== undefined ? oldF.lastArticleId : null,
+                    lastArticlePublishTime: oldF.lastArticlePublishTime !== undefined ? oldF.lastArticlePublishTime : null
                 };
             } else {
                 // Initialize state - check stale cache for re-follow recovery
@@ -303,7 +320,9 @@ class SubscriptionManager {
                         lastDynamicId: stale.lastDynamicId,
                         lastLiveStatus: stale.lastLiveStatus,
                         lastVideoId: stale.lastVideoId,
-                        lastArticleId: stale.lastArticleId
+                        lastVideoCreated: stale.lastVideoCreated !== undefined ? stale.lastVideoCreated : null,
+                        lastArticleId: stale.lastArticleId,
+                        lastArticlePublishTime: stale.lastArticlePublishTime !== undefined ? stale.lastArticlePublishTime : null
                     };
                 }
                 return {
@@ -311,7 +330,9 @@ class SubscriptionManager {
                     lastDynamicId: null,
                     lastLiveStatus: 0,
                     lastVideoId: null,
-                    lastArticleId: null
+                    lastVideoCreated: null,
+                    lastArticleId: null,
+                    lastArticlePublishTime: null
                 };
             }
         });
