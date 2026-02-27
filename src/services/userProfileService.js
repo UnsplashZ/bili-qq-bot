@@ -10,6 +10,7 @@ const { getAxiosProxyConfig } = require('../utils/proxyUtils')
 class UserProfileService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'profiles')
+        this._resolvedDataDir = path.resolve(this.dataDir)
         this.profiles = new Map()  // groupId -> { userId -> profileEntry }
         this.saveTimers = new Map()
         this._pendingUpdates = new Set()  // 正在生成画像的 "groupId:userId" 集合，防止并发重复生成
@@ -24,34 +25,49 @@ class UserProfileService {
         }
     }
 
+    _validateGroupId(groupId) {
+        const normalized = String(groupId || '').trim()
+        if (!/^\d+$/.test(normalized)) {
+            throw new Error(`invalid groupId: ${groupId}`)
+        }
+        return normalized
+    }
+
     _profilePath(groupId) {
-        return path.join(this.dataDir, `${groupId}.json`)
+        const safeGroupId = this._validateGroupId(groupId)
+        const resolved = path.resolve(this._resolvedDataDir, `${safeGroupId}.json`)
+        if (resolved !== this._resolvedDataDir && !resolved.startsWith(this._resolvedDataDir + path.sep)) {
+            throw new Error(`unsafe profile path for groupId: ${groupId}`)
+        }
+        return { safeGroupId, resolvedPath: resolved }
     }
 
     async _loadGroupProfiles(groupId) {
-        if (this.profiles.has(groupId)) return this.profiles.get(groupId)
+        const { safeGroupId, resolvedPath } = this._profilePath(groupId)
+        if (this.profiles.has(safeGroupId)) return this.profiles.get(safeGroupId)
         try {
-            const data = await fs.readFile(this._profilePath(groupId), 'utf8')
+            const data = await fs.readFile(resolvedPath, 'utf8')
             const parsed = JSON.parse(data)
-            this.profiles.set(groupId, parsed)
+            this.profiles.set(safeGroupId, parsed)
             return parsed
         } catch (e) {
             const empty = {}
-            this.profiles.set(groupId, empty)
+            this.profiles.set(safeGroupId, empty)
             return empty
         }
     }
 
     _saveGroupProfilesDebounced(groupId) {
-        if (this.saveTimers.has(groupId)) clearTimeout(this.saveTimers.get(groupId))
-        this.saveTimers.set(groupId, setTimeout(async () => {
-            this.saveTimers.delete(groupId)
-            const data = this.profiles.get(groupId)
+        const { safeGroupId, resolvedPath } = this._profilePath(groupId)
+        if (this.saveTimers.has(safeGroupId)) clearTimeout(this.saveTimers.get(safeGroupId))
+        this.saveTimers.set(safeGroupId, setTimeout(async () => {
+            this.saveTimers.delete(safeGroupId)
+            const data = this.profiles.get(safeGroupId)
             if (!data) return
             try {
-                await asyncWriteWithBackup(this._profilePath(groupId), data)
+                await asyncWriteWithBackup(resolvedPath, data)
             } catch (e) {
-                logger.error(`[UserProfile] Failed to save profiles for ${groupId}:`, e)
+                logger.error(`[UserProfile] Failed to save profiles for ${safeGroupId}:`, e)
             }
         }, 500))
     }
@@ -63,7 +79,8 @@ class UserProfileService {
         if (String(groupId).startsWith('private_')) return
         if (!userId) return
 
-        const profiles = await this._loadGroupProfiles(String(groupId))
+        const safeGroupId = this._validateGroupId(groupId)
+        const profiles = await this._loadGroupProfiles(safeGroupId)
         const existing = profiles[userId]
         const now = Date.now()
 
@@ -77,7 +94,7 @@ class UserProfileService {
             lastActiveTime: now
         }
 
-        this._saveGroupProfilesDebounced(String(groupId))
+        this._saveGroupProfilesDebounced(safeGroupId)
     }
 
     /**
@@ -86,9 +103,10 @@ class UserProfileService {
     async maybeUpdateProfile(groupId, userId, userName, contextService, vectorMemoryService) {
         if (String(groupId).startsWith('private_')) return
         if (!userId) return
-        if (!config.getGroupConfig(String(groupId), 'aiProfileEnabled')) return
+        const safeGroupId = this._validateGroupId(groupId)
+        if (!config.getGroupConfig(safeGroupId, 'aiProfileEnabled')) return
 
-        const profiles = await this._loadGroupProfiles(String(groupId))
+        const profiles = await this._loadGroupProfiles(safeGroupId)
         const entry = profiles[userId]
         if (!entry) return
 
@@ -101,15 +119,15 @@ class UserProfileService {
         if (!shouldGenerate) return
 
         // 并发控制：防止同一用户短时间多次触发 LLM 重复生成
-        const pendingKey = `${String(groupId)}:${String(userId)}`
+        const pendingKey = `${safeGroupId}:${String(userId)}`
         if (this._pendingUpdates.has(pendingKey)) {
-            logger.debug(`[UserProfile] Profile generation already in progress for user ${userId} in group ${groupId}, skipping`)
+            logger.debug(`[UserProfile] Profile generation already in progress for user ${userId} in group ${safeGroupId}, skipping`)
             return
         }
         this._pendingUpdates.add(pendingKey)
         try {
-            logger.info(`[UserProfile] Generating profile for user ${userId} in group ${groupId}`)
-            await this._generateProfile(String(groupId), userId, userName, entry, contextService, vectorMemoryService)
+            logger.info(`[UserProfile] Generating profile for user ${userId} in group ${safeGroupId}`)
+            await this._generateProfile(safeGroupId, userId, userName, entry, contextService, vectorMemoryService)
         } finally {
             this._pendingUpdates.delete(pendingKey)
         }
@@ -216,7 +234,9 @@ class UserProfileService {
      */
     async getActiveProfiles(groupId, activeUserIds) {
         if (!activeUserIds || activeUserIds.length === 0) return []
-        const profiles = await this._loadGroupProfiles(String(groupId))
+        if (String(groupId).startsWith('private_')) return []
+        const safeGroupId = this._validateGroupId(groupId)
+        const profiles = await this._loadGroupProfiles(safeGroupId)
         return activeUserIds
             .map(uid => profiles[String(uid)])
             .filter(Boolean)
@@ -226,12 +246,13 @@ class UserProfileService {
      * 删除某用户画像（重置）
      */
     async deleteProfile(groupId, userId) {
-        const profiles = await this._loadGroupProfiles(String(groupId))
+        const safeGroupId = this._validateGroupId(groupId)
+        const profiles = await this._loadGroupProfiles(safeGroupId)
         if (profiles[String(userId)]) {
             delete profiles[String(userId)].profile
             delete profiles[String(userId)].lastUpdated
             profiles[String(userId)].messagesSinceUpdate = 0
-            this._saveGroupProfilesDebounced(String(groupId))
+            this._saveGroupProfilesDebounced(safeGroupId)
         }
     }
 
@@ -239,7 +260,8 @@ class UserProfileService {
      * 获取某群所有画像（供 WebUI 展示）
      */
     async getAllProfiles(groupId) {
-        return await this._loadGroupProfiles(String(groupId))
+        const safeGroupId = this._validateGroupId(groupId)
+        return await this._loadGroupProfiles(safeGroupId)
     }
 }
 

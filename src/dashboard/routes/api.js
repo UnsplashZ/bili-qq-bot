@@ -20,6 +20,11 @@ function normalizeGroupId(groupId) {
     return groupId ? String(groupId) : null;
 }
 
+// 用户画像仅支持真实群号（数字）
+function isValidProfileGroupId(groupId) {
+    return typeof groupId === 'string' && /^\d+$/.test(groupId);
+}
+
 // 🆕 P2-1: 登录速率限制器（内存实现）
 const loginAttempts = new Map(); // IP -> { count, lockUntil }
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -1437,7 +1442,9 @@ router.get('/monitor', async (req, res) => {
 router.get('/profiles/:groupId', authenticateToken, async (req, res) => {
     try {
         const groupId = normalizeGroupId(req.params.groupId);
-        if (!groupId) return res.status(400).json({ error: 'Invalid groupId' });
+        if (!groupId || !isValidProfileGroupId(groupId)) {
+            return res.status(400).json({ error: 'Invalid groupId' });
+        }
         const profiles = await userProfileService.getAllProfiles(groupId);
         res.json(profiles);
     } catch (error) {
@@ -1451,7 +1458,9 @@ router.delete('/profiles/:groupId/:userId', authenticateToken, async (req, res) 
     try {
         const groupId = normalizeGroupId(req.params.groupId);
         const userId = req.params.userId;
-        if (!groupId || !userId) return res.status(400).json({ error: 'Invalid groupId or userId' });
+        if (!groupId || !isValidProfileGroupId(groupId) || !userId) {
+            return res.status(400).json({ error: 'Invalid groupId or userId' });
+        }
         await userProfileService.deleteProfile(groupId, userId);
         res.json({ success: true });
     } catch (error) {

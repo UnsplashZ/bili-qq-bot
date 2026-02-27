@@ -52,6 +52,19 @@ class VideoDownloadService {
         this._activeDownloads = 0
     }
 
+    _notifyTarget(ws, groupId, messageChain, enableFallback = false) {
+        if (typeof groupId === 'string' && groupId.startsWith('private_')) {
+            const realUserId = groupId.replace('private_', '')
+            if (!realUserId) {
+                logger.warn(`[VideoDownload] Invalid private groupId for notify: ${groupId}`)
+                return
+            }
+            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'VideoDownload', enableFallback)
+            return
+        }
+        notificationService.sendGroupMessage(ws, groupId, messageChain, 'VideoDownload', enableFallback)
+    }
+
     /**
      * 启动定时清理任务（每小时检查一次）
      */
@@ -156,9 +169,9 @@ class VideoDownloadService {
         // 并发限制
         if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
             logger.warn(`[VideoDownload] Max concurrent downloads (${MAX_CONCURRENT_DOWNLOADS}) reached, skipping ${bvid}`)
-            notificationService.sendGroupMessage(ws, groupId, [
+            this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
-            ], 'VideoDownload', false)
+            ], false)
             return { ok: false, reason: 'max_concurrent', silent: true }
         }
 
@@ -169,18 +182,18 @@ class VideoDownloadService {
         if (maxDuration > 0 && duration > maxDuration) {
             const durationMin = Math.round(duration / 60)
             const limitMin = Math.round(maxDuration / 60)
-            notificationService.sendGroupMessage(ws, groupId, [
+            this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `⚠️ 视频时长 ${durationMin} 分钟，超出当前限制（${limitMin} 分钟），已跳过下载` } }
-            ], 'VideoDownload', false)
+            ], false)
             return { ok: false, reason: 'duration_exceeded', silent: true }
         }
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
         if (!await this._hasDiskSpace()) {
             logger.warn(`[VideoDownload] Insufficient disk space, skipping download of ${bvid}`)
-            notificationService.sendGroupMessage(ws, groupId, [
+            this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
-            ], 'VideoDownload', false)
+            ], false)
             return { ok: false, reason: 'disk_space_full', silent: true }
         }
 
@@ -238,16 +251,16 @@ class VideoDownloadService {
 
         // 多P提示（仅首P触发时发送）
         if (sent && result.total_pages > 1 && pageIndex === 0) {
-            notificationService.sendGroupMessage(ws, groupId, [
+            this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `📺 当前视频共 ${result.total_pages}P，已下载第 1P\n回复 /下载 P2 可继续下载其他分集` } }
-            ], 'VideoDownload', false)
+            ], false)
         }
 
         return { ok: sent }
     }
 
     /**
-     * 发送合并转发消息（独立于预览卡片）
+     * 发送视频消息（群聊使用合并转发，私聊使用普通视频）
      * @returns {boolean} 是否发送成功
      */
     async _sendForwardMessage(ws, groupId, result) {
@@ -256,6 +269,35 @@ class VideoDownloadService {
         if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
             logger.warn(`[VideoDownload] WebSocket not open, cannot send forward message for ${result.title}`)
             return false
+        }
+
+        const videoFile = `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}`
+
+        // 私聊虚拟群场景：不能走 send_group_forward_msg（group_id 会变为 null）
+        if (typeof groupId === 'string' && groupId.startsWith('private_')) {
+            const realUserId = groupId.replace('private_', '')
+            if (!realUserId) {
+                logger.warn(`[VideoDownload] Invalid private groupId: ${groupId}`)
+                return false
+            }
+            const payload = {
+                action: 'send_private_msg',
+                params: {
+                    user_id: realUserId,
+                    message: [
+                        { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                        { type: 'video', data: { file: videoFile } }
+                    ]
+                }
+            }
+            try {
+                activeWs.send(JSON.stringify(payload))
+                logger.info(`[VideoDownload] Private video message sent to user ${realUserId}: ${result.title}`)
+                return true
+            } catch (e) {
+                logger.error(`[VideoDownload] Failed to send private video message:`, e)
+                return false
+            }
         }
 
         const selfId = global.bot?.selfId || '0'
@@ -277,16 +319,22 @@ class VideoDownloadService {
                     uin: selfId,
                     content: [{
                         type: 'video',
-                        data: { file: `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}` }
+                        data: { file: videoFile }
                     }]
                 }
             }
         ]
 
+        const numericGroupId = Number(groupId)
+        if (!Number.isFinite(numericGroupId)) {
+            logger.warn(`[VideoDownload] Invalid groupId for forward message: ${groupId}`)
+            return false
+        }
+
         const payload = {
             action: 'send_group_forward_msg',
             params: {
-                group_id: Number(groupId),
+                group_id: numericGroupId,
                 messages: nodes
             }
         }
