@@ -1688,8 +1688,47 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
     output_path = os.path.join(resolved_dir, f'{safe_bvid}_{safe_group}_{timestamp}_{rand_suffix}.mp4')
 
     if len(streams) == 1:
-        # FLV：单文件，直接下载
-        await _download_stream_to_file(streams[0].url, output_path)
+        # 单流：先下载，再尝试重封装为 faststart MP4；失败时回退原始文件
+        single_tmp = output_path + '_s.tmp'
+        await _download_stream_to_file(streams[0].url, single_tmp)
+        proc = None
+        remux_ok = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'ffmpeg', '-y', '-i', single_tmp,
+                '-c', 'copy', '-movflags', '+faststart', output_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError('FFmpeg timeout after 300s')
+            if proc.returncode != 0:
+                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[-500:]}')
+            remux_ok = True
+        except Exception as e:
+            logger.warning(f'[download_video_file] Single stream remux failed, fallback raw stream: {e}')
+            try:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            os.replace(single_tmp, output_path)
+        finally:
+            # 确保 FFmpeg 进程被终止（防止 asyncio cancel 导致孤儿进程）
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            if remux_ok:
+                try:
+                    if os.path.exists(single_tmp):
+                        os.remove(single_tmp)
+                except Exception:
+                    pass
     else:
         # DASH：并发下载视频流和音频流，再合并
         video_tmp = output_path + '_v.tmp'
@@ -1702,7 +1741,7 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
             )
             proc = await asyncio.create_subprocess_exec(
                 'ffmpeg', '-y', '-i', video_tmp, '-i', audio_tmp,
-                '-c', 'copy', output_path,
+                '-c', 'copy', '-movflags', '+faststart', output_path,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )

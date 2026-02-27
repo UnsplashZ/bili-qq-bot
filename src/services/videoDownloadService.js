@@ -260,20 +260,20 @@ class VideoDownloadService {
     }
 
     /**
-     * 发送视频消息（群聊使用合并转发，私聊使用普通视频）
+     * 发送视频消息（群聊/私聊均使用普通消息）
      * @returns {boolean} 是否发送成功
      */
     async _sendForwardMessage(ws, groupId, result) {
         // 优先使用全局当前活跃连接，fallback 到传入参数（防止 stale ws）
         const activeWs = global.bot?.ws || ws
         if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
-            logger.warn(`[VideoDownload] WebSocket not open, cannot send forward message for ${result.title}`)
+            logger.warn(`[VideoDownload] WebSocket not open, cannot send video message for ${result.title}`)
             return false
         }
 
         const videoFile = `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}`
 
-        // 私聊虚拟群场景：不能走 send_group_forward_msg（group_id 会变为 null）
+        // 私聊虚拟群场景
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
             const realUserId = groupId.replace('private_', '')
             if (!realUserId) {
@@ -300,51 +300,29 @@ class VideoDownloadService {
             }
         }
 
-        const selfId = global.bot?.selfId || '0'
-        const botName = 'Bot'
-
-        const nodes = [
-            {
-                type: 'node',
-                data: {
-                    name: botName,
-                    uin: selfId,
-                    content: [{ type: 'text', data: { text: `「${result.title}」- ${result.owner}` } }]
-                }
-            },
-            {
-                type: 'node',
-                data: {
-                    name: botName,
-                    uin: selfId,
-                    content: [{
-                        type: 'video',
-                        data: { file: videoFile }
-                    }]
-                }
-            }
-        ]
-
         const numericGroupId = Number(groupId)
         if (!Number.isFinite(numericGroupId)) {
-            logger.warn(`[VideoDownload] Invalid groupId for forward message: ${groupId}`)
+            logger.warn(`[VideoDownload] Invalid groupId for video message: ${groupId}`)
             return false
         }
 
         const payload = {
-            action: 'send_group_forward_msg',
+            action: 'send_group_msg',
             params: {
                 group_id: numericGroupId,
-                messages: nodes
+                message: [
+                    { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                    { type: 'video', data: { file: videoFile } }
+                ]
             }
         }
 
         try {
             activeWs.send(JSON.stringify(payload))
-            logger.info(`[VideoDownload] Forward message sent to group ${groupId}: ${result.title}`)
+            logger.info(`[VideoDownload] Group video message sent to group ${groupId}: ${result.title}`)
             return true
         } catch (e) {
-            logger.error(`[VideoDownload] Failed to send forward message:`, e)
+            logger.error(`[VideoDownload] Failed to send group video message:`, e)
             return false
         }
     }
