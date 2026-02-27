@@ -11,7 +11,25 @@ const {
     getVideoDownloadMaxDurationForGroup,
 } = require('../config')
 
-const DOWNLOADS_DIR = path.join(process.cwd(), 'data', 'downloads')
+// 下载目录必须与 NapCat 共享目录对齐，否则 NapCat 无法读取本地视频文件
+const DOWNLOADS_DIR = path.join(config.napcatTempPath, 'downloads')
+const NAPCAT_READ_BASE = path.resolve(config.napcatReadPath)
+const BOT_WRITE_BASE = path.resolve(config.napcatTempPath)
+
+function toNapcatReadablePath(filePath) {
+    if (!filePath) return filePath
+    const absFilePath = path.resolve(filePath)
+    if (absFilePath === BOT_WRITE_BASE || absFilePath.startsWith(BOT_WRITE_BASE + path.sep)) {
+        const relative = path.relative(BOT_WRITE_BASE, absFilePath)
+        return path.join(NAPCAT_READ_BASE, relative)
+    }
+    logger.warn(`[VideoDownload] File path is outside NapCat shared base: ${filePath}`)
+    return filePath
+}
+
+function toFileUrlPath(filePath) {
+    return String(filePath).replace(/\\/g, '/')
+}
 
 // 每群最近下载的视频信息，用于支持 /下载 P2 命令
 // Map<groupId, { bvid, title, owner, totalPages, pageIndex }>
@@ -257,7 +275,10 @@ class VideoDownloadService {
                 data: {
                     name: botName,
                     uin: selfId,
-                    content: [{ type: 'video', data: { file: `file://${result.file_path}` } }]
+                    content: [{
+                        type: 'video',
+                        data: { file: `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}` }
+                    }]
                 }
             }
         ]

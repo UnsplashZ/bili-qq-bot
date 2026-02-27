@@ -51,9 +51,11 @@ GROUP_COOKIES_MAP_FILE = 'data/cookies_map.json'
 
 import os
 
-# 视频下载目录（固定为脚本相对路径，不接受外部传入以防路径遍历）
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOADS_ALLOWED_BASE = os.path.realpath(os.path.join(_SCRIPT_DIR, '..', '..', 'data', 'downloads'))
+# 视频下载目录：写入 Bot 与 NapCat 共享目录（默认 /app/.config/QQ/tmp/downloads）
+# 不接受请求侧传入 output_dir，避免路径遍历风险
+DOWNLOADS_ALLOWED_BASE = os.path.realpath(
+    os.path.join(os.getenv('NAPCAT_TEMP_PATH', '/app/.config/QQ/tmp/'), 'downloads')
+)
 
 def get_credential_file(group_id=None):
     if not group_id:
@@ -1658,10 +1660,18 @@ async def download_video_file(bvid: str, page_index: int, resolution: str,
 
     download_data = await v.get_download_url(page_index=page_index)
     detector = VideoDownloadURLDataDetecter(download_data)
-    streams = detector.detect_best_streams(
-        video_max_quality=target_quality,
-        video_accepted_codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
-    )
+    try:
+        # 新版 bilibili-api 支持显式指定可接受编码
+        streams = detector.detect_best_streams(
+            video_max_quality=target_quality,
+            video_accepted_codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
+        )
+    except TypeError as e:
+        # 兼容旧版签名：不支持 video_accepted_codecs 参数
+        if 'video_accepted_codecs' not in str(e):
+            raise
+        logger.warning('[download_video_file] detect_best_streams does not support video_accepted_codecs, falling back')
+        streams = detector.detect_best_streams(video_max_quality=target_quality)
 
     if not streams:
         return {'status': 'error', 'message': 'no_streams_available'}
