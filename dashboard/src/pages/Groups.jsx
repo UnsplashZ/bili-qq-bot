@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
@@ -16,7 +16,7 @@ function Groups() {
   const [saving, setSaving] = useState(false);
   const { show } = useToast();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
-  // VIDEO_DOWNLOAD_TAB_INDEX 在 categories 定义后动态计算，见下方
+  // VIDEO_DOWNLOAD_TAB_INDEX 在 categories 定义后动态计算
 
   // Form State
   const [formData, setFormData] = useState({
@@ -194,6 +194,17 @@ function Groups() {
       }
   }, []);
 
+  const categories = [
+    { name: '常规', icon: Settings },
+    { name: '订阅', icon: Bell },
+    { name: '权限', icon: Shield },
+    { name: 'AI', icon: Cpu },
+    { name: '关注同步', icon: RefreshCw },
+    { name: '视频下载', icon: Download },
+  ];
+  // 动态计算索引，防止插入新 tab 时遗漏更新（参见 CLAUDE.md 陷阱 #2）
+  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex(c => c.name === '视频下载');
+
   // Video Download Config Handlers
   const fetchVideoDownloadConfig = useCallback(async (gid) => {
     try {
@@ -269,7 +280,7 @@ function Groups() {
         }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig, VIDEO_DOWNLOAD_TAB_INDEX]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -541,7 +552,8 @@ function Groups() {
     try {
       await api.put(`/api/groups/${selectedGroupId}/video-download-config`, videoDownloadConfig);
       show('视频下载配置已更新', 'success');
-    } catch (e) {
+    } catch (error) {
+      console.error('Failed to save video download config:', error);
       show('更新失败', 'error');
     }
   };
@@ -551,21 +563,11 @@ function Groups() {
       await api.delete(`/api/groups/${selectedGroupId}/video-download-config`);
       setVideoDownloadConfig({ videoDownloadEnabled: null, videoDownloadResolution: null, videoDownloadMaxDuration: null });
       show('已重置为全局默认', 'success');
-    } catch (e) {
+    } catch (error) {
+      console.error('Failed to reset video download config:', error);
       show('重置失败', 'error');
     }
   };
-
-  const categories = [
-    { name: '常规', icon: Settings },
-    { name: '订阅', icon: Bell },
-    { name: '权限', icon: Shield },
-    { name: 'AI', icon: Cpu },
-    { name: '关注同步', icon: RefreshCw },
-    { name: '视频下载', icon: Download },
-  ];
-  // 动态计算索引，防止插入新 tab 时遗漏更新（参见 CLAUDE.md 陷阱 #2）
-  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex(c => c.name === '视频下载');
 
   const subTypes = [
       { value: 'user', label: 'UP主' },
