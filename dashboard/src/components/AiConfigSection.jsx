@@ -13,9 +13,11 @@ export default function AiConfigSection({
 }) {
     const aiEnabled = config.aiEnabled ?? globalConfig?.aiEnabled ?? true;
     const ragEnabled = config.aiRagEnabled ?? globalConfig?.aiRagEnabled ?? true;
+    const profileEnabled = config.aiProfileEnabled ?? globalConfig?.aiProfileEnabled ?? false;
 
     const aiIsInherited = config.aiEnabled === undefined || config.aiEnabled === null;
     const ragIsInherited = config.aiRagEnabled === undefined || config.aiRagEnabled === null;
+    const profileIsInherited = config.aiProfileEnabled === undefined || config.aiProfileEnabled === null;
 
     return (
         <div className="space-y-4">
@@ -75,8 +77,40 @@ export default function AiConfigSection({
                 </label>
             </div>
 
+            {/* User Profile Toggle */}
+            <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg">
+                <div className="flex-1">
+                    <h4 className="font-medium text-white">
+                        用户画像功能
+                        {isGroup && profileIsInherited && (
+                            <span className="ml-2 text-sm text-gray-500">(继承全局)</span>
+                        )}
+                    </h4>
+                    <p className="text-sm text-gray-400">
+                        {isGroup
+                            ? "控制该群是否为用户生成个性化画像（需要AI功能开启）"
+                            : "全局控制是否为用户生成个性化画像（需要AI功能开启）"}
+                    </p>
+                    {!aiEnabled && (
+                        <p className="text-sm text-amber-400 mt-1">
+                            ⚠️ AI功能已关闭，用户画像功能不可用
+                        </p>
+                    )}
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={profileEnabled}
+                        onChange={(e) => onToggle('aiProfileEnabled', e.target.checked)}
+                        disabled={!aiEnabled}
+                        className="sr-only peer disabled:opacity-50"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all border-gray-600 peer-checked:bg-blue-600 peer-disabled:opacity-50"></div>
+                </label>
+            </div>
+
             {/* Reset Button (Group only) */}
-            {isGroup && (!aiIsInherited || !ragIsInherited) && (
+            {isGroup && (!aiIsInherited || !ragIsInherited || !profileIsInherited) && (
                 <button
                     onClick={onReset}
                     className="w-full px-4 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10"

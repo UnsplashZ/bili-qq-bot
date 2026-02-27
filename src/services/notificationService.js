@@ -1,13 +1,108 @@
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const logger = require('../utils/logger');
 const config = require('../config');
+
+const TEMP_IMAGE_CLEANUP_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
+const TEMP_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1h
 
 /**
  * NotificationService - 统一的消息发送服务
  * 提供共享的消息发送逻辑，支持文本、图片等多种消息类型
  */
 class NotificationService {
+    /**
+     * 获取图片临时目录（Bot 写入路径 + NapCat 读取路径）
+     * @returns {{ hostTempDir: string, containerTempDir: string }}
+     */
+    static getImageTempDirs() {
+        return {
+            hostTempDir: config.napcatTempPath,
+            containerTempDir: config.napcatReadPath
+        };
+    }
+
+    /**
+     * 启动图片临时文件清理任务（每小时执行一次，清理超过 24 小时的 .png）
+     */
+    static startTempImageCleanupScheduler() {
+        if (this._tempImageCleanupTimer) return;
+
+        const runCleanup = async () => {
+            try {
+                await this.cleanupExpiredTempImages();
+            } catch (e) {
+                logger.error('[NotificationService] Temp image cleanup failed:', e);
+            }
+        };
+
+        // 先执行一次，尽快清理历史残留
+        runCleanup();
+
+        this._tempImageCleanupTimer = setInterval(runCleanup, TEMP_IMAGE_CLEANUP_INTERVAL_MS);
+        // 不阻止 Node 进程退出
+        if (typeof this._tempImageCleanupTimer.unref === 'function') {
+            this._tempImageCleanupTimer.unref();
+        }
+        logger.info('[NotificationService] Temp image cleanup scheduler started');
+    }
+
+    /**
+     * 停止图片临时文件清理任务（主要用于测试）
+     */
+    static stopTempImageCleanupScheduler() {
+        if (!this._tempImageCleanupTimer) return;
+        clearInterval(this._tempImageCleanupTimer);
+        this._tempImageCleanupTimer = null;
+    }
+
+    /**
+     * 清理超过 24 小时的图片临时文件
+     */
+    static async cleanupExpiredTempImages() {
+        if (this._tempImageCleanupRunning) return;
+        this._tempImageCleanupRunning = true;
+
+        try {
+            const { hostTempDir } = this.getImageTempDirs();
+            try {
+                await fsPromises.access(hostTempDir);
+            } catch {
+                return;
+            }
+
+            const files = await fsPromises.readdir(hostTempDir);
+            const now = Date.now();
+            let deletedCount = 0;
+
+            for (const file of files) {
+                if (!file.endsWith('.png')) continue;
+                const filePath = path.join(hostTempDir, file);
+
+                try {
+                    const stat = await fsPromises.stat(filePath);
+                    if (!stat.isFile()) continue;
+
+                    if (now - stat.mtimeMs > TEMP_IMAGE_CLEANUP_MAX_AGE_MS) {
+                        await fsPromises.unlink(filePath);
+                        deletedCount++;
+                    }
+                } catch (e) {
+                    if (e.code !== 'ENOENT') {
+                        logger.warn(`[NotificationService] Failed to cleanup temp image ${file}:`, e.message);
+                    }
+                }
+            }
+
+            if (deletedCount > 0) {
+                logger.info(`[NotificationService] Cleaned up ${deletedCount} expired temp images`);
+            }
+        } finally {
+            this._tempImageCleanupRunning = false;
+        }
+    }
+
     /**
      * 保存Base64图片为文件
      * @param {string} base64Data - Base64编码的图片数据
@@ -17,8 +112,10 @@ class NotificationService {
     static saveImageAsFile(base64Data, logPrefix = 'NotificationService') {
         try {
             // 使用共享目录，确保npm运行的bot和docker运行的napcat都能访问
-            const hostTempDir = config.napcatTempPath; // Bot 写入的路径 (容器内或宿主机)
-            const containerTempDir = config.napcatReadPath; // NapCat 读取的路径 (NapCat 容器内)
+            const { hostTempDir, containerTempDir } = this.getImageTempDirs();
+
+            // 确保清理器已启动
+            this.startTempImageCleanupScheduler();
 
             // 确保目录存在
             if (!fs.existsSync(hostTempDir)) {
@@ -253,5 +350,9 @@ class NotificationService {
         });
     }
 }
+
+NotificationService._tempImageCleanupTimer = null;
+NotificationService._tempImageCleanupRunning = false;
+NotificationService.startTempImageCleanupScheduler();
 
 module.exports = NotificationService;

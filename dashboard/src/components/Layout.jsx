@@ -3,7 +3,7 @@ import { Home, Users, Settings, Terminal, Menu } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import MobileMenu from './MobileMenu';
 
-const SidebarItem = ({ icon: Icon, label, href, active }) => {
+const SidebarItem = ({ icon, label, href, active }) => {
   return (
     <Link
       to={href}
@@ -13,7 +13,7 @@ const SidebarItem = ({ icon: Icon, label, href, active }) => {
           : 'text-gray-400 hover:bg-white/5 hover:text-white'
       }`}
     >
-      <Icon size={20} />
+      {React.createElement(icon, { size: 20 })}
       <span className="font-medium">{label}</span>
     </Link>
   );

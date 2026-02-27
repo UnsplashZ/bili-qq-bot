@@ -10,6 +10,7 @@ const authenticateToken = require('../middleware/auth');
 const subscriptionService = require('../../services/subscriptionService');
 const biliApi = require('../../services/biliApi');
 const mcpManager = require('../../services/mcpManager');
+const userProfileService = require('../../services/userProfileService');
 
 const CONFIG_PATH = path.resolve(__dirname, '../../../config/config.json');
 const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.json');
@@ -17,6 +18,11 @@ const MCP_CONFIG_PATH = path.resolve(__dirname, '../../../config/mcp_servers.jso
 // Helper: Convert groupId from request params to string
 function normalizeGroupId(groupId) {
     return groupId ? String(groupId) : null;
+}
+
+// 用户画像仅支持真实群号（数字）
+function isValidProfileGroupId(groupId) {
+    return typeof groupId === 'string' && /^\d+$/.test(groupId);
 }
 
 // 🆕 P2-1: 登录速率限制器（内存实现）
@@ -185,6 +191,12 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'linkCacheTimeout',
     'aiEnabled',
     'aiRagEnabled',
+    'aiProfileEnabled',
+    'videoDownloadEnabled',
+    'videoDownloadResolution',
+    'videoDownloadMaxDuration',
+    'videoDownloadAutoClean',
+    'videoDownloadCleanTimeout',
 ];
 
 // POST /api/config - Update global config
@@ -204,6 +216,13 @@ router.post('/config', async (req, res) => {
         }
         if (Object.keys(filtered).length === 0) {
             return res.status(400).json({ error: 'No valid configuration keys provided' });
+        }
+
+        // Validate videoDownloadResolution if provided
+        const VALID_RESOLUTIONS = ['360p', '480p', '720p', '1080p', '1080p+']
+        if (filtered.videoDownloadResolution !== undefined &&
+            !VALID_RESOLUTIONS.includes(filtered.videoDownloadResolution)) {
+            return res.status(400).json({ error: 'invalid videoDownloadResolution' })
         }
 
         Object.assign(sysConfig, filtered);
@@ -511,9 +530,11 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
         res.json({
             aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
             aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            aiProfileEnabled: groupConfig.aiProfileEnabled !== undefined ? groupConfig.aiProfileEnabled : null,
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {
@@ -526,12 +547,12 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
 router.put('/groups/:groupId/ai-config', async (req, res) => {
     try {
         const groupId = normalizeGroupId(req.params.groupId);
-        const { aiEnabled, aiRagEnabled } = req.body;
+        const { aiEnabled, aiRagEnabled, aiProfileEnabled } = req.body;
 
         // Validate request body
-        if (aiEnabled === undefined && aiRagEnabled === undefined) {
+        if (aiEnabled === undefined && aiRagEnabled === undefined && aiProfileEnabled === undefined) {
             return res.status(400).json({
-                error: 'At least one of aiEnabled or aiRagEnabled must be provided'
+                error: 'At least one of aiEnabled, aiRagEnabled, or aiProfileEnabled must be provided'
             });
         }
 
@@ -567,6 +588,19 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
             }
         }
 
+        if (aiProfileEnabled !== undefined) {
+            if (aiProfileEnabled === null) {
+                // null means delete override (revert to global)
+                delete groupConfig.aiProfileEnabled;
+            } else if (typeof aiProfileEnabled === 'boolean') {
+                groupConfig.aiProfileEnabled = aiProfileEnabled;
+            } else {
+                return res.status(400).json({
+                    error: 'aiProfileEnabled must be a boolean or null'
+                });
+            }
+        }
+
         // Save configuration
         sysConfig.save();
 
@@ -577,9 +611,11 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
             message: 'AI configuration updated successfully',
             aiEnabled: groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
             aiRagEnabled: groupConfig.aiRagEnabled !== undefined ? groupConfig.aiRagEnabled : null,
+            aiProfileEnabled: groupConfig.aiProfileEnabled !== undefined ? groupConfig.aiProfileEnabled : null,
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {
@@ -601,6 +637,7 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
         // Delete AI config overrides
         delete groupConfig.aiEnabled;
         delete groupConfig.aiRagEnabled;
+        delete groupConfig.aiProfileEnabled;
 
         // Save configuration
         sysConfig.save();
@@ -611,7 +648,8 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
             message: 'AI configuration reset to global defaults',
             global: {
                 aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled
+                aiRagEnabled: sysConfig.aiRagEnabled,
+                aiProfileEnabled: sysConfig.aiProfileEnabled
             }
         });
     } catch (error) {
@@ -619,6 +657,83 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
         res.status(500).json({ error: 'Failed to reset AI configuration' });
     }
 });
+
+// GET /api/groups/:groupId/video-download-config - Get group-level video download config
+router.get('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        const groupConfig = sysConfig.groupConfigs[groupId] || {}
+        res.json({
+            videoDownloadEnabled: groupConfig.videoDownloadEnabled ?? null,
+            videoDownloadResolution: groupConfig.videoDownloadResolution ?? null,
+            videoDownloadMaxDuration: groupConfig.videoDownloadMaxDuration ?? null,
+        })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
+// PUT /api/groups/:groupId/video-download-config - Update group-level video download config
+router.put('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        sysConfig.ensureGroupConfig(groupId)
+        const { videoDownloadEnabled, videoDownloadResolution, videoDownloadMaxDuration } = req.body
+
+        // 类型验证
+        const VALID_RESOLUTIONS = ['360p', '480p', '720p', '1080p', '1080p+']
+        if (videoDownloadEnabled !== null && videoDownloadEnabled !== undefined && typeof videoDownloadEnabled !== 'boolean') {
+            return res.status(400).json({ error: 'videoDownloadEnabled must be boolean or null' })
+        }
+        if (videoDownloadResolution !== null && videoDownloadResolution !== undefined && !VALID_RESOLUTIONS.includes(videoDownloadResolution)) {
+            return res.status(400).json({ error: `videoDownloadResolution must be one of: ${VALID_RESOLUTIONS.join(', ')} or null` })
+        }
+        if (videoDownloadMaxDuration !== null && videoDownloadMaxDuration !== undefined) {
+            const dur = Number(videoDownloadMaxDuration)
+            if (!Number.isInteger(dur) || dur < 0) {
+                return res.status(400).json({ error: 'videoDownloadMaxDuration must be a non-negative integer or null' })
+            }
+        }
+
+        // 语义：null = 删除群级覆盖（恢复继承全局），undefined = 未传该字段（不修改）
+        if (videoDownloadEnabled === null) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
+        } else if (videoDownloadEnabled !== undefined) {
+            sysConfig.groupConfigs[groupId].videoDownloadEnabled = videoDownloadEnabled
+        }
+        if (videoDownloadResolution === null) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadResolution
+        } else if (videoDownloadResolution !== undefined) {
+            sysConfig.groupConfigs[groupId].videoDownloadResolution = videoDownloadResolution
+        }
+        if (videoDownloadMaxDuration === null) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadMaxDuration
+        } else if (videoDownloadMaxDuration !== undefined) {
+            sysConfig.groupConfigs[groupId].videoDownloadMaxDuration = videoDownloadMaxDuration
+        }
+
+        sysConfig.save()
+        res.json({ success: true, config: sysConfig.groupConfigs[groupId] })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
+
+// DELETE /api/groups/:groupId/video-download-config - Reset group-level video download config
+router.delete('/groups/:groupId/video-download-config', async (req, res) => {
+    try {
+        const groupId = String(req.params.groupId)
+        if (sysConfig.groupConfigs[groupId]) {
+            delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
+            delete sysConfig.groupConfigs[groupId].videoDownloadResolution
+            delete sysConfig.groupConfigs[groupId].videoDownloadMaxDuration
+            sysConfig.save()
+        }
+        res.json({ success: true })
+    } catch (e) {
+        res.status(500).json({ error: e.message })
+    }
+})
 
 // GET /api/groups/:id/bili-groups - Get Bilibili follow groups
 router.get('/groups/:id/bili-groups', async (req, res) => {
@@ -1318,6 +1433,39 @@ router.get('/monitor', async (req, res) => {
     } catch (error) {
         logger.error('Error fetching system stats:', error);
         res.status(500).json({ error: 'Failed to fetch system stats' });
+    }
+});
+
+// ==================== User Profiles ====================
+
+// GET /api/profiles/:groupId - Get all user profiles for a group
+router.get('/profiles/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        if (!groupId || !isValidProfileGroupId(groupId)) {
+            return res.status(400).json({ error: 'Invalid groupId' });
+        }
+        const profiles = await userProfileService.getAllProfiles(groupId);
+        res.json(profiles);
+    } catch (error) {
+        logger.error('[API] Error fetching user profiles:', error);
+        res.status(500).json({ error: 'Failed to fetch user profiles' });
+    }
+});
+
+// DELETE /api/profiles/:groupId/:userId - Reset a single user's profile
+router.delete('/profiles/:groupId/:userId', authenticateToken, async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.groupId);
+        const userId = req.params.userId;
+        if (!groupId || !isValidProfileGroupId(groupId) || !userId) {
+            return res.status(400).json({ error: 'Invalid groupId or userId' });
+        }
+        await userProfileService.deleteProfile(groupId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('[API] Error deleting user profile:', error);
+        res.status(500).json({ error: 'Failed to delete user profile' });
     }
 });
 

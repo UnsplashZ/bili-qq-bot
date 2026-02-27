@@ -9,7 +9,7 @@ const ServiceManager = require('./services/ServiceManager');
 const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
 
-global.bot = global.bot || { groupList: new Map() };
+global.bot = global.bot || { groupList: new Map(), selfId: '0' };
 
 // WebSocket连接管理
 let ws = null;
@@ -110,6 +110,7 @@ function createWebSocketConnection() {
 
     logger.info(`Attempting to connect to NapCat WebSocket (attempt ${reconnectCount + 1})...`);
     ws = new WebSocket(`${config.wsUrl}?access_token=${config.wsToken}`);
+    global.bot.ws = ws  // 暴露当前活跃连接供异步任务使用
 
     ws.on('open', function open() {
         logger.info('Connected to NapCat WebSocket');
@@ -118,6 +119,12 @@ function createWebSocketConnection() {
         // 设置WebSocket并启动订阅服务
         // subscriptionService.setWs(ws); // 已移除，ws 在 start 中传入
         subscriptionService.start(ws);
+
+        const videoDownloadService = require('./services/videoDownloadService')
+        videoDownloadService.startCleanupScheduler()
+
+        // 主动获取 selfId（供视频下载转发消息使用）
+        ws.send(JSON.stringify({ action: 'get_login_info', params: {}, echo: 'init_self_id' }))
 
         requestGroupList();
         if (groupRefreshTimer) {
@@ -130,6 +137,11 @@ function createWebSocketConnection() {
     ws.on('message', function incoming(data) {
         try {
             const payload = JSON.parse(data);
+
+            if (payload && payload.echo === 'init_self_id' && payload.data && payload.data.user_id) {
+                global.bot.selfId = String(payload.data.user_id)
+                logger.info(`[Bot] selfId initialized from login_info: ${global.bot.selfId}`)
+            }
 
             if (payload && payload.echo && String(payload.echo).startsWith(GROUP_LIST_ECHO_PREFIX)) {
                 const list = Array.isArray(payload.data) ? payload.data : [];
@@ -157,6 +169,12 @@ function createWebSocketConnection() {
             if (payload.post_type === 'message') {
                 if (payload.message_type === 'group') {
                     logger.info(`Received group message from ${payload.user_id} in ${payload.group_id}`);
+                    // Fallback：如果 get_login_info 响应尚未到达，从首条群消息中提取 selfId
+                    // 正常路径：bot 登录成功后 get_login_info 的响应会先于群消息将 selfId 写入
+                    if (payload.self_id && global.bot.selfId === '0') {
+                        global.bot.selfId = String(payload.self_id)
+                        logger.info(`[Bot] Stored selfId: ${global.bot.selfId}`)
+                    }
                     messageHandler.handleMessage(ws, payload);
                 } else if (payload.message_type === 'private') {
                     logger.info(`Received private message from ${payload.user_id}`);
@@ -220,6 +238,9 @@ function createWebSocketConnection() {
 
     ws.on('close', function close(code, reason) {
         logger.warn(`Disconnected from NapCat (Code: ${code}, Reason: ${reason || 'N/A'})`);
+
+        // 清除全局 ws 引用（仅清空当前实例，避免误清新连接）
+        if (global.bot.ws === ws) global.bot.ws = null
 
         // 清除WebSocket引用，停止订阅检查
         // subscriptionService.setWs(null); // setWs method no longer exists in Facade

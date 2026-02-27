@@ -1,5 +1,7 @@
 const aiHandler = require('./aiHandler');
 const vectorMemoryService = require('../services/vectorMemoryService');
+const userProfileService = require('../services/userProfileService');
+const aiContextService = require('../services/aiContextService');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const config = require('../config');
@@ -130,10 +132,14 @@ class MessageHandler {
         }
 
         // Record message for AI context
-        if (rawMessage) {
-            const sender = messageData.sender || {};
-            const userName = sender.card || sender.nickname || `用户${userId}`;
-            aiHandler.addMessageToContext(groupId || userId, 'user', rawMessage, userId, userName);
+        const sender = messageData.sender || {};
+        const userName = sender.card || sender.nickname || `用户${userId}`;
+        if (rawMessage && !rawMessage.trim().startsWith('/')) {
+            // 与向量记忆保持一致：存储前清洗 CQ 码，减少上下文噪声 token
+            const cleanForContext = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
+            if (cleanForContext) {
+                aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName);
+            }
         }
 
         // Check for JSON message (Mini Program) and extract URL (before cache check)
@@ -198,8 +204,12 @@ class MessageHandler {
         if (groupId && rawMessage && !rawMessage.trim().startsWith('/')) {
              const cleanMsg = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
              if (cleanMsg) {
-                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user').catch(e => {
+                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
                      logger.error('[MessageHandler] Failed to save vector memory:', e);
+                 });
+                 // Record message for user profile metadata (no LLM call, always fast)
+                 userProfileService.recordMessage(groupId, userId, userName).catch(e => {
+                     logger.error('[MessageHandler] Failed to record message for user profile:', e);
                  });
              }
         }
@@ -311,6 +321,10 @@ class MessageHandler {
                 this.sendGroupMessage(ws, groupId, [
                     { type: 'text', data: { text: reply } }
                 ]);
+                // Async profile update check (fire-and-forget, only triggers if conditions met)
+                userProfileService.maybeUpdateProfile(groupId, userId, userName, aiContextService, vectorMemoryService).catch(e => {
+                    logger.error('[MessageHandler] Failed to maybe update user profile:', e);
+                });
             }
         }
     }

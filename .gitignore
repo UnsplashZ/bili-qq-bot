@@ -30,7 +30,9 @@ data/subfollowers*
 data/contexts/*
 data/vectors/*
 data/cache/*
+data/downloads/*
 data/*.json
+data/profiles/*
 napcat/*
 
 # Project Logs
@@ -55,5 +57,3 @@ temp/
 # Test
 test*
 coverage/
-
-AGENTS.md

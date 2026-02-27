@@ -2,7 +2,7 @@ import React from 'react';
 import { X, Home, Users, Settings, Terminal } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
-const MobileMenuItem = ({ icon: Icon, label, href, active, onClick }) => {
+const MobileMenuItem = ({ icon, label, href, active, onClick }) => {
   return (
     <Link
       to={href}
@@ -13,7 +13,7 @@ const MobileMenuItem = ({ icon: Icon, label, href, active, onClick }) => {
           : 'text-gray-400 hover:bg-white/5 hover:text-white'
       }`}
     >
-      <Icon size={24} />
+      {React.createElement(icon, { size: 24 })}
       <span className="text-lg font-medium">{label}</span>
     </Link>
   );

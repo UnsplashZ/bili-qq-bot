@@ -4,6 +4,7 @@ import asyncio
 import re
 import aiohttp
 import time
+import secrets
 from bs4 import BeautifulSoup
 import bilibili_api
 from bilibili_api import video, bangumi, user, article, live, dynamic, show, topic, opus, Credential
@@ -49,6 +50,12 @@ CREDENTIAL_FILE = 'data/cookies.json'
 GROUP_COOKIES_MAP_FILE = 'data/cookies_map.json'
 
 import os
+
+# 视频下载目录：写入 Bot 与 NapCat 共享目录（默认 /app/.config/QQ/tmp/downloads）
+# 不接受请求侧传入 output_dir，避免路径遍历风险
+DOWNLOADS_ALLOWED_BASE = os.path.realpath(
+    os.path.join(os.getenv('NAPCAT_TEMP_PATH', '/app/.config/QQ/tmp/'), 'downloads')
+)
 
 def get_credential_file(group_id=None):
     if not group_id:
@@ -1592,6 +1599,222 @@ async def handle_video(request):
         logger.error(f"Error in video handler: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
+_MAX_STREAM_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 单流最大 2GB，防止异常响应耗尽磁盘
+
+
+async def _download_stream_to_file(url: str, output_path: str) -> None:
+    """分块下载单个流到文件"""
+    headers = {
+        'Referer': 'https://www.bilibili.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    timeout = aiohttp.ClientTimeout(total=600, connect=30, sock_read=120)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(url, headers=headers) as resp:
+            resp.raise_for_status()
+            total_written = 0
+            with open(output_path, 'wb') as f:
+                async for chunk in resp.content.iter_chunked(1024 * 1024):
+                    total_written += len(chunk)
+                    if total_written > _MAX_STREAM_FILE_SIZE:
+                        raise RuntimeError(f'Stream file size exceeded {_MAX_STREAM_FILE_SIZE} bytes')
+                    f.write(chunk)
+
+
+async def download_video_file(bvid: str, page_index: int, resolution: str,
+                               output_dir: str, group_id=None, video_meta=None) -> dict:
+    """
+    下载视频到本地文件，返回文件路径和元信息。
+    使用 DASH 流时分别下载视频/音频再用 FFmpeg 合并。
+    """
+    from bilibili_api.video import VideoDownloadURLDataDetecter, VideoQuality, VideoCodecs
+
+    quality_map = {
+        '360p':  VideoQuality._360P,
+        '480p':  VideoQuality._480P,
+        '720p':  VideoQuality._720P,
+        '1080p': VideoQuality._1080P,
+        '1080p+': VideoQuality._1080P_PLUS,
+    }
+    target_quality = quality_map.get(resolution)
+    if target_quality is None:
+        logger.warning(f'[download_video_file] Unknown resolution "{resolution}", defaulting to 1080p')
+        target_quality = VideoQuality._1080P
+
+    v = video.Video(bvid=bvid, credential=load_credential(group_id))
+
+    if video_meta:
+        # 使用 Node 侧传入的元信息，跳过 API 调用
+        title = video_meta.get('title', bvid)
+        owner = video_meta.get('owner', 'Unknown')
+        duration = video_meta.get('duration', 0)
+        total_pages = video_meta.get('total_pages', 1)
+    else:
+        # fallback：自行拉取（兼容其他调用方）
+        info = await v.get_info()
+        title = info.get('title', bvid)
+        owner = info.get('owner', {}).get('name', 'Unknown')
+        duration = info.get('duration', 0)
+        pages = info.get('pages', [])
+        total_pages = len(pages) if pages else 1
+
+    download_data = await v.get_download_url(page_index=page_index)
+    detector = VideoDownloadURLDataDetecter(download_data)
+    try:
+        # 传入编码优先级：优先 AVC，其次 HEV，最后 AV1
+        streams = detector.detect_best_streams(
+            video_max_quality=target_quality,
+            codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
+        )
+    except TypeError as e:
+        # 兼容旧版签名：不支持 codecs 参数
+        if 'codecs' not in str(e):
+            raise
+        logger.warning('[download_video_file] detect_best_streams does not support codecs, falling back')
+        streams = detector.detect_best_streams(video_max_quality=target_quality)
+
+    if not streams:
+        return {'status': 'error', 'message': 'no_streams_available'}
+
+    # 路径安全验证（使用模块级 DOWNLOADS_ALLOWED_BASE，防止路径遍历）
+    resolved_dir = os.path.realpath(output_dir)
+    if resolved_dir != DOWNLOADS_ALLOWED_BASE and not resolved_dir.startswith(DOWNLOADS_ALLOWED_BASE + os.sep):
+        return {'status': 'error', 'message': 'invalid output_dir'}
+    os.makedirs(resolved_dir, exist_ok=True)
+    timestamp = int(time.time())
+    safe_bvid = re.sub(r'[^a-zA-Z0-9_-]', '_', bvid)
+    safe_group = re.sub(r'[^a-zA-Z0-9_-]', '_', str(group_id or 'default'))
+    rand_suffix = secrets.token_hex(4)
+    output_path = os.path.join(resolved_dir, f'{safe_bvid}_{safe_group}_{timestamp}_{rand_suffix}.mp4')
+
+    if len(streams) == 1:
+        # 单流：先下载，再尝试重封装为 faststart MP4；失败时回退原始文件
+        single_tmp = output_path + '_s.tmp'
+        await _download_stream_to_file(streams[0].url, single_tmp)
+        proc = None
+        remux_ok = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'ffmpeg', '-y', '-i', single_tmp,
+                '-c', 'copy', '-movflags', '+faststart', output_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError('FFmpeg timeout after 300s')
+            if proc.returncode != 0:
+                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[-500:]}')
+            remux_ok = True
+        except Exception as e:
+            logger.warning(f'[download_video_file] Single stream remux failed, fallback raw stream: {e}')
+            try:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            os.replace(single_tmp, output_path)
+        finally:
+            # 确保 FFmpeg 进程被终止（防止 asyncio cancel 导致孤儿进程）
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            if remux_ok:
+                try:
+                    if os.path.exists(single_tmp):
+                        os.remove(single_tmp)
+                except Exception:
+                    pass
+    else:
+        # DASH：并发下载视频流和音频流，再合并
+        video_tmp = output_path + '_v.tmp'
+        audio_tmp = output_path + '_a.tmp'
+        proc = None
+        try:
+            await asyncio.gather(
+                _download_stream_to_file(streams[0].url, video_tmp),
+                _download_stream_to_file(streams[1].url, audio_tmp),
+            )
+            proc = await asyncio.create_subprocess_exec(
+                'ffmpeg', '-y', '-i', video_tmp, '-i', audio_tmp,
+                '-c', 'copy', '-movflags', '+faststart', output_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError('FFmpeg timeout after 300s')
+            if proc.returncode != 0:
+                raise RuntimeError(f'FFmpeg failed: {stderr.decode()[-500:]}')
+        finally:
+            # 确保 FFmpeg 进程被终止（防止 asyncio cancel 导致孤儿进程）
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            for tmp in [video_tmp, audio_tmp]:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except Exception:
+                    pass
+
+    return {
+        'status': 'success',
+        'file_path': output_path,
+        'title': title,
+        'owner': owner,
+        'duration': duration,
+        'total_pages': total_pages,
+        'page_index': page_index,
+    }
+
+
+async def handle_video_download(request):
+    try:
+        data = await request.json()
+        bvid = data.get('bvid', '').strip()
+        try:
+            page_index = int(data.get('page_index', 0))
+            if page_index < 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return web.json_response({'status': 'error', 'message': 'invalid page_index'}, status=400)
+        resolution = data.get('resolution', '1080p')
+        # output_dir 固定使用模块级 DOWNLOADS_ALLOWED_BASE，不接受外部传入
+        group_id = data.get('group_id')
+        video_meta = data.get('video_meta')
+
+        if not bvid:
+            return web.json_response({'status': 'error', 'message': 'bvid is required'}, status=400)
+
+        VALID_RESOLUTIONS = {'360p', '480p', '720p', '1080p', '1080p+'}
+        if resolution not in VALID_RESOLUTIONS:
+            return web.json_response({'status': 'error', 'message': 'invalid resolution'}, status=400)
+
+        try:
+            result = await asyncio.wait_for(
+                download_video_file(bvid, page_index, resolution, DOWNLOADS_ALLOWED_BASE, group_id, video_meta),
+                timeout=270  # 略低于 Node 侧 300s 超时，确保 Python 先返回错误
+            )
+        except asyncio.TimeoutError:
+            logger.error(f'[handle_video_download] Timeout after 270s for {bvid}')
+            return web.json_response({'status': 'error', 'message': 'download_timeout'})
+
+        return web.json_response(result)
+    except Exception as e:
+        import traceback
+        logger.error(f'[handle_video_download] Error: {e}\n{traceback.format_exc()}')
+        return web.json_response({'status': 'error', 'message': str(e)}, status=500)
+
+
 async def handle_bangumi(request):
     try:
         data = await request.json()
@@ -1928,6 +2151,7 @@ def create_app():
         web.post('/live_feed', handle_live_feed),
         web.post('/credential_info', handle_credential_info),
         web.post('/refresh_credential', handle_refresh_credential),
+        web.post('/video_download', handle_video_download),
         web.get('/health', health_check),
     ])
     return app

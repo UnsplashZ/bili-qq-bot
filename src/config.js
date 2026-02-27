@@ -204,6 +204,12 @@ const META = {
     aiEnableVectorCache: { env: null, def: true, type: 'bool' },
     aiEnableSmartTrim: { env: null, def: true, type: 'bool' },
 
+    // AI User Profile Configuration
+    aiProfileEnabled: { env: null, def: false, type: 'bool' },
+    aiProfileMinMessages: { env: null, def: 30, type: 'int' },
+    aiProfileUpdateInterval: { env: null, def: 50, type: 'int' },
+    aiProfileMaxLength: { env: null, def: 200, type: 'int' },
+
     // System Configuration
     pythonPath: {
         env: 'PYTHON_PATH',
@@ -281,6 +287,11 @@ const META = {
     dataCacheTTL: { env: 'DATA_CACHE_TTL', def: 3600, type: 'int' },
     subscriptionCheckInterval: { env: null, def: 60, type: 'int' },
     showId: { env: null, def: true, type: 'bool' },
+    videoDownloadEnabled: { env: null, def: false, type: 'bool' },
+    videoDownloadResolution: { env: null, def: '1080p', type: 'string' },
+    videoDownloadMaxDuration: { env: null, def: 600, type: 'int' },
+    videoDownloadAutoClean: { env: null, def: true, type: 'bool' },
+    videoDownloadCleanTimeout: { env: null, def: 6, type: 'int' },
 
     // State Arrays (lazyInit = true for reference stability)
     blacklistedQQs: { env: null, def: [], type: 'array', lazyInit: true },
@@ -638,6 +649,50 @@ function isRagEnabledForGroup(groupId) {
     return true;
 }
 
+/**
+ * Check if video download is enabled for a specific group
+ * @param {string} groupId - Group ID
+ * @returns {boolean}
+ */
+function isVideoDownloadEnabledForGroup(groupId) {
+    // 群级配置可独立覆盖全局开关（设计要求：群可"独立覆盖"）
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && 'videoDownloadEnabled' in groupConfig) {
+        return groupConfig.videoDownloadEnabled
+    }
+    // 无群级配置则继承全局
+    return config.videoDownloadEnabled
+}
+
+/**
+ * Get effective video download resolution for a group (group > global > default)
+ * @param {string} groupId
+ * @returns {string}
+ */
+function getVideoDownloadResolutionForGroup(groupId) {
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && 'videoDownloadResolution' in groupConfig) {
+        return groupConfig.videoDownloadResolution
+    }
+    return config.videoDownloadResolution
+}
+
+/**
+ * Get effective max duration limit for a group, in seconds. 0 means no limit.
+ * @param {string} groupId
+ * @returns {number}
+ */
+function getVideoDownloadMaxDurationForGroup(groupId) {
+    const groupConfig = config.groupConfigs[String(groupId)]
+    if (groupConfig && 'videoDownloadMaxDuration' in groupConfig) {
+        return groupConfig.videoDownloadMaxDuration
+    }
+    return config.videoDownloadMaxDuration
+}
+
 module.exports = config;
 module.exports.isAiEnabledForGroup = isAiEnabledForGroup;
 module.exports.isRagEnabledForGroup = isRagEnabledForGroup;
+module.exports.isVideoDownloadEnabledForGroup = isVideoDownloadEnabledForGroup;
+module.exports.getVideoDownloadResolutionForGroup = getVideoDownloadResolutionForGroup;
+module.exports.getVideoDownloadMaxDurationForGroup = getVideoDownloadMaxDurationForGroup;

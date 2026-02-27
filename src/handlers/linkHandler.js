@@ -255,6 +255,11 @@ class LinkHandler {
                             base64Image = await imageGenerator.generatePreviewCard(info, 'video', groupId);
                             url = `https://www.bilibili.com/video/${id}`;
                             await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            // 异步触发视频下载（不阻塞预览卡片发送）
+                            const videoDownloadService = require('../services/videoDownloadService')
+                            videoDownloadService.downloadAndSend(ws, groupId, id, info).catch(e => {
+                                logger.error(`[LinkHandler] downloadAndSend failed for ${id}:`, e)
+                            })
                         } catch (imgError) {
                             logger.error(`[LinkHandler] Image generation failed for video ${id}, sending text only:`, imgError);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
@@ -530,7 +535,7 @@ class LinkHandler {
         // 添加所有提取到的链接到缓存
         for (const link of links) {
             const { cacheKey } = link;
-            this.linkCache.set(cacheKey, Date.now() + timeout);
+            this.linkCache.set(cacheKey, Date.now());
             logger.debug(`[LinkHandler] Added to cache: ${cacheKey} (timeout: ${timeout}ms)`);
         }
     }

@@ -6,6 +6,11 @@ const logger = require('../utils/logger');
 const storageUtils = require('../utils/storageUtils');
 const { getAxiosProxyConfig } = require('../utils/proxyUtils');
 
+// 向量搜索评分加权常量
+const SEARCH_USER_BOOST = 0.05        // 当前用户消息的相关性加成
+const SEARCH_TIME_BOOST_MAX = 0.03    // 时间新鲜度最大加成
+const SEARCH_TIME_DECAY_DAYS = 30     // 时间衰减窗口（天）
+
 class VectorMemoryService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'vectors');
@@ -303,7 +308,7 @@ class VectorMemoryService {
     }
 
     // Add a new memory (with deduplication)
-    async addMemory(groupId, text, role) {
+    async addMemory(groupId, text, role, userId = null, userName = null) {
         // Only index user messages or assistant replies that are meaningful
         const shortThreshold = config.getGroupConfig(groupId, 'aiShortMessageThreshold');
         if (!text || text.length < shortThreshold) {
@@ -312,8 +317,9 @@ class VectorMemoryService {
         }
 
         try {
-            logger.info(`[VectorMemory] Getting embedding for: "${text.substring(0, 20)}..."`);
-            const vector = await this.getEmbedding(text);
+            const embeddingText = (role === 'user' && userName) ? `${userName}: ${text}` : text
+            logger.info(`[VectorMemory] Getting embedding for: "${embeddingText.substring(0, 20)}..."`);
+            const vector = await this.getEmbedding(embeddingText);
             if (!vector) {
                 logger.warn('[VectorMemory] Failed to generate vector, skipping save.');
                 return;
@@ -345,16 +351,20 @@ class VectorMemoryService {
             }
 
             // Not a duplicate - add new memory with metadata
-            memory.push({
+            const importance = this.calculateImportance(text, role, Date.now(), 1)
+            const entry = {
                 text,
                 role,
                 vector,
                 timestamp: Date.now(),
                 accessCount: 1,
-                importance: this.calculateImportance(text, role, Date.now(), 1)
-            });
+                importance,
+            }
+            if (userId != null) entry.userId = String(userId)
+            if (userName != null) entry.userName = userName
+            memory.push(entry);
 
-            logger.info(`[VectorMemory] Added new memory (importance: ${this.calculateImportance(text, role).toFixed(1)})`);
+            logger.info(`[VectorMemory] Added new memory (importance: ${importance.toFixed(1)})`);
 
             // Keep max vectors based on memory limit to prevent in-memory bloat
             // Use batch delete for efficiency
@@ -473,25 +483,28 @@ class VectorMemoryService {
     }
 
     // Search for relevant memories (with L3 query caching)
-    async search(groupId, queryText, limit) {
+    async search(groupId, queryText, limit, currentUserId = null) {
         try {
             // Use config value if limit not specified
             if (!limit) {
                 limit = config.getGroupConfig(groupId, 'aiVectorSearchLimit');
             }
 
+            // Build L3 cache key that includes userId to avoid cross-user cache collisions
+            const cacheKey = `${queryText}:${currentUserId || ''}`
+
             // Check L3 query cache if enabled (with TTL)
             if (config.aiEnableVectorCache) {
                 const cache = this.groupCache.get(groupId);
-                if (cache && cache.queryCache.has(queryText)) {
-                    const cached = cache.queryCache.get(queryText);
+                if (cache && cache.queryCache.has(cacheKey)) {
+                    const cached = cache.queryCache.get(cacheKey);
                     // 检查是否过期
                     if (cached.expires > Date.now()) {
                         logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
                         return cached.results;
                     } else {
                         // 过期则删除
-                        cache.queryCache.delete(queryText);
+                        cache.queryCache.delete(cacheKey);
                         logger.debug(`[VectorMemory] L3 cache expired for query: "${queryText.substring(0, 20)}..."`);
                     }
                 }
@@ -503,13 +516,21 @@ class VectorMemoryService {
             const memory = await this.loadGroupMemory(groupId);
             if (memory.length === 0) return [];
 
-            const scored = memory.map(m => ({
-                text: m.text,
-                role: m.role,
-                timestamp: m.timestamp,
-                score: this.cosineSimilarity(queryVector, m.vector),
-                memoryRef: m // Keep reference to update access count
-            }));
+            const scored = memory.map(m => {
+                const semanticScore = this.cosineSimilarity(queryVector, m.vector)
+                const userBoost = (currentUserId && String(currentUserId) === String(m.userId)) ? SEARCH_USER_BOOST : 0
+                const ageHours = (Date.now() - (m.timestamp || 0)) / (1000 * 60 * 60)
+                const timeBoost = Math.max(0, SEARCH_TIME_BOOST_MAX * (1 - ageHours / (24 * SEARCH_TIME_DECAY_DAYS)))
+                return {
+                    text: m.text,
+                    role: m.role,
+                    timestamp: m.timestamp,
+                    userId: m.userId,
+                    userName: m.userName,
+                    score: semanticScore + userBoost + timeBoost,
+                    memoryRef: m // Keep reference to update access count
+                }
+            });
 
             // Filter by relevance threshold and sort descending
             const threshold = config.getGroupConfig(groupId, 'aiVectorSimilarityThreshold');
@@ -535,6 +556,8 @@ class VectorMemoryService {
                 text: r.text,
                 role: r.role,
                 timestamp: r.timestamp,
+                userId: r.userId,
+                userName: r.userName,
                 score: r.score
             }));
 
@@ -550,7 +573,7 @@ class VectorMemoryService {
                         cache.queryCache.delete(firstKey);
                     }
                     // 存储结果时添加过期时间戳
-                    cache.queryCache.set(queryText, {
+                    cache.queryCache.set(cacheKey, {
                         results: cleanResults,
                         expires: Date.now() + this.queryTTL
                     });
@@ -588,6 +611,19 @@ class VectorMemoryService {
             maxQueryCacheSize: this.maxQueryCacheSize,
             pendingSaves: this.saveTimers.size
         };
+    }
+
+    /**
+     * 按用户 ID 过滤记忆（供画像生成使用）
+     * 只能过滤存储了 userId 字段的记忆（Task 1 之后存储的新记录）
+     * 旧记忆无 userId 字段，自动被过滤掉
+     */
+    async getMemoriesByUser(groupId, userId, limit = 100) {
+        const memory = await this.loadGroupMemory(groupId)
+        return memory
+            .filter(m => m.userId && String(m.userId) === String(userId))
+            .slice(-limit)
+            .map(m => ({ text: m.text, role: m.role, timestamp: m.timestamp }))
     }
 }
 

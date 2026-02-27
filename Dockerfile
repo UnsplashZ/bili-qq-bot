@@ -20,6 +20,7 @@ RUN set -eux; \
 # - python3, python3-pip: 用于运行 B 站脚本
 # - fonts-noto-cjk, fonts-noto-color-emoji: 用于 Puppeteer 截图中文和 Emoji (关键！)
 # - chromium: 系统浏览器
+# - ffmpeg: 用于合并 DASH 视频/音频流（视频下载功能）
 # - --no-install-recommends: 不安装推荐包，减少体积
 # - autoremove + clean: 清理无用包和缓存
 # - rm doc/man: 删除文档和手册页
@@ -30,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-color-emoji \
     fonts-symbola \
     chromium \
+    ffmpeg \
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
@@ -79,7 +81,7 @@ COPY . .
 RUN cd dashboard && npm run build
 
 # 创建必要的目录
-RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
+RUN mkdir -p logs temp config fonts data/downloads && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
 EXPOSE 3000

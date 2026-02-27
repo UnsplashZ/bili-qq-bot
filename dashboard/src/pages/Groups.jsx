@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
 import GlassModal from '../components/GlassModal';
 import AiConfigSection from '../components/AiConfigSection';
 import { useToast } from '../hooks/useToast';
-import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, Loader2, Shield } from 'lucide-react';
+import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2, Plus, Loader2, Shield, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 
@@ -16,6 +16,7 @@ function Groups() {
   const [saving, setSaving] = useState(false);
   const { show } = useToast();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  // VIDEO_DOWNLOAD_TAB_INDEX 在 categories 定义后动态计算
 
   // Form State
   const [formData, setFormData] = useState({
@@ -60,6 +61,13 @@ function Groups() {
   // Admin State
   const [adminInput, setAdminInput] = useState('');
 
+  // Video Download Config State
+  const [videoDownloadConfig, setVideoDownloadConfig] = useState({
+    videoDownloadEnabled: null,
+    videoDownloadResolution: null,
+    videoDownloadMaxDuration: null,
+  });
+
   // Bilibili Groups State (Follow Groups)
   const [biliGroups, setBiliGroups] = useState([]);
   const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
@@ -78,7 +86,8 @@ function Groups() {
     aiTemperature: 1.0,
     adminQQ: undefined,
     aiEnabled: true,
-    aiRagEnabled: true
+    aiRagEnabled: true,
+    aiProfileEnabled: false
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
 
@@ -99,7 +108,8 @@ function Groups() {
             aiTemperature: res.data.aiTemperature ?? 1.0,
             adminQQ: res.data.adminQQ,
             aiEnabled: res.data.aiEnabled ?? true,
-            aiRagEnabled: res.data.aiRagEnabled ?? true
+            aiRagEnabled: res.data.aiRagEnabled ?? true,
+            aiProfileEnabled: res.data.aiProfileEnabled ?? false
           });
         }
       } catch (err) {
@@ -184,6 +194,27 @@ function Groups() {
       }
   }, []);
 
+  const categories = [
+    { name: '常规', icon: Settings },
+    { name: '订阅', icon: Bell },
+    { name: '权限', icon: Shield },
+    { name: 'AI', icon: Cpu },
+    { name: '关注同步', icon: RefreshCw },
+    { name: '视频下载', icon: Download },
+  ];
+  // 动态计算索引，防止插入新 tab 时遗漏更新（参见 CLAUDE.md 陷阱 #2）
+  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex(c => c.name === '视频下载');
+
+  // Video Download Config Handlers
+  const fetchVideoDownloadConfig = useCallback(async (gid) => {
+    try {
+      const resp = await api.get(`/api/groups/${gid}/video-download-config`);
+      setVideoDownloadConfig(resp.data);
+    } catch (e) {
+      console.error('Failed to fetch video download config:', e);
+    }
+  }, []);
+
   useEffect(() => {
     if (selectedGroupId) {
       const group = groups.find(g => g.id === selectedGroupId);
@@ -222,6 +253,7 @@ function Groups() {
           aiTemperature: config.aiTemperature ?? null,
           aiEnabled: config.aiEnabled ?? null,           // null表示继承全局
           aiRagEnabled: config.aiRagEnabled ?? null,     // null表示继承全局
+          aiProfileEnabled: config.aiProfileEnabled ?? null, // null表示继承全局
           // 加载深色模式配置
           nightMode: config.nightMode || {
             mode: "off",
@@ -242,9 +274,13 @@ function Groups() {
             // 🆕 Check global Bilibili login status
             checkGlobalBiliStatus();
         }
+        // If on video download tab (index 5), fetch video download config
+        if (selectedTabIndex === VIDEO_DOWNLOAD_TAB_INDEX) {
+            fetchVideoDownloadConfig(selectedGroupId);
+        }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig, VIDEO_DOWNLOAD_TAB_INDEX]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -512,13 +548,26 @@ function Groups() {
     }
   };
 
-  const categories = [
-    { name: '常规', icon: Settings },
-    { name: '订阅', icon: Bell },
-    { name: '权限', icon: Shield },
-    { name: 'AI', icon: Cpu },
-    { name: '关注同步', icon: RefreshCw },
-  ];
+  const saveVideoDownloadConfig = async () => {
+    try {
+      await api.put(`/api/groups/${selectedGroupId}/video-download-config`, videoDownloadConfig);
+      show('视频下载配置已更新', 'success');
+    } catch (error) {
+      console.error('Failed to save video download config:', error);
+      show('更新失败', 'error');
+    }
+  };
+
+  const resetVideoDownloadConfig = async () => {
+    try {
+      await api.delete(`/api/groups/${selectedGroupId}/video-download-config`);
+      setVideoDownloadConfig({ videoDownloadEnabled: null, videoDownloadResolution: null, videoDownloadMaxDuration: null });
+      show('已重置为全局默认', 'success');
+    } catch (error) {
+      console.error('Failed to reset video download config:', error);
+      show('重置失败', 'error');
+    }
+  };
 
   const subTypes = [
       { value: 'user', label: 'UP主' },
@@ -979,11 +1028,13 @@ function Groups() {
                       <AiConfigSection
                         config={{
                           aiEnabled: formData.aiEnabled,
-                          aiRagEnabled: formData.aiRagEnabled
+                          aiRagEnabled: formData.aiRagEnabled,
+                          aiProfileEnabled: formData.aiProfileEnabled
                         }}
                         globalConfig={{
                           aiEnabled: globalConfig.aiEnabled,
-                          aiRagEnabled: globalConfig.aiRagEnabled
+                          aiRagEnabled: globalConfig.aiRagEnabled,
+                          aiProfileEnabled: globalConfig.aiProfileEnabled
                         }}
                         onToggle={handleAiToggle}
                         onReset={handleAiReset}
@@ -1189,6 +1240,78 @@ function Groups() {
                              </div>
                          </div>
                      )}
+                </Tab.Panel>
+
+                {/* Video Download Tab */}
+                <Tab.Panel className="focus:outline-none">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-white">视频下载配置</h3>
+                    <GlassCard>
+                      <div className="space-y-4">
+                        {/* 启用：跟随全局 / 开 / 关 */}
+                        <div>
+                          <p className="text-white font-medium mb-2">启用视频下载</p>
+                          <div className="flex gap-3">
+                            {[{ label: '跟随全局', value: null }, { label: '开', value: true }, { label: '关', value: false }].map(opt => (
+                              <button key={String(opt.value)}
+                                onClick={() => setVideoDownloadConfig(p => ({ ...p, videoDownloadEnabled: opt.value }))}
+                                className={`px-3 py-1.5 rounded-lg text-sm ${videoDownloadConfig.videoDownloadEnabled === opt.value ? 'bg-purple-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                              >{opt.label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 分辨率 */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-white font-medium">默认分辨率</p>
+                          <div className="flex gap-2 items-center">
+                            <button
+                              onClick={() => setVideoDownloadConfig(p => ({ ...p, videoDownloadResolution: null }))}
+                              className={`px-3 py-1.5 rounded-lg text-sm ${videoDownloadConfig.videoDownloadResolution === null ? 'bg-purple-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                            >跟随全局</button>
+                            <select
+                              value={videoDownloadConfig.videoDownloadResolution ?? ''}
+                              onChange={e => setVideoDownloadConfig(p => ({ ...p, videoDownloadResolution: e.target.value || null }))}
+                              className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm"
+                            >
+                              <option value="" className="bg-gray-800">（跟随全局）</option>
+                              {['360p', '480p', '720p', '1080p', '1080p+'].map(r => (
+                                <option key={r} value={r} className="bg-gray-800">{r}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* 最大时长 */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-white font-medium">最大时长限制（秒）</p>
+                          <div className="flex gap-2 items-center">
+                            <button
+                              onClick={() => setVideoDownloadConfig(p => ({ ...p, videoDownloadMaxDuration: null }))}
+                              className={`px-3 py-1.5 rounded-lg text-sm ${videoDownloadConfig.videoDownloadMaxDuration === null ? 'bg-purple-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                            >跟随全局</button>
+                            <input type="number" min="0"
+                              value={videoDownloadConfig.videoDownloadMaxDuration ?? ''}
+                              onChange={e => setVideoDownloadConfig(p => ({ ...p, videoDownloadMaxDuration: e.target.value === '' ? null : parseInt(e.target.value) || 0 }))}
+                              placeholder="秒"
+                              className="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-1.5 text-sm w-24 text-right"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between pt-2">
+                          <button onClick={resetVideoDownloadConfig}
+                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm">
+                            重置为全局默认
+                          </button>
+                          <button onClick={saveVideoDownloadConfig}
+                            className="px-4 py-2 bg-purple-500/80 hover:bg-purple-500 text-white rounded-lg text-sm">
+                            保存
+                          </button>
+                        </div>
+                      </div>
+                    </GlassCard>
+                  </div>
                 </Tab.Panel>
               </Tab.Panels>
             </Tab.Group>
