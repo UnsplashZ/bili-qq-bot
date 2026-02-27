@@ -38,15 +38,22 @@
 
 *   🤖 **智能 AI 对话**
     *   群组记忆 (RAG)：内置向量记忆系统，支持长期记忆与语义检索
+    *   用户身份感知：向量记忆保留 `userId/userName`，降低群聊记忆串线
+    *   用户画像：按群可开关，自动生成参与者画像并注入个性化回复
     *   智能记忆管理：自动去重、重要性评分、智能保留策略、上下文和时间感知
     *   MCP支持：通过简单的配置文件，即可让Bot调用其他工具
     *   支持概率回复和 `@机器人` 触发
 
+*   ⬇️ **视频下载**
+    *   解析到 B 站视频链接后可异步自动下载并发送 MP4（不阻塞预览卡片）
+    *   支持多 P 视频续下：`/下载 P{n}`，并支持订阅推送视频下载扇出
+    *   支持全局与分群配置：开关、默认分辨率、最大时长、自动清理
+
 *   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、直播、番剧更新
 
-*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、订阅管理、日志查看、B站登录等操作，无需命令行
+*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、AI/RAG/画像开关、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
 
-*   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体
+*   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体，并包含 FFmpeg 依赖
 
 ## 预览效果
 
@@ -147,15 +154,15 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 ### 登录
 
-首次访问需要输入密码登录。默认密码为 `admin`，可通过 `.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。
+首次访问需要输入密码登录。默认密码为 `admin`，可通过 `.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。连续登录失败 5 次会被临时锁定 5 分钟。
 
 ### 功能模块
 
 | 模块 | 说明 |
 | :--- | :--- |
 | **仪表盘** | 实时监控 CPU、内存、网络等系统状态，可视化图表展示 |
-| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、订阅管理、关注同步 |
-| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站登录、AI 参数（模型/密钥/系统提示词）、应用重启 |
+| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、关注同步、视频下载（继承/覆盖） |
+| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站登录、AI 参数（模型/密钥/系统提示词）、AI/RAG/画像开关、视频下载全局策略、应用重启 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
 ### 前端开发
@@ -209,6 +216,9 @@ npm run build   # 生产构建，输出至 dashboard/dist
 
 | 字段名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
+| `aiEnabled` | 全局 AI 开关 | `true` |
+| `aiRagEnabled` | 全局 RAG 开关（依赖 AI 开启） | `true` |
+| `aiProfileEnabled` | 全局用户画像开关（依赖 AI 开启） | `false` |
 | `aiContextLimit` | AI 上下文保留条数 (发送给 API 的消息数) | `10` |
 | `aiHistoryMaxSize` | AI 历史对话文件大小限制 (字节) | `209715200` (200MB) |
 | `aiVectorMaxSize` | AI 向量记忆文件大小限制 (字节) | `209715200` (200MB) |
@@ -221,10 +231,18 @@ npm run build   # 生产构建，输出至 dashboard/dist
 | `aiVectorBatchLoadSize` | 向量批量加载大小 (预留) | `1000` |
 | `aiEnableVectorCache` | 启用向量搜索缓存 | `true` |
 | `aiEnableSmartTrim` | 启用智能记忆保留策略 | `true` |
+| `aiProfileMinMessages` | 首次生成画像所需最小发言数 | `30` |
+| `aiProfileUpdateInterval` | 画像增量更新触发间隔（新增发言数） | `50` |
+| `aiProfileMaxLength` | 单条画像最大长度（字） | `200` |
 | `blacklistedQQs` | 黑名单 QQ 列表 | `[]` |
 | `enabledGroups` | 允许响应的群组 (空为全部) | `[]` |
 | `linkCacheTimeout` | 链接解析缓存时间 (秒) | `600` |
 | `subscriptionCheckInterval` | 订阅轮询间隔 (秒) | `60` |
+| `videoDownloadEnabled` | 视频下载全局开关 | `false` |
+| `videoDownloadResolution` | 视频下载默认分辨率 (`360p/480p/720p/1080p/1080p+`) | `1080p` |
+| `videoDownloadMaxDuration` | 视频下载最大时长限制（秒，`0` 表示不限） | `600` |
+| `videoDownloadAutoClean` | 视频文件发送后自动清理 | `true` |
+| `videoDownloadCleanTimeout` | 下载目录兜底清理超时（小时） | `6` |
 | `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
 | `labelConfig` | 标签显示配置 | `{"video": true, ...}` |
 | `showId` | 是否在卡片中显示 UID | `true` |
@@ -245,6 +263,13 @@ npm run build   # 生产构建，输出至 dashboard/dist
 | `/设置 帮助` | 查看管理配置面板 | 当前群 | 所有人 |
 | `/AI 帮助` | 查看AI配置面板 | 当前群 | 所有人 |
 | `/订阅列表` | 查看本群当前的订阅列表 (用户与番剧) | 当前群 | 所有人 |
+
+### 视频下载指令
+| 指令 | 参数 | 说明 | 作用域 | 权限 |
+| :--- | :--- | :--- | :--- | :--- |
+| `/下载 P{n}` | 例如 `P2` | 下载最近一次视频链接的指定分 P（需当前群已启用视频下载） | 当前群 | 所有人 |
+| `/下载状态` | 无 | 查看下载目录文件数量与占用体积 | 当前群 | 群管/Root |
+| `/清理下载` | 无 | 清理下载目录中的视频文件（有活跃任务时会拒绝） | 当前群 | 群管/Root |
 
 ### 订阅管理 (需要群管理员权限)
 | 指令 | 参数 | 说明 | 作用域 |
@@ -346,6 +371,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 适用于开发调试或非 Docker 环境。
 
 1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Chrome/Chromium。
+    同时需要系统可用的 `ffmpeg`（用于下载后合并音视频流）。
 
 2.  **克隆项目**：
     ```bash
@@ -409,6 +435,8 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     *   `cache/`: API 数据缓存，加速解析并降低请求频率 (LRU 策略，1GB 上限)
     *   `contexts/`: AI 对话上下文历史 (每个群一个文件，最大 200MB)
     *   `vectors/`: AI 向量记忆库 (用于长期记忆检索，每个群一个文件，最大 200MB)
+    *   `profiles/`: AI 用户画像数据 (按群存储用户画像与活跃元数据)
+    *   `downloads/`: 视频下载临时文件目录 (自动清理)
     *   `cookies.json`: Bilibili 登录凭证 (用于获取高清资源/会员内容)
     *   `subscriptions.json`: 订阅配置信息 (UP主/番剧/关键词监控)
     *   `subfollowers.json`: 订阅推送目标列表 (群组/用户映射关系)
@@ -448,6 +476,8 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
                 *   `helpCard.js`: 帮助卡片生成 (用户/管理员菜单)
         *   `subscriptionService.js`: 订阅轮询与推送系统
         *   `vectorMemoryService.js`: 向量嵌入与相似度检索
+        *   `userProfileService.js`: 用户画像生成与存储
+        *   `videoDownloadService.js`: 视频下载、发送与清理调度
     *   `utils/`: 工具函数
         *   `logger.js`: 日志系统 (log4js)
         *   `cacheManager.js`: LRU 缓存管理器
