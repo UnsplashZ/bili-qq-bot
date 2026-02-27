@@ -194,6 +194,16 @@ function Groups() {
       }
   }, []);
 
+  // Video Download Config Handlers
+  const fetchVideoDownloadConfig = useCallback(async (gid) => {
+    try {
+      const resp = await api.get(`/api/groups/${gid}/video-download-config`);
+      setVideoDownloadConfig(resp.data);
+    } catch (e) {
+      console.error('Failed to fetch video download config:', e);
+    }
+  }, []);
+
   useEffect(() => {
     if (selectedGroupId) {
       const group = groups.find(g => g.id === selectedGroupId);
@@ -526,16 +536,6 @@ function Groups() {
       show('重置AI配置失败', 'error');
     }
   };
-
-  // Video Download Config Handlers
-  const fetchVideoDownloadConfig = useCallback(async (gid) => {
-    try {
-      const resp = await api.get(`/api/groups/${gid}/video-download-config`);
-      setVideoDownloadConfig(resp.data);
-    } catch (e) {
-      console.error('Failed to fetch video download config:', e);
-    }
-  }, []);
 
   const saveVideoDownloadConfig = async () => {
     try {

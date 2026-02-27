@@ -1,12 +1,15 @@
 const videoDownloadService = require('../services/videoDownloadService')
 const biliApi = require('../services/biliApi')
 const notificationService = require('../services/notificationService')
-const { isVideoDownloadEnabledForGroup } = require('../config')
+const config = require('../config')
+const { isVideoDownloadEnabledForGroup } = config
 const logger = require('../utils/logger')
 
 class DownloadCommand {
     async handle(context) {
-        const { ws, groupId, userId, rawMessage, isAdmin, isRoot } = context
+        const { ws, groupId, userId, rawMessage } = context
+        const isRoot = config.isRootAdmin(userId)
+        const isAdmin = config.isGroupAdmin(groupId, userId)
         const text = rawMessage.trim()
 
         // 快速前缀检查，避免对非下载命令执行正则
