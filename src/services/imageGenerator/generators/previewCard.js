@@ -123,16 +123,63 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
             await page.waitForSelector('.container', { timeout: 5000 });
 
             // 额外等待图片加载（如果需要）
-            await page.evaluate(async () => {
-                const selectors = Array.from(document.querySelectorAll("img"));
-                await Promise.all(selectors.map(img => {
-                    if (img.complete) return;
-                    return new Promise((resolve, reject) => {
-                        img.addEventListener('load', resolve);
-                        img.addEventListener('error', resolve);
-                    });
-                }));
-            });
+            if (type === 'article') {
+                await page.evaluate(async () => {
+                    const lazyAttrs = ['data-src', 'data-original', 'data-url', 'data-lazy-src', 'data-actualsrc']
+                    const placeholders = [/^data:image\/gif/i, /^about:blank$/i]
+                    const toSafeUrl = (url) => {
+                        if (!url) return ''
+                        if (url.startsWith('//')) return `https:${url}`
+                        return url
+                    }
+                    const isPlaceholder = (src) => placeholders.some(re => re.test(src || ''))
+                    const pickLazySrc = (img) => {
+                        for (const attr of lazyAttrs) {
+                            const value = img.getAttribute(attr)
+                            if (value) return value
+                        }
+                        return ''
+                    }
+                    const waitImageReady = (img, timeoutMs = 10000) => new Promise((resolve) => {
+                        if (img.complete && img.naturalWidth > 0) return resolve()
+                        const timer = setTimeout(() => resolve(), timeoutMs)
+                        const done = () => {
+                            clearTimeout(timer)
+                            resolve()
+                        }
+                        img.addEventListener('load', done, { once: true })
+                        img.addEventListener('error', done, { once: true })
+                    })
+
+                    const images = Array.from(document.querySelectorAll('img'))
+                    for (const img of images) {
+                        const srcAttr = img.getAttribute('src') || ''
+                        const currentSrc = srcAttr.trim()
+                        const lazySrc = pickLazySrc(img).trim()
+                        const shouldReplace = !currentSrc || isPlaceholder(currentSrc)
+                        const candidate = toSafeUrl(shouldReplace ? lazySrc : currentSrc)
+                        if (candidate && candidate !== currentSrc) {
+                            img.setAttribute('src', candidate)
+                        } else if (currentSrc.startsWith('//')) {
+                            img.setAttribute('src', toSafeUrl(currentSrc))
+                        }
+                    }
+
+                    await Promise.all(images.map(img => waitImageReady(img)))
+                    await new Promise(resolve => setTimeout(resolve, 150))
+                })
+            } else {
+                await page.evaluate(async () => {
+                    const selectors = Array.from(document.querySelectorAll('img'))
+                    await Promise.all(selectors.map(img => {
+                        if (img.complete) return
+                        return new Promise((resolve) => {
+                            img.addEventListener('load', resolve)
+                            img.addEventListener('error', resolve)
+                        })
+                    }))
+                })
+            }
 
             // Detect truncation after images are loaded
             await page.evaluate(() => {
