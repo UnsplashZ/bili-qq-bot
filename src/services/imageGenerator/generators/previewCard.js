@@ -59,7 +59,7 @@ function renderTypeBadge(type, data, groupId, currentType) {
         <div class="type-badge">
             <span>${currentType.icon}</span>
             <span>${currentType.label}</span>
-            ${isCharging ? '<span class="charging-mark">⚡ 充电专属</span>' : ''}
+            ${isCharging ? '<span class="charging-mark" title="充电专属" aria-label="充电专属">⚡</span>' : ''}
         </div>`;
 }
 

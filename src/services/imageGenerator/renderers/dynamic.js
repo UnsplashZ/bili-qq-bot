@@ -2,6 +2,7 @@ const { formatPubTime, formatNumber, escapeHtml } = require('../core/formatters'
 const { parseRichText } = require('./components/richtext');
 const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderMediaHtml } = require('./components/media');
+const { renderVerifyBadge } = require('./components/verifyBadge');
 const ICONS = require('./icons');
 const logger = require('../../../utils/logger');
 
@@ -160,12 +161,33 @@ function injectTopicNodeIfNeeded(nodes, topic, plainText) {
     return nodes
 }
 
+function toSafeNumber(value) {
+    const num = Number(value)
+    return Number.isFinite(num) ? num : 0
+}
+
+function normalizeDynamicImageItem(item) {
+    if (!item || typeof item !== 'object') return null
+    const url = item.url || item.src || ''
+    if (!url) return null
+    return {
+        url,
+        width: toSafeNumber(item.width),
+        height: toSafeNumber(item.height),
+        liveUrl: item.live_url || item.liveUrl || ''
+    }
+}
+
 function collectDynamicImages(dynamicModule) {
     if (dynamicModule.major?.draw?.items) {
-        return dynamicModule.major.draw.items.map(i => i.src).filter(Boolean)
+        return dynamicModule.major.draw.items
+            .map(normalizeDynamicImageItem)
+            .filter(Boolean)
     }
     if (dynamicModule.major?.opus?.pics) {
-        return dynamicModule.major.opus.pics.map(i => i.url).filter(Boolean)
+        return dynamicModule.major.opus.pics
+            .map(normalizeDynamicImageItem)
+            .filter(Boolean)
     }
     return []
 }
@@ -287,6 +309,11 @@ function renderDynamicContent(data) {
     const authorName = module_author.name || 'Unknown';
     const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const pubTime = formatPubTime(data.data.pub_ts) || formatPubTime(module_author.pub_ts) || module_author.pub_time || '';
+    const verifyType = Number(module_author.official_verify?.type)
+    const verifyBadgeNoFrame = renderVerifyBadge(
+        verifyType,
+        'author-verify-badge--dynamic author-verify-badge--no-frame'
+    )
 
     // Author decoration
     const decorationCard = module_author.decoration_card || {};
@@ -298,6 +325,14 @@ function renderDynamicContent(data) {
     const fanNumber = fanInfo.num_desc || '';
     const fanColor = authorInfo.fan_color || fanInfo.color || '#555';
     const serial = (fanNumber || authorInfo.card_number || null);
+    const hasFrame = !!pendantUrl
+    const avatarWrapperClass = hasFrame
+        ? 'avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--with-frame'
+        : 'avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--no-frame'
+    const verifyBadgeMain = renderVerifyBadge(
+        verifyType,
+        `author-verify-badge--dynamic ${hasFrame ? 'author-verify-badge--with-frame' : 'author-verify-badge--no-frame'}`
+    )
 
     // 充电专属内容：渲染占位卡片
     const major = module_dynamic.major;
@@ -309,8 +344,9 @@ function renderDynamicContent(data) {
         <div class="content">
             <div class="header">
                 <div class="header-left">
-                    <div class="avatar-wrapper">
+                    <div class="avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--no-frame">
                         <img class="avatar no-frame" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        ${verifyBadgeNoFrame}
                     </div>
                     <div class="user-info">
                         <span class="user-name">${escapeHtml(authorName)}</span>
@@ -319,7 +355,9 @@ function renderDynamicContent(data) {
                 </div>
             </div>
             <div class="charging-blocked-hint">
-                ${lines.map(l => `<p>${l}</p>`).join('')}
+                <div class="charging-blocked-panel">
+                    ${lines.map(l => `<p>${l}</p>`).join('')}
+                </div>
             </div>
             <div class="action-bar">
                 <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
@@ -390,9 +428,10 @@ function renderDynamicContent(data) {
         <div class="content">
             <div class="header">
                 <div class="header-left">
-                    <div class="avatar-wrapper">
+                    <div class="${avatarWrapperClass}">
                         <img class="avatar ${pendantUrl ? 'no-border' : 'no-frame'}" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                         ${pendantUrl ? `<img class="avatar-frame" src="${pendantUrl}" />` : ''}
+                        ${verifyBadgeMain}
                     </div>
                     <div class="user-info">
                         <span class="user-name">${authorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>

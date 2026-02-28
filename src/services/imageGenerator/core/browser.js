@@ -1,5 +1,29 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs');
 const logger = require('../../../utils/logger');
+
+function resolveBrowserExecutablePath() {
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        return process.env.PUPPETEER_EXECUTABLE_PATH
+    }
+
+    const candidates = [
+        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        '/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta',
+        '/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev'
+    ]
+
+    for (const candidate of candidates) {
+        try {
+            fs.accessSync(candidate, fs.constants.X_OK)
+            return candidate
+        } catch (e) {
+            // ignore and try next
+        }
+    }
+
+    return undefined
+}
 
 /**
  * Puppeteer 浏览器管理器 (单例模式)
@@ -56,8 +80,9 @@ class BrowserManager {
      */
     async init() {
         if (!this.browser) {
+            const executablePath = resolveBrowserExecutablePath()
             this.browser = await puppeteer.launch({
-                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+                executablePath,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -76,7 +101,7 @@ class BrowserManager {
                 headless: "new",
                 protocolTimeout: 60000 // 增加协议超时时间到 60s
             });
-            logger.info('Puppeteer browser initialized');
+            logger.info(`Puppeteer browser initialized${executablePath ? ` (executable: ${executablePath})` : ''}`);
             
             // 监听浏览器断开连接事件
             this.browser.on('disconnected', () => {

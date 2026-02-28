@@ -321,7 +321,34 @@ function generateCSS(colorData, viewport) {
                 width: 128px;
                 height: 128px;
                 margin-right: 18px;
+                --verify-size: 32px;
+                --verify-right: 14px;
+                --verify-bottom: 14px;
                 transition: all 0.3s ease-in-out;
+            }
+
+            .avatar-wrapper--dynamic.avatar-wrapper--with-frame {
+                --verify-size: 30px;
+                --verify-right: 26px;
+                --verify-bottom: 26px;
+            }
+
+            .avatar-wrapper--dynamic.avatar-wrapper--no-frame {
+                --verify-size: 32px;
+                --verify-right: 14px;
+                --verify-bottom: 14px;
+            }
+
+            .avatar-wrapper--user.avatar-wrapper--no-frame {
+                --verify-size: 34px;
+                --verify-right: 6px;
+                --verify-bottom: 6px;
+            }
+
+            .avatar-wrapper--user.avatar-wrapper--with-frame {
+                --verify-size: 34px;
+                --verify-right: 6px;
+                --verify-bottom: 24px;
             }
 
             .avatar {
@@ -357,6 +384,27 @@ function generateCSS(colorData, viewport) {
                 z-index: 2;
                 filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
                 transition: all 0.3s ease-in-out;
+            }
+
+            .author-verify-badge {
+                position: absolute;
+                right: var(--verify-right, 10px);
+                bottom: var(--verify-bottom, 10px);
+                width: var(--verify-size, 34px);
+                height: var(--verify-size, 34px);
+                border-radius: 999px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+                z-index: 4;
+                pointer-events: none;
+            }
+
+            .author-verify-icon {
+                width: 100%;
+                height: 100%;
+                display: block;
             }
 
             .user-info {
@@ -762,15 +810,42 @@ function generateCSS(colorData, viewport) {
                 margin-top: 10px;
             }
 
-            .images-grid img {
+            .image-item {
+                position: relative;
+                width: 100%;
+                overflow: hidden;
+                border-radius: var(--radius-md);
+            }
+
+            .images-grid .image-item img {
                 width: 100%;
                 height: 100%;
                 object-fit: cover;
                 aspect-ratio: 1/1;
-                border-radius: var(--radius-md);
                 cursor: pointer;
                 transition: transform 0.2s;
                 box-shadow: var(--shadow-sm);
+            }
+
+            .image-type-badge {
+                position: absolute;
+                right: 8px;
+                bottom: 8px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 44px;
+                height: 28px;
+                padding: 0 10px;
+                border-radius: var(--radius-sm);
+                background: rgba(0, 0, 0, 0.52);
+                color: rgba(255, 255, 255, 0.98);
+                font-size: 18px;
+                font-weight: 600;
+                line-height: 1;
+                letter-spacing: 0.02em;
+                backdrop-filter: blur(4px);
+                -webkit-backdrop-filter: blur(4px);
             }
 
             .single-image {

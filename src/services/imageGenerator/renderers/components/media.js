@@ -1,6 +1,38 @@
 const { formatNumber } = require('../../core/formatters');
 const ICONS = require('../icons');
 
+function toSafeNumber(value) {
+    const num = Number(value)
+    return Number.isFinite(num) ? num : 0
+}
+
+function normalizeImageItem(item) {
+    if (!item) return null
+    if (typeof item === 'string') {
+        return { url: item, width: 0, height: 0, liveUrl: '' }
+    }
+    if (typeof item !== 'object') return null
+    const url = item.url || item.src || ''
+    if (!url) return null
+    return {
+        url,
+        width: toSafeNumber(item.width),
+        height: toSafeNumber(item.height),
+        liveUrl: item.liveUrl || item.live_url || ''
+    }
+}
+
+function resolveImageTypeTag(imageItem) {
+    if (!imageItem || !imageItem.url) return ''
+
+    const isAnimated = !!imageItem.liveUrl || /\.gif(?:$|[?#])/i.test(imageItem.url)
+    if (isAnimated) return '动图'
+
+    const { width, height } = imageItem
+    if (width > 0 && height > 0 && height / width >= 1.8) return '长图'
+    return ''
+}
+
 /**
  * 渲染媒体HTML (图片、视频卡片)
  * @param {Array} images - 图片URL数组
@@ -9,18 +41,30 @@ const ICONS = require('../icons');
  * @returns {String} HTML 字符串
  */
 function renderMediaHtml(images, videoCard, isOrig) {
-    if (images.length === 1) {
+    const imageItems = Array.isArray(images)
+        ? images.map(normalizeImageItem).filter(Boolean)
+        : []
+
+    if (imageItems.length === 1) {
          const cls = isOrig ? 'single-image is-orig' : 'dynamic-image';
-         return `<img class="${cls}" src="${images[0]}">`;
-    } else if (images.length > 1) {
+         return `<img class="${cls}" src="${imageItems[0].url}">`;
+    } else if (imageItems.length > 1) {
          const maxImages = 9;
-         const displayImages = images.slice(0, maxImages);
+         const displayImages = imageItems.slice(0, maxImages);
          const count = displayImages.length;
          // 2, 4 use 2 columns; 3, 5+ use 3 columns (default)
          const gridClass = (count === 2 || count === 4) ? 'cols-2' : '';
          return `
             <div class="images-grid ${gridClass} ${isOrig ? 'is-orig' : ''}">
-                ${displayImages.map(src => `<img src="${src}">`).join('')}
+                ${displayImages.map(item => {
+                    const typeTag = resolveImageTypeTag(item)
+                    return `
+                        <div class="image-item">
+                            <img src="${item.url}">
+                            ${typeTag ? `<span class="image-type-badge">${typeTag}</span>` : ''}
+                        </div>
+                    `
+                }).join('')}
             </div>`;
     } else if (videoCard) {
         if (videoCard.isLiveRcmd) {

@@ -1,4 +1,5 @@
 const { escapeHtml, formatNumber } = require('../core/formatters');
+const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
  * 渲染用户主页内容
@@ -20,6 +21,15 @@ function renderUserContent(data, show_id) {
     const vipLabel = info.vip && info.vip.label && info.vip.label.text ? info.vip.label.text : (isVip ? '大会员' : '');
     const medalName = info.fans_medal && info.fans_medal.medal ? info.fans_medal.medal.medal_name : '';
     const medalLevel = info.fans_medal && info.fans_medal.medal ? info.fans_medal.medal.level : 0;
+    const dynamicVerifyType = Number(info.dynamic?.modules?.module_author?.official_verify?.type)
+    const hasFrame = !!pendantImage
+    const verifyBadgeHtml = renderVerifyBadge(
+        dynamicVerifyType,
+        `author-verify-badge--user ${hasFrame ? 'author-verify-badge--with-frame' : 'author-verify-badge--no-frame'}`
+    )
+    const userAvatarWrapperClass = hasFrame
+        ? 'avatar-wrapper avatar-wrapper--user avatar-wrapper--with-frame'
+        : 'avatar-wrapper avatar-wrapper--user avatar-wrapper--no-frame'
 
     let dynamicHtml = '';
     if (info.dynamic) {
@@ -75,9 +85,10 @@ function renderUserContent(data, show_id) {
     return `
         <div class="content">
             <div class="header" style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 10px;">
-                <div class="avatar-wrapper" style="width: 150px; height: 150px; margin-bottom: 20px; box-sizing: content-box; ${pendantImage ? 'padding-top: 85px;' : ''}">
+                <div class="${userAvatarWrapperClass}" style="width: 150px; height: 150px; margin-bottom: 20px; box-sizing: content-box; ${pendantImage ? 'padding-top: 85px;' : ''}">
                     <img class="avatar ${pendantImage ? '' : 'no-frame'}" src="${face}" style="width: 150px; height: 150px; border-width: 4px;">
                     ${pendantImage ? `<img class="avatar-frame" src="${pendantImage}" style="width: 160%; height: 160%;">` : ''}
+                    ${verifyBadgeHtml}
                 </div>
                 <div class="user-info" style="width: 100%;">
                     <div class="user-name" style="font-size: 36px; font-weight: bold; color: var(--color-text); display: flex; align-items: center; justify-content: center; gap: 12px; white-space: nowrap;">

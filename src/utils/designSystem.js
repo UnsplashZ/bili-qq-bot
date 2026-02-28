@@ -239,28 +239,49 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
 
             /* 充电专属标记 */
             .charging-mark {
-                font-size: ${DESIGN_SYSTEM.typography.small};
-                font-weight: 600;
-                color: ${DESIGN_SYSTEM.charging.gold};
-                background: ${DESIGN_SYSTEM.charging.goldBg};
-                border: 1px solid ${DESIGN_SYSTEM.charging.goldBorder};
-                padding: 4px 12px;
-                border-radius: var(--radius-lg);
-                margin-left: 8px;
-                letter-spacing: 0.02em;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 1.2em;
+                height: 1.2em;
+                margin-left: 6px;
+                font-size: 0.95em;
+                line-height: 1;
+                color: rgba(255, 255, 255, 0.96);
+                text-shadow: none;
+                transform: translateY(-1px);
             }
 
             /* 充电专属动态占位样式 */
             .charging-blocked-hint {
-                padding: 20px 0 12px;
+                padding: 24px 0 14px;
                 color: var(--color-subtext);
-                font-size: var(--font-caption);
                 text-align: center;
                 line-height: 1.7;
             }
 
+            .charging-blocked-panel {
+                display: inline-flex;
+                flex-direction: column;
+                gap: 8px;
+                max-width: 100%;
+                padding: 18px 26px;
+                border-radius: var(--radius-lg);
+                border: 1px solid var(--color-border);
+                background: rgba(0, 0, 0, 0.045);
+                box-shadow: var(--shadow-sm);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
+            }
+
+            .theme-dark .charging-blocked-panel {
+                background: rgba(255, 255, 255, 0.08);
+            }
+
             .charging-blocked-hint p {
                 margin: 0;
+                font-size: calc(var(--font-caption) + 2px);
+                font-weight: 500;
             }
 
             /* 统一标题样式 */
