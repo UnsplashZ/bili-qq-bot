@@ -339,6 +339,19 @@ function renderDynamicContent(data) {
     if (major?.type === 'MAJOR_TYPE_BLOCKED') {
         const hint = major.blocked?.hint_message || '充电专属内容'
         const lines = hint.split('\n').map(escapeHtml)
+        const blockedBgDay = major.blocked?.bg_img?.img_day || major.blocked?.bg_img?.img_dark || ''
+        const blockedBgDark = major.blocked?.bg_img?.img_dark || blockedBgDay || ''
+        const hasBlockedBg = !!(blockedBgDay || blockedBgDark)
+        const blockedPanelClass = hasBlockedBg
+            ? 'charging-blocked-panel charging-blocked-panel--with-bg'
+            : 'charging-blocked-panel'
+        const blockedBgHtml = hasBlockedBg
+            ? `
+                <img class="charging-blocked-bg charging-blocked-bg--day" src="${escapeHtml(blockedBgDay)}" alt="">
+                <img class="charging-blocked-bg charging-blocked-bg--dark" src="${escapeHtml(blockedBgDark)}" alt="">
+                <span class="charging-blocked-overlay"></span>
+            `
+            : ''
         // 充电专属占位卡片：有意省略 pendant/decoration，保持简洁
         return `
         <div class="content">
@@ -355,8 +368,11 @@ function renderDynamicContent(data) {
                 </div>
             </div>
             <div class="charging-blocked-hint">
-                <div class="charging-blocked-panel">
-                    ${lines.map(l => `<p>${l}</p>`).join('')}
+                <div class="${blockedPanelClass}">
+                    ${blockedBgHtml}
+                    <div class="charging-blocked-text">
+                        ${lines.map(l => `<p>${l}</p>`).join('')}
+                    </div>
                 </div>
             </div>
             <div class="action-bar">

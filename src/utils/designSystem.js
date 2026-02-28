@@ -261,17 +261,77 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
             }
 
             .charging-blocked-panel {
-                display: inline-flex;
+                display: flex;
                 flex-direction: column;
-                gap: 8px;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                overflow: hidden;
+                gap: 10px;
+                width: 100%;
                 max-width: 100%;
-                padding: 18px 26px;
+                aspect-ratio: 21 / 9;
+                box-sizing: border-box;
+                padding: 26px 34px;
                 border-radius: var(--radius-lg);
                 border: 1px solid var(--color-border);
                 background: rgba(0, 0, 0, 0.045);
                 box-shadow: var(--shadow-sm);
-                backdrop-filter: blur(6px);
-                -webkit-backdrop-filter: blur(6px);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
+
+            .charging-blocked-panel--with-bg {
+                padding: 22px 28px;
+                background: transparent;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+
+            .charging-blocked-bg {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+
+            .charging-blocked-bg--day {
+                display: block;
+            }
+
+            .charging-blocked-bg--dark {
+                display: none;
+            }
+
+            .theme-dark .charging-blocked-bg--day {
+                display: none;
+            }
+
+            .theme-dark .charging-blocked-bg--dark {
+                display: block;
+            }
+
+            .charging-blocked-overlay {
+                position: absolute;
+                inset: 0;
+                background: rgba(255, 255, 255, 0.45);
+            }
+
+            .theme-dark .charging-blocked-overlay {
+                background: rgba(0, 0, 0, 0.5);
+            }
+
+            .charging-blocked-text {
+                position: relative;
+                z-index: 1;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                width: min(92%, 780px);
+                padding: 8px 10px;
             }
 
             .theme-dark .charging-blocked-panel {
@@ -280,8 +340,21 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
 
             .charging-blocked-hint p {
                 margin: 0;
-                font-size: calc(var(--font-caption) + 2px);
-                font-weight: 500;
+                font-size: calc(var(--font-caption) + 5px);
+                font-weight: 560;
+                line-height: 1.55;
+                color: rgba(33, 38, 45, 0.92);
+                text-shadow: 0 1px 2px rgba(255, 255, 255, 0.2);
+            }
+
+            .charging-blocked-hint p:first-child {
+                font-size: calc(var(--font-caption) + 7px);
+                font-weight: 650;
+            }
+
+            .theme-dark .charging-blocked-hint p {
+                color: rgba(255, 255, 255, 0.93);
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
             }
 
             /* 统一标题样式 */
