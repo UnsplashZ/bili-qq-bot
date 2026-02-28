@@ -149,6 +149,28 @@ class VideoDownloadService {
     }
 
     /**
+     * 计算当前下载目标的有效时长（优先分P，其次总时长）
+     * @param {object} videoInfo
+     * @param {number} pageIndex
+     * @returns {number} 秒
+     */
+    _getEffectiveDuration(videoInfo, pageIndex = 0) {
+        const pages = videoInfo?.data?.pages
+        if (Array.isArray(pages) && pages.length > 0) {
+            const idx = Number(pageIndex)
+            if (Number.isInteger(idx) && idx >= 0 && idx < pages.length) {
+                const pageDuration = Number(pages[idx]?.duration)
+                if (Number.isFinite(pageDuration) && pageDuration > 0) return pageDuration
+            }
+        }
+
+        const totalDuration = Number(videoInfo?.data?.duration)
+        if (Number.isFinite(totalDuration) && totalDuration > 0) return totalDuration
+
+        return 0
+    }
+
+    /**
      * 主入口：检查配置 → 下载 → 发送
      * @param {WebSocket} ws
      * @param {string} groupId
@@ -175,7 +197,7 @@ class VideoDownloadService {
             return { ok: false, reason: 'max_concurrent', silent: true }
         }
 
-        const duration = videoInfo?.data?.duration ?? 0
+        const duration = this._getEffectiveDuration(videoInfo, pageIndex)
         const maxDuration = getVideoDownloadMaxDurationForGroup(groupId)
 
         // 时长超限：发送独立提示消息，不下载
@@ -405,7 +427,7 @@ class VideoDownloadService {
         }
 
         // 按群独立过滤：只向时长限制内的群发送
-        const duration = videoInfo?.data?.duration ?? 0
+        const duration = this._getEffectiveDuration(videoInfo, pageIndex)
         const filteredGroups = enabledGroups.filter(gid => {
             const maxDur = getVideoDownloadMaxDurationForGroup(gid)
             return maxDur === 0 || duration <= maxDur
