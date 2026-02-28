@@ -5,6 +5,221 @@ const { renderMediaHtml } = require('./components/media');
 const ICONS = require('./icons');
 const logger = require('../../../utils/logger');
 
+function normalizePlainText(text) {
+    if (!text) return ''
+    return String(text)
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\u200b/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
+function stripImagePlaceholders(text, hasImages) {
+    const normalized = normalizePlainText(text)
+    if (!normalized) return ''
+    if (!hasImages) return normalized
+    return normalized
+        .replace(/\s*\[图片\]\s*/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
+function normalizeRichTextNodes(nodes, hasImages) {
+    if (!Array.isArray(nodes) || nodes.length === 0 || !hasImages) return nodes
+    return nodes.map(node => {
+        if (!node || typeof node !== 'object' || typeof node.text !== 'string') return node
+        const cleanedText = node.text
+            .replace(/\[图片\]/g, '')
+
+        if (cleanedText === node.text) return node
+
+        const nextNode = { ...node, text: cleanedText }
+        if (typeof node.orig_text === 'string') {
+            nextNode.orig_text = node.orig_text
+                .replace(/\[图片\]/g, '')
+        }
+        return nextNode
+    })
+}
+
+function normalizeForNodeCompare(text) {
+    return normalizePlainText(text)
+        .replace(/\[[^\]]+\]/g, '')
+        .replace(/\s+/g, '')
+}
+
+function canBorrowSummaryNodes(descText, summaryText) {
+    const normalizedDesc = normalizeForNodeCompare(descText)
+    const normalizedSummary = normalizeForNodeCompare(summaryText)
+    if (!normalizedDesc || !normalizedSummary) return false
+    return normalizedDesc === normalizedSummary
+}
+
+function buildNodesFromSummary(descText, summaryNodes) {
+    if (!Array.isArray(summaryNodes)) return summaryNodes
+    const copied = summaryNodes.map(node => {
+        if (!node || typeof node !== 'object') return node
+        return { ...node }
+    })
+
+    const textNodeIndexes = []
+    copied.forEach((node, index) => {
+        if (node?.type === 'RICH_TEXT_NODE_TYPE_TEXT') textNodeIndexes.push(index)
+    })
+
+    // Only safe when summary has exactly one text carrier node.
+    // Multiple text nodes can drift from desc segmentation.
+    if (textNodeIndexes.length !== 1) return null
+
+    const textNodeIndex = textNodeIndexes[0]
+    const target = copied[textNodeIndex] || {}
+    copied[textNodeIndex] = {
+        ...target,
+        text: descText,
+        orig_text: descText
+    }
+
+    return copied
+}
+
+function injectTopicNodeIfNeeded(nodes, topic, plainText) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return nodes
+    if (!topic || !topic.name) return nodes
+    if (nodes.some(node => node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC')) return nodes
+
+    const topicBase = `#${topic.name}`
+    const topicFull = `${topicBase}#`
+    const jumpUrl = topic.jump_url ||
+        (topic.id ? `https://www.bilibili.com/v/topic/detail/?topic_id=${topic.id}` : '')
+
+    const nextNodes = []
+    let inserted = false
+
+    for (const node of nodes) {
+        if (
+            inserted ||
+            !node ||
+            node.type !== 'RICH_TEXT_NODE_TYPE_TEXT' ||
+            typeof node.text !== 'string'
+        ) {
+            nextNodes.push(node)
+            continue
+        }
+
+        let matched = ''
+        let startIndex = node.text.indexOf(topicFull)
+        if (startIndex >= 0) {
+            matched = topicFull
+        } else {
+            startIndex = node.text.indexOf(topicBase)
+            if (startIndex >= 0) matched = topicBase
+        }
+
+        if (startIndex < 0 || !matched) {
+            nextNodes.push(node)
+            continue
+        }
+
+        const beforeText = node.text.slice(0, startIndex)
+        const afterText = node.text.slice(startIndex + matched.length)
+
+        if (beforeText) {
+            nextNodes.push({
+                ...node,
+                text: beforeText,
+                orig_text: beforeText
+            })
+        }
+
+        nextNodes.push({
+            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
+            text: matched,
+            orig_text: matched,
+            jump_url: jumpUrl
+        })
+
+        if (afterText) {
+            nextNodes.push({
+                ...node,
+                text: afterText,
+                orig_text: afterText
+            })
+        }
+
+        inserted = true
+    }
+
+    if (inserted) return nextNodes
+
+    // 无法安全拆分时保持原节点，避免重复渲染话题
+    if (typeof plainText === 'string' && (plainText.includes(topicBase) || plainText.includes(topicFull))) {
+        return nodes
+    }
+    return nodes
+}
+
+function collectDynamicImages(dynamicModule) {
+    if (dynamicModule.major?.draw?.items) {
+        return dynamicModule.major.draw.items.map(i => i.src).filter(Boolean)
+    }
+    if (dynamicModule.major?.opus?.pics) {
+        return dynamicModule.major.opus.pics.map(i => i.url).filter(Boolean)
+    }
+    return []
+}
+
+function resolveDynamicText(dynamicModule, hasImages) {
+    let text = ''
+    let richTextNodes = null
+    let source = 'empty'
+
+    if (dynamicModule.desc) {
+        text = dynamicModule.desc.text || ''
+        richTextNodes = dynamicModule.desc.rich_text_nodes
+        source = 'desc'
+    }
+
+    // desc 有正文但缺少 rich nodes 时，借用 summary 的富文本节点（用于恢复 emoji 等）
+    if (
+        source === 'desc' &&
+        normalizePlainText(text) &&
+        (!Array.isArray(richTextNodes) || richTextNodes.length === 0) &&
+        dynamicModule.major?.opus?.summary
+    ) {
+        const summary = dynamicModule.major.opus.summary
+        const summaryNodes = summary.rich_text_nodes
+        if (
+            Array.isArray(summaryNodes) &&
+            summaryNodes.length > 0 &&
+            summaryNodes.some(node => node?.type && node.type !== 'RICH_TEXT_NODE_TYPE_TEXT') &&
+            canBorrowSummaryNodes(text, summary.text || '')
+        ) {
+            const borrowedNodes = buildNodesFromSummary(text, summaryNodes)
+            if (Array.isArray(borrowedNodes) && borrowedNodes.length > 0) {
+                richTextNodes = borrowedNodes
+                source = 'desc_with_summary_nodes'
+            }
+        }
+    }
+
+    if (!normalizePlainText(text) && dynamicModule.major?.opus?.summary) {
+        text = dynamicModule.major.opus.summary.text || ''
+        richTextNodes = dynamicModule.major.opus.summary.rich_text_nodes
+        source = 'opus_summary'
+    }
+
+    richTextNodes = injectTopicNodeIfNeeded(richTextNodes, dynamicModule.topic, text)
+
+    return {
+        text: stripImagePlaceholders(text, hasImages),
+        richTextNodes: normalizeRichTextNodes(richTextNodes, hasImages),
+        title: dynamicModule.major?.opus?.title || '',
+        source
+    }
+}
+
 /**
  * 渲染转发的原动态内容
  * @param {Object} origItemRaw - 原动态数据
@@ -16,28 +231,13 @@ function renderOrigContent(origItemRaw) {
     const o_author = omodules.module_author || {};
     const o_dynamic = omodules.module_dynamic || {};
 
-    let o_text = "";
-    let o_title = "";
-    let o_richTextNodes = null;
-    if (o_dynamic.desc) {
-        o_text = o_dynamic.desc.text || "";
-        o_richTextNodes = o_dynamic.desc.rich_text_nodes;
-    } else if (o_dynamic.major?.opus) {
-        if (o_dynamic.major.opus.summary) {
-            o_text = o_dynamic.major.opus.summary.text || "";
-            o_richTextNodes = o_dynamic.major.opus.summary.rich_text_nodes;
-        }
-        o_title = o_dynamic.major.opus.title || "";
-    }
-    o_text = parseRichText(o_richTextNodes, o_text);
+    const o_images = collectDynamicImages(o_dynamic);
+    const resolvedOrig = resolveDynamicText(o_dynamic, o_images.length > 0);
+    const o_text = parseRichText(resolvedOrig.richTextNodes, resolvedOrig.text);
+    const o_title = resolvedOrig.title;
 
-    let o_images = [];
     let o_videoCard = null;
-    if (o_dynamic.major?.draw?.items) {
-        o_images = o_dynamic.major.draw.items.map(i => i.src);
-    } else if (o_dynamic.major?.opus?.pics) {
-        o_images = o_dynamic.major.opus.pics.map(i => i.url);
-    } else if (o_dynamic.major?.archive) {
+    if (o_dynamic.major?.archive) {
         o_videoCard = o_dynamic.major.archive;
         // if (!o_text) o_text = o_videoCard.desc; // Removed fallback
     }
@@ -131,7 +331,6 @@ function renderDynamicContent(data) {
 
     let text = "";
     let title = "";
-    let richTextNodes = null;
     let liveRcmdInfo = null;
 
     if (item.type === 'DYNAMIC_TYPE_LIVE_RCMD' && module_dynamic.major?.live_rcmd?.content) {
@@ -146,35 +345,22 @@ function renderDynamicContent(data) {
         }
     }
 
-    // 1. Try to get text from desc (user comment)
-    if (module_dynamic.desc) {
-        text = module_dynamic.desc.text || "";
-        richTextNodes = module_dynamic.desc.rich_text_nodes;
-    } 
-    
-    // 2. Fallback to opus summary if text is empty (common in Article shares or raw feed)
-    if (!text && module_dynamic.major?.opus?.summary) {
-         text = module_dynamic.major.opus.summary.text || "";
-         richTextNodes = module_dynamic.major.opus.summary.rich_text_nodes;
+    let images = collectDynamicImages(module_dynamic);
+    const resolvedText = resolveDynamicText(module_dynamic, images.length > 0);
+    text = parseRichText(resolvedText.richTextNodes, resolvedText.text);
+    title = resolvedText.title;
+
+    const dynamicId = item.id_str || data.data?.id_str || '';
+    if (resolvedText.source !== 'desc' && resolvedText.text) {
+        logger.debug(`[DynamicRenderer] Dynamic ${dynamicId}: text source fallback -> ${resolvedText.source}`);
     }
 
-    // 3. Always try to extract title from Opus if present
-    if (module_dynamic.major?.opus) {
-         title = module_dynamic.major.opus.title || "";
-    }
-
-    text = parseRichText(richTextNodes, text);
     const voteObj = getVoteFromModules(modules);
     const voteHtml = renderVoteCard(voteObj);
 
-    let images = [];
     let videoCard = null;
 
-    if (module_dynamic.major?.draw?.items) {
-        images = module_dynamic.major.draw.items.map(i => i.src);
-    } else if (module_dynamic.major?.opus?.pics) {
-         images = module_dynamic.major.opus.pics.map(i => i.url);
-    } else if (module_dynamic.major?.archive) {
+    if (module_dynamic.major?.archive) {
          videoCard = module_dynamic.major.archive;
          // if(!text) text = videoCard.desc; // Removed fallback
     } else if (liveRcmdInfo) {
@@ -236,4 +422,18 @@ function renderDynamicContent(data) {
     `;
 }
 
-module.exports = { renderDynamicContent, renderOrigContent };
+module.exports = {
+    renderDynamicContent,
+    renderOrigContent,
+    __internal: {
+        normalizePlainText,
+        stripImagePlaceholders,
+        normalizeRichTextNodes,
+        normalizeForNodeCompare,
+        canBorrowSummaryNodes,
+        buildNodesFromSummary,
+        injectTopicNodeIfNeeded,
+        collectDynamicImages,
+        resolveDynamicText
+    }
+};

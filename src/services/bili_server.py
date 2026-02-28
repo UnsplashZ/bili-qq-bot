@@ -239,6 +239,67 @@ async def _fetch_bytes(url: str) -> bytes:
         return b""
     return b""
 
+def _extract_cv_id(value):
+    if not value:
+        return None
+    match = re.search(r'/read/cv(\d+)', str(value), flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+def _normalize_preview_text(text):
+    if not text:
+        return ''
+    normalized = str(text).replace('\r\n', '\n').replace('\r', '\n').replace('\u200b', '')
+    normalized = re.sub(r'[ \t]+\n', '\n', normalized)
+    normalized = re.sub(r'\n{3,}', '\n\n', normalized)
+    return normalized.strip()
+
+def _count_image_placeholders(text):
+    if not text:
+        return 0
+    return len(re.findall(r'\[图片\]', str(text)))
+
+def _strip_image_placeholders(text):
+    if not text:
+        return ''
+    cleaned = re.sub(r'\s*\[图片\]\s*', '\n', str(text))
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned.strip()
+
+def _extract_opus_content_payload(opus_info):
+    text_lines = []
+    images = []
+
+    try:
+        opus_item = (opus_info or {}).get('item', {})
+        opus_modules = opus_item.get('modules', []) or []
+
+        for mod in opus_modules:
+            if mod.get('module_type') != 'MODULE_TYPE_CONTENT':
+                continue
+
+            paragraphs = (mod.get('module_content') or {}).get('paragraphs', []) or []
+            for paragraph in paragraphs:
+                para_type = paragraph.get('para_type')
+
+                if para_type == 1:
+                    nodes = ((paragraph.get('text') or {}).get('nodes') or [])
+                    line = ''.join([((node.get('word') or {}).get('words') or '') for node in nodes]).strip()
+                    if line:
+                        text_lines.append(line)
+                elif para_type == 2:
+                    pics = ((paragraph.get('pic') or {}).get('pics') or [])
+                    for pic in pics:
+                        url = pic.get('url')
+                        if url:
+                            images.append({'url': url})
+    except Exception:
+        return '', []
+
+    normalized_text = _normalize_preview_text('\n'.join(text_lines))
+    return normalized_text, images
+
 def _rgb_to_hex(rgb):
     r, g, b = rgb
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
@@ -1095,46 +1156,110 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             # ignore enrichment errors
             pass
 
-        # 尝试补充Opus内容图片（针对文章类型和Opus类型动态图片缺失的情况）
+        # 尝试补充文章型动态正文与Opus内容图片（保持失败回退，不中断主流程）
         try:
-            # 处理info可能是{'item': {...}}的情况
-            item = info.get('item', {})
-            md = item.get('modules', {}).get('module_dynamic', {})
-            major = md.get('major', {})
+            item = info.get('item', {}) or {}
+            item_modules = item.get('modules', {}) or {}
+            md = item_modules.get('module_dynamic', {}) or {}
+            major = md.get('major', {}) or {}
+            opus_major = major.get('opus') or {}
+            major_type = major.get('type')
+            item_type = item.get('type')
 
-            if major.get('type') in ['DYNAMIC_TYPE_ARTICLE', 'MAJOR_TYPE_OPUS'] and not (major.get('opus') or {}).get('pics'):
-                # 需要通过Opus API获取详细内容
-                opus_id = item.get('id_str', info.get('id_str'))
-                if opus_id:
-                     o = opus.Opus(int(opus_id), credential=load_credential(group_id))
-                     opus_info = await o.get_info()
+            is_article_like = (
+                major_type in ['DYNAMIC_TYPE_ARTICLE', 'MAJOR_TYPE_OPUS'] or
+                item_type == 'DYNAMIC_TYPE_ARTICLE'
+            )
 
-                     opus_item = opus_info.get('item', {})
-                     opus_modules = opus_item.get('modules', [])
+            current_desc_text = _normalize_preview_text((md.get('desc') or {}).get('text', ''))
+            current_summary_text = _normalize_preview_text((opus_major.get('summary') or {}).get('text', ''))
+            current_desc_placeholder_count = _count_image_placeholders(current_desc_text)
+            current_summary_placeholder_count = _count_image_placeholders(current_summary_text)
 
-                     images = []
-                     for mod in opus_modules:
-                         if mod.get('module_type') == 'MODULE_TYPE_CONTENT':
-                             paragraphs = mod.get('module_content', {}).get('paragraphs', [])
-                             for p in paragraphs:
-                                 if p.get('para_type') == 2: # Image
-                                     pics = p.get('pic', {}).get('pics', [])
-                                     for pic in pics:
-                                         if pic.get('url'):
-                                             images.append({'url': pic['url']})
+            need_text_enrich = is_article_like and (
+                not current_desc_text or
+                current_desc_placeholder_count >= 2 or
+                (not current_desc_text and current_summary_placeholder_count >= 1)
+            )
+            need_image_enrich = is_article_like and not opus_major.get('pics')
 
-                     if images:
-                         if 'opus' not in major:
-                             major['opus'] = {}
-                         major['opus']['pics'] = images
-                         # 更新数据结构
-                         md['major'] = major
-                         item['modules']['module_dynamic'] = md
-                         info['item'] = item
+            opus_text = ''
+            opus_images = []
+            if need_text_enrich or need_image_enrich:
+                opus_id = item.get('id_str') or info.get('id_str') or dynamic_id
+                if opus_id and str(opus_id).isdigit():
+                    o = opus.Opus(int(opus_id), credential=load_credential(group_id))
+                    opus_info = await o.get_info()
+                    opus_text, opus_images = _extract_opus_content_payload(opus_info)
+
+            if need_image_enrich and opus_images:
+                if 'opus' not in major:
+                    major['opus'] = {}
+                major['opus']['pics'] = opus_images
+
+            candidate_text = ''
+            candidate_source = ''
+            if need_text_enrich:
+                jump_url = opus_major.get('jump_url') or (item.get('basic') or {}).get('jump_url')
+                cv_id = _extract_cv_id(jump_url)
+                if cv_id:
+                    article_result = await get_article_info(cv_id, group_id)
+                    if article_result.get('status') == 'success':
+                        article_data = article_result.get('data') or {}
+                        article_summary = _normalize_preview_text(article_data.get('summary') or '')
+                        if article_summary:
+                            candidate_text = article_summary
+                            candidate_source = 'article'
+                            if 'opus' not in major:
+                                major['opus'] = {}
+                            if not major['opus'].get('title') and article_data.get('title'):
+                                major['opus']['title'] = article_data.get('title')
+
+                if not candidate_text and opus_text:
+                    candidate_text = opus_text
+                    candidate_source = 'opus'
+
+            has_real_images = bool((major.get('opus') or {}).get('pics'))
+            if candidate_text and has_real_images:
+                candidate_text = _strip_image_placeholders(candidate_text)
+
+            if candidate_text:
+                should_replace_desc = (
+                    not current_desc_text or
+                    current_desc_placeholder_count >= 2 or
+                    len(candidate_text) > len(current_desc_text) + 80
+                )
+
+                if should_replace_desc:
+                    if not isinstance(md.get('desc'), dict):
+                        md['desc'] = {}
+                    md['desc']['text'] = candidate_text
+                    existing_nodes = md['desc'].get('rich_text_nodes')
+                    if existing_nodes is None:
+                        md['desc']['rich_text_nodes'] = []
+                    elif not isinstance(existing_nodes, list):
+                        md['desc']['rich_text_nodes'] = []
+                    logger.debug(
+                        f"[get_dynamic_detail] Dynamic {dynamic_id}: desc enriched from {candidate_source}, len={len(candidate_text)}"
+                    )
+
+                if 'opus' in major:
+                    summary_obj = major['opus'].get('summary')
+                    if not isinstance(summary_obj, dict):
+                        summary_obj = {}
+
+                    summary_text = _normalize_preview_text(summary_obj.get('text') or '')
+                    if not summary_text or _count_image_placeholders(summary_text) >= 2:
+                        summary_obj['text'] = candidate_text
+                        summary_obj['rich_text_nodes'] = summary_obj.get('rich_text_nodes') or []
+                        major['opus']['summary'] = summary_obj
+
+            md['major'] = major
+            item_modules['module_dynamic'] = md
+            item['modules'] = item_modules
+            info['item'] = item
         except Exception as e:
-            # 静默处理Opus图片获取失败（可能是风控等原因）
-            # 不影响主流程，继续返回基础数据
-            pass
+            logger.warning(f"[get_dynamic_detail] Failed to enrich opus/article content for dynamic {dynamic_id}: {e}")
 
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
