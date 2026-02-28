@@ -213,11 +213,11 @@ function renderDynamicContent(data) {
                         <span class="pub-time">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
-                <div class="header-right" style="display:flex; align-items:center; gap:12px;">
+                <div class="header-right">
                     ${cardUrl ? `
                         <div class="decoration-card-wrapper">
                             <img class="decoration-card" src="${cardUrl}" />
-                            ${serial ? `<span class="serial-badge" style="color: ${fanColor};">No.${serial}</span>` : ''}
+                            ${serial ? `<span class="serial-badge" style="--serial-color: ${fanColor};">No.${serial}</span>` : ''}
                         </div>
                     ` : ''}
                 </div>

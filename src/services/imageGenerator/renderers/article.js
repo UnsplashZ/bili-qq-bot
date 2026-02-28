@@ -10,6 +10,9 @@ function renderArticleContent(data) {
     const info = data.data;
     const pubDate = formatPubTime(info.publish_time);
     const authorFace = info.author_face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+    const hasHtmlContent = !!info.html_content;
+    const contentClass = hasHtmlContent ? 'article-body' : 'text-content';
+    const contentHtml = hasHtmlContent ? info.html_content : escapeHtml(info.summary || '');
 
     return `
         <div class="content">
@@ -25,8 +28,8 @@ function renderArticleContent(data) {
                 </div>
             </div>
             <div class="title">${escapeHtml(info.title)}</div>
-            <div class="text-content" ${info.html_content ? 'style="white-space: normal;"' : ''}>${info.html_content || escapeHtml(info.summary || '')}</div>
-            <div class="stats" style="margin-top: 20px;">
+            <div class="${contentClass}">${contentHtml}</div>
+            <div class="stats article-stats">
                 <span class="stat-item">${ICONS.share} ${formatNumber(info.stats?.share)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.stats?.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.stats?.reply)}</span>

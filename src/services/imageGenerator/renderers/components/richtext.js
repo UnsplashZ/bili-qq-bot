@@ -24,7 +24,7 @@ function parseRichText(nodes, rawText) {
             } else if (type === 'RICH_TEXT_NODE_TYPE_VOTE') {
                 return `<span class="vote-inline">${text}</span>`;
             } else if (type === 'RICH_TEXT_NODE_TYPE_URL' || type === 'RICH_TEXT_NODE_TYPE_BV') {
-                return `<span style="color: var(--color-secondary); text-decoration: none; cursor: pointer;">${text}</span>`;
+                return `<span class="rich-link">${text}</span>`;
             } else {
                 return text.replace(/&/g, "&amp;")
                     .replace(/</g, "&lt;")

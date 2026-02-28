@@ -504,8 +504,8 @@ function generateCSS(colorData, viewport) {
 
             /* Article Mode Specifics */
             .container.article-mode .card {
-                max-width: 960px;
-                margin: 0 auto;
+                max-width: none;
+                margin: 0;
             }
 
             .article-body {
@@ -537,6 +537,21 @@ function generateCSS(colorData, viewport) {
                 margin: 20px 0;
                 display: block;
                 box-shadow: var(--shadow-sm);
+            }
+            .article-body figure {
+                margin: 20px 0;
+                width: 100%;
+            }
+            .article-body figure.img-box {
+                margin: 20px 0;
+                width: 100%;
+            }
+            .article-body figure.img-box img {
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+                margin: 0;
+                display: block;
             }
             .article-body p {
                 margin-bottom: 24px;
@@ -599,6 +614,12 @@ function generateCSS(colorData, viewport) {
                 text-align: center;
                 margin-top: -10px;
                 margin-bottom: 24px;
+            }
+
+            .article-stats {
+                margin-top: 20px;
+                padding-top: 20px;
+                border-top: 1px solid var(--color-border);
             }
 
             .orig-card {
@@ -737,6 +758,10 @@ function generateCSS(colorData, viewport) {
                 grid-template-columns: repeat(2, 1fr);
             }
 
+            .images-grid.is-orig {
+                margin-top: 10px;
+            }
+
             .images-grid img {
                 width: 100%;
                 height: 100%;
@@ -759,8 +784,12 @@ function generateCSS(colorData, viewport) {
                 box-shadow: var(--shadow-md);
             }
 
+            .single-image.is-orig {
+                margin-top: 10px;
+            }
+
             .dynamic-image {
-                margin-top: 24px;
+                margin-top: 20px;
                 width: 100%;
                 max-height: 1500px;
                 object-fit: cover;
@@ -779,6 +808,12 @@ function generateCSS(colorData, viewport) {
                 margin-left: 10px;
                 vertical-align: middle;
                 transform: translateY(-1px);
+            }
+
+            .live-badge-status.live-badge-lg {
+                font-size: 20px;
+                padding: 6px 12px;
+                margin-left: 10px;
             }
 
             .live-on {
@@ -836,6 +871,12 @@ function generateCSS(colorData, viewport) {
                 color: var(--color-secondary);
                 margin: 0 2px;
                 font-weight: 700;
+            }
+
+            .rich-link {
+                color: var(--color-secondary);
+                text-decoration: none;
+                cursor: pointer;
             }
 
             .vote-card {
@@ -981,6 +1022,12 @@ function generateCSS(colorData, viewport) {
                 overflow: hidden;
                 background: var(--color-card-bg);
             }
+            .video-card-cover {
+                width: 100%;
+                aspect-ratio: 16/9;
+                object-fit: cover;
+                max-height: 800px;
+            }
             .video-card-content {
                 padding: 12px;
                 background: var(--color-soft-bg);
@@ -1010,6 +1057,63 @@ function generateCSS(colorData, viewport) {
                 width: 24px;
                 height: 24px;
                 fill: var(--color-subtext);
+            }
+
+            .live-rcmd-card {
+                margin-top: 20px;
+                border: 1px solid var(--color-border);
+                border-radius: 8px;
+                overflow: hidden;
+                background: var(--color-card-bg);
+            }
+
+            .live-rcmd-cover {
+                width: 100%;
+                aspect-ratio: 16/9;
+                object-fit: cover;
+                max-height: 800px;
+            }
+
+            .live-rcmd-badge-wrap {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+            }
+
+            .live-rcmd-content {
+                padding: 15px;
+                background: var(--color-soft-bg);
+            }
+
+            .live-rcmd-title {
+                font-weight: 700;
+                font-size: 26px;
+                margin-bottom: 8px;
+                line-height: 1.4;
+                color: var(--color-text);
+            }
+
+            .live-rcmd-meta {
+                color: var(--color-subtext);
+                font-size: 22px;
+                display: flex;
+                gap: 20px;
+            }
+
+            .live-header-name-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .header-right {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .serial-badge {
+                color: var(--serial-color, var(--color-subtext));
             }
          </style>
      `;

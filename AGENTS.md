@@ -50,6 +50,7 @@ This file is for coding agents. Keep behavior safe, minimal, and verifiable.
   - Bulk backend sweep: `for f in test/unit/*.test.js; do node "$f"; done`
   - Dashboard: `cd dashboard && npm run lint`
 - Keep tests deterministic and offline (no real external network calls).
+- Any generated test artifacts (e.g., preview images, temporary outputs) must be written under `./test` only. Do not place test outputs in `docs/images` or other non-test directories.
 - In final report, list what was run and what was not run.
 
 ## Useful Commands

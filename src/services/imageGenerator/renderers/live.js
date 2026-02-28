@@ -14,8 +14,8 @@ function renderLiveContent(data) {
 
     const isLive = roomInfo.live_status === 1;
     const liveBadge = isLive
-        ? `<span class="live-badge-status live-on" style="font-size: 20px; padding: 6px 12px; margin-left: 10px;">LIVE</span>`
-        : `<span class="live-badge-status live-off" style="font-size: 20px; padding: 6px 12px; margin-left: 10px;">OFFLINE</span>`;
+        ? `<span class="live-badge-status live-badge-lg live-on">LIVE</span>`
+        : `<span class="live-badge-status live-badge-lg live-off">OFFLINE</span>`;
 
     return `
         <div class="cover-container">
@@ -28,7 +28,7 @@ function renderLiveContent(data) {
                         <img class="avatar no-frame" src="${anchorInfo.base_info?.face}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                     </div>
                     <div class="user-info">
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="live-header-name-row">
                             <span class="user-name">${escapeHtml(anchorInfo.base_info?.uname || 'Unknown')}</span>
                             ${liveBadge}
                         </div>
