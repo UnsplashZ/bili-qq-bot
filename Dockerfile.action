@@ -50,11 +50,12 @@ COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
 # Github Action 环境直接使用官方源
 RUN cd dashboard && npm ci
 
-# 5. 复制代码
-COPY . .
-
-# Build dashboard (依赖已安装，只需构建)
+# 5. 先复制并构建 dashboard (仅在 dashboard 变更时触发)
+COPY dashboard/ ./dashboard/
 RUN cd dashboard && npm run build
+
+# 6. 再复制代码
+COPY . .
 RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
 
 # 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)

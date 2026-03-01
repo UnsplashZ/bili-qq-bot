@@ -54,6 +54,19 @@ This file is for coding agents. Keep behavior safe, minimal, and verifiable.
 - Any generated test artifacts (e.g., preview images, temporary outputs) must be written under `./test` only. Do not place test outputs in `docs/images` or other non-test directories.
 - In final report, list what was run and what was not run.
 
+## Render Preview Skill Rule
+
+- For preview rendering verification requests, prefer using skill script:
+  - `node /Users/zheng/.codex/skills/bili-preview-render-test/scripts/render_preview.js --url <bili_link>`
+- Trigger this rule when the task includes:
+  - rendering/comparing preview PNGs from Bilibili links
+  - checking light/dark mode visual differences
+  - validating dynamic/opus/user/video/article/live/bangumi card rendering output
+- If visual changes involve image renderer styles/structure, add `--with-smoke-tests` unless user explicitly asks to skip tests.
+- For dark mode checks, render with `--night-mode on`; for light mode checks, render with `--night-mode off`.
+- Always report generated image paths in `test/output/previews`.
+- If the skill script cannot run, fall back to direct project calls and clearly state the fallback reason.
+
 ## Useful Commands
 
 ```bash

@@ -74,11 +74,12 @@ COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
 # 安装依赖 (使用 npm ci 以确保一致性)
 RUN cd dashboard && npm config set registry https://registry.npmmirror.com && npm ci
 
-# 7. 复制项目源代码
-COPY . .
-
-# Build dashboard (依赖已安装，只需构建)
+# 7. 先复制并构建 dashboard (仅在 dashboard 变更时触发)
+COPY dashboard/ ./dashboard/
 RUN cd dashboard && npm run build
+
+# 8. 再复制项目其余源代码
+COPY . .
 
 # 创建必要的目录
 RUN mkdir -p logs temp config fonts data/downloads && mkdir -p /app/.config/QQ/tmp/
