@@ -13,8 +13,8 @@ class LinkHandler {
         this.bvRegex = /(BV[a-zA-Z0-9]{10})|(av[0-9]+)/;
         // Regex for Bangumi (ss/ep)
         this.ssRegex = /play\/ss([0-9]+)/;
-        // Regex for Dynamic (t.bilibili.com/xxxx)
-        this.dynamicRegex = /t.bilibili.com\/([0-9]+)/;
+        // Regex for Dynamic (t.bilibili.com/xxxx, m.bilibili.com/dynamic/xxxx)
+        this.dynamicRegex = /(?:t\.bilibili\.com\/|m\.bilibili\.com\/dynamic\/)([0-9]+)/;
         // Regex for Article (read/cv)
         // Ensure we stop capturing at non-digit characters (like ? or /)
         this.articleRegex = /read\/cv([0-9]+)/;
