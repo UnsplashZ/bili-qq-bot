@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && fc-cache -fv
 
 # 2. 字体配置
-COPY fonts/ /usr/share/fonts/truetype/
 # 保留 NotoSans* 字体以覆盖 Sinhala 等跨脚本字符（如：ෆ）
 RUN rm -rf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
     && fc-cache -fv
