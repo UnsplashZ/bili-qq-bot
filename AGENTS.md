@@ -46,13 +46,9 @@ This file is for coding agents. Keep behavior safe, minimal, and verifiable.
 
 ## Test & Verification Requirements
 
-- Run tests/lint relevant to changed scope:
-  - Backend: `node test/unit/<affected>.test.js`
-  - Bulk backend sweep: `for f in test/unit/*.test.js; do node "$f"; done`
-  - Dashboard: `cd dashboard && npm run lint`
-- Keep tests deterministic and offline (no real external network calls).
+- Run tests/lint relevant to changed scope.
 - Any generated test artifacts (e.g., preview images, temporary outputs) must be written under `./test` only. Do not place test outputs in `docs/images` or other non-test directories.
-- In final report, list what was run and what was not run.
+- In final report, list what was run and what was not run, and the results.
 
 ## Render Preview Skill Rule
 
@@ -86,42 +82,19 @@ curl http://localhost:10001/health
 ## Documentation Rule
 
 Create a plan doc at `docs/plans/YYYY-MM-DD-<topic>.md` before implementation when change is cross-cutting (3+ files), architectural, or state/concurrency risky. Move finalized plan to `docs/done/` after completion.
-When creating plan documents, provide the most complete actionable context available at planning time.
+Plan docs should be lightweight and practical.
 
-Required content in every plan:
-- Requirement breakdown: restate goals, constraints, and success criteria in concrete terms.
-- Boundaries and non-goals: clearly define what is in scope vs out of scope.
-- Change map: pre-identify target files/modules and why each location needs change.
-- Implementation approach: describe intended modification method per location (how to change, not only what to change).
-- Risks and edge cases: list technical/product boundaries, failure modes, and compatibility concerns.
-- Verification plan: define how changes will be validated (tests, checks, expected outcomes).
-- Rollback plan: define how to revert safely if issues appear.
-- Open questions/assumptions: explicitly mark unknowns and assumptions instead of leaving them implicit.
-
-Guideline:
-- Prefer maximum useful detail from currently available information.
-- If information is missing, document assumptions and proceed with the safest verifiable plan.
+Suggested content:
+- Background/problem statement.
+- Modification goals and expected outcomes.
+- Planned modification method (key files/modules and approach).
+- Basic verification and rollback notes.
 
 ## Response Structure Rule
 
-- When presenting conclusion/explanation in chat, use a highly structured plain-text format for readability.
-- Preferred section order:
-  - `结论`
-  - `逐项评估`
-  - `方案选择（如有）`
-  - `影响范围`
-  - `待你确认`
-- For each item in `逐项评估`, include:
-  - `当前实现`
-  - `数据是否可得`
-  - `改动点（文件）`
-  - `风险/边界`
-  - `结论`
-- If behavior change is involved, provide:
-  - `选项A（保持现状）`
-  - `选项B（改变行为）`
-  - `推荐项与理由`
-- Use code style markers for paths, function names, and field names.
+- Use proper Markdown formatting in responses.
+- Keep heading/list hierarchy correct and readable.
+- Use code style markers for paths, function names, and field names when relevant.
 
 ## Commit Message Rules
 

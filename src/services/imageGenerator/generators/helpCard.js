@@ -62,7 +62,7 @@ async function generateHelpCard(type = 'user', groupId) {
 
             body {
                 width: 1000px;
-                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"MiSans", "MiSans L3", "Noto Sans SC", "Noto Color Emoji", sans-serif;
+                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif;
             }
 
             .container {

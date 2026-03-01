@@ -122,7 +122,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 width: ${width}px;
                 min-width: ${width}px;
                 max-width: ${width}px;
-                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"MiSans", "MiSans L3", "Noto Sans SC", "Noto Color Emoji", sans-serif;
+                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif;
                 -webkit-font-smoothing: antialiased;
                 -moz-osx-font-smoothing: grayscale;
             }
@@ -249,7 +249,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 line-height: 1;
                 color: rgba(255, 255, 255, 0.96);
                 text-shadow: none;
-                transform: translateY(-1px);
+                transform: translateY(0);
             }
 
             /* 充电专属动态占位样式 */

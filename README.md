@@ -31,7 +31,7 @@
     *   小程序/短链 (b23.tv) - 自动还原目标链接
 
 *   🎨 **高颜值预览**
-    *   使用 Puppeteer 生成精美长截图卡片（默认 MiSans 字体）
+    *   使用 Puppeteer 生成精美长截图卡片（默认 Noto Sans CJK SC + Noto Sans Sinhala + Noto Color Emoji 字体链）
     *   统一设计系统：支持定时深色模式，毛玻璃视觉风格
     *   智能配色：自动提取装扮卡片重点色，动态调整氛围背景
     *   SVG 矢量图标 & Emoji，无乱码，视觉统一
@@ -53,7 +53,7 @@
 
 *   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、AI/RAG/画像开关、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
 
-*   🐳 **Docker 化部署**：一键部署，内置 MiSans、思源与 Emoji 字体，并包含 FFmpeg 依赖
+*   🐳 **Docker 化部署**：一键部署，内置 Noto CJK、多语种 Noto 与 Emoji 字体，并包含 FFmpeg 依赖
 
 ## 预览效果
 
@@ -370,7 +370,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 
 适用于开发调试或非 Docker 环境。
 
-1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Chrome/Chromium。
+1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Microsoft Edge/Chrome/Chromium。
     同时需要系统可用的 `ffmpeg`（用于下载后合并音视频流）。
 
 2.  **克隆项目**：
@@ -483,8 +483,8 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
         *   `cacheManager.js`: LRU 缓存管理器
         *   `designSystem.js`: 统一设计系统与主题配置
         *   `proxyUtils.js`: 代理配置工具
-*   `scripts/`: Python 脚本
-    *   `bili_service.py`: Bilibili API 调用服务 (基于 bilibili-api-python)
+*   `src/services/`: Python 服务
+    *   `bili_server.py`: Bilibili API 调用服务 (基于 bilibili-api-python)
 
 </details>
 
@@ -536,7 +536,7 @@ Bot 支持分群配置覆盖。在群聊中发送 `/设置` 指令时，默认�
 
 ## 致谢 (Acknowledgments)
 
-本项目默认使用 **MiSans (小米)** 字体以获得最佳视觉体验。
+本项目默认使用 **Noto Sans CJK SC + Noto Sans Sinhala + Noto Color Emoji** 字体链，以兼顾中文可读性与跨脚本字符兼容性。
 
 特别感谢以下 AI 模型与工具在开发过程中的强力支持：
 

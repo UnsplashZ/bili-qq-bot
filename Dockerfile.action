@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     fonts-noto-cjk \
+    fonts-noto-core \
     fonts-noto-color-emoji \
     fonts-symbola \
     chromium \
@@ -23,9 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 2. 字体配置
 COPY fonts/ /usr/share/fonts/truetype/
-# 精简 Noto 字体：删除不需要的变体以减少体积
-RUN rm -rf /usr/share/fonts/truetype/noto/NotoSans*.ttf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
-    && rm -rf /usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc \
+# 保留 NotoSans* 字体以覆盖 Sinhala 等跨脚本字符（如：ෆ）
+RUN rm -rf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
     && fc-cache -fv
 
 # 3. Python 环境 (Github Action 环境通常在海外，直接使用官方 PyPI)

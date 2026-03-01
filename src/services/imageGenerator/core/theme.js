@@ -349,6 +349,14 @@ function generateCSS(colorData, viewport) {
                 --verify-size: 34px;
                 --verify-right: 6px;
                 --verify-bottom: 24px;
+                padding-top: 85px;
+            }
+
+            .avatar-wrapper--user {
+                width: 150px;
+                height: 150px;
+                margin-bottom: 20px;
+                box-sizing: content-box;
             }
 
             .avatar {
@@ -370,6 +378,17 @@ function generateCSS(colorData, viewport) {
                 height: 96px;
             }
 
+            .avatar--user {
+                width: 150px;
+                height: 150px;
+                border-width: 4px;
+            }
+
+            .avatar--user.no-frame {
+                width: 150px;
+                height: 150px;
+            }
+
             .avatar.no-border { border: none; }
 
             .avatar-frame {
@@ -384,6 +403,11 @@ function generateCSS(colorData, viewport) {
                 z-index: 2;
                 filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
                 transition: all 0.3s ease-in-out;
+            }
+
+            .avatar-frame--user {
+                width: 160%;
+                height: 160%;
             }
 
             .author-verify-badge {
@@ -413,6 +437,10 @@ function generateCSS(colorData, viewport) {
                 gap: 6px;
             }
 
+            .user-info--profile {
+                width: 100%;
+            }
+
             .user-name {
                 font-size: 36px;
                 font-weight: 700;
@@ -422,6 +450,11 @@ function generateCSS(colorData, viewport) {
                 gap: 10px;
                 letter-spacing: 0.3px;
                 white-space: nowrap;
+            }
+
+            .user-name--profile {
+                justify-content: center;
+                gap: 12px;
             }
 
             .user-level {
@@ -441,6 +474,130 @@ function generateCSS(colorData, viewport) {
             .user-level.lv6 { background-color: #ff0000; }
             .user-level.lv7, .user-level.lv8, .user-level.lv9 {
                 background: linear-gradient(135deg, #ff0000, #ffb300, #ffff00, #00ff00, #00ffff, #0000ff, #8b00ff);
+            }
+
+            .user-header {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                text-align: center;
+                margin-bottom: 10px;
+            }
+
+            .user-vip-label {
+                font-size: 16px;
+                background: var(--color-primary);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                vertical-align: middle;
+            }
+
+            .user-id-text {
+                text-align: center;
+                font-size: 16px;
+                color: var(--color-subtext);
+                margin-top: 4px;
+                font-family: monospace;
+            }
+
+            .user-medal {
+                margin-top: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .user-medal-badge {
+                display: inline-flex;
+                border: 1px solid var(--color-subtext);
+                border-radius: 4px;
+                overflow: hidden;
+            }
+
+            .user-medal-name {
+                background: var(--color-subtext);
+                color: var(--color-card-bg);
+                padding: 2px 6px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+
+            .user-medal-level {
+                background: var(--color-card-bg);
+                color: var(--color-subtext);
+                padding: 2px 6px;
+                font-size: 16px;
+            }
+
+            .user-dynamic-section {
+                margin-top: 35px;
+                border-top: 1px solid var(--color-border);
+                padding-top: 25px;
+                text-align: left;
+            }
+
+            .user-dynamic-title {
+                font-size: 20px;
+                color: var(--color-subtext);
+                margin-bottom: 12px;
+                font-weight: bold;
+            }
+
+            .user-dynamic-text {
+                font-size: 24px;
+                color: var(--color-text);
+                line-height: 1.6;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                display: -webkit-box;
+                -webkit-line-clamp: 4;
+                -webkit-box-orient: vertical;
+            }
+
+            .user-dynamic-images {
+                display: flex;
+                gap: 12px;
+                margin-top: 20px;
+                overflow: hidden;
+                height: 180px;
+            }
+
+            .user-dynamic-image {
+                height: 180px;
+                width: 180px;
+                object-fit: cover;
+                border-radius: 8px;
+            }
+
+            .user-dynamic-video {
+                margin-top: 20px;
+                display: flex;
+                gap: 16px;
+                background: var(--color-soft-bg);
+                border-radius: 12px;
+                padding: 12px;
+                align-items: center;
+            }
+
+            .user-dynamic-video-cover {
+                height: 90px;
+                width: 144px;
+                object-fit: cover;
+                border-radius: 8px;
+            }
+
+            .user-dynamic-video-title {
+                flex: 1;
+                font-size: 20px;
+                color: var(--color-text);
+                overflow: hidden;
+                text-overflow: ellipsis;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                line-height: 1.4;
             }
 
             .pub-time {
@@ -533,6 +690,16 @@ function generateCSS(colorData, viewport) {
                 max-height: 2500px;
                 overflow: hidden;
                 position: relative;
+            }
+
+            .text-content.user-sign {
+                text-align: center;
+                margin-top: 16px;
+                margin-bottom: 18px;
+                color: var(--color-subtext);
+                font-size: 18px;
+                line-height: 1.5;
+                padding: 0 20px;
             }
             .text-content img {
                 max-width: 100%;
@@ -739,6 +906,33 @@ function generateCSS(colorData, viewport) {
                 align-items: center;
                 margin: 16px 0 12px 0;
                 width: 100%;
+            }
+
+            .user-stats {
+                display: flex;
+                justify-content: center;
+                gap: 40px;
+                margin: 30px auto 0 auto;
+                padding: 20px 40px;
+                background: var(--color-soft-bg);
+                border-radius: 12px;
+                width: fit-content;
+            }
+
+            .user-stat-item {
+                text-align: center;
+            }
+
+            .user-stat-value {
+                font-size: 24px;
+                font-weight: bold;
+                color: var(--color-text);
+                margin-bottom: 4px;
+            }
+
+            .user-stat-label {
+                font-size: 16px;
+                color: var(--color-subtext);
             }
 
             .video-stats {
