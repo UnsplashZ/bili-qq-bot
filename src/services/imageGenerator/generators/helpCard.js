@@ -1,7 +1,7 @@
 const browserManager = require('../core/browser');
 const { isNightMode } = require('../core/theme');
 const { getCustomFonts } = require('../core/formatters');
-const { generateUnifiedCSS } = require('../../../utils/designSystem');
+const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
 
 /**
  * 生成帮助卡片图片
@@ -62,7 +62,7 @@ async function generateHelpCard(type = 'user', groupId) {
 
             body {
                 width: 1000px;
-                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif;
+                font-family: ${buildPreviewFontFamily(customFontFamilies)};
             }
 
             .container {

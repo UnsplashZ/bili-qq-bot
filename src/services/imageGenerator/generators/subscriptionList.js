@@ -1,7 +1,7 @@
 const browserManager = require('../core/browser');
 const { isNightMode } = require('../core/theme');
 const { escapeHtml, getCustomFonts } = require('../core/formatters');
-const { generateUnifiedCSS } = require('../../../utils/designSystem');
+const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
 
 /**
  * 生成订阅列表图片
@@ -43,7 +43,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 margin: 0;
                 padding: 0;
                 background: transparent;
-                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif;
+                font-family: ${buildPreviewFontFamily(customFontFamilies)};
             }
             #wrapper {
                 padding: 40px;

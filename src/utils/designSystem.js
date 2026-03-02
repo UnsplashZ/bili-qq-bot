@@ -43,6 +43,14 @@ const DESIGN_SYSTEM = {
     }
 };
 
+const PREVIEW_FONT_FALLBACK_CHAIN = '"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif'
+
+function buildPreviewFontFamily(customFontFamilies = []) {
+    const customFamilies = Array.isArray(customFontFamilies) ? customFontFamilies : []
+    if (customFamilies.length === 0) return PREVIEW_FONT_FALLBACK_CHAIN
+    return `${customFamilies.join(', ')}, ${PREVIEW_FONT_FALLBACK_CHAIN}`
+}
+
 // 统一的CSS生成函数
 function generateUnifiedCSS(colorData, viewport, options = {}) {
     const { currentType, badgeColor, badgeBg, badgeTextColor, badgeShadow, badgeBorder, gradientMix } = colorData;
@@ -122,7 +130,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 width: ${width}px;
                 min-width: ${width}px;
                 max-width: ${width}px;
-                font-family: ${customFontFamilies.length > 0 ? customFontFamilies.join(', ') + ', ' : ''}"Noto Sans CJK SC", "Noto Sans Sinhala", "Noto Color Emoji", sans-serif;
+                font-family: ${buildPreviewFontFamily(customFontFamilies)};
                 -webkit-font-smoothing: antialiased;
                 -moz-osx-font-smoothing: grayscale;
             }
@@ -467,6 +475,7 @@ function renderUnifiedFooter(text, extraContent = '') {
 // 导出统一配置
 module.exports = {
     DESIGN_SYSTEM,
+    buildPreviewFontFamily,
     generateUnifiedCSS,
     renderUnifiedTypeBadge,
     renderUnifiedHeader,
