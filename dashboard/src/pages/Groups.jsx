@@ -46,6 +46,7 @@ function Groups() {
       variety: true
     },
     enableCookieSync: false,
+    subscriptionAtAll: false,
     cookieSyncGroupNames: [], // Array of strings
     blacklistedQQs: [],
     admins: [], // 群组管理员列表
@@ -277,6 +278,7 @@ function Groups() {
             variety: labels.variety ?? true
           },
           enableCookieSync: config.enableCookieSync ?? false,
+          subscriptionAtAll: config.subscriptionAtAll ?? false,
           cookieSyncGroupNames: syncGroups,
           blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
           admins: Array.isArray(config.admins) ? config.admins : [],
@@ -1225,6 +1227,24 @@ function Groups() {
 
                 {/* Sync Tab */}
                 <Tab.Panel className="space-y-8 focus:outline-none">
+                     <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+                         <label className="flex items-center justify-between cursor-pointer">
+                             <div>
+                                 <span className="text-white font-medium block">订阅推送 @全体成员</span>
+                                 <span className="text-gray-400 text-sm">开启后，订阅与关注同步推送会附带 @全体成员（需机器人具备权限）</span>
+                             </div>
+                             <div className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={formData.subscriptionAtAll}
+                                    onChange={(e) => setFormData({...formData, subscriptionAtAll: e.target.checked})}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                             </div>
+                         </label>
+                     </div>
+
                      {/* 🆕 未登录提示 */}
                      {!globalBiliStatus.isLoggedIn && (
                          <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">

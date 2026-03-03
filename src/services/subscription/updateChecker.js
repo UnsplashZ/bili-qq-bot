@@ -31,10 +31,13 @@ class UpdateChecker {
         this.ws = null;
         this.credentialRefreshTimer = null;
         this.CREDENTIAL_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24小时
+        this.AT_ALL_CAPABILITY_CACHE_TTL_MS = 30 * 1000; // 30秒
+        this.groupAtAllCapabilityCache = new Map(); // groupId -> { canAtAll, expiresAt, reason, retcode }
     }
 
     setWs(ws) {
         this.ws = ws;
+        this.groupAtAllCapabilityCache.clear();
     }
 
     /**
@@ -1371,6 +1374,109 @@ class UpdateChecker {
         }
     }
 
+    isSubscriptionAtAllEnabled(groupId) {
+        return config.getGroupConfig(groupId, 'subscriptionAtAll') === true;
+    }
+
+    async queryGroupAtAllCapability(groupId) {
+        const cacheKey = String(groupId);
+        const now = Date.now();
+        const cached = this.groupAtAllCapabilityCache.get(cacheKey);
+
+        if (cached && cached.expiresAt > now) {
+            return cached;
+        }
+
+        const result = {
+            canAtAll: false,
+            reason: 'unknown',
+            retcode: null,
+            expiresAt: now + this.AT_ALL_CAPABILITY_CACHE_TTL_MS
+        };
+
+        if (!this.ws) {
+            result.reason = 'ws_unavailable';
+            this.groupAtAllCapabilityCache.set(cacheKey, result);
+            return result;
+        }
+
+        try {
+            const response = await notificationService.callAction(
+                this.ws,
+                'get_group_at_all_remain',
+                { group_id: groupId },
+                'UpdateChecker',
+                4000
+            );
+
+            result.retcode = response?.retcode ?? null;
+
+            if (response?.status === 'ok') {
+                const data = response?.data || {};
+                if (typeof data.can_at_all === 'boolean') {
+                    result.canAtAll = data.can_at_all;
+                } else {
+                    const remainForUin = Number(data.remain_at_all_count_for_uin);
+                    const remainForGroup = Number(data.remain_at_all_count_for_group);
+                    const validUinRemain = Number.isFinite(remainForUin);
+                    const validGroupRemain = Number.isFinite(remainForGroup);
+
+                    if (validUinRemain && validGroupRemain) {
+                        result.canAtAll = remainForUin > 0 && remainForGroup > 0;
+                    } else if (validUinRemain) {
+                        result.canAtAll = remainForUin > 0;
+                    } else {
+                        result.canAtAll = false;
+                    }
+                }
+
+                if (!result.canAtAll) {
+                    result.reason = 'no_permission_or_quota';
+                } else {
+                    result.reason = 'ok';
+                }
+            } else {
+                const wording = response?.wording || response?.message;
+                result.reason = wording ? `action_failed:${wording}` : 'action_failed';
+            }
+        } catch (e) {
+            result.reason = `query_failed:${e.message}`;
+        }
+
+        this.groupAtAllCapabilityCache.set(cacheKey, result);
+
+        if (!result.canAtAll) {
+            logger.info(`[UpdateChecker] Group ${groupId} @all unavailable, fallback to plain message (reason: ${result.reason}, retcode: ${result.retcode ?? 'N/A'})`);
+        }
+
+        return result;
+    }
+
+    async buildSubscriptionMessageChain(groupId, messageChain) {
+        if (!this.isSubscriptionAtAllEnabled(groupId)) {
+            return messageChain;
+        }
+
+        const capability = await this.queryGroupAtAllCapability(groupId);
+        if (!capability.canAtAll) {
+            return messageChain;
+        }
+
+        return [{ type: 'at', data: { qq: 'all' } }, ...messageChain];
+    }
+
+    async sendSubscriptionMessage(groupId, baseMessageChain) {
+        if (!this.ws) return;
+
+        try {
+            const messageChain = await this.buildSubscriptionMessageChain(groupId, baseMessageChain);
+            notificationService.sendGroupMessage(this.ws, groupId, messageChain);
+        } catch (e) {
+            logger.error(`[UpdateChecker] Failed to send subscription message to group ${groupId}:`, e);
+            notificationService.sendGroupMessage(this.ws, groupId, baseMessageChain);
+        }
+    }
+
     notifyGroups(groupIds, text, dedupKey = null) {
         if (!this.ws) return;
         groupIds.forEach(gid => {
@@ -1383,7 +1489,10 @@ class UpdateChecker {
             }
 
             if (config.isGroupEnabled(gid)) {
-                notificationService.sendGroupMessage(this.ws, gid, [{ type: 'text', data: { text } }]);
+                const messageChain = [{ type: 'text', data: { text } }];
+                this.sendSubscriptionMessage(gid, messageChain).catch(e => {
+                    logger.error(`[UpdateChecker] Error in text notification task for group ${gid}:`, e);
+                });
                 
                 // Record notification history if key provided
                 if (dedupKey) {
@@ -1473,11 +1582,12 @@ class UpdateChecker {
                 const textMsg = descriptionText ? `\n${descriptionText}\n${textUrl}` : textUrl;
 
                 // Send to all groups in this configuration batch
-                targetGroupIds.forEach(gid => {
-                    notificationService.sendGroupMessage(this.ws, gid, [
+                await Promise.all(targetGroupIds.map(async gid => {
+                    const baseMessageChain = [
                         { type: 'image', data: { file: `base64://${base64Image}` } },
                         { type: 'text', data: { text: textMsg } }
-                    ]);
+                    ];
+                    await this.sendSubscriptionMessage(gid, baseMessageChain);
                     
                     // Record history
                     if (dedupId) {
@@ -1485,7 +1595,7 @@ class UpdateChecker {
                         const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0;
                         notificationHistory.add(gid, dedupId, ttlMs);
                     }
-                });
+                }));
                 
             } catch (e) {
                 logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e);

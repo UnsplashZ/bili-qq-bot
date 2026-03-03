@@ -470,6 +470,7 @@ const config = {
                     bangumi: true
                 },
                 enableCookieSync: false,
+                subscriptionAtAll: false,
                 cookieSyncGroupNames: [],
                 blacklistedQQs: [],
                 admins: [],  // 群组管理员列表

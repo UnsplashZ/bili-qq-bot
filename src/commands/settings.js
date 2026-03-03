@@ -433,7 +433,31 @@ class SettingsCommand {
                 return true;
             }
 
-            // 9. 标签 (/设置 标签 <类型> <开|关>)
+            // 9. 订阅推送AT全体 (/设置 推送AT全体 <开|关>)
+            if (subCommand === '推送AT全体' || subCommand === '推送at全体' || subCommand === 'AT全体' || subCommand === 'at全体') {
+                const switchState = parts[2];
+
+                if (typeof groupId === 'string' && groupId.startsWith('private_')) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请在群聊中使用此命令。' } }]);
+                    return true;
+                }
+
+                if (switchState === '开' || switchState === '关') {
+                    const isEnabled = switchState === '开';
+                    config.setGroupConfig(groupId, 'subscriptionAtAll', isEnabled);
+                    this.sendGroupMessage(ws, groupId, [{
+                        type: 'text',
+                        data: {
+                            text: `本群订阅推送@全体成员已${switchState}。将对订阅与关注同步更新推送生效。`
+                        }
+                    }]);
+                } else {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /设置 推送AT全体 <开|关>' } }]);
+                }
+                return true;
+            }
+
+            // 10. 标签 (/设置 标签 <类型> <开|关>)
             if (subCommand === '标签') {
                  const category = parts[2]; 
                  const switchState = parts[3]; 
@@ -471,7 +495,7 @@ class SettingsCommand {
                  return true;
             }
 
-            // 9. AI上下文 (/设置 AI上下文 <条数>)
+            // 11. AI上下文 (/设置 AI上下文 <条数>)
             if (subCommand === 'AI上下文') {
                  if (!config.isRootAdmin(userId)) {
                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
@@ -493,7 +517,7 @@ class SettingsCommand {
                  return true;
             }
             
-            // 10. AI概率 (/设置 AI概率 <数值>)
+            // 12. AI概率 (/设置 AI概率 <数值>)
             if (subCommand === 'AI概率') {
                  if (!config.isRootAdmin(userId)) {
                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
@@ -515,7 +539,7 @@ class SettingsCommand {
                  return true;
             }
 
-            // 10. 深色模式 (/设置 深色模式 <开|关|定时>)
+            // 13. 深色模式 (/设置 深色模式 <开|关|定时>)
             if (subCommand === '深色模式') {
                 const mode = parts[2];
                 if (['开', '关', '定时'].includes(mode)) {
@@ -563,7 +587,7 @@ class SettingsCommand {
                 return true;
             }
 
-            // 11. 显示UID (/设置 显示UID <开|关>)
+            // 14. 显示UID (/设置 显示UID <开|关>)
             if (subCommand === '显示UID' || subCommand === 'UID') {
                  if (!config.isGroupAdmin(groupId, userId)) {
                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);

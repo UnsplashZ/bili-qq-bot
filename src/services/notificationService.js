@@ -13,6 +13,149 @@ const TEMP_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1h
  */
 class NotificationService {
     /**
+     * 调用 OneBot Action，并等待带同一 echo 的响应
+     * @param {WebSocket} ws - WebSocket连接实例
+     * @param {string} action - OneBot action 名称
+     * @param {Object} params - action 参数
+     * @param {string} logPrefix - 日志前缀
+     * @param {number} timeoutMs - 超时时间（毫秒）
+     * @returns {Promise<Object>} - 原始 OneBot 响应 payload
+     */
+    static callAction(ws, action, params = {}, logPrefix = 'NotificationService', timeoutMs = 5000) {
+        return new Promise((resolve, reject) => {
+            if (!ws) {
+                reject(new Error('WebSocket is not available'));
+                return;
+            }
+
+            if (ws.readyState !== 1) {
+                reject(new Error(`WebSocket is not open (readyState=${ws.readyState})`));
+                return;
+            }
+
+            this._ensureActionDispatcher(ws);
+
+            const pendingMap = this._actionPendingByWs.get(ws);
+            let echo = `${action}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`;
+            while (pendingMap.has(echo)) {
+                echo = `${action}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`;
+            }
+
+            const timeoutId = setTimeout(() => {
+                const pending = pendingMap.get(echo);
+                if (!pending) return;
+                pendingMap.delete(echo);
+                pending.reject(new Error(`Action timeout after ${timeoutMs}ms: ${action}`));
+            }, timeoutMs);
+
+            pendingMap.set(echo, {
+                action,
+                resolve,
+                reject,
+                timeoutId
+            });
+
+            const payload = { action, params, echo };
+            try {
+                ws.send(JSON.stringify(payload), sendErr => {
+                    if (!sendErr) {
+                        logger.debug(`[${logPrefix}] Action sent: ${action}, echo=${echo}`);
+                        return;
+                    }
+
+                    const pending = pendingMap.get(echo);
+                    if (!pending) return;
+
+                    pendingMap.delete(echo);
+                    clearTimeout(pending.timeoutId);
+                    pending.reject(sendErr);
+                });
+            } catch (e) {
+                const pending = pendingMap.get(echo);
+                if (!pending) {
+                    reject(e);
+                    return;
+                }
+
+                pendingMap.delete(echo);
+                clearTimeout(pending.timeoutId);
+                pending.reject(e);
+            }
+        });
+    }
+
+    static _ensureActionDispatcher(ws) {
+        if (!this._actionPendingByWs.has(ws)) {
+            this._actionPendingByWs.set(ws, new Map());
+        }
+
+        if (this._actionDispatcherByWs.has(ws)) {
+            return;
+        }
+
+        const handleResponse = (raw) => {
+            let messageText = '';
+            try {
+                messageText = typeof raw === 'string' ? raw : raw.toString('utf8');
+            } catch {
+                return;
+            }
+
+            let payload;
+            try {
+                payload = JSON.parse(messageText);
+            } catch {
+                return;
+            }
+
+            if (!payload || payload.echo === undefined || payload.echo === null) {
+                return;
+            }
+
+            const pendingMap = this._actionPendingByWs.get(ws);
+            if (!pendingMap) return;
+
+            const pending = pendingMap.get(payload.echo);
+            if (!pending) return;
+
+            pendingMap.delete(payload.echo);
+            clearTimeout(pending.timeoutId);
+            pending.resolve(payload);
+        };
+
+        const rejectAllPending = (errorPrefix, err) => {
+            const pendingMap = this._actionPendingByWs.get(ws);
+            if (!pendingMap) return;
+
+            for (const [echo, pending] of pendingMap.entries()) {
+                pendingMap.delete(echo);
+                clearTimeout(pending.timeoutId);
+                pending.reject(new Error(`${errorPrefix}: ${pending.action}${err ? ` (${err?.message || err})` : ''}`));
+            }
+        };
+
+        const handleClose = () => {
+            rejectAllPending('WebSocket closed while waiting action response');
+            this._actionDispatcherByWs.delete(ws);
+            this._actionPendingByWs.delete(ws);
+        };
+
+        const handleError = (err) => {
+            rejectAllPending('WebSocket error while waiting action response', err);
+        };
+
+        ws.on('message', handleResponse);
+        ws.on('close', handleClose);
+        ws.on('error', handleError);
+
+        this._actionDispatcherByWs.set(ws, {
+            handleResponse,
+            handleClose,
+            handleError
+        });
+    }
+
+    /**
      * 获取图片临时目录（Bot 写入路径 + NapCat 读取路径）
      * @returns {{ hostTempDir: string, containerTempDir: string }}
      */
@@ -353,6 +496,8 @@ class NotificationService {
 
 NotificationService._tempImageCleanupTimer = null;
 NotificationService._tempImageCleanupRunning = false;
+NotificationService._actionPendingByWs = new WeakMap();
+NotificationService._actionDispatcherByWs = new WeakMap();
 NotificationService.startTempImageCleanupScheduler();
 
 module.exports = NotificationService;

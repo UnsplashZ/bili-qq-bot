@@ -35,6 +35,7 @@
       "_comment": "群级配置示例，每个群可以有独立配置",
       "aiContextLimit": 15,
       "aiProbability": 0.2,
+      "subscriptionAtAll": false,
       "admins": ["123456789"]
     }
   }

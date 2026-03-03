@@ -407,6 +407,10 @@ router.post('/groups/:id/config', async (req, res) => {
             }
         }
 
+        if (updates.hasOwnProperty('subscriptionAtAll') && typeof updates.subscriptionAtAll !== 'boolean') {
+            return res.status(400).json({ error: 'subscriptionAtAll must be a boolean' });
+        }
+
         // 验证 nightMode 配置（如果提供）
         if (updates.hasOwnProperty('nightMode')) {
             const nightMode = updates.nightMode;

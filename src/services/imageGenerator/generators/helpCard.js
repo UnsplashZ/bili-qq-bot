@@ -343,6 +343,10 @@ async function generateHelpCard(type = 'user', groupId) {
                         <span class="cmd-desc">管理同步的 B 站关注分组</span>
                     </div>
                     <div class="cmd-item">
+                        <span class="cmd-code">/设置 推送AT全体 &lt;开|关&gt;</span>
+                        <span class="cmd-desc">订阅/同步推送时 @全体成员</span>
+                    </div>
+                    <div class="cmd-item">
                         <span class="cmd-code">/设置 黑名单 &lt;操作&gt;</span>
                         <span class="cmd-desc">管理/查看黑名单</span>
                     </div>
