@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../utils/auth';
 import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
@@ -16,6 +16,18 @@ function Groups() {
   const [saving, setSaving] = useState(false);
   const { show } = useToast();
   const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+  const [actionLoading, setActionLoading] = useState({
+    blacklist: false,
+    admins: false,
+    aiConfig: false,
+    videoConfig: false
+  });
+  const actionLocksRef = useRef({
+    blacklist: false,
+    admins: false,
+    aiConfig: false,
+    videoConfig: false
+  });
   // VIDEO_DOWNLOAD_TAB_INDEX 在 categories 定义后动态计算
 
   // Form State
@@ -90,6 +102,27 @@ function Groups() {
     aiProfileEnabled: false
   });
   const [globalConfigLoading, setGlobalConfigLoading] = useState(true);
+
+  const runLockedAction = useCallback(async (key, action, timeoutMs = 20000) => {
+    if (actionLocksRef.current[key]) return false;
+
+    actionLocksRef.current[key] = true;
+    setActionLoading(prev => ({ ...prev, [key]: true }));
+
+    const timeoutId = setTimeout(() => {
+      actionLocksRef.current[key] = false;
+      setActionLoading(prev => ({ ...prev, [key]: false }));
+    }, timeoutMs);
+
+    try {
+      const result = await action();
+      return result ?? true;
+    } finally {
+      clearTimeout(timeoutId);
+      actionLocksRef.current[key] = false;
+      setActionLoading(prev => ({ ...prev, [key]: false }));
+    }
+  }, []);
 
   useEffect(() => {
     fetchGroups();
@@ -414,46 +447,52 @@ function Groups() {
 
   // Blacklist Handlers
   const handleUpdateBlacklist = async (newBlacklist) => {
-      try {
-          // Optimistic update UI
-          setFormData(prev => ({ ...prev, blacklistedQQs: newBlacklist }));
+      return runLockedAction('blacklist', async () => {
+          try {
+              // Optimistic update UI
+              setFormData(prev => ({ ...prev, blacklistedQQs: newBlacklist }));
 
-          // API Call (Merged into config)
-          await api.post(`/api/groups/${selectedGroupId}/config`, { blacklistedQQs: newBlacklist });
+              // API Call (Merged into config)
+              await api.post(`/api/groups/${selectedGroupId}/config`, { blacklistedQQs: newBlacklist });
 
-          // Update global groups state
-          setGroups(prev => prev.map(g =>
-            g.id === selectedGroupId
-              ? { ...g, config: { ...g.config, blacklistedQQs: newBlacklist } }
-              : g
-          ));
+              // Update global groups state
+              setGroups(prev => prev.map(g =>
+                g.id === selectedGroupId
+                  ? { ...g, config: { ...g.config, blacklistedQQs: newBlacklist } }
+                  : g
+              ));
 
-          show('黑名单已更新', 'success');
-      } catch (err) {
-          console.error(err);
-          show('更新黑名单失败', 'error');
-          // Revert handled by next fetch or manual fix
-      }
+              show('黑名单已更新', 'success');
+              return true;
+          } catch (err) {
+              console.error(err);
+              show('更新黑名单失败', 'error');
+              // Revert handled by next fetch or manual fix
+              return false;
+          }
+      });
   };
 
-  const handleAddBlacklist = () => {
+  const handleAddBlacklist = async () => {
       if (!blacklistInput) return;
       if (formData.blacklistedQQs.includes(blacklistInput)) {
           show('该 QQ 已在黑名单中', 'error');
           return;
       }
       const newList = [...formData.blacklistedQQs, blacklistInput];
-      handleUpdateBlacklist(newList);
-      setBlacklistInput('');
+      const success = await handleUpdateBlacklist(newList);
+      if (success) {
+          setBlacklistInput('');
+      }
   };
 
-  const handleRemoveBlacklist = (qq) => {
+  const handleRemoveBlacklist = async (qq) => {
       const newList = formData.blacklistedQQs.filter(q => q !== qq);
-      handleUpdateBlacklist(newList);
+      await handleUpdateBlacklist(newList);
   };
 
   // Admin Handlers
-  const handleAddAdmin = () => {
+  const handleAddAdmin = async () => {
       if (!adminInput) return;
 
       // 验证 QQ 号格式（只能是数字）
@@ -474,99 +513,123 @@ function Groups() {
       }
 
       const newAdmins = [...(formData.admins || []), adminInput];
-      handleUpdateAdmins(newAdmins);
-      setAdminInput('');
-      show('管理员已添加', 'success');
+      const success = await handleUpdateAdmins(newAdmins);
+      if (success) {
+          setAdminInput('');
+          show('管理员已添加', 'success');
+      }
   };
 
-  const handleRemoveAdmin = (qq) => {
+  const handleRemoveAdmin = async (qq) => {
       const newAdmins = (formData.admins || []).filter(a => a !== qq);
-      handleUpdateAdmins(newAdmins);
-      show('管理员已移除', 'success');
+      const success = await handleUpdateAdmins(newAdmins);
+      if (success) {
+          show('管理员已移除', 'success');
+      }
   };
 
   const handleUpdateAdmins = async (newAdmins) => {
-      try {
-          // Optimistic update UI
-          setFormData(prev => ({ ...prev, admins: newAdmins }));
+      return runLockedAction('admins', async () => {
+          try {
+              // Optimistic update UI
+              setFormData(prev => ({ ...prev, admins: newAdmins }));
 
-          // API Call
-          await api.post(`/api/groups/${selectedGroupId}/config`, { admins: newAdmins });
+              // API Call
+              await api.post(`/api/groups/${selectedGroupId}/config`, { admins: newAdmins });
 
-          // Update global groups state
-          setGroups(prev => prev.map(g =>
-              g.id === selectedGroupId
-                  ? { ...g, config: { ...g.config, admins: newAdmins } }
-                  : g
-          ));
-      } catch (err) {
-          console.error(err);
-          show('更新管理员失败', 'error');
-          // Revert on error
-          const group = groups.find(g => g.id === selectedGroupId);
-          if (group && group.config) {
-              setFormData(prev => ({ ...prev, admins: group.config.admins || [] }));
+              // Update global groups state
+              setGroups(prev => prev.map(g =>
+                  g.id === selectedGroupId
+                      ? { ...g, config: { ...g.config, admins: newAdmins } }
+                      : g
+              ));
+              return true;
+          } catch (err) {
+              console.error(err);
+              show('更新管理员失败', 'error');
+              // Revert on error
+              const group = groups.find(g => g.id === selectedGroupId);
+              if (group && group.config) {
+                  setFormData(prev => ({ ...prev, admins: group.config.admins || [] }));
+              }
+              return false;
           }
-      }
+      });
   };
 
   // AI Config Handlers
   const handleAiToggle = async (field, value) => {
-    try {
-      const response = await api.put(`/api/groups/${selectedGroupId}/ai-config`, {
-        [field]: value
-      });
+    await runLockedAction('aiConfig', async () => {
+      try {
+        const response = await api.put(`/api/groups/${selectedGroupId}/ai-config`, {
+          [field]: value
+        });
 
-      if (response.status === 200) {
-        // Reload group config
-        const res = await api.get('/api/groups');
-        if (Array.isArray(res.data)) {
-          setGroups(res.data);
+        if (response.status === 200) {
+          // Reload group config
+          const res = await api.get('/api/groups');
+          if (Array.isArray(res.data)) {
+            setGroups(res.data);
+          }
+          show('AI配置已更新', 'success');
         }
-        show('AI配置已更新', 'success');
+        return true;
+      } catch (error) {
+        console.error('Failed to update AI config:', error);
+        show('更新AI配置失败', 'error');
+        return false;
       }
-    } catch (error) {
-      console.error('Failed to update AI config:', error);
-      show('更新AI配置失败', 'error');
-    }
+    });
   };
 
   const handleAiReset = async () => {
-    try {
-      const response = await api.delete(`/api/groups/${selectedGroupId}/ai-config`);
+    await runLockedAction('aiConfig', async () => {
+      try {
+        const response = await api.delete(`/api/groups/${selectedGroupId}/ai-config`);
 
-      if (response.status === 200) {
-        const res = await api.get('/api/groups');
-        if (Array.isArray(res.data)) {
-          setGroups(res.data);
+        if (response.status === 200) {
+          const res = await api.get('/api/groups');
+          if (Array.isArray(res.data)) {
+            setGroups(res.data);
+          }
+          show('已重置为全局设置', 'success');
         }
-        show('已重置为全局设置', 'success');
+        return true;
+      } catch (error) {
+        console.error('Failed to reset AI config:', error);
+        show('重置AI配置失败', 'error');
+        return false;
       }
-    } catch (error) {
-      console.error('Failed to reset AI config:', error);
-      show('重置AI配置失败', 'error');
-    }
+    });
   };
 
   const saveVideoDownloadConfig = async () => {
-    try {
-      await api.put(`/api/groups/${selectedGroupId}/video-download-config`, videoDownloadConfig);
-      show('视频下载配置已更新', 'success');
-    } catch (error) {
-      console.error('Failed to save video download config:', error);
-      show('更新失败', 'error');
-    }
+    await runLockedAction('videoConfig', async () => {
+      try {
+        await api.put(`/api/groups/${selectedGroupId}/video-download-config`, videoDownloadConfig);
+        show('视频下载配置已更新', 'success');
+        return true;
+      } catch (error) {
+        console.error('Failed to save video download config:', error);
+        show('更新失败', 'error');
+        return false;
+      }
+    });
   };
 
   const resetVideoDownloadConfig = async () => {
-    try {
-      await api.delete(`/api/groups/${selectedGroupId}/video-download-config`);
-      setVideoDownloadConfig({ videoDownloadEnabled: null, videoDownloadResolution: null, videoDownloadMaxDuration: null });
-      show('已重置为全局默认', 'success');
-    } catch (error) {
-      console.error('Failed to reset video download config:', error);
-      show('重置失败', 'error');
-    }
+    await runLockedAction('videoConfig', async () => {
+      try {
+        await api.delete(`/api/groups/${selectedGroupId}/video-download-config`);
+        setVideoDownloadConfig({ videoDownloadEnabled: null, videoDownloadResolution: null, videoDownloadMaxDuration: null });
+        show('已重置为全局默认', 'success');
+        return true;
+      } catch (error) {
+        console.error('Failed to reset video download config:', error);
+        show('重置失败', 'error');
+        return false;
+      }
+    });
   };
 
   const subTypes = [
@@ -935,7 +998,7 @@ function Groups() {
                         />
                         <button
                           onClick={handleAddAdmin}
-                          disabled={!adminInput}
+                          disabled={!adminInput || actionLoading.admins}
                           className="px-4 py-2 bg-yellow-600/20 text-yellow-300 border border-yellow-500/30 hover:bg-yellow-600/30 rounded-lg transition-colors disabled:opacity-50"
                         >
                           添加
@@ -953,7 +1016,8 @@ function Groups() {
                               </div>
                               <button
                                 onClick={() => handleRemoveAdmin(qq)}
-                                className="text-gray-400 hover:text-red-400 transition-colors"
+                                disabled={actionLoading.admins}
+                                className="text-gray-400 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <Trash2 size={18} />
                               </button>
@@ -985,7 +1049,8 @@ function Groups() {
                         />
                         <button
                           onClick={handleAddBlacklist}
-                          className="px-4 py-2 bg-red-600/80 hover:bg-red-500 rounded-lg text-white font-medium transition-colors flex items-center gap-2"
+                          disabled={actionLoading.blacklist}
+                          className="px-4 py-2 bg-red-600/80 hover:bg-red-500 rounded-lg text-white font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Plus size={16} />
                           添加黑名单
@@ -1003,7 +1068,8 @@ function Groups() {
                                 <span className="font-mono text-white">{qq}</span>
                                 <button
                                   onClick={() => handleRemoveBlacklist(qq)}
-                                  className="text-gray-400 hover:text-red-400 text-sm flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded transition-colors"
+                                  disabled={actionLoading.blacklist}
+                                  className="text-gray-400 hover:text-red-400 text-sm flex items-center gap-1 px-2 py-1 hover:bg-white/5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   移除
                                 </button>
@@ -1038,6 +1104,7 @@ function Groups() {
                         }}
                         onToggle={handleAiToggle}
                         onReset={handleAiReset}
+                        disabled={actionLoading.aiConfig}
                         isGroup={true}
                       />
                     </div>
@@ -1301,12 +1368,14 @@ function Groups() {
 
                         <div className="flex justify-between pt-2">
                           <button onClick={resetVideoDownloadConfig}
-                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm">
-                            重置为全局默认
+                            disabled={actionLoading.videoConfig}
+                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            {actionLoading.videoConfig ? '处理中...' : '重置为全局默认'}
                           </button>
                           <button onClick={saveVideoDownloadConfig}
-                            className="px-4 py-2 bg-purple-500/80 hover:bg-purple-500 text-white rounded-lg text-sm">
-                            保存
+                            disabled={actionLoading.videoConfig}
+                            className="px-4 py-2 bg-purple-500/80 hover:bg-purple-500 text-white rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            {actionLoading.videoConfig ? '处理中...' : '保存'}
                           </button>
                         </div>
                       </div>

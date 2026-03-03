@@ -6,6 +6,31 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# 通用下载函数：按顺序尝试多个 URL，任一成功即返回 0
+download_with_fallback() {
+    local output_file="$1"
+    shift
+    local urls=("$@")
+
+    if command -v wget &> /dev/null; then
+        for url in "${urls[@]}"; do
+            if wget -q -O "$output_file" "$url"; then
+                return 0
+            fi
+        done
+    elif command -v curl &> /dev/null; then
+        for url in "${urls[@]}"; do
+            if curl -s -L -o "$output_file" "$url"; then
+                return 0
+            fi
+        done
+    else
+        return 1
+    fi
+
+    return 1
+}
+
 # 1. 检测系统环境
 echo -e "${GREEN}[1/8] 检测系统环境...${NC}"
 
@@ -217,15 +242,14 @@ mkdir -p config
 SCRIPT_SOURCE_DIR=$(dirname "$(readlink -f "$0")")
 
 # --- MCP 配置逻辑 ---
-MCP_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
+MCP_EXAMPLE_URLS=(
+    "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
+    "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
+)
 
 download_mcp_example() {
     echo "正在从远程仓库下载 mcp_servers.json.example..."
-    if command -v wget &> /dev/null; then
-        wget -q -O "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
-    elif command -v curl &> /dev/null; then
-        curl -s -L -o "config/mcp_servers.json.example" "$MCP_EXAMPLE_URL"
-    else
+    if ! download_with_fallback "config/mcp_servers.json.example" "${MCP_EXAMPLE_URLS[@]}"; then
         echo -e "${YELLOW}警告: 无法下载 mcp_servers.json.example，MCP 功能可能需要手动配置。${NC}"
         return 1
     fi
@@ -247,17 +271,16 @@ fi
 # --- End MCP 配置逻辑 ---
 
 # --- .env 配置逻辑 ---
-ENV_EXAMPLE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
+ENV_EXAMPLE_URLS=(
+    "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
+    "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
+)
 
 # 下载函数 (.env.example)
 download_env_example() {
     echo "正在下载 .env.example..."
-    if command -v wget &> /dev/null; then
-        wget -q -O "config/.env.example" "$ENV_EXAMPLE_URL"
-    elif command -v curl &> /dev/null; then
-        curl -s -L -o "config/.env.example" "$ENV_EXAMPLE_URL"
-    else
-        echo -e "${RED}错误: 未找到 wget 或 curl，无法下载配置文件。${NC}"
+    if ! download_with_fallback "config/.env.example" "${ENV_EXAMPLE_URLS[@]}"; then
+        echo -e "${RED}错误: 下载 .env.example 失败，请检查网络或稍后重试。${NC}"
         exit 1
     fi
 }
@@ -401,7 +424,10 @@ echo -e "${YELLOW}      如需配置 AI 功能，请在 WebUI「系统设置」�
 # 7. 配置 docker-compose.yml
 echo -e "${GREEN}[7/8] 准备 Docker Compose...${NC}"
 
-COMPOSE_URL="https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"
+COMPOSE_URLS=(
+    "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"
+    "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"
+)
 HAS_LOCAL_TEMPLATE=false
 
 # 检查脚本所在目录是否有模板文件
@@ -412,11 +438,7 @@ fi
 # 下载函数
 download_compose() {
     echo "正在从远程仓库下载 docker-compose.yml..."
-    if command -v wget &> /dev/null; then
-        wget -q -O "docker-compose.yml" "$COMPOSE_URL"
-    elif command -v curl &> /dev/null; then
-        curl -s -L -o "docker-compose.yml" "$COMPOSE_URL"
-    else
+    if ! download_with_fallback "docker-compose.yml" "${COMPOSE_URLS[@]}"; then
         echo -e "${RED}错误: 无法下载 docker-compose.yml。${NC}"
         return 1
     fi

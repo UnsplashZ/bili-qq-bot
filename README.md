@@ -89,7 +89,7 @@
 </details>
 
 ### 🌙 深色模式
-#### *预览图关闭了左上角标签功能*
+*注：预览图关闭了左上角标签功能。*
 <table align="center">
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-深色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
@@ -144,17 +144,20 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 ## WebUI 管理面板
 
+<details>
+<summary><b>展开查看 WebUI 说明</b></summary>
+
 部署完成后，访问 `http://<服务器IP>:3000` 即可打开 WebUI 管理面板。
 
 ### 访问说明
 
 *   **本地访问**：`localhost` 或 `127.0.0.1` 无需额外配置，自动允许访问
 *   **内网访问**：通过 Tailscale 或局域网 IP 访问，自动检测并允许
-*   **公网部署**：如需通过公网域名或 IP 访问，必须配置 `.env` 中的 `DASHBOARD_ALLOWED_ORIGINS`（参考 [配置说明](#配置说明)）
+*   **公网部署**：如需通过公网域名或 IP 访问，必须配置 `config/.env` 中的 `DASHBOARD_ALLOWED_ORIGINS`（参考 [配置说明](#配置说明)）
 
 ### 登录
 
-首次访问需要输入密码登录。默认密码为 `admin`，可通过 `.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。连续登录失败 5 次会被临时锁定 5 分钟。
+首次访问需要输入密码登录。默认密码为 `admin`，可通过 `config/.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。连续登录失败 5 次会被临时锁定 5 分钟。
 
 ### 功能模块
 
@@ -165,28 +168,17 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站登录、AI 参数（模型/密钥/系统提示词）、AI/RAG/画像开关、视频下载全局策略、应用重启 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
-### 前端开发
-
-WebUI 基于 React + Vite + Tailwind CSS 构建，开发时可独立运行：
-
-```bash
-cd dashboard
-npm install
-npm run dev     # 开发服务器 (端口 5173，自动代理 API 至 3000)
-npm run build   # 生产构建，输出至 dashboard/dist
-```
-
-构建后由主服务 (端口 3000) 托管静态文件，无需额外部署。
+</details>
 
 ## 配置说明
 
-本项目采用双重配置系统：`.env` 用于启动/敏感信息，`config.json` 用于运行时动态配置。
+本项目采用双重配置系统：`config/.env` 用于启动/敏感信息，`config.json` 用于运行时动态配置。
 
 <details>
 <summary><b>展开查看具体配置</b></summary>
 
 ### 1. 基础配置 (.env)
-复制 `.env.example` 为 `.env`，填入 WebSocket 连接与 AI 密钥等启动参数：
+复制 `config/.env.example` 为 `config/.env`，填入 WebSocket 连接与 AI 密钥等启动参数：
 
 | 变量名 | 说明 | 示例 / 默认值 |
 | :--- | :--- | :--- |
@@ -197,17 +189,25 @@ npm run build   # 生产构建，输出至 dashboard/dist
 | `AI_API_URL` | AI 接口地址 (OpenAI 兼容) | `https://api.openai.com/v1/chat/completions` |
 | `AI_API_KEY` | AI 接口密钥 | `sk-xxxxxxxx` |
 | `AI_MODEL` | 使用的模型名称 | `gpt-3.5-turbo` |
+| `AI_CHAT_API_URL` | AI 聊天专用接口地址 (可选，优先于 `AI_API_URL`) | 留空 (默认跟随 `AI_API_URL`) |
+| `AI_CHAT_API_KEY` | AI 聊天专用密钥 (可选，优先于 `AI_API_KEY`) | 留空 (默认跟随 `AI_API_KEY`) |
+| `AI_CHAT_MODEL` | AI 聊天专用模型 (可选，优先于 `AI_MODEL`) | 留空 (默认跟随 `AI_MODEL`) |
+| `AI_CHAT_SYSTEM_PROMPT` | AI 聊天专用系统提示词 (可选，优先于 `AI_SYSTEM_PROMPT`) | 留空 (默认跟随 `AI_SYSTEM_PROMPT`) |
 | `AI_PROBABILITY` | AI 随机插话概率 (0-1) | `0.1` |
+| `AI_TEMPERATURE` | AI 采样温度 (影响回复发散度) | `1.0` |
 | `AI_SYSTEM_PROMPT` | AI 人设提示词 | `你是一个可爱的猫娘...` |
 | `AI_EMBEDDING_API_URL` | 向量嵌入接口地址 (用于记忆) | `https://api.openai.com/v1/embeddings` |
 | `AI_EMBEDDING_API_KEY` | 向量嵌入密钥 (留空则同上) | `sk-xxxxxxxx` |
 | `AI_EMBEDDING_MODEL` | 向量嵌入模型名称 | `text-embedding-3-small` |
 | `AI_CHAT_PROXY` | AI 聊天接口代理地址 (可选) | `http://127.0.0.1:7890` |
 | `AI_EMBEDDING_PROXY` | AI 嵌入接口代理地址 (可选) | `http://127.0.0.1:7890` |
+| `MCP_CALL_DELAY_MS` | MCP 工具调用之间的延迟（毫秒） | `100` |
+| `PUPPETEER_EXECUTABLE_PATH` | 指定浏览器可执行文件路径（可选） | 留空（自动检测） |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
+| `JWT_SECRET` | Dashboard JWT 签名密钥（可选，不填则自动生成并持久化） | 留空 |
 | `DASHBOARD_PASSWORD` | WebUI 管理面板登录密码 | `admin` |
 | `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
 
@@ -385,7 +385,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     ```
 
 4.  **安装 Python 依赖**：
-    如果使用虚拟环境，请先激活环境，并更新 `.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
+    如果使用虚拟环境，请先激活环境，并更新 `config/.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
     ```bash
     # 使用 requirements.txt 安装所有依赖
     pip install -r requirements.txt
@@ -409,7 +409,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     cp config/.env.example config/.env
     nano config/.env  # 或使用其他编辑器
     ```
-    **注意**：本地运行时，请确保 `.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
+    **注意**：本地运行时，请确保 `config/.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
 
 7.  **运行**：
     ```bash
@@ -417,6 +417,19 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
     ```
 
 8.  **访问 WebUI**：打开浏览器访问 `http://localhost:3000`
+
+### WebUI 前端开发（可选）
+
+WebUI 基于 React + Vite + Tailwind CSS 构建，开发时可独立运行：
+
+```bash
+cd dashboard
+npm install
+npm run dev     # 开发服务器 (端口 5173，自动代理 API 至 3000)
+npm run build   # 生产构建，输出至 dashboard/dist
+```
+
+构建后由主服务 (端口 3000) 托管静态文件，无需额外部署。
 </details>
 
 ## 项目结构
@@ -427,7 +440,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 *   `setup.sh`: 一键部署脚本
 *   `Dockerfile` / `docker-compose.yml`: Docker 部署配置
 *   `config/`:
-    *   `.env`: **核心配置文件** (API Key, WS 地址等)
+    *   `config/.env`: **核心配置文件** (API Key, WS 地址等)
     *   `config.json`: 运行时动态配置 (黑名单, 自动保存)
 *   `napcat/`: NapCat 配置文件与数据目录 (自动生成)
 *   `logs/`: 运行日志目录
@@ -494,7 +507,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 <details>
 <summary><b>Q: Root 管理员和群管理员有什么区别?</b></summary>
 
-**Root 管理员** (`.env` 中的 `ADMIN_QQ`)：拥有全局最高权限，可执行所有管理指令、设置群管理员、修改全局配置。
+**Root 管理员** (`config/.env` 中的 `ADMIN_QQ`)：拥有全局最高权限，可执行所有管理指令、设置群管理员、修改全局配置。
 
 **群管理员** (`/设置 管理员` 添加)：仅在指定群组拥有管理权限，可管理本群订阅、黑名单、配置等，无法修改全局配置。
 </details>
@@ -514,7 +527,7 @@ Bot 支持分群配置覆盖。在群聊中发送 `/设置` 指令时，默认�
 <details>
 <summary><b>Q: AI 聊天不回复怎么办?</b></summary>
 
-检查 `.env` 中的 `AI_API_URL`、`AI_API_KEY`、`AI_MODEL` 是否正确。尝试 `@机器人` 发送消息（必定触发回复）。检查 `AI_PROBABILITY` 设置（0.1 表示 10% 概率插话），可使用 `/设置 AI概率 1` 测试。
+检查 `config/.env` 中的 `AI_API_URL`、`AI_API_KEY`、`AI_MODEL` 是否正确（若配置了 `AI_CHAT_*`，则以 `AI_CHAT_*` 为准）。尝试 `@机器人` 发送消息（必定触发回复）。检查 `AI_PROBABILITY` 设置（0.1 表示 10% 概率插话），可使用 `/AI 概率 1` 测试（群管/Root）。
 </details>
 
 <details>

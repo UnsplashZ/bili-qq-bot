@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import api from '../utils/auth';
 import GlassCard from '../components/GlassCard';
@@ -80,6 +80,7 @@ const Settings = () => {
   // MCP State
   const [mcpConfig, setMcpConfig] = useState({ mcpServers: [] });
   const [savingMcp, setSavingMcp] = useState(false);
+  const mcpInFlightRef = useRef(false);
   const [isAddMcpModalOpen, setIsAddMcpModalOpen] = useState(false);
   const [newMcp, setNewMcp] = useState({
     name: '',
@@ -111,7 +112,24 @@ const Settings = () => {
   const [biliLoading, setBiliLoading] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [qrPollInterval, setQrPollInterval] = useState(null);
+  const qrPollIntervalRef = useRef(null);
+  const qrSessionIdRef = useRef(0);
+
+  const clearQrPolling = () => {
+    if (qrPollIntervalRef.current) {
+      clearInterval(qrPollIntervalRef.current);
+      qrPollIntervalRef.current = null;
+    }
+  };
+
+  const refreshMcpConfig = async () => {
+    const res = await api.get('/api/mcp');
+    const servers = res.data.mcpServers || (Array.isArray(res.data) ? res.data : []);
+    setMcpConfig({ mcpServers: servers });
+    if (res.data.version !== undefined) {
+      setMcpVersion(res.data.version);
+    }
+  };
 
   // Fetch Data
   useEffect(() => {
@@ -380,6 +398,14 @@ const Settings = () => {
 
   // MCP Handlers
   const handleAddMcp = async () => {
+    if (mcpInFlightRef.current) return;
+    mcpInFlightRef.current = true;
+    setSavingMcp(true);
+    const unlockTimeout = setTimeout(() => {
+      mcpInFlightRef.current = false;
+      setSavingMcp(false);
+    }, 20000);
+
     try {
       const selectedType = newMcp.type || 'stdio';
       if (selectedType !== 'stdio' && !newMcp.url.trim()) {
@@ -419,14 +445,7 @@ const Settings = () => {
       setNewMcp({ name: '', type: 'stdio', url: '', command: '', args: '', env: '{}' });
 
       // Save to backend
-      setSavingMcp(true);
       const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
-
-      // Handle conflict
-      if (response.data.conflict) {
-          show('配置已被其他用户修改，请刷新后重试', 'error');
-          return;
-      }
 
       // Handle reload failure warning
       if (!response.data.reloadSuccess) {
@@ -441,10 +460,21 @@ const Settings = () => {
       }
 
     } catch (error) {
+      if (error.response?.status === 409) {
+        show('配置已被其他用户修改，请刷新后重试', 'error');
+        try {
+          await refreshMcpConfig();
+        } catch (fetchError) {
+          console.error('Failed to refresh MCP config:', fetchError);
+        }
+        return;
+      }
       console.error("Failed to add MCP server:", error);
       show("添加 MCP 服务器失败", "error");
       // Could revert here if needed
     } finally {
+        clearTimeout(unlockTimeout);
+        mcpInFlightRef.current = false;
         setSavingMcp(false);
     }
   };
@@ -455,6 +485,13 @@ const Settings = () => {
 
   const confirmRemoveMcp = async () => {
     if (mcpToRemove === null) return;
+    if (mcpInFlightRef.current) return;
+    mcpInFlightRef.current = true;
+    setSavingMcp(true);
+    const unlockTimeout = setTimeout(() => {
+      mcpInFlightRef.current = false;
+      setSavingMcp(false);
+    }, 20000);
 
     const index = mcpToRemove;
     const updatedServers = mcpConfig.mcpServers.filter((_, i) => i !== index);
@@ -462,14 +499,7 @@ const Settings = () => {
     setMcpToRemove(null);
 
     try {
-        setSavingMcp(true);
         const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
-
-        // Handle conflict
-        if (response.data.conflict) {
-            show('配置已被其他用户修改，请刷新后重试', 'error');
-            return;
-        }
 
         // Handle reload failure warning
         if (!response.data.reloadSuccess) {
@@ -485,23 +515,37 @@ const Settings = () => {
     } catch (error) {
         if (error.response?.status === 409) {
             show('配置已被其他用户修改，请刷新后重试', 'error');
+            try {
+              await refreshMcpConfig();
+            } catch (fetchError) {
+              console.error('Failed to refresh MCP config:', fetchError);
+            }
             return;
         }
         console.error("Failed to remove MCP server:", error);
         show("保存更改失败", "error");
     } finally {
+        clearTimeout(unlockTimeout);
+        mcpInFlightRef.current = false;
         setSavingMcp(false);
     }
   };
 
   const toggleMcpServer = async (index) => {
+    if (mcpInFlightRef.current) return;
+    mcpInFlightRef.current = true;
+    setSavingMcp(true);
+    const unlockTimeout = setTimeout(() => {
+      mcpInFlightRef.current = false;
+      setSavingMcp(false);
+    }, 20000);
+
     const updatedServers = [...mcpConfig.mcpServers];
     const previousEnabled = updatedServers[index].enabled;
     updatedServers[index].enabled = !previousEnabled;
     setMcpConfig({ mcpServers: updatedServers });
 
     try {
-        setSavingMcp(true);
         const response = await api.post('/api/mcp', { mcpServers: updatedServers, version: mcpVersion });
 
         if (!response.data.reloadSuccess) {
@@ -517,12 +561,7 @@ const Settings = () => {
         if (error.response?.status === 409) {
             show('配置已被其他用户修改，请刷新后重试', 'error');
             try {
-                const res = await api.get('/api/mcp');
-                const servers = res.data.mcpServers || (Array.isArray(res.data) ? res.data : []);
-                setMcpConfig({ mcpServers: servers });
-                if (res.data.version !== undefined) {
-                    setMcpVersion(res.data.version);
-                }
+                await refreshMcpConfig();
             } catch (fetchError) {
                 console.error('Failed to refresh MCP config:', fetchError);
             }
@@ -534,6 +573,8 @@ const Settings = () => {
         setMcpConfig({ mcpServers: revertedServers });
         show('切换 MCP 服务器失败', 'error');
     } finally {
+        clearTimeout(unlockTimeout);
+        mcpInFlightRef.current = false;
         setSavingMcp(false);
     }
   };
@@ -553,6 +594,14 @@ const Settings = () => {
   };
 
   const handleEditMcp = async () => {
+    if (mcpInFlightRef.current) return;
+    mcpInFlightRef.current = true;
+    setSavingMcp(true);
+    const unlockTimeout = setTimeout(() => {
+      mcpInFlightRef.current = false;
+      setSavingMcp(false);
+    }, 20000);
+
     try {
         const oldName = mcpConfig.mcpServers[editingMcpIndex].name;
         const newName = editMcp.name.trim();
@@ -612,18 +661,11 @@ const Settings = () => {
         setEditingMcpIndex(null);
 
         // Save to backend with version control
-        setSavingMcp(true);
         const response = await api.post('/api/mcp', {
             mcpServers: updatedServers,
             version: mcpVersion,
             renameOperation: isRename ? { from: oldName, to: newName } : undefined
         });
-
-        // Handle conflict
-        if (response.data.conflict) {
-            show('配置已被其他用户修改，请刷新后重试', 'error');
-            return;
-        }
 
         // Handle reload failure warning
         if (!response.data.reloadSuccess) {
@@ -640,6 +682,11 @@ const Settings = () => {
     } catch (error) {
         if (error.response?.status === 409) {
             show('配置已被其他用户修改，请刷新后重试', 'error');
+            try {
+                await refreshMcpConfig();
+            } catch (fetchError) {
+                console.error('Failed to refresh MCP config:', fetchError);
+            }
             return;
         }
         if (error.response?.status === 400) {
@@ -654,14 +701,21 @@ const Settings = () => {
         console.error("Failed to update MCP server:", error);
         show("更新 MCP 服务器失败", "error");
     } finally {
+        clearTimeout(unlockTimeout);
+        mcpInFlightRef.current = false;
         setSavingMcp(false);
     }
   };
 
   // B站全局Cookie Handlers
   const handleBiliGlobalLogin = async () => {
+    if (biliLoading) return;
     setBiliLoading(true);
     try {
+      clearQrPolling();
+      qrSessionIdRef.current += 1;
+      const sessionId = qrSessionIdRef.current;
+
       // 获取二维码 (不传groupId)
       const res = await api.get('/api/bili/login-url');
 
@@ -678,7 +732,7 @@ const Settings = () => {
         setIsQrModalOpen(true);
 
         // 开始轮询登录状态
-        startQrPolling(res.data.data.key);
+        startQrPolling(res.data.data.key, sessionId);
       } else {
         show('获取登录二维码失败: 响应格式错误', 'error');
         setBiliLoading(false);
@@ -690,15 +744,22 @@ const Settings = () => {
     }
   };
 
-  const startQrPolling = (key) => {
+  const startQrPolling = (key, sessionId) => {
     let attempts = 0;
     const maxAttempts = 30; // 60秒超时 (2秒间隔)
 
+    clearQrPolling();
     const interval = setInterval(async () => {
+      if (sessionId !== qrSessionIdRef.current) {
+        clearInterval(interval);
+        return;
+      }
+
       attempts++;
 
       if (attempts > maxAttempts) {
         clearInterval(interval);
+        qrPollIntervalRef.current = null;
         setIsQrModalOpen(false);
         setBiliLoading(false);
         show('登录超时，请重试', 'error');
@@ -711,8 +772,14 @@ const Settings = () => {
           // 不传groupId，表示全局登录
         });
 
+        if (sessionId !== qrSessionIdRef.current) {
+          clearInterval(interval);
+          return;
+        }
+
         if (statusRes.data.status === 'success') {
           clearInterval(interval);
+          qrPollIntervalRef.current = null;
           setIsQrModalOpen(false);
           setBiliLoading(false);
           show('B站全局登录成功！', 'success');
@@ -735,14 +802,20 @@ const Settings = () => {
             });
             show(newStatus.data.message || '登录状态获取失败', 'error');
           }
-        } else if (statusRes.data.status === 'expired') {
+        } else if (statusRes.data.status === 'expired' || (statusRes.data.status === 'error' && statusRes.data.code === 86038)) {
           clearInterval(interval);
+          qrPollIntervalRef.current = null;
           setBiliLoading(false);
           show('二维码已过期', 'error');
           setIsQrModalOpen(false);
         }
       } catch (error) {
+        if (sessionId !== qrSessionIdRef.current) {
+          clearInterval(interval);
+          return;
+        }
         clearInterval(interval);
+        qrPollIntervalRef.current = null;
         setBiliLoading(false);
         console.error('Login polling error:', error);
         setIsQrModalOpen(false);
@@ -750,7 +823,7 @@ const Settings = () => {
       }
     }, 2000);
 
-    setQrPollInterval(interval);
+    qrPollIntervalRef.current = interval;
   };
 
   const handleBiliGlobalLogout = async () => {
@@ -779,11 +852,10 @@ const Settings = () => {
   // 清理轮询（组件卸载时）
   useEffect(() => {
     return () => {
-      if (qrPollInterval) {
-        clearInterval(qrPollInterval);
-      }
+      clearQrPolling();
+      qrSessionIdRef.current += 1;
     };
-  }, [qrPollInterval]);
+  }, []);
 
   // System Handlers
   const handleRestart = () => {
@@ -1312,7 +1384,8 @@ const Settings = () => {
             </div>
             <button
                 onClick={() => setIsAddMcpModalOpen(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/20 text-purple-300 hover:bg-purple-600/30 border border-purple-500/30 rounded-lg text-sm transition-colors"
+                disabled={savingMcp}
+                className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/20 text-purple-300 hover:bg-purple-600/30 border border-purple-500/30 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 <Plus size={16} />
                 添加服务器
@@ -1330,21 +1403,24 @@ const Settings = () => {
                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                              <button
                                 onClick={() => toggleMcpServer(idx)}
-                                className="p-1.5 hover:bg-white/10 rounded-md text-gray-300 hover:text-white"
+                                disabled={savingMcp}
+                                className="p-1.5 hover:bg-white/10 rounded-md text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title={server.enabled ? "禁用" : "启用"}
                              >
                                 <Power size={16} />
                              </button>
                              <button
                                 onClick={() => openEditMcpModal(idx)}
-                                className="p-1.5 hover:bg-blue-500/20 rounded-md text-gray-300 hover:text-blue-400"
+                                disabled={savingMcp}
+                                className="p-1.5 hover:bg-blue-500/20 rounded-md text-gray-300 hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="编辑"
                              >
                                 <Edit size={16} />
                              </button>
                              <button
                                 onClick={() => removeMcpServer(idx)}
-                                className="p-1.5 hover:bg-red-500/20 rounded-md text-gray-300 hover:text-red-400"
+                                disabled={savingMcp}
+                                className="p-1.5 hover:bg-red-500/20 rounded-md text-gray-300 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="移除"
                              >
                                 <Trash2 size={16} />
@@ -1584,6 +1660,7 @@ const Settings = () => {
                 <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3">
                     <button
                         onClick={() => setIsAddMcpModalOpen(false)}
+                        disabled={savingMcp}
                         className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
                     >
                         取消
@@ -1683,6 +1760,7 @@ const Settings = () => {
                 <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3">
                     <button
                         onClick={() => setIsEditMcpModalOpen(false)}
+                        disabled={savingMcp}
                         className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
                     >
                         取消
@@ -1741,6 +1819,7 @@ const Settings = () => {
             </button>
             <button
               onClick={confirmRemoveMcp}
+              disabled={savingMcp}
               className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
             >
               移除
@@ -1757,12 +1836,10 @@ const Settings = () => {
       <GlassModal
         isOpen={isQrModalOpen}
         onClose={() => {
+          qrSessionIdRef.current += 1;
+          clearQrPolling();
           setIsQrModalOpen(false);
           setBiliLoading(false);
-          if (qrPollInterval) {
-            clearInterval(qrPollInterval);
-            setQrPollInterval(null);
-          }
         }}
         title="扫码登录 B 站（全局）"
       >
