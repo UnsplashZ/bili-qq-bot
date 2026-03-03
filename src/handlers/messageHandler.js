@@ -20,6 +20,15 @@ const LINK_EMOJI = {
 }
 
 class MessageHandler {
+    // 入库前统一清洗：保留 @QQ 可追踪信息，移除其他 CQ 码
+    normalizeMessageForStorage(rawMessage) {
+        if (!rawMessage || typeof rawMessage !== 'string') return '';
+        return rawMessage
+            .replace(/\[CQ:at,qq=(\d+)\]/g, 'qq (line $1)')
+            .replace(/\[CQ:at,qq=all\]/g, 'qq (line all)')
+            .replace(/\[CQ:[^\]]+\]/g, '')
+            .trim();
+    }
 
     /**
      * Send a private message to a user
@@ -102,14 +111,17 @@ class MessageHandler {
 
         // 检查用户是否在黑名单中 (Global + Group Isolation)
         // 1. Check Global Blacklist (System Ban)
-        if (config.blacklistedQQs.includes(userId.toString())) {
+        const userIdStr = String(userId);
+        const globalBlacklist = Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [];
+        if (globalBlacklist.some(qq => String(qq) === userIdStr)) {
             logger.info(`[MessageHandler] User ${userId} is globally blacklisted, ignoring message`);
             return;
         }
         // 2. Check Group Blacklist (Group Ban)
         if (groupId) {
              const groupConfig = config.groupConfigs[groupId];
-             if (groupConfig && groupConfig.blacklistedQQs && groupConfig.blacklistedQQs.includes(userId.toString())) {
+             const groupBlacklist = Array.isArray(groupConfig?.blacklistedQQs) ? groupConfig.blacklistedQQs : [];
+             if (groupBlacklist.some(qq => String(qq) === userIdStr)) {
                  logger.info(`[MessageHandler] User ${userId} is blacklisted in group ${groupId}, ignoring message`);
                  return;
              }
@@ -135,8 +147,8 @@ class MessageHandler {
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
         if (rawMessage && !rawMessage.trim().startsWith('/')) {
-            // 与向量记忆保持一致：存储前清洗 CQ 码，减少上下文噪声 token
-            const cleanForContext = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
+            // 与向量记忆保持一致：存储前保留 @QQ 信息并清洗其他 CQ 码
+            const cleanForContext = this.normalizeMessageForStorage(rawMessage);
             if (cleanForContext) {
                 aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName);
             }
@@ -202,7 +214,7 @@ class MessageHandler {
         // 3. Vector Memory Storage (Store all non-command user messages)
         // Store after URL expansion to include full links
         if (groupId && rawMessage && !rawMessage.trim().startsWith('/')) {
-             const cleanMsg = rawMessage.replace(/\[CQ:[^\]]+\]/g, '').trim();
+             const cleanMsg = this.normalizeMessageForStorage(rawMessage);
              if (cleanMsg) {
                  vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
                      logger.error('[MessageHandler] Failed to save vector memory:', e);

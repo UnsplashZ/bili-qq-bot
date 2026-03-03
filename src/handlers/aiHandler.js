@@ -10,7 +10,7 @@ const userProfileService = require('../services/userProfileService');
 class AiHandler {
     
     // Clean CQ codes for AI consumption
-    cleanMessage(content) {
+    sanitizeMessage(content) {
         if (!content) return '';
         // Replace [CQ:at,qq=123] with @User123
         content = content.replace(/\[CQ:at,qq=(\d+)\]/g, ' @User$1 ');
@@ -25,12 +25,21 @@ class AiHandler {
         // 防注入：移除多余的换行符（保留最多2个连续换行）
         content = content.replace(/\n{3,}/g, '\n\n');
 
-        // Datamarking：每行加引用前缀，结构性标记为用户数据而非系统指令
-        // 配合 system prompt 中的【消息格式】声明，让 LLM 从格式层面区分数据与指令
-        content = content.split('\n').map(line => `> ${line}`).join('\n');
-
         // 移除首尾空白
         return content.trim();
+    }
+
+    // Datamarking for user-provided text only (idempotent)
+    markUserMessage(content) {
+        const sanitized = this.sanitizeMessage(content);
+        if (!sanitized) return '';
+        return sanitized
+            .split('\n')
+            .map((line) => {
+                const normalized = line.replace(/^\s*>+\s?/, '');
+                return `> ${normalized}`;
+            })
+            .join('\n');
     }
 
     formatRelativeTime(timestamp) {
@@ -57,8 +66,8 @@ class AiHandler {
         const msgObj = {
             role: 'user',
             content: currentMsg
-                ? `[${currentUserName}] ${this.cleanMessage(currentMsg.content)}`
-                : `[用户] ${this.cleanMessage(message)}`
+                ? `[${currentUserName}] ${this.markUserMessage(currentMsg.content)}`
+                : `[用户] ${this.markUserMessage(message)}`
         }
         const name = this.sanitizeName(userId)
         if (name) msgObj.name = name
@@ -175,8 +184,8 @@ class AiHandler {
                     const msgObj = {
                         role: msg.role === 'assistant' ? 'assistant' : 'user',
                         content: msg.role === 'assistant'
-                            ? this.cleanMessage(msg.content)
-                            : `[${msg.userName || '用户'}] ${this.cleanMessage(msg.content)}`
+                            ? this.sanitizeMessage(msg.content)
+                            : `[${msg.userName || '用户'}] ${this.markUserMessage(msg.content)}`
                     }
                     const name = this.sanitizeName(msg.userId)
                     if (name && msg.role !== 'assistant') msgObj.name = name

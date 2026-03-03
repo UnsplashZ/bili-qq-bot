@@ -615,7 +615,7 @@ function isAiEnabledForGroup(groupId) {
 
     // 2. Check group-level override
     const groupConfig = config.groupConfigs[String(groupId)];
-    if (groupConfig && 'aiEnabled' in groupConfig) {
+    if (groupConfig && typeof groupConfig.aiEnabled === 'boolean') {
         return groupConfig.aiEnabled;
     }
 
@@ -641,7 +641,7 @@ function isRagEnabledForGroup(groupId) {
 
     // 3. Check group-level override
     const groupConfig = config.groupConfigs[String(groupId)];
-    if (groupConfig && 'aiRagEnabled' in groupConfig) {
+    if (groupConfig && typeof groupConfig.aiRagEnabled === 'boolean') {
         return groupConfig.aiRagEnabled;
     }
 

@@ -20,6 +20,26 @@ function normalizeGroupId(groupId) {
     return groupId ? String(groupId) : null;
 }
 
+function normalizeQQ(qq) {
+    if (qq === null || qq === undefined) return '';
+    return String(qq).trim();
+}
+
+function normalizeBlacklist(input) {
+    if (!Array.isArray(input)) return [];
+
+    const normalized = [];
+    for (const item of input) {
+        if (item === null || item === undefined) continue;
+        const qq = normalizeQQ(item);
+        if (!qq) continue;
+        if (!normalized.includes(qq)) {
+            normalized.push(qq);
+        }
+    }
+    return normalized;
+}
+
 // 用户画像仅支持真实群号（数字）
 function isValidProfileGroupId(groupId) {
     return typeof groupId === 'string' && /^\d+$/.test(groupId);
@@ -380,6 +400,13 @@ router.post('/groups/:id/config', async (req, res) => {
             updates.aiTemperature = temp;
         }
 
+        const aiToggleKeys = ['aiEnabled', 'aiRagEnabled', 'aiProfileEnabled'];
+        for (const key of aiToggleKeys) {
+            if (updates.hasOwnProperty(key) && updates[key] !== null && typeof updates[key] !== 'boolean') {
+                return res.status(400).json({ error: `${key} must be a boolean or null` });
+            }
+        }
+
         // 验证 nightMode 配置（如果提供）
         if (updates.hasOwnProperty('nightMode')) {
             const nightMode = updates.nightMode;
@@ -437,6 +464,24 @@ router.post('/groups/:id/config', async (req, res) => {
             // 从现有配置中删除
             if (sysConfig.groupConfigs[groupIdStr]) {
                 delete sysConfig.groupConfigs[groupIdStr].aiTemperature;
+            }
+        }
+        if (updates.hasOwnProperty('aiEnabled') && updates.aiEnabled === null) {
+            delete cleanedUpdates.aiEnabled;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiEnabled;
+            }
+        }
+        if (updates.hasOwnProperty('aiRagEnabled') && updates.aiRagEnabled === null) {
+            delete cleanedUpdates.aiRagEnabled;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiRagEnabled;
+            }
+        }
+        if (updates.hasOwnProperty('aiProfileEnabled') && updates.aiProfileEnabled === null) {
+            delete cleanedUpdates.aiProfileEnabled;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].aiProfileEnabled;
             }
         }
 
@@ -963,7 +1008,16 @@ router.delete('/groups/:id/subscriptions', async (req, res) => {
 // GET /api/blacklist/global - Get global blacklist
 router.get('/blacklist/global', async (req, res) => {
     try {
-        res.json(sysConfig.blacklistedQQs || []);
+        const original = Array.isArray(sysConfig.blacklistedQQs) ? sysConfig.blacklistedQQs : [];
+        const normalized = normalizeBlacklist(original);
+        const changed = original.length !== normalized.length || original.some((q, i) => String(q) !== normalized[i]);
+
+        if (changed) {
+            sysConfig.blacklistedQQs = normalized;
+            sysConfig.save();
+        }
+
+        res.json(normalized);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch blacklist' });
     }
@@ -973,20 +1027,15 @@ router.get('/blacklist/global', async (req, res) => {
 router.post('/blacklist/global', async (req, res) => {
     try {
         const { qq } = req.body;
-        if (!qq) {
+        const qqToStore = normalizeQQ(qq);
+        if (!qqToStore) {
             return res.status(400).json({ error: 'Missing QQ number' });
         }
 
-        if (!sysConfig.blacklistedQQs) {
-            sysConfig.blacklistedQQs = [];
-        }
+        sysConfig.blacklistedQQs = normalizeBlacklist(sysConfig.blacklistedQQs);
 
-        // Store as number if it looks like one, or string.
-        const qqVal = Number(qq);
-        const valToStore = isNaN(qqVal) ? qq : qqVal;
-
-        if (!sysConfig.blacklistedQQs.includes(valToStore)) {
-            sysConfig.blacklistedQQs.push(valToStore);
+        if (!sysConfig.blacklistedQQs.includes(qqToStore)) {
+            sysConfig.blacklistedQQs.push(qqToStore);
             sysConfig.save();
         }
 
@@ -999,15 +1048,20 @@ router.post('/blacklist/global', async (req, res) => {
 // DELETE /api/blacklist/global/:qq - Remove from global blacklist
 router.delete('/blacklist/global/:qq', async (req, res) => {
     try {
-        const qqToRemove = req.params.qq;
+        const qqToRemove = normalizeQQ(req.params.qq);
+        if (!qqToRemove) {
+            return res.status(400).json({ error: 'Missing QQ number' });
+        }
 
-        if (sysConfig.blacklistedQQs && sysConfig.blacklistedQQs.length > 0) {
-            // Filter out loose match (string vs number)
-            sysConfig.blacklistedQQs = sysConfig.blacklistedQQs.filter(q => String(q) !== String(qqToRemove));
+        const normalized = normalizeBlacklist(sysConfig.blacklistedQQs);
+        const filtered = normalized.filter(q => q !== qqToRemove);
+
+        if (filtered.length !== normalized.length) {
+            sysConfig.blacklistedQQs = filtered;
             sysConfig.save();
         }
 
-        res.json({ message: 'Removed from blacklist', blacklist: sysConfig.blacklistedQQs || [] });
+        res.json({ message: 'Removed from blacklist', blacklist: filtered });
     } catch (error) {
         res.status(500).json({ error: 'Failed to update blacklist' });
     }

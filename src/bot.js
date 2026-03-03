@@ -385,12 +385,12 @@ async function initializeBot() {
 
         // 优雅清理
         try {
-            await gracefulShutdown();
+            await gracefulShutdown(1);
         } catch (cleanupError) {
             logger.error('[Init] Cleanup failed:', cleanupError);
         }
 
-        // 退出进程
+        // gracefulShutdown 在内部 process.exit；此处仅作为兜底
         process.exit(1);
     }
 }

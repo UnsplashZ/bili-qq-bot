@@ -213,6 +213,7 @@ class McpManager {
         this._isReloading = true;
         const oldClients = new Map(this.clients);  // Backup old connections
         const oldToolsMap = new Map(this.toolsMap);
+        const newClients = new Map();
 
         try {
             logger.info('[McpManager] Attempting to reload MCP servers...');
@@ -221,7 +222,6 @@ class McpManager {
             const configToLoad = newConfig || JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
 
             // 2. Build new connections (without closing old ones)
-            const newClients = new Map();
             const newToolsMap = new Map();
             const connectedServers = [];
 
@@ -309,14 +309,12 @@ class McpManager {
             // Rollback: Clean up failed new connections, restore old connections
             logger.warn('[McpManager] Rolling back to previous connections...');
 
-            // Close any new clients that were created
-            for (const [name, client] of this.clients) {
-                if (!oldClients.has(name)) {
-                    try {
-                        await client.close();
-                    } catch (e) {
-                        logger.warn(`[McpManager] Failed to close failed connection ${name}:`, e);
-                    }
+            // Close any newly created clients from this reload attempt
+            for (const [name, client] of newClients) {
+                try {
+                    await client.close();
+                } catch (e) {
+                    logger.warn(`[McpManager] Failed to close failed connection ${name}:`, e);
                 }
             }
 

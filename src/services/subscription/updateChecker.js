@@ -217,17 +217,21 @@ class UpdateChecker {
 
         logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`);
 
-        // Prepare set to track UIDs covered by feed check (to avoid duplicate check)
-        const feedMonitoredUids = new Set();
+        // Prepare split coverage sets for feed checks (dynamic/live are independent)
+        const feedCoverage = {
+            dynamicUids: new Set(),
+            liveUids: new Set()
+        };
 
         // 1. Check Feed Updates (Cookie Sync)
-        // This will populate feedMonitoredUids with UIDs that were checked via feed
-        await this.checkFeedUpdate(feedMonitoredUids, activeGroups);
+        // This will populate feedCoverage with UIDs covered by feed checks
+        await this.checkFeedUpdate(feedCoverage, activeGroups);
+        logger.debug(`[UpdateChecker] Feed coverage: dynamic=${feedCoverage.dynamicUids.size}, live=${feedCoverage.liveUids.size}`);
 
         // 2. Check User Dynamics (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
-            // Skip if this user is already monitored by feed check
-            if (feedMonitoredUids.has(String(sub.uid))) {
+            // Skip dynamic fallback only if dynamic feed has covered this user
+            if (feedCoverage.dynamicUids.has(String(sub.uid))) {
                 continue;
             }
 
@@ -265,8 +269,8 @@ class UpdateChecker {
 
         // 6. Check User Live Status (Manual Subs)
         for (const sub of subscriptionManager.userSubs) {
-             // Skip if this user is already monitored by feed check
-            if (feedMonitoredUids.has(String(sub.uid))) {
+             // Skip live fallback only if live feed has covered this user
+            if (feedCoverage.liveUids.has(String(sub.uid))) {
                 continue;
             }
 
@@ -356,7 +360,27 @@ class UpdateChecker {
         return Array.from(userMap.values());
     }
 
-    async checkFeedUpdate(monitoredUidsSet = null, activeGroups = null) {
+    collectFeedCoveredUids(accountUid, activeGroups = null) {
+        const followers = subscriptionManager.cookieFollowings[String(accountUid)] || [];
+        const uidSet = new Set();
+
+        for (const follower of followers) {
+            const fid = subscriptionManager.getFollowerId(follower);
+            if (!fid) continue;
+
+            // This includes both:
+            // 1. Cookie sync + tag matching groups
+            // 2. Manual subscription groups (regardless of tag)
+            const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
+            if (targetGroups.length > 0) {
+                uidSet.add(fid);
+            }
+        }
+
+        return Array.from(uidSet);
+    }
+
+    async checkFeedUpdate(feedCoverage = null, activeGroups = null) {
         const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
             // Only check groups that are active (not left)
             if (activeGroups && !activeGroups.has(gid)) {
@@ -377,49 +401,57 @@ class UpdateChecker {
             }
         }
 
+        const dynamicCoverage = feedCoverage && feedCoverage.dynamicUids instanceof Set ? feedCoverage.dynamicUids : null;
+        const liveCoverage = feedCoverage && feedCoverage.liveUids instanceof Set ? feedCoverage.liveUids : null;
+
         // Loop through accounts
         for (const [uid, groupId] of accountGroups) {
+            const uidsCoveredByFeed = (dynamicCoverage || liveCoverage)
+                ? this.collectFeedCoveredUids(uid, activeGroups)
+                : [];
+
+            let dynamicSucceeded = false;
             try {
-                // Collect UIDs monitored by this account
-                // IMPORTANT: Add users that will be pushed via feed (tag match OR manual subscription)
-                // This optimizes performance by using feed data instead of individual API calls
-                if (monitoredUidsSet) {
-                    const followers = subscriptionManager.cookieFollowings[String(uid)] || [];
-                    for (const f of followers) {
-                        const fid = subscriptionManager.getFollowerId(f);
-                        if (!fid) continue;
+                // Process Dynamic Feed
+                const dynamicResult = await this.processDynamicFeed(uid, groupId, activeGroups);
+                dynamicSucceeded = dynamicResult?.ok === true;
 
-                        // Use findTargetGroupsForUser to determine if this user will be pushed
-                        // This includes both:
-                        // 1. Cookie sync + tag matching groups
-                        // 2. Manual subscription groups (regardless of tag)
-                        const targetGroups = this.findTargetGroupsForUser(uid, f, activeGroups);
-
-                        // If any group will receive this user's updates via feed, mark as monitored
-                        // This prevents redundant API calls in checkUserDynamic
-                        if (targetGroups.length > 0) {
-                            monitoredUidsSet.add(fid);
-                        }
+                if (dynamicSucceeded && dynamicCoverage && uidsCoveredByFeed.length > 0) {
+                    for (const fid of uidsCoveredByFeed) {
+                        dynamicCoverage.add(fid);
                     }
                 }
-
-                // Process Dynamic Feed
-                await this.processDynamicFeed(uid, groupId, activeGroups);
-
-                // Wait 2s
-                await new Promise(r => setTimeout(r, 2000));
-
-                // Process Live Feed
-                await this.processLiveFeed(uid, groupId, activeGroups);
             } catch (e) {
-                logger.error(`[UpdateChecker] Feed update failed for account ${uid}:`, e);
+                logger.error(`[UpdateChecker] Dynamic feed update failed for account ${uid}:`, e);
             }
+
+            // Wait 2s between dynamic and live feed
+            await new Promise(r => setTimeout(r, 2000));
+
+            let liveSucceeded = false;
+            try {
+                // Process Live Feed
+                const liveResult = await this.processLiveFeed(uid, groupId, activeGroups);
+                liveSucceeded = liveResult?.ok === true;
+
+                if (liveSucceeded && liveCoverage && uidsCoveredByFeed.length > 0) {
+                    for (const fid of uidsCoveredByFeed) {
+                        liveCoverage.add(fid);
+                    }
+                }
+            } catch (e) {
+                logger.error(`[UpdateChecker] Live feed update failed for account ${uid}:`, e);
+            }
+
+            logger.debug(`[UpdateChecker] Feed coverage commit for ${uid}: dynamic=${dynamicSucceeded}, live=${liveSucceeded}, candidates=${uidsCoveredByFeed.length}`);
         }
     }
 
     async processDynamicFeed(accountUid, groupId, activeGroups = null) {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
-        if (!followers || followers.length === 0) return;
+        if (!followers || followers.length === 0) {
+            return { ok: true, reason: 'no_followers' };
+        }
 
         // Use safe ID generation
         const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
@@ -435,7 +467,7 @@ class UpdateChecker {
             const res = await biliApi.getDynamicFeed(offset, groupId);
             if (res.status !== 'success' || !res.data) {
                 logger.warn(`[UpdateChecker] Failed to get dynamic feed for account ${accountUid} (Group: ${groupId})`);
-                break;
+                return { ok: false, reason: 'dynamic_feed_fetch_failed' };
             }
 
             const allItems = res.data.items || [];
@@ -539,15 +571,21 @@ class UpdateChecker {
         for (const [uid, updates] of pendingUpdates) {
             await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
         }
+
+        return { ok: true };
     }
 
     async processLiveFeed(accountUid, groupId, activeGroups = null) {
         const res = await biliApi.getLiveFeed(groupId);
-        if (res.status !== 'success' || !res.data || !res.data.list) return;
+        if (res.status !== 'success' || !res.data || !res.data.list) {
+            return { ok: false, reason: 'live_feed_fetch_failed' };
+        }
 
         const liveList = res.data.list;
         const followers = subscriptionManager.cookieFollowings[String(accountUid)];
-        if (!followers) return;
+        if (!followers) {
+            return { ok: true, reason: 'no_followers' };
+        }
 
         // Use safe ID generation
         const followerMap = new Map(followers.map(f => [subscriptionManager.getFollowerId(f), f]));
@@ -609,6 +647,8 @@ class UpdateChecker {
         for (const [uid, updates] of pendingUpdates) {
             await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates);
         }
+
+        return { ok: true };
     }
 
     findTargetGroupsForUser(accountUid, follower, activeGroups = null) {

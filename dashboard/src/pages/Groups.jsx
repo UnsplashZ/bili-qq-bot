@@ -103,7 +103,7 @@ function Groups() {
         const res = await api.get('/api/config');
         if (res.data) {
           setGlobalConfig({
-            aiProbability: res.data.aiProbability || 0.1,
+            aiProbability: res.data.aiProbability ?? 0.1,
             aiContextLimit: res.data.aiContextLimit || 10,
             aiTemperature: res.data.aiTemperature ?? 1.0,
             adminQQ: res.data.adminQQ,
