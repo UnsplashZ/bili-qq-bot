@@ -13,6 +13,7 @@ const config = require('../../../config');
  */
 function detectChargingContent(type, data) {
     if (!data) return false          // null/undefined guard
+    const isTruthyFlag = (value) => value === true || value === 1 || value === '1'
     if (type === 'dynamic') {
         // B 站充电专属动态：item.basic.is_only_fans = true
         // 注：字段名含 "fans" 但实际对应充电专属（非粉丝团专属），
@@ -22,8 +23,11 @@ function detectChargingContent(type, data) {
     if (type === 'video') {
         // B 站充电专属视频：
         // - is_charging_arc = true（订阅推送时手动注入，来自 /user_videos API 的 vlist 字段）
-        // - rights.is_charging_arc = 1（直接分享链接时，来自标准 /x/web-interface/view 接口）
-        return data.data?.is_charging_arc === true || data.data?.rights?.is_charging_arc === 1
+        // - rights.is_charging_arc = 1（旧版 /x/web-interface/view 字段）
+        // - is_upower_exclusive = true（新版 /x/web-interface/view 字段）
+        return isTruthyFlag(data.data?.is_charging_arc)
+            || isTruthyFlag(data.data?.rights?.is_charging_arc)
+            || isTruthyFlag(data.data?.is_upower_exclusive)
     }
     return false
 }

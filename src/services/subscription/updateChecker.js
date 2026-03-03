@@ -1155,8 +1155,9 @@ class UpdateChecker {
                             continue;
                         }
 
-                        if (video.is_charging_arc) {
+                        if (video.is_charging_arc || video.is_upower_exclusive) {
                             info.data.is_charging_arc = true;
+                            info.data.is_upower_exclusive = true;
                         }
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`;
