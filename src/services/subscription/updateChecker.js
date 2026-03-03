@@ -1016,7 +1016,8 @@ class UpdateChecker {
                 }
             }
 
-            if (liveStatus !== sub.lastLiveStatus) {
+            // Guard against transient API anomalies: do not overwrite status with undefined/null.
+            if ((liveStatus === 0 || liveStatus === 1) && liveStatus !== sub.lastLiveStatus) {
                 await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus });
             }
         } catch (e) {
