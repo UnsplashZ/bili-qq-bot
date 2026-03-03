@@ -33,6 +33,7 @@ function Groups() {
   // Form State
   const [formData, setFormData] = useState({
     linkCacheTimeout: 5,
+    showId: true,
     labelConfig: {
       video: true,
       dynamic: true,
@@ -98,6 +99,7 @@ function Groups() {
     aiContextLimit: 10,
     aiTemperature: 1.0,
     adminQQ: undefined,
+    showId: true,
     aiEnabled: true,
     aiRagEnabled: true,
     aiProfileEnabled: false
@@ -141,6 +143,7 @@ function Groups() {
             aiContextLimit: res.data.aiContextLimit || 10,
             aiTemperature: res.data.aiTemperature ?? 1.0,
             adminQQ: res.data.adminQQ,
+            showId: res.data.showId ?? true,
             aiEnabled: res.data.aiEnabled ?? true,
             aiRagEnabled: res.data.aiRagEnabled ?? true,
             aiProfileEnabled: res.data.aiProfileEnabled ?? false
@@ -265,6 +268,7 @@ function Groups() {
 
         setFormData({
           linkCacheTimeout: config.linkCacheTimeout ?? 5,
+          showId: config.showId ?? globalConfig.showId ?? true,
           labelConfig: {
             video: labels.video ?? true,
             dynamic: labels.dynamic ?? true,
@@ -315,7 +319,7 @@ function Groups() {
         }
       }
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig, VIDEO_DOWNLOAD_TAB_INDEX]);
+  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig, VIDEO_DOWNLOAD_TAB_INDEX, globalConfig.showId]);
 
   // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
@@ -787,6 +791,19 @@ function Groups() {
                                 value={formData.linkCacheTimeout}
                                 onChange={(e) => setFormData({...formData, linkCacheTimeout: parseInt(e.target.value) || 0})}
                                 className="mt-1 block w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                            />
+                        </label>
+
+                        <label className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10 cursor-pointer">
+                            <div>
+                                <span className="text-gray-300 text-sm font-medium block">显示 UID</span>
+                                <span className="text-xs text-gray-500">关闭后，用户相关卡片与列表将隐藏 UID。</span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                checked={!!formData.showId}
+                                onChange={(e) => setFormData({ ...formData, showId: e.target.checked })}
+                                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900"
                             />
                         </label>
 

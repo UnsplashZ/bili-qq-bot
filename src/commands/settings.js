@@ -8,11 +8,11 @@ const imageGenerator = require('../services/imageGenerator');
 
 class SettingsCommand {
     constructor() {
-        // Login pending map: key -> groupId
+        // Login pending map: key -> true
         this.loginPending = new Map();
     }
 
-    async pollLoginStatus(key, targetGroupId, ws, groupId) {
+    async pollLoginStatus(key, ws, groupId) {
         const POLL_INTERVAL = 5000; // 5 seconds
         const MAX_DURATION = 30000; // 30 seconds
         const startTime = Date.now();
@@ -27,14 +27,16 @@ class SettingsCommand {
             // Check timeout
             if (Date.now() - startTime > MAX_DURATION) {
                 clearInterval(timer);
+                this.loginPending.delete(key);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `自动登录检测超时。如果您已扫码，请手动输入: /设置 验证 ${key}` } }]);
                 return;
             }
 
             try {
-                const res = await biliApi.checkLogin(key, targetGroupId);
+                // 统一使用全局 Cookie 登录
+                const res = await biliApi.checkLogin(key, null);
                 if (res.status === 'success') {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录成功！凭据已保存 (群: ${targetGroupId})。` } }]);
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '登录成功！全局凭据已保存。' } }]);
                     this.loginPending.delete(key);
                     clearInterval(timer);
                 } else if (res.code === 86038) { // QRCode Expired
@@ -53,13 +55,14 @@ class SettingsCommand {
         const { ws, groupId, userId, rawMessage } = context;
 
         // 统一指令入口：/设置
-        if (rawMessage.startsWith('/设置 ')) {
+        const trimmedMessage = rawMessage.trim();
+        if (trimmedMessage === '/设置' || trimmedMessage.startsWith('/设置 ')) {
              if (!config.isGroupAdmin(groupId, userId)) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员或全局管理员使用。' } }]);
                 return true;
             }
 
-            const parts = rawMessage.trim().split(/\s+/);
+            const parts = trimmedMessage.split(/\s+/);
             const subCommand = parts[1]; // 帮助, 登录, 验证, 功能, 黑名单, 缓存, 轮询, 标签, 深色模式, etc.
 
             if (!subCommand) {
@@ -109,52 +112,27 @@ class SettingsCommand {
                 return true;
             }
 
-            // 2. 登录 (/设置 登录 [群号])
+            // 2. 登录 (/设置 登录)
             if (subCommand === '登录') {
-                let targetGroupId = parts[2];
-                if (!targetGroupId) {
-                    targetGroupId = groupId;
-                }
-
-                if (!targetGroupId) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请在群组中使用此命令或指定群号。' } }]);
-                     return true;
-                }
-
-                // Permission check
-                let allowed = false;
-                if (config.isRootAdmin(userId)) {
-                    allowed = true;
-                } else if (config.isGroupAdmin(groupId, userId)) {
-                    // Group Admin can only login for their current group
-                    if (targetGroupId.toString() === groupId.toString()) {
-                        allowed = true;
-                    }
-                }
-
-                if (!allowed) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：群管理员只能登录当前群，Root可登录指定群。' } }]);
-                     return true;
-                }
-
                  try {
                     const res = await biliApi.getLoginUrl();
                     if (res.status === 'success') {
                         const url = res.data.url;
                         const key = res.data.key;
-                        
+
                         // Store pending login
-                        this.loginPending.set(key, targetGroupId);
+                        this.loginPending.set(key, true);
 
                         const qrDataUrl = await QRCode.toDataURL(url);
                         const base64Image = qrDataUrl.replace(/^data:image\/png;base64,/, '');
+                        const hint = parts[2] ? '\n提示：当前版本仅支持全局 Cookie 登录，已忽略群号参数。' : '';
                         this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `请在30秒内使用B站APP扫描登录 (目标群: ${targetGroupId})。\n机器人将自动检测登录状态，如超时请手动输入: /设置 验证 ${key}` } },
+                            { type: 'text', data: { text: `请在30秒内使用B站APP扫描登录（全局Cookie）。\n机器人将自动检测登录状态，如超时请手动输入: /设置 验证 ${key}${hint}` } },
                             { type: 'image', data: { file: `base64://${base64Image}` } }
                         ]);
 
                         // Start polling
-                        this.pollLoginStatus(key, targetGroupId, ws, groupId);
+                        this.pollLoginStatus(key, ws, groupId);
                     } else {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '获取登录URL失败。' } }]);
                     }
@@ -173,40 +151,11 @@ class SettingsCommand {
                     return true;
                 }
 
-                let targetGroupId = this.loginPending.get(key);
-                if (!targetGroupId) {
-                     // Try to infer from current context if user is admin, but safer to ask user to login again if key lost from memory (e.g. restart)
-                     // However, if user just types it, let's assume current group if not found?
-                     // No, "key" is tied to a session. If key is not in map, maybe it's invalid or bot restarted.
-                     // But biliApi checkLogin relies on Bilibili side session, key is just an identifier.
-                     // So if we lost map, we default to current groupId.
-                     targetGroupId = groupId;
-                }
-                
-                if (!targetGroupId) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '无法确定目标群组，请重新获取登录二维码。' } }]);
-                     return true;
-                }
-
-                // Permission check
-                let allowed = false;
-                if (config.isRootAdmin(userId)) {
-                    allowed = true;
-                } else if (config.isGroupAdmin(groupId, userId)) {
-                    if (targetGroupId.toString() === groupId.toString()) {
-                        allowed = true;
-                    }
-                }
-
-                if (!allowed) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：您无法验证其他群组的登录。' } }]);
-                     return true;
-                }
-
                 try {
-                    const res = await biliApi.checkLogin(key, targetGroupId);
+                    // 统一使用全局 Cookie 登录
+                    const res = await biliApi.checkLogin(key, null);
                     if (res.status === 'success') {
-                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录成功！凭据已保存 (群: ${targetGroupId})。` } }]);
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '登录成功！全局凭据已保存。' } }]);
                          this.loginPending.delete(key);
                     } else {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `登录状态: ${res.message}` } }]);

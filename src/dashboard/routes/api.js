@@ -209,6 +209,7 @@ router.get('/config', async (req, res) => {
 const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'subscriptionCheckInterval',
     'linkCacheTimeout',
+    'showId',
     'aiEnabled',
     'aiRagEnabled',
     'aiProfileEnabled',
@@ -236,6 +237,26 @@ router.post('/config', async (req, res) => {
         }
         if (Object.keys(filtered).length === 0) {
             return res.status(400).json({ error: 'No valid configuration keys provided' });
+        }
+
+        if (filtered.subscriptionCheckInterval !== undefined) {
+            const interval = parseInt(filtered.subscriptionCheckInterval, 10);
+            if (isNaN(interval) || interval <= 0) {
+                return res.status(400).json({ error: 'subscriptionCheckInterval must be a positive integer' });
+            }
+            filtered.subscriptionCheckInterval = interval;
+        }
+
+        if (filtered.linkCacheTimeout !== undefined) {
+            const timeout = parseInt(filtered.linkCacheTimeout, 10);
+            if (isNaN(timeout) || timeout < 0) {
+                return res.status(400).json({ error: 'linkCacheTimeout must be a non-negative integer' });
+            }
+            filtered.linkCacheTimeout = timeout;
+        }
+
+        if (filtered.showId !== undefined && typeof filtered.showId !== 'boolean') {
+            return res.status(400).json({ error: 'showId must be a boolean' });
         }
 
         // Validate videoDownloadResolution if provided
@@ -409,6 +430,18 @@ router.post('/groups/:id/config', async (req, res) => {
 
         if (updates.hasOwnProperty('subscriptionAtAll') && typeof updates.subscriptionAtAll !== 'boolean') {
             return res.status(400).json({ error: 'subscriptionAtAll must be a boolean' });
+        }
+
+        if (updates.hasOwnProperty('showId') && typeof updates.showId !== 'boolean') {
+            return res.status(400).json({ error: 'showId must be a boolean' });
+        }
+
+        if (updates.hasOwnProperty('linkCacheTimeout')) {
+            const timeout = parseInt(updates.linkCacheTimeout, 10);
+            if (isNaN(timeout) || timeout < 0) {
+                return res.status(400).json({ error: 'linkCacheTimeout must be a non-negative integer' });
+            }
+            updates.linkCacheTimeout = timeout;
         }
 
         // 验证 nightMode 配置（如果提供）
@@ -815,8 +848,13 @@ router.get('/bili/login-url', async (req, res) => {
 // POST /api/bili/check-login - Check Login Status
 router.post('/bili/check-login', async (req, res) => {
     try {
-        const { key, groupId } = req.body;
-        const result = await biliApi.checkLogin(key, groupId);
+        const { key } = req.body || {};
+        if (!key) {
+            return res.status(400).json({ error: 'Missing login key' });
+        }
+
+        // 仅支持全局 Cookie 登录，忽略任何 groupId 输入
+        const result = await biliApi.checkLogin(key, null);
         res.json(result);
     } catch (error) {
         logger.error('Error checking login:', error);

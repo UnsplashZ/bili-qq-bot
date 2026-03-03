@@ -124,25 +124,10 @@ def load_credential(group_id=None):
     return None
 
 def save_credential(credential, group_id=None):
-    # Determine target file
+    # 自 2026-02-05 起仅支持全局 Cookie，忽略 group_id 参数
     if group_id:
-        group_key = str(group_id)
-        target_file = f'data/cookies_{group_key}.json'
-        
-        # Update mapping
-        mapping = {}
-        try:
-            if os.path.exists(GROUP_COOKIES_MAP_FILE):
-                with open(GROUP_COOKIES_MAP_FILE, 'r') as f:
-                    mapping = json.load(f)
-        except:
-            pass
-            
-        mapping[group_key] = target_file
-        with open(GROUP_COOKIES_MAP_FILE, 'w') as f:
-            json.dump(mapping, f, indent=4)
-    else:
-        target_file = CREDENTIAL_FILE
+        logger.warning(f"save_credential(group_id={group_id}) 已废弃，统一保存到全局 cookies.json")
+    target_file = CREDENTIAL_FILE
 
     with open(target_file, 'w') as f:
         json.dump({
@@ -222,7 +207,7 @@ async def ensure_buvid3(credential, group_id=None):
     buvid3 = await _fetch_buvid3()
     if buvid3:
         credential.buvid3 = buvid3
-        save_credential(credential, group_id)
+        save_credential(credential)
     return credential
 
 async def _fetch_bytes(url: str) -> bytes:
@@ -619,8 +604,8 @@ async def poll_login(qrcode_key, group_id=None):
         if event == login.QrCodeLoginEvents.DONE:
             logger.info(f"登录成功 (group_id: {group_id})")
             credential = q.get_credential()
-            save_credential(credential, group_id)
-            await ensure_buvid3(credential, group_id)
+            save_credential(credential)
+            await ensure_buvid3(credential)
             return {"status": "success", "message": "登录成功"}
         elif event == login.QrCodeLoginEvents.SCAN:
             return {"status": "pending", "code": 86101, "message": "等待扫码"}

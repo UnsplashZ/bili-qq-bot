@@ -9,6 +9,8 @@ import { Save, Server, Plus, Trash2, Power, Cpu, Activity, AlertTriangle, X, Ter
 
 const GENERAL_CONFIG_DEFAULTS = {
     subscriptionCheckInterval: 300,
+    linkCacheTimeout: 600,
+    showId: true,
 };
 
 function extractGeneralConfig(source) {
@@ -29,7 +31,9 @@ const Settings = () => {
 
   // General Settings State
   const [generalConfig, setGeneralConfig] = useState({
-    subscriptionCheckInterval: 300
+    subscriptionCheckInterval: 300,
+    linkCacheTimeout: 600,
+    showId: true
   });
   const [savingGeneral, setSavingGeneral] = useState(false);
 
@@ -907,6 +911,38 @@ const Settings = () => {
                         className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:outline-none"
                     />
                     <p className="text-xs text-gray-500 mt-1">系统检查订阅更新的频率，建议不少于 60 秒。</p>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                        <div className="flex items-center gap-2">
+                            <Clock size={16} />
+                            链接冷却时间 (秒)
+                        </div>
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        value={generalConfig.linkCacheTimeout}
+                        onChange={(e) => handleGeneralChange('linkCacheTimeout', parseInt(e.target.value, 10) || 0)}
+                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:outline-none"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">同一链接重复解析的全局冷却时间。</p>
+                </div>
+
+                <div className="md:col-span-2">
+                    <label className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer">
+                        <div>
+                            <p className="text-sm font-medium text-white">显示 UID</p>
+                            <p className="text-xs text-gray-500 mt-1">控制用户类卡片与订阅列表是否显示 UID。</p>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={!!generalConfig.showId}
+                            onChange={(e) => handleGeneralChange('showId', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-900"
+                        />
+                    </label>
                 </div>
             </div>
 
