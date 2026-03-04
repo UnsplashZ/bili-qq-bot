@@ -40,6 +40,36 @@ function normalizeBlacklist(input) {
     return normalized;
 }
 
+function stripMcpVersionField(config) {
+    const stripped = {};
+    if (!config || typeof config !== 'object') return stripped;
+    for (const [key, value] of Object.entries(config)) {
+        if (key === '_version') continue;
+        stripped[key] = value;
+    }
+    return stripped;
+}
+
+function deepSortObject(value) {
+    if (Array.isArray(value)) {
+        return value.map(deepSortObject);
+    }
+    if (value && typeof value === 'object') {
+        const sorted = {};
+        for (const key of Object.keys(value).sort()) {
+            sorted[key] = deepSortObject(value[key]);
+        }
+        return sorted;
+    }
+    return value;
+}
+
+function isMcpConfigContentEqual(a, b) {
+    const normalizedA = deepSortObject(stripMcpVersionField(a));
+    const normalizedB = deepSortObject(stripMcpVersionField(b));
+    return JSON.stringify(normalizedA) === JSON.stringify(normalizedB);
+}
+
 // 用户画像仅支持真实群号（数字）
 function isValidProfileGroupId(groupId) {
     return typeof groupId === 'string' && /^\d+$/.test(groupId);
@@ -1279,6 +1309,17 @@ router.post('/mcp', async (req, res) => {
             if (serverType !== 'stdio') {
                 newConfig[server.name].url = server.url;
             }
+        }
+
+        if (isMcpConfigContentEqual(currentConfig, newConfig)) {
+            logger.info('[API] MCP configuration unchanged, skipping save and reload');
+            return res.json({
+                message: 'MCP配置未变化，已跳过重载',
+                config: currentConfig,
+                version: currentVersion,
+                reloadSuccess: true,
+                skippedReload: true
+            });
         }
 
         // Write to file

@@ -32,12 +32,21 @@ class UpdateChecker {
         this.credentialRefreshTimer = null;
         this.CREDENTIAL_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24小时
         this.AT_ALL_CAPABILITY_CACHE_TTL_MS = 30 * 1000; // 30秒
+        this.AT_ALL_SEND_FAILURE_CACHE_TTL_MS = 5 * 60 * 1000; // 5分钟
+        this.AT_ALL_CAPABILITY_WARMUP_BATCH_SIZE = 5;
         this.groupAtAllCapabilityCache = new Map(); // groupId -> { canAtAll, expiresAt, reason, retcode }
+        this.groupAtAllCapabilityInFlight = new Map(); // groupId -> Promise<capability>
+        this.groupBotRoleCache = new Map(); // groupId -> { role, allowed, expiresAt, reason, retcode }
+        this.groupBotRoleInFlight = new Map(); // groupId -> Promise<roleState>
+        this._checkAllInFlight = false;
     }
 
     setWs(ws) {
         this.ws = ws;
         this.groupAtAllCapabilityCache.clear();
+        this.groupAtAllCapabilityInFlight.clear();
+        this.groupBotRoleCache.clear();
+        this.groupBotRoleInFlight.clear();
     }
 
     /**
@@ -86,6 +95,10 @@ class UpdateChecker {
             }); },
             this.CREDENTIAL_REFRESH_INTERVAL
         );
+
+        this.warmupGroupAtAllCapabilities(true).catch(e => {
+            logger.error('[UpdateChecker] Failed to warmup @all capabilities:', e);
+        });
 
         logger.info('[UpdateChecker] All timers started successfully');
     }
@@ -203,106 +216,116 @@ class UpdateChecker {
     }
 
     async checkAll() {
+        if (this._checkAllInFlight) {
+            logger.warn('[UpdateChecker] Scheduled check skipped: previous check is still running');
+            return;
+        }
+        this._checkAllInFlight = true;
         logger.info('[UpdateChecker] Starting scheduled check...');
+        try {
+            // Ensure subscriptions are loaded before checking
+            await subscriptionManager._ensureSubscriptionsLoaded();
 
-        // Ensure subscriptions are loaded before checking
-        await subscriptionManager._ensureSubscriptionsLoaded();
+            // Build active groups set (only groups where isInGroup !== false)
+            const activeGroups = new Set();
+            const groupConfigs = config.groupConfigs || {};
 
-        // Build active groups set (only groups where isInGroup !== false)
-        const activeGroups = new Set();
-        const groupConfigs = config.groupConfigs || {};
-
-        for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
-            if (groupConfig.isInGroup !== false) {
-                activeGroups.add(groupId);
-            }
-        }
-
-        logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`);
-
-        // Prepare split coverage sets for feed checks (dynamic/live are independent)
-        const feedCoverage = {
-            dynamicUids: new Set(),
-            liveUids: new Set()
-        };
-
-        // 1. Check Feed Updates (Cookie Sync)
-        // This will populate feedCoverage with UIDs covered by feed checks
-        await this.checkFeedUpdate(feedCoverage, activeGroups);
-        logger.debug(`[UpdateChecker] Feed coverage: dynamic=${feedCoverage.dynamicUids.size}, live=${feedCoverage.liveUids.size}`);
-
-        // 2. Check User Dynamics (Manual Subs)
-        for (const sub of subscriptionManager.userSubs) {
-            // Skip dynamic fallback only if dynamic feed has covered this user
-            if (feedCoverage.dynamicUids.has(String(sub.uid))) {
-                continue;
+            for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
+                if (groupConfig.isInGroup !== false) {
+                    activeGroups.add(groupId);
+                }
             }
 
-            // Filter out inactive groups
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
-            if (targetGroups.length === 0) {
-                logger.debug(`[UpdateChecker] Skipped dynamic check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
-                continue;
+            logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`);
+
+            // Prepare split coverage sets for feed checks (dynamic/live are independent)
+            const feedCoverage = {
+                dynamicUids: new Set(),
+                liveUids: new Set()
+            };
+
+            // 1. Check Feed Updates (Cookie Sync)
+            // This will populate feedCoverage with UIDs covered by feed checks
+            await this.checkFeedUpdate(feedCoverage, activeGroups);
+            logger.debug(`[UpdateChecker] Feed coverage: dynamic=${feedCoverage.dynamicUids.size}, live=${feedCoverage.liveUids.size}`);
+
+            // 2. Check User Dynamics (Manual Subs)
+            for (const sub of subscriptionManager.userSubs) {
+                // Skip dynamic fallback only if dynamic feed has covered this user
+                if (feedCoverage.dynamicUids.has(String(sub.uid))) {
+                    continue;
+                }
+
+                // Filter out inactive groups
+                const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+                if (targetGroups.length === 0) {
+                    logger.debug(`[UpdateChecker] Skipped dynamic check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                    continue;
+                }
+
+                await this.checkUserDynamic(sub, targetGroups);
+                // Small delay to be nice to API
+                await new Promise(r => setTimeout(r, 1000));
             }
 
-            await this.checkUserDynamic(sub, targetGroups);
-            // Small delay to be nice to API
-            await new Promise(r => setTimeout(r, 1000));
-        }
+            // 3. Build unified user check list (Manual Subs + Cookie Sync)
+            const userCheckList = this.buildUserCheckList(activeGroups);
+            logger.info(`[UpdateChecker] Built unified user check list: ${userCheckList.length} users (manual: ${subscriptionManager.userSubs.length}, after merge)`);
 
-        // 3. Build unified user check list (Manual Subs + Cookie Sync)
-        const userCheckList = this.buildUserCheckList(activeGroups);
-        logger.info(`[UpdateChecker] Built unified user check list: ${userCheckList.length} users (manual: ${subscriptionManager.userSubs.length}, after merge)`);
-
-        // 4. Check User Videos (Manual Subs + Cookie Sync)
-        logger.info('[UpdateChecker] Checking user videos (unified)...');
-        for (const userItem of userCheckList) {
-            await this.checkUserVideoUnified(userItem);
-            // Slightly longer delay for video API
-            await new Promise(r => setTimeout(r, 1500));
-        }
-
-        // 5. Check User Articles (Manual Subs + Cookie Sync)
-        logger.info('[UpdateChecker] Checking user articles (unified)...');
-        for (const userItem of userCheckList) {
-            await this.checkUserArticleUnified(userItem);
-            // Slightly longer delay for article API
-            await new Promise(r => setTimeout(r, 1500));
-        }
-
-        // 6. Check User Live Status (Manual Subs)
-        for (const sub of subscriptionManager.userSubs) {
-             // Skip live fallback only if live feed has covered this user
-            if (feedCoverage.liveUids.has(String(sub.uid))) {
-                continue;
+            // 4. Check User Videos (Manual Subs + Cookie Sync)
+            logger.info('[UpdateChecker] Checking user videos (unified)...');
+            for (const userItem of userCheckList) {
+                await this.checkUserVideoUnified(userItem);
+                // Slightly longer delay for video API
+                await new Promise(r => setTimeout(r, 1500));
             }
 
-            // Filter out inactive groups
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
-            if (targetGroups.length === 0) {
-                logger.debug(`[UpdateChecker] Skipped live check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
-                continue;
+            // 5. Check User Articles (Manual Subs + Cookie Sync)
+            logger.info('[UpdateChecker] Checking user articles (unified)...');
+            for (const userItem of userCheckList) {
+                await this.checkUserArticleUnified(userItem);
+                // Slightly longer delay for article API
+                await new Promise(r => setTimeout(r, 1500));
             }
 
-            await this.checkUserLive(sub, targetGroups);
-            await new Promise(r => setTimeout(r, 1000));
-        }
+            // 6. Check User Live Status (Manual Subs)
+            for (const sub of subscriptionManager.userSubs) {
+                // Skip live fallback only if live feed has covered this user
+                if (feedCoverage.liveUids.has(String(sub.uid))) {
+                    continue;
+                }
 
-        // 7. Check Bangumi Updates
-        for (const sub of subscriptionManager.bangumiSubs) {
-            // Filter out inactive groups
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
-            if (targetGroups.length === 0) {
-                logger.debug(`[UpdateChecker] Skipped bangumi check for ${sub.seasonId} (${sub.title}): all subscribed groups have left`);
-                continue;
+                // Filter out inactive groups
+                const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+                if (targetGroups.length === 0) {
+                    logger.debug(`[UpdateChecker] Skipped live check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`);
+                    continue;
+                }
+
+                await this.checkUserLive(sub, targetGroups);
+                await new Promise(r => setTimeout(r, 1000));
             }
 
-            await this.checkBangumi(sub, targetGroups);
-            await new Promise(r => setTimeout(r, 1000));
-        }
+            // 7. Check Bangumi Updates
+            for (const sub of subscriptionManager.bangumiSubs) {
+                // Filter out inactive groups
+                const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
+                if (targetGroups.length === 0) {
+                    logger.debug(`[UpdateChecker] Skipped bangumi check for ${sub.seasonId} (${sub.title}): all subscribed groups have left`);
+                    continue;
+                }
 
-        // 8. Refresh missing names (maintenance)
-        await this.refreshMissingNames();
+                await this.checkBangumi(sub, targetGroups);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+
+            // 8. Refresh missing names (maintenance)
+            await this.refreshMissingNames();
+        } catch (error) {
+            logger.error('[UpdateChecker] Scheduled check failed:', error);
+        } finally {
+            this._checkAllInFlight = false;
+        }
     }
 
     /**
@@ -1378,78 +1401,243 @@ class UpdateChecker {
         return config.getGroupConfig(groupId, 'subscriptionAtAll') === true;
     }
 
-    async queryGroupAtAllCapability(groupId) {
+    getSubscriptionAtAllWarmupGroups() {
+        const result = [];
+        const groupConfigs = config.groupConfigs || {};
+
+        for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
+            if (!groupConfig || groupConfig.isInGroup === false) continue;
+            if (!config.isGroupEnabled(groupId)) continue;
+            if (!this.isSubscriptionAtAllEnabled(groupId)) continue;
+            result.push(String(groupId));
+        }
+
+        return result;
+    }
+
+    async warmupGroupAtAllCapabilities(forceRefresh = true) {
+        const groupIds = this.getSubscriptionAtAllWarmupGroups();
+        if (groupIds.length === 0) return;
+
+        logger.info(`[UpdateChecker] Pre-checking @all capability for ${groupIds.length} groups at startup`);
+        const batchSize = this.AT_ALL_CAPABILITY_WARMUP_BATCH_SIZE;
+
+        for (let i = 0; i < groupIds.length; i += batchSize) {
+            const batch = groupIds.slice(i, i + batchSize);
+            await Promise.all(batch.map(gid => this.queryGroupAtAllCapability(gid, { forceRefresh })));
+        }
+    }
+
+    markGroupAtAllUnavailable(groupId, reason = 'unknown', retcode = null, ttlMs = this.AT_ALL_SEND_FAILURE_CACHE_TTL_MS) {
         const cacheKey = String(groupId);
         const now = Date.now();
-        const cached = this.groupAtAllCapabilityCache.get(cacheKey);
-
-        if (cached && cached.expiresAt > now) {
-            return cached;
-        }
-
-        const result = {
+        this.groupAtAllCapabilityCache.set(cacheKey, {
             canAtAll: false,
-            reason: 'unknown',
-            retcode: null,
-            expiresAt: now + this.AT_ALL_CAPABILITY_CACHE_TTL_MS
-        };
+            reason,
+            retcode,
+            expiresAt: now + Math.max(0, Number(ttlMs) || 0)
+        });
+    }
 
-        if (!this.ws) {
-            result.reason = 'ws_unavailable';
-            this.groupAtAllCapabilityCache.set(cacheKey, result);
-            return result;
+    async resolveBotSelfId() {
+        const selfId = String(global?.bot?.selfId || '');
+        if (selfId && selfId !== '0') {
+            return selfId;
         }
+
+        if (!this.ws) return null;
 
         try {
             const response = await notificationService.callAction(
                 this.ws,
-                'get_group_at_all_remain',
-                { group_id: groupId },
+                'get_login_info',
+                {},
                 'UpdateChecker',
                 4000
             );
+            const uid = response?.data?.user_id;
+            if (uid === undefined || uid === null) return null;
+            const resolved = String(uid);
+            global.bot = global.bot || {};
+            global.bot.selfId = resolved;
+            return resolved;
+        } catch {
+            return null;
+        }
+    }
 
-            result.retcode = response?.retcode ?? null;
+    async queryBotGroupRole(groupId, options = {}) {
+        const { forceRefresh = false } = options;
+        const cacheKey = String(groupId);
+        const now = Date.now();
+        const cached = this.groupBotRoleCache.get(cacheKey);
 
-            if (response?.status === 'ok') {
-                const data = response?.data || {};
-                if (typeof data.can_at_all === 'boolean') {
-                    result.canAtAll = data.can_at_all;
-                } else {
-                    const remainForUin = Number(data.remain_at_all_count_for_uin);
-                    const remainForGroup = Number(data.remain_at_all_count_for_group);
-                    const validUinRemain = Number.isFinite(remainForUin);
-                    const validGroupRemain = Number.isFinite(remainForGroup);
+        if (!forceRefresh && cached && cached.expiresAt > now) {
+            return cached;
+        }
 
-                    if (validUinRemain && validGroupRemain) {
-                        result.canAtAll = remainForUin > 0 && remainForGroup > 0;
-                    } else if (validUinRemain) {
-                        result.canAtAll = remainForUin > 0;
-                    } else {
-                        result.canAtAll = false;
-                    }
-                }
+        if (this.groupBotRoleInFlight.has(cacheKey)) {
+            return this.groupBotRoleInFlight.get(cacheKey);
+        }
 
-                if (!result.canAtAll) {
-                    result.reason = 'no_permission_or_quota';
-                } else {
-                    result.reason = 'ok';
-                }
-            } else {
-                const wording = response?.wording || response?.message;
-                result.reason = wording ? `action_failed:${wording}` : 'action_failed';
+        const queryPromise = (async () => {
+            const result = {
+                role: null,
+                allowed: false,
+                reason: 'unknown',
+                retcode: null,
+                expiresAt: now + this.AT_ALL_CAPABILITY_CACHE_TTL_MS
+            };
+
+            if (!this.ws) {
+                result.reason = 'ws_unavailable';
+                this.groupBotRoleCache.set(cacheKey, result);
+                return result;
             }
-        } catch (e) {
-            result.reason = `query_failed:${e.message}`;
+
+            const selfId = await this.resolveBotSelfId();
+            if (!selfId) {
+                result.reason = 'self_id_unavailable';
+                this.groupBotRoleCache.set(cacheKey, result);
+                return result;
+            }
+
+            try {
+                const response = await notificationService.callAction(
+                    this.ws,
+                    'get_group_member_info',
+                    {
+                        group_id: groupId,
+                        user_id: Number(selfId),
+                        no_cache: true
+                    },
+                    'UpdateChecker',
+                    4000
+                );
+
+                result.retcode = response?.retcode ?? null;
+
+                if (response?.status === 'ok') {
+                    const role = String(response?.data?.role || '').toLowerCase();
+                    result.role = role || null;
+                    result.allowed = role === 'admin' || role === 'owner';
+                    result.reason = result.allowed
+                        ? 'ok'
+                        : `insufficient_role:${role || 'unknown'}`;
+                } else {
+                    const wording = response?.wording || response?.message;
+                    result.reason = wording ? `action_failed:${wording}` : 'action_failed';
+                }
+            } catch (e) {
+                result.reason = `query_failed:${e.message}`;
+            }
+
+            this.groupBotRoleCache.set(cacheKey, result);
+            return result;
+        })();
+
+        this.groupBotRoleInFlight.set(cacheKey, queryPromise);
+        try {
+            return await queryPromise;
+        } finally {
+            this.groupBotRoleInFlight.delete(cacheKey);
+        }
+    }
+
+    async queryGroupAtAllCapability(groupId, options = {}) {
+        const { forceRefresh = false } = options;
+        const cacheKey = String(groupId);
+        const now = Date.now();
+        const cached = this.groupAtAllCapabilityCache.get(cacheKey);
+
+        if (!forceRefresh && cached && cached.expiresAt > now) {
+            return cached;
         }
 
-        this.groupAtAllCapabilityCache.set(cacheKey, result);
-
-        if (!result.canAtAll) {
-            logger.info(`[UpdateChecker] Group ${groupId} @all unavailable, fallback to plain message (reason: ${result.reason}, retcode: ${result.retcode ?? 'N/A'})`);
+        if (this.groupAtAllCapabilityInFlight.has(cacheKey)) {
+            return this.groupAtAllCapabilityInFlight.get(cacheKey);
         }
 
-        return result;
+        const queryPromise = (async () => {
+            const result = {
+                canAtAll: false,
+                reason: 'unknown',
+                retcode: null,
+                botRole: null,
+                expiresAt: now + this.AT_ALL_CAPABILITY_CACHE_TTL_MS
+            };
+
+            if (!this.ws) {
+                result.reason = 'ws_unavailable';
+                this.groupAtAllCapabilityCache.set(cacheKey, result);
+                return result;
+            }
+
+            try {
+                const response = await notificationService.callAction(
+                    this.ws,
+                    'get_group_at_all_remain',
+                    { group_id: groupId },
+                    'UpdateChecker',
+                    4000
+                );
+
+                result.retcode = response?.retcode ?? null;
+
+                if (response?.status === 'ok') {
+                    const data = response?.data || {};
+                    if (typeof data.can_at_all === 'boolean') {
+                        result.canAtAll = data.can_at_all;
+                    } else {
+                        const remainForUin = Number(data.remain_at_all_count_for_uin);
+                        const remainForGroup = Number(data.remain_at_all_count_for_group);
+                        const validUinRemain = Number.isFinite(remainForUin);
+                        const validGroupRemain = Number.isFinite(remainForGroup);
+
+                        if (validUinRemain && validGroupRemain) {
+                            result.canAtAll = remainForUin > 0 && remainForGroup > 0;
+                        } else if (validUinRemain) {
+                            result.canAtAll = remainForUin > 0;
+                        } else {
+                            result.canAtAll = false;
+                        }
+                    }
+
+                    if (!result.canAtAll) {
+                        result.reason = 'no_permission_or_quota';
+                    } else {
+                        const roleState = await this.queryBotGroupRole(groupId, { forceRefresh });
+                        result.botRole = roleState.role;
+                        if (roleState.allowed) {
+                            result.reason = 'ok';
+                        } else {
+                            result.canAtAll = false;
+                            result.reason = roleState.reason;
+                        }
+                    }
+                } else {
+                    const wording = response?.wording || response?.message;
+                    result.reason = wording ? `action_failed:${wording}` : 'action_failed';
+                }
+            } catch (e) {
+                result.reason = `query_failed:${e.message}`;
+            }
+
+            this.groupAtAllCapabilityCache.set(cacheKey, result);
+
+            if (!result.canAtAll) {
+                logger.info(`[UpdateChecker] Group ${groupId} @all unavailable, fallback to plain message (reason: ${result.reason}, retcode: ${result.retcode ?? 'N/A'})`);
+            }
+
+            return result;
+        })();
+
+        this.groupAtAllCapabilityInFlight.set(cacheKey, queryPromise);
+        try {
+            return await queryPromise;
+        } finally {
+            this.groupAtAllCapabilityInFlight.delete(cacheKey);
+        }
     }
 
     async buildSubscriptionMessageChain(groupId, messageChain) {
@@ -1465,12 +1653,68 @@ class UpdateChecker {
         return [{ type: 'at', data: { qq: 'all' } }, ...messageChain];
     }
 
+    async sendGroupMessageByAction(groupId, messageChain) {
+        try {
+            const response = await notificationService.callAction(
+                this.ws,
+                'send_group_msg',
+                { group_id: groupId, message: messageChain },
+                'UpdateChecker',
+                10000
+            );
+
+            const status = response?.status;
+            const retcode = response?.retcode ?? null;
+            const isOk = status === 'ok' && (retcode === null || retcode === 0);
+            const wording = response?.wording || response?.message || '';
+
+            return {
+                ok: isOk,
+                reason: isOk ? 'ok' : (wording ? `action_failed:${wording}` : 'action_failed'),
+                retcode
+            };
+        } catch (e) {
+            return { ok: false, reason: `send_failed:${e.message}`, retcode: null };
+        }
+    }
+
+    hasAtAllSegment(messageChain) {
+        if (!Array.isArray(messageChain)) return false;
+        return messageChain.some(seg => seg?.type === 'at' && String(seg?.data?.qq) === 'all');
+    }
+
     async sendSubscriptionMessage(groupId, baseMessageChain) {
         if (!this.ws) return;
 
         try {
-            const messageChain = await this.buildSubscriptionMessageChain(groupId, baseMessageChain);
-            notificationService.sendGroupMessage(this.ws, groupId, messageChain);
+            const processedBaseMessageChain = notificationService.processMessageChain(baseMessageChain, 'UpdateChecker');
+            const messageChain = await this.buildSubscriptionMessageChain(groupId, processedBaseMessageChain);
+
+            const firstSendResult = await this.sendGroupMessageByAction(groupId, messageChain);
+            if (firstSendResult.ok) {
+                return;
+            }
+
+            if (this.hasAtAllSegment(messageChain)) {
+                this.markGroupAtAllUnavailable(groupId, firstSendResult.reason, firstSendResult.retcode);
+                logger.warn(
+                    `[UpdateChecker] send_group_msg with @all failed for group ${groupId}, retrying without @all ` +
+                    `(reason: ${firstSendResult.reason}, retcode: ${firstSendResult.retcode ?? 'N/A'})`
+                );
+
+                const retryResult = await this.sendGroupMessageByAction(groupId, processedBaseMessageChain);
+                if (retryResult.ok) {
+                    logger.info(`[UpdateChecker] Fallback to plain message succeeded for group ${groupId}`);
+                    return;
+                }
+
+                throw new Error(
+                    `send_group_msg failed after @all fallback: ` +
+                    `${firstSendResult.reason} -> ${retryResult.reason}`
+                );
+            }
+
+            throw new Error(`send_group_msg failed: ${firstSendResult.reason}`);
         } catch (e) {
             logger.error(`[UpdateChecker] Failed to send subscription message to group ${groupId}:`, e);
             notificationService.sendGroupMessage(this.ws, groupId, baseMessageChain);

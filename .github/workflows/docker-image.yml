@@ -1,16 +1,9 @@
-name: Build & Push (自动+手动发布)
+name: Build, Tag & Release (自动发布)
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      push_latest:
-        description: '是否同时更新 latest 标签？'
-        required: true
-        type: boolean
-        default: true
 
 env:
   # 请替换为你的 Docker Hub 用户名/仓库名
@@ -18,10 +11,17 @@ env:
 
 jobs:
   build-push:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -48,19 +48,9 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve latest tag strategy
-        id: latest
-        shell: bash
-        run: |
-          push_latest=true
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            push_latest="${{ inputs.push_latest }}"
-          fi
-          echo "push_latest=${push_latest}" >> "$GITHUB_OUTPUT"
-
       # 生成 Tag 逻辑
       # 版本由最新 commit subject 的 vX.Y.Z 提取为 X.Y.Z
-      # 自动触发默认推 latest；手动触发由 push_latest 控制
+      # 自动触发默认推 latest
       - name: Generate Tags
         id: meta
         uses: docker/metadata-action@v5
@@ -68,7 +58,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest,enable=${{ steps.latest.outputs.push_latest == 'true' }}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -81,3 +71,80 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Ensure git tag exists
+        shell: bash
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          current_commit="$(git rev-parse HEAD)"
+
+          if git show-ref --tags --verify --quiet "refs/tags/${tag}"; then
+            tag_commit="$(git rev-list -n 1 "refs/tags/${tag}")"
+            if [[ "${tag_commit}" != "${current_commit}" ]]; then
+              echo "::error::Tag ${tag} already exists at ${tag_commit}, current commit is ${current_commit}"
+              exit 1
+            fi
+            echo "Tag ${tag} already exists on current commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag}" -m "Release ${tag}"
+          git push origin "${tag}"
+          echo "Created and pushed tag ${tag}"
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build-push
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          tag="v${{ needs.build-push.outputs.version }}"
+          setup_url="${{ github.server_url }}/${{ github.repository }}/releases/download/${tag}/setup.sh"
+          cat > release-notes.md <<EOF
+          ## 自动构建汇总
+
+          - 版本: **${tag}**
+          - 触发事件: \`${{ github.event_name }}\`
+          - 触发提交: \`${{ github.sha }}\`
+          - Docker 镜像: \`${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.version }}\`
+          - 同步 latest 标签: **true**
+
+          ## 资源文件
+
+          - GitHub 自动附带源码压缩包（zip / tar.gz）
+          - 一键安装脚本: [setup.sh](${setup_url})
+
+          ## 简易 Docker 部署流程
+
+          \`\`\`bash
+          wget -O setup.sh ${setup_url}
+          chmod +x setup.sh
+          sudo ./setup.sh
+          \`\`\`
+
+          如需手动方式：
+
+          \`\`\`bash
+          git clone ${{ github.server_url }}/${{ github.repository }}.git
+          cd bili-qq-bot
+          docker compose up -d
+          \`\`\`
+          EOF
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-push.outputs.version }}
+          name: v${{ needs.build-push.outputs.version }}
+          body_path: release-notes.md
+          files: setup.sh
+          make_latest: true
