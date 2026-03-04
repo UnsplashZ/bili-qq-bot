@@ -12,6 +12,11 @@
   - Minor bug fix or small feature adjustment: increment `zz` by 1
   - Major feature adjustment: increment `yy` by 1 and reset `zz` to `0`
   - `xx` remains unchanged by default unless explicitly decided
+- Commit body formatting rule:
+  - If body is needed, use real newline characters; do not write literal `\n` inside a single `-m` string.
+  - Prefer heredoc for multiline messages, for example:
+    `git commit -F - <<'EOF' ... EOF`
+  - If using `-m`, pass multiple `-m` flags for separate paragraphs instead of embedding escaped newlines.
 - Examples:
   - `main`: `v1.4.3 修复订阅刷新超时问题`
   - non-`main`: `fix: 修复订阅刷新超时问题`

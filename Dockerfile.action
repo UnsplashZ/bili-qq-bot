@@ -1,12 +1,31 @@
-# 直接使用官方源，无需国内加速代理
+FROM node:22-bookworm-slim AS deps
+
+WORKDIR /app
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_SKIP_DOWNLOAD=true
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund \
+    && npm cache clean --force
+
+
+FROM node:22-bookworm-slim AS dashboard-builder
+
+WORKDIR /app/dashboard
+
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci --no-audit --no-fund \
+    && npm cache clean --force
+
+COPY dashboard/ ./
+RUN npm run build
+
+
 FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-# 1. 安装系统依赖 (使用默认 Debian 源，海外极快)
-# - --no-install-recommends: 不安装推荐包，减少体积
-# - autoremove + clean: 清理无用包和缓存
-# - rm doc/man: 删除文档和手册页
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -16,48 +35,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-symbola \
     chromium \
     ffmpeg \
+    && rm -rf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* \
     && fc-cache -fv
 
-# 2. 字体配置
-# 保留 NotoSans* 字体以覆盖 Sinhala 等跨脚本字符（如：ෆ）
-RUN rm -rf /usr/share/fonts/truetype/noto/NotoSerif*.ttf \
-    && fc-cache -fv
-
-# 3. Python 环境 (Github Action 环境通常在海外，直接使用官方 PyPI)
-COPY requirements.txt .
-# Debian Bookworm 默认禁止全局 pip，需添加 --break-system-packages
+COPY requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages \
-    && pip3 install --no-cache-dir uv --break-system-packages
+    && pip3 install --no-cache-dir uv --break-system-packages \
+    && rm -f requirements.txt
 
-# 4. Node 环境
+ENV NODE_ENV=production \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
+COPY src ./src
+COPY config ./config
+COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+RUN mkdir -p logs temp config fonts data/downloads /app/.config/QQ/tmp/
 
-# 使用官方 NPM 源
-RUN npm ci && npm cache clean --force
-
-# 4.5. 预先安装 dashboard 依赖 (利用 Docker 缓存)
-RUN mkdir -p dashboard
-COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
-# Github Action 环境直接使用官方源
-RUN cd dashboard && npm ci
-
-# 5. 先复制并构建 dashboard (仅在 dashboard 变更时触发)
-COPY dashboard/ ./dashboard/
-RUN cd dashboard && npm run build
-
-# 6. 再复制代码
-COPY . .
-RUN mkdir -p logs temp config fonts && mkdir -p /app/.config/QQ/tmp/
-
-# 暴露端口 (如果有 Web 服务的话，没有则不需要，这里保留以防万一)
 EXPOSE 3000
 
 CMD ["npm", "start"]

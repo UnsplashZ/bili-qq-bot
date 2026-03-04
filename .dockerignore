@@ -1,5 +1,7 @@
 # Dependencies
 node_modules
+dashboard/node_modules
+**/node_modules
 venv
 .pnpm-debug.log*
 npm-debug.log*
@@ -21,6 +23,7 @@ data/
 logs/
 temp/
 tmp/
+napcat/
 *.log
 application.log
 
@@ -43,6 +46,7 @@ docs/
 # Tests & Coverage
 test*
 coverage/
+dashboard/dist/
 
 # Documentation & Tools
 README.md
@@ -52,5 +56,3 @@ check_data_structure.js
 
 # Fonts (已复制到系统字体目录)
 fonts/
-!fonts/mi/
-
