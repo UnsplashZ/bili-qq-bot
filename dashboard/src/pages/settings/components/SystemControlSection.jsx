@@ -1,0 +1,26 @@
+import { Activity, AlertTriangle } from 'lucide-react'
+
+const SystemControlSection = ({ onRestart }) => {
+    return (
+        <section className="pt-8 border-t border-white/10">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                        <Activity className="text-red-400" />
+                        系统控制
+                    </h2>
+                    <p className="text-gray-400 text-sm mt-1">影响整个机器人的系统级操作。</p>
+                </div>
+                <button
+                    onClick={onRestart}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-colors"
+                >
+                    <AlertTriangle size={18} />
+                    重启系统
+                </button>
+            </div>
+        </section>
+    )
+}
+
+export default SystemControlSection

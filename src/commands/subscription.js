@@ -246,9 +246,13 @@ class SubscriptionCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
                 return true;
             }
-            const parts = rawMessage.split(' ');
-            if (parts.length === 2) {
-                const uid = parts[1];
+            const parts = rawMessage.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const uid = String(parts[1] || '').trim();
+                if (!/^\d+$/.test(uid)) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅用户 <uid>' } }]);
+                    return true;
+                }
                 (async () => {
                     try {
                         const name = await subscriptionService.addUserSubscription(uid, groupId);
@@ -271,9 +275,9 @@ class SubscriptionCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
                 return true;
             }
-            const parts = rawMessage.split(' ');
-            if (parts.length === 2) {
-                const arg = parts[1].trim();
+            const parts = rawMessage.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const arg = String(parts[1] || '').trim();
                 (async () => {
                     try {
                         let seasonId = null;
@@ -325,9 +329,9 @@ class SubscriptionCommand {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员使用。' } }]);
                 return true;
             }
-            const parts = rawMessage.split(' ');
-            if (parts.length === 2) {
-                const seasonId = parts[1];
+            const parts = rawMessage.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                const seasonId = String(parts[1] || '').trim();
                 const result = await subscriptionService.removeBangumiSubscription(seasonId, groupId);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: result ? `已取消订阅番剧 ${seasonId}。` : `未找到番剧 ${seasonId} 的订阅。` } }]);
             } else {

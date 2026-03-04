@@ -364,7 +364,6 @@ const META = {
     },
     biliServerPort: { env: 'BILI_SERVER_PORT', def: 10001, type: 'int' },
     biliScriptPath: { env: null, def: './src/services/bili_server.py', type: 'string' },
-    adminQQ: { env: 'ADMIN_QQ', def: undefined, type: 'string' },
     useBase64Send: { env: 'USE_BASE64_SEND', def: false, type: 'bool' },
     napcatTempPath: { env: 'NAPCAT_TEMP_PATH', def: '/app/.config/QQ/tmp/', type: 'string' },
     napcatReadPath: { env: 'NAPCAT_READ_PATH', def: '/app/.config/QQ/tmp/', type: 'string' },
@@ -466,8 +465,16 @@ const config = {
     },
 
     // Permission Checks
+    getRootAdminQQ: function() {
+        const raw = process.env.ADMIN_QQ;
+        if (raw === undefined || raw === null) return '';
+        return String(raw).trim();
+    },
+
     isRootAdmin: function(userId) {
-        return this.adminQQ && userId.toString() === this.adminQQ.toString();
+        const rootAdminQQ = this.getRootAdminQQ();
+        if (!rootAdminQQ || userId === undefined || userId === null) return false;
+        return String(userId) === rootAdminQQ;
     },
 
     isGroupAdmin: function(groupId, userId) {

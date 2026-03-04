@@ -291,7 +291,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `/设置 功能` | `<开\|关> [群号]` | 开启或关闭指定群组的 Bot 响应 | Root用户可以指定群，群管仅限当前群 |
 | `/设置 关注同步` | `<开\|关>` | 开启或关闭关注同步功能 | **当前群** |
 | `/设置 关注同步` | `<添加\|删除> <分组>` | 管理同步的 B 站关注分组 | **当前群** |
-| `/设置 推送AT全体` | `<开\|关>` | 开启后，订阅与关注同步推送时 @全体成员（需要为Bot QQ管理员权限） | **当前群** |
+| `/设置 推送AT全体` | `<开\|关>` | `@全体` 总开关；细粒度规则（来源/分类/UID）请在 WebUI 群组管理中配置（需要为Bot QQ管理员权限） | **当前群** |
 | `/设置 黑名单` | `<添加\|移除\|列表> [QQ]` | 管理黑名单。Root 操作全局黑名单，群管理员操作本群黑名单 | **当前群** / 全局 |
 | `/设置 标签` | `<类型> <开\|关>` | 开关左上角类型标签 (视频/番剧/动态等) | **当前群** |
 | `/设置 冷却` | `<秒数>` | 设置相同链接解析冷却时间 | **当前群** |
@@ -464,7 +464,8 @@ npm run build   # 生产构建，输出至 dashboard/dist
     *   `config.js`: 配置管理系统 (双重配置架构 + 分群覆盖)
     *   `dashboard/`: WebUI 后端
         *   `server.js`: Express 应用，静态文件托管与 WebSocket 日志推送
-        *   `routes/api.js`: RESTful API (配置、群组、订阅、B站登录等)
+        *   `routes/api.js`: 兼容入口壳（转发到模块化实现）
+        *   `routes/api/`: 模块化 RESTful API（配置、群组、订阅、B站登录等）
         *   `middleware/auth.js`: JWT 认证中间件
     *   `handlers/`: 消息与 AI 处理逻辑
         *   `messageHandler.js`: 链接解析、指令系统、权限管理
@@ -498,7 +499,12 @@ npm run build   # 生产构建，输出至 dashboard/dist
         *   `designSystem.js`: 统一设计系统与主题配置
         *   `proxyUtils.js`: 代理配置工具
 *   `src/services/`: Python 服务
-    *   `bili_server.py`: Bilibili API 调用服务 (基于 bilibili-api-python)
+    *   `bili_server.py`: 兼容入口壳（启动参数解析与 `create_app` 导出）
+    *   `bili_server_core/`: Python 服务核心实现
+        *   `app.py` / `main.py`: aiohttp 应用装配与启动
+        *   `web/`: 路由与 HTTP handlers
+        *   `services/`: 按业务域拆分的 B 站能力实现
+        *   `auth/` / `media/` / `download/`: 凭证、媒体工具、下载子系统
 
 </details>
 

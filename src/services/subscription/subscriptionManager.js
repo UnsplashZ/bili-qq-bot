@@ -28,7 +28,158 @@ class SubscriptionManager {
         this._followersLoadingPromise = null;
     }
 
-    // ... (keep existing methods)
+    _normalizeNumericId(value) {
+        if (value === null || value === undefined) return '';
+        const normalized = String(value).trim();
+        return /^\d+$/.test(normalized) ? normalized : '';
+    }
+
+    _normalizeGroupId(value) {
+        if (value === null || value === undefined) return '';
+        return String(value).trim();
+    }
+
+    _normalizeGroupIdList(groupIds) {
+        if (!Array.isArray(groupIds)) return [];
+        const normalized = [];
+        const seen = new Set();
+
+        for (const id of groupIds) {
+            const gid = this._normalizeGroupId(id);
+            if (!gid || seen.has(gid)) continue;
+            seen.add(gid);
+            normalized.push(gid);
+        }
+
+        return normalized;
+    }
+
+    _normalizeUserSub(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const uid = this._normalizeNumericId(raw.uid);
+        if (!uid) return null;
+
+        const name = String(raw.name || '').trim() || raw.name || `UID_${uid}`;
+        const groupIds = this._normalizeGroupIdList(raw.groupIds);
+        if (groupIds.length === 0) return null;
+
+        return {
+            ...raw,
+            uid,
+            name,
+            groupIds,
+            type: 'user'
+        };
+    }
+
+    _normalizeBangumiSub(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const seasonId = this._normalizeNumericId(raw.seasonId);
+        if (!seasonId) return null;
+
+        const title = String(raw.title || '').trim() || raw.title || `番剧 ${seasonId}`;
+        const groupIds = this._normalizeGroupIdList(raw.groupIds);
+        if (groupIds.length === 0) return null;
+
+        return {
+            ...raw,
+            seasonId,
+            title,
+            groupIds,
+            type: 'bangumi'
+        };
+    }
+
+    _mergeStateIfMissing(target, source, keys) {
+        for (const key of keys) {
+            if ((target[key] === undefined || target[key] === null) && source[key] !== undefined) {
+                target[key] = source[key];
+            }
+        }
+    }
+
+    _normalizeLoadedSubscriptions() {
+        let changed = false;
+
+        const userMap = new Map();
+        const userStateKeys = [
+            'lastDynamicId',
+            'lastLiveStatus',
+            'lastVideoId',
+            'lastVideoCreated',
+            'lastArticleId',
+            'lastArticlePublishTime',
+            'roomId'
+        ];
+
+        for (const raw of this.userSubs) {
+            const normalized = this._normalizeUserSub(raw);
+            if (!normalized) {
+                changed = true;
+                continue;
+            }
+
+            const originalUid = String(raw?.uid ?? '');
+            const originalName = String(raw?.name ?? '');
+            if (originalUid !== normalized.uid || originalName !== normalized.name) {
+                changed = true;
+            }
+
+            const existing = userMap.get(normalized.uid);
+            if (!existing) {
+                userMap.set(normalized.uid, normalized);
+                continue;
+            }
+
+            changed = true;
+            existing.groupIds = this._normalizeGroupIdList([...existing.groupIds, ...normalized.groupIds]);
+            if ((!existing.name || existing.name.startsWith('UID_')) && normalized.name) {
+                existing.name = normalized.name;
+            }
+            this._mergeStateIfMissing(existing, normalized, userStateKeys);
+        }
+
+        const bangumiMap = new Map();
+        const bangumiStateKeys = ['lastEpId'];
+
+        for (const raw of this.bangumiSubs) {
+            const normalized = this._normalizeBangumiSub(raw);
+            if (!normalized) {
+                changed = true;
+                continue;
+            }
+
+            const originalSeasonId = String(raw?.seasonId ?? '');
+            const originalTitle = String(raw?.title ?? '');
+            if (originalSeasonId !== normalized.seasonId || originalTitle !== normalized.title) {
+                changed = true;
+            }
+
+            const existing = bangumiMap.get(normalized.seasonId);
+            if (!existing) {
+                bangumiMap.set(normalized.seasonId, normalized);
+                continue;
+            }
+
+            changed = true;
+            existing.groupIds = this._normalizeGroupIdList([...existing.groupIds, ...normalized.groupIds]);
+            if ((!existing.title || existing.title.startsWith('番剧 ')) && normalized.title) {
+                existing.title = normalized.title;
+            }
+            this._mergeStateIfMissing(existing, normalized, bangumiStateKeys);
+        }
+
+        const normalizedUsers = Array.from(userMap.values());
+        const normalizedBangumis = Array.from(bangumiMap.values());
+
+        if (normalizedUsers.length !== this.userSubs.length || normalizedBangumis.length !== this.bangumiSubs.length) {
+            changed = true;
+        }
+
+        this.userSubs = normalizedUsers;
+        this.bangumiSubs = normalizedBangumis;
+        return changed;
+    }
 
     /**
      * 确保目录存在（异步）
@@ -130,6 +281,12 @@ class SubscriptionManager {
                 } else {
                     this.userSubs = data.users || data.userSubs || [];
                     this.bangumiSubs = data.bangumis || data.bangumiSubs || [];
+                }
+
+                const normalized = this._normalizeLoadedSubscriptions();
+                if (normalized) {
+                    logger.info('[SubscriptionManager] Normalized subscription data on load.');
+                    await this._saveSubscriptions();
                 }
                 logger.info(`[SubscriptionManager] Loaded ${this.userSubs.length} users and ${this.bangumiSubs.length} bangumis.`);
             } catch (e) {
@@ -358,12 +515,12 @@ class SubscriptionManager {
 
     async setGroupAccountMapping(groupId, accountUid) {
         if (!groupId || !accountUid) return;
-        this.groupToAccountMap[String(groupId)] = String(accountUid);
+        this.groupToAccountMap[this._normalizeGroupId(groupId)] = String(accountUid).trim();
         await this._saveFollowers();
     }
 
     getFollowingsForGroup(groupId) {
-        const gid = String(groupId);
+        const gid = this._normalizeGroupId(groupId);
         const accountUid = this.groupToAccountMap[gid];
         if (accountUid && this.cookieFollowings[accountUid]) {
             return this.cookieFollowings[accountUid];
@@ -384,25 +541,43 @@ class SubscriptionManager {
     // Add User Subscription
     async addUserSubscription(uid, groupId) {
         await this._ensureSubscriptionsLoaded();
-        let sub = this.userSubs.find(s => s.uid == uid);
-        const gid = String(groupId); // Normalize group ID
+        const normalizedUid = this._normalizeNumericId(uid);
+        if (!normalizedUid) {
+            throw new Error('无效 UID：必须为纯数字');
+        }
+
+        const gid = this._normalizeGroupId(groupId); // Normalize group ID
+        if (!gid) {
+            throw new Error('无效群号');
+        }
+
+        let sub = this.userSubs.find((item) => this._normalizeNumericId(item.uid) === normalizedUid);
 
         if (sub) {
+            let changed = false;
+            if (sub.uid !== normalizedUid) {
+                sub.uid = normalizedUid;
+                changed = true;
+            }
             if (!sub.groupIds.some(id => String(id) === gid)) {
                 sub.groupIds.push(gid);
+                changed = true;
+            }
+            if (changed) {
+                sub.groupIds = this._normalizeGroupIdList(sub.groupIds);
                 await this._saveSubscriptions();
             }
             return sub.name;
         }
 
         // Fetch info
-        const info = await biliApi.getUserInfo(uid);
+        const info = await biliApi.getUserInfo(normalizedUid);
         if (info.status !== 'success') {
             throw new Error(info.message || '获取用户信息失败');
         }
 
         // Get latest dynamic to initialize
-        const dynamicInfo = await biliApi.getUserDynamic(uid);
+        const dynamicInfo = await biliApi.getUserDynamic(normalizedUid);
         let lastId = null;
 
         if (dynamicInfo.status === 'success' && dynamicInfo.data.cards && dynamicInfo.data.cards.length > 0) {
@@ -431,7 +606,7 @@ class SubscriptionManager {
         }
 
         const newSub = {
-            uid: uid,
+            uid: normalizedUid,
             name: info.data.name,
             groupIds: [gid],
             lastDynamicId: lastId,
@@ -440,17 +615,23 @@ class SubscriptionManager {
 
         this.userSubs.push(newSub);
         await this._saveSubscriptions();
-        logger.info(`[SubscriptionManager] Added user sub: ${newSub.name} (${uid}) for group ${groupId}`);
+        logger.info(`[SubscriptionManager] Added user sub: ${newSub.name} (${normalizedUid}) for group ${groupId}`);
         return newSub.name;
     }
 
     // Remove User Subscription
     async removeUserSubscription(uid, groupId) {
         await this._ensureSubscriptionsLoaded();
-        const index = this.userSubs.findIndex(s => s.uid == uid);
-        const gid = String(groupId);
+        const normalizedUid = this._normalizeNumericId(uid);
+        if (!normalizedUid) return false;
+
+        const index = this.userSubs.findIndex((sub) => this._normalizeNumericId(sub.uid) === normalizedUid);
+        const gid = this._normalizeGroupId(groupId);
         if (index > -1) {
             const sub = this.userSubs[index];
+            if (sub.uid !== normalizedUid) {
+                sub.uid = normalizedUid;
+            }
             const groupIndex = sub.groupIds.findIndex(id => String(id) === gid);
             if (groupIndex > -1) {
                 sub.groupIds.splice(groupIndex, 1);
@@ -467,24 +648,42 @@ class SubscriptionManager {
     // Add Bangumi Subscription
     async addBangumiSubscription(seasonId, groupId) {
         await this._ensureSubscriptionsLoaded();
-        let sub = this.bangumiSubs.find(s => s.seasonId == seasonId);
-        const gid = String(groupId);
+        const normalizedSeasonId = this._normalizeNumericId(seasonId);
+        if (!normalizedSeasonId) {
+            throw new Error('无效 seasonId：必须为纯数字');
+        }
+
+        const gid = this._normalizeGroupId(groupId);
+        if (!gid) {
+            throw new Error('无效群号');
+        }
+
+        let sub = this.bangumiSubs.find((item) => this._normalizeNumericId(item.seasonId) === normalizedSeasonId);
         if (sub) {
+            let changed = false;
+            if (sub.seasonId !== normalizedSeasonId) {
+                sub.seasonId = normalizedSeasonId;
+                changed = true;
+            }
             if (!sub.groupIds.some(id => String(id) === gid)) {
                 sub.groupIds.push(gid);
+                changed = true;
+            }
+            if (changed) {
+                sub.groupIds = this._normalizeGroupIdList(sub.groupIds);
                 await this._saveSubscriptions();
             }
             return sub.title;
         }
 
         // Fetch info
-        const info = await biliApi.getBangumiInfo(seasonId);
+        const info = await biliApi.getBangumiInfo(normalizedSeasonId);
         if (info.status !== 'success') {
              throw new Error(info.message || '获取番剧信息失败');
         }
 
         const newSub = {
-            seasonId: seasonId,
+            seasonId: normalizedSeasonId,
             title: info.data.title,
             groupIds: [gid],
             lastEpId: null // Will be updated on first check
@@ -492,17 +691,23 @@ class SubscriptionManager {
 
         this.bangumiSubs.push(newSub);
         await this._saveSubscriptions();
-        logger.info(`[SubscriptionManager] Added bangumi sub: ${newSub.title} (${seasonId}) for group ${groupId}`);
+        logger.info(`[SubscriptionManager] Added bangumi sub: ${newSub.title} (${normalizedSeasonId}) for group ${groupId}`);
         return newSub.title;
     }
 
     // Remove Bangumi Subscription
     async removeBangumiSubscription(seasonId, groupId) {
         await this._ensureSubscriptionsLoaded();
-        const index = this.bangumiSubs.findIndex(s => s.seasonId == seasonId);
-        const gid = String(groupId);
+        const normalizedSeasonId = this._normalizeNumericId(seasonId);
+        if (!normalizedSeasonId) return false;
+
+        const index = this.bangumiSubs.findIndex((sub) => this._normalizeNumericId(sub.seasonId) === normalizedSeasonId);
+        const gid = this._normalizeGroupId(groupId);
         if (index > -1) {
             const sub = this.bangumiSubs[index];
+            if (sub.seasonId !== normalizedSeasonId) {
+                sub.seasonId = normalizedSeasonId;
+            }
             const groupIndex = sub.groupIds.findIndex(id => String(id) === gid);
             if (groupIndex > -1) {
                 sub.groupIds.splice(groupIndex, 1);
@@ -519,7 +724,7 @@ class SubscriptionManager {
     // Remove a group from all subscriptions (used when bot leaves a group)
     async removeGroupFromAllSubscriptions(groupId) {
         await this._ensureSubscriptionsLoaded();
-        const gid = String(groupId);
+        const gid = this._normalizeGroupId(groupId);
         let modified = false;
 
         // Remove from user subscriptions
@@ -564,7 +769,7 @@ class SubscriptionManager {
 
     async getSubscriptionsByGroup(groupId) {
         await this._ensureSubscriptionsLoaded();
-        const gid = String(groupId);
+        const gid = this._normalizeGroupId(groupId);
         
         const users = this.userSubs.filter(sub => sub.groupIds.some(id => String(id) === gid));
         const bangumis = this.bangumiSubs.filter(sub => sub.groupIds.some(id => String(id) === gid));
@@ -574,7 +779,7 @@ class SubscriptionManager {
 
     async removeAllGroupSubscriptions(groupId) {
         await this._ensureSubscriptionsLoaded();
-        const gid = String(groupId);
+        const gid = this._normalizeGroupId(groupId);
         let changed = false;
 
         // Clean users
@@ -611,8 +816,12 @@ class SubscriptionManager {
 
     async updateUserSub(uid, updates) {
         await this._ensureSubscriptionsLoaded();
-        const sub = this.userSubs.find(s => s.uid == uid);
+        const normalizedUid = this._normalizeNumericId(uid);
+        if (!normalizedUid) return;
+
+        const sub = this.userSubs.find((item) => this._normalizeNumericId(item.uid) === normalizedUid);
         if (sub) {
+            sub.uid = normalizedUid;
             Object.assign(sub, updates);
             await this._saveSubscriptions();
         }
@@ -620,8 +829,12 @@ class SubscriptionManager {
 
     async updateBangumiSub(seasonId, updates) {
         await this._ensureSubscriptionsLoaded();
-        const sub = this.bangumiSubs.find(s => s.seasonId == seasonId);
+        const normalizedSeasonId = this._normalizeNumericId(seasonId);
+        if (!normalizedSeasonId) return;
+
+        const sub = this.bangumiSubs.find((item) => this._normalizeNumericId(item.seasonId) === normalizedSeasonId);
         if (sub) {
+            sub.seasonId = normalizedSeasonId;
             Object.assign(sub, updates);
             await this._saveSubscriptions();
         }

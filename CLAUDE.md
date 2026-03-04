@@ -233,10 +233,10 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 - 定期刷新（每小时）时必须保留所有状态字段
 
 **实现位置：**
-- `updateChecker.js` - `shouldSkipDynamic()` 方法（去重逻辑）
-- `updateChecker.js` - `checkUserVideo()` 和 `checkUserArticle()` 方法（视频/专栏检查）
-- `subscriptionManager.js` - `setCookieFollowings()` 方法（状态保留）
-- 在 `checkUserDynamic()` 和 `processDynamicFeed()` 中调用
+- `subscription/updateChecker/modules/feed.js` - `shouldSkipDynamic()`（动态去重逻辑）
+- `subscription/updateChecker/modules/unifiedChecks.js` - `checkUserVideoUnified()` 与 `checkUserArticleUnified()`（视频/专栏检查）
+- `subscription/subscriptionManager.js` - `setCookieFollowings()`（状态保留）
+- 在 `checkUserDynamic()` 与 `processDynamicFeed()` 调用链中生效
 
 ### Critical Code Locations
 
@@ -250,7 +250,7 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 | Vector search | `/src/services/vectorMemoryService.js` | `searchSimilar()` |
 | Config resolution | `/src/config.js` | Lines 84-200 (META) |
 | Image generation | `/src/services/imageGenerator/index.js` | `generate()` |
-| Python API | `/src/services/bili_server.py` | Handler functions (1900+ lines) |
+| Python API | `/src/services/bili_server_core/` | `web/handlers.py` + `services/*.py` |
 
 ## Configuration System Deep Dive
 
@@ -376,18 +376,21 @@ When a message arrives from QQ:
 const MY_TYPE_REGEX = /pattern/
 ```
 
-2. **Add Python handler** to `/src/services/bili_server.py`:
+2. **Add Python service function** to the appropriate module under `/src/services/bili_server_core/services/`:
 ```python
 async def get_my_type_info(id, group_id=None):
     # Use bilibili_api classes
     return {"status": "success", "type": "my_type", "data": info}
 ```
 
-3. **Add route** in `bili_server.py`:
+3. **Add web handler + route**:
 ```python
-app.add_routes([
-    web.post('/my_type', handle_my_type),
-])
+# /src/services/bili_server_core/web/handlers.py
+async def handle_my_type(request):
+    ...
+
+# /src/services/bili_server_core/web/routes.py
+web.post('/my_type', handle_my_type)
 ```
 
 4. **Add renderer** to `/src/services/imageGenerator/renderers/mytype.js`:
@@ -509,7 +512,8 @@ MCPManager automatically discovers tools and makes them available to AI via func
 
 Located in `/src/dashboard/`:
 - **server.js:** Express app setup, static file serving
-- **routes/api.js:** RESTful endpoints for config, groups, subscriptions
+- **routes/api.js:** Compatibility entry (re-export), implementation split under `routes/api/`
+- **routes/api/index.js + routes/api/modules/*.js:** RESTful endpoints for config, groups, subscriptions
 - **middleware/auth.js:** JWT authentication
 
 ### Frontend (React/Vite)
@@ -521,7 +525,7 @@ Located in `/dashboard/src/`:
 
 ### Adding Dashboard Features
 
-1. **Backend API:** Add route to `/src/dashboard/routes/api.js`
+1. **Backend API:** Add route module under `/src/dashboard/routes/api/modules/`, then register it in `/src/dashboard/routes/api/index.js` (keep `/src/dashboard/routes/api.js` as compatibility entry)
 2. **Frontend Page:** Create in `/dashboard/src/pages/`
 3. **Routing:** Update `/dashboard/src/App.jsx`
 4. **Build:** `cd dashboard && npm run build` (outputs to `dashboard/dist`)
@@ -859,7 +863,7 @@ main().catch(console.error)
 ### File Naming
 
 - **JavaScript:** camelCase (`messageHandler.js`, `aiContextService.js`)
-- **Python:** snake_case (`bili_server.py`)
+- **Python:** snake_case (`bili_server.py`, `video_service.py`)
 - **React Components:** PascalCase (`GlassCard.jsx`, `Groups.jsx`)
 
 ## Security Considerations
@@ -934,7 +938,7 @@ if (messageData.message_type === 'private') {
 
 1. **Missing BUVID3:** Bilibili API returns 412 errors without valid device fingerprint. Ensure cookies include BUVID3 field.
 
-2. **Tab Index Misalignment:** When adding new tabs to `Groups.jsx`, update all hardcoded tab indices (e.g., sync tab changed from 4 to 5 after adding admin tab).
+2. **Tab State Drift:** In Groups page, avoid hardcoded tab indices. Keep tab definitions centralized in `dashboard/src/pages/groups/constants/tabs.js` and align submit/load logic with tab keys.
 
 3. **Group Config Not Loaded:** Always call `ensureGroupConfig(groupId)` before accessing `groupConfigs[groupId]`.
 

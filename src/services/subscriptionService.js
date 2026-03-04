@@ -79,10 +79,11 @@ class SubscriptionService {
         await subscriptionManager._ensureSubscriptionsLoaded();
 
         // Type-safe comparison
-        const targetGroupId = String(groupId);
+        const targetGroupId = String(groupId).trim();
+        const targetUid = String(uid).trim();
         const sub = subscriptionManager.userSubs.find(s =>
-            String(s.uid) === String(uid) &&
-            s.groupIds.map(String).includes(targetGroupId)
+            String(s.uid).trim() === targetUid &&
+            s.groupIds.map((id) => String(id).trim()).includes(targetGroupId)
         );
 
         if (sub) {
