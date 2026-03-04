@@ -1,12 +1,11 @@
-name: Manual Build & Push (手动发布)
+name: Build & Push (自动+手动发布)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      version:
-        description: '请输入版本号 (例如 1.0.2)'
-        required: true
-        type: string
       push_latest:
         description: '是否同时更新 latest 标签？'
         required: true
@@ -36,18 +35,40 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Resolve version from latest commit subject
+        id: version
+        shell: bash
+        run: |
+          commit_subject="$(git log -1 --pretty=%s)"
+          echo "Detected commit subject: ${commit_subject}"
+          if [[ "${commit_subject}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)([[:space:]].*)?$ ]]; then
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Latest commit subject must start with vX.Y.Z, current: ${commit_subject}"
+            exit 1
+          fi
+
+      - name: Resolve latest tag strategy
+        id: latest
+        shell: bash
+        run: |
+          push_latest=true
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            push_latest="${{ inputs.push_latest }}"
+          fi
+          echo "push_latest=${push_latest}" >> "$GITHUB_OUTPUT"
+
       # 生成 Tag 逻辑
-      # 如果输入 1.0.2 且 push_latest 勾选，则生成：
-      # unsplash/bili-qq-bot:1.0.2
-      # unsplash/bili-qq-bot:latest
+      # 版本由最新 commit subject 的 vX.Y.Z 提取为 X.Y.Z
+      # 自动触发默认推 latest；手动触发由 push_latest 控制
       - name: Generate Tags
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ inputs.version }}
-            type=raw,value=latest,enable=${{ inputs.push_latest }}
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ steps.latest.outputs.push_latest == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
