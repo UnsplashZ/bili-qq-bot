@@ -1458,6 +1458,31 @@ router.post('/ai', async (req, res) => {
             updates.aiHistoryMaxSize = size;
         }
 
+        if (updates.aiStructuredContextEnabled !== undefined && typeof updates.aiStructuredContextEnabled !== 'boolean') {
+            return res.status(400).json({
+                error: 'aiStructuredContextEnabled must be a boolean',
+                field: 'aiStructuredContextEnabled'
+            });
+        }
+
+        if (updates.aiAdminClaimRequiresTool !== undefined && typeof updates.aiAdminClaimRequiresTool !== 'boolean') {
+            return res.status(400).json({
+                error: 'aiAdminClaimRequiresTool must be a boolean',
+                field: 'aiAdminClaimRequiresTool'
+            });
+        }
+
+        if (updates.aiIdentityRagMode !== undefined) {
+            const mode = String(updates.aiIdentityRagMode).trim().toLowerCase();
+            if (!['strict', 'normal'].includes(mode)) {
+                return res.status(400).json({
+                    error: 'aiIdentityRagMode must be "strict" or "normal"',
+                    field: 'aiIdentityRagMode'
+                });
+            }
+            updates.aiIdentityRagMode = mode;
+        }
+
         // Merge updates into root config (AI settings are at root level)
         // Object.assign will trigger setters which internally call save()
         Object.assign(sysConfig, updates);
@@ -1471,7 +1496,8 @@ router.post('/ai', async (req, res) => {
             'aiHistoryMaxSize', 'aiVectorMaxSize', 'aiVectorSimilarityThreshold',
             'aiVectorSearchLimit', 'aiShortMessageThreshold', 'aiMemorySafetyLimit',
             'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize',
-            'aiEnableVectorCache', 'aiEnableSmartTrim'
+            'aiEnableVectorCache', 'aiEnableSmartTrim',
+            'aiStructuredContextEnabled', 'aiIdentityRagMode', 'aiAdminClaimRequiresTool'
         ];
 
         const snapshot = {};
@@ -1499,7 +1525,8 @@ router.post('/ai/reset', async (req, res) => {
             // Other AI Settings
             'aiContextLimit', 'aiHistoryMaxSize', 'aiVectorMaxSize',
             'aiVectorSimilarityThreshold', 'aiVectorSearchLimit', 'aiShortMessageThreshold', 'aiMemorySafetyLimit',
-            'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize', 'aiEnableVectorCache', 'aiEnableSmartTrim'
+            'aiVectorMemoryLimit', 'aiTrimRatio', 'aiVectorBatchLoadSize', 'aiEnableVectorCache', 'aiEnableSmartTrim',
+            'aiStructuredContextEnabled', 'aiIdentityRagMode', 'aiAdminClaimRequiresTool'
         ];
 
         // Delete keys from config.json - getters will auto-fallback to .env or defaults

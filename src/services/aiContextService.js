@@ -127,7 +127,7 @@ class AiContextService {
     }
 
     // Helper to add message, trim context, and trigger save
-    addMessageToContext(groupId, role, content, userId = null, userName = null) {
+    addMessageToContext(groupId, role, content, userId = null, userName = null, meta = null) {
         const context = this.getContext(groupId);
         
         // Construct message object
@@ -141,6 +141,27 @@ class AiContextService {
         }
         if (userName) {
             msgObj.userName = userName;
+        }
+
+        const safeMeta = (meta && typeof meta === 'object') ? meta : {};
+        if (safeMeta.speakerId != null) {
+            msgObj.speakerId = String(safeMeta.speakerId);
+        } else if (userId) {
+            msgObj.speakerId = String(userId);
+        }
+        if (safeMeta.speakerName != null) {
+            msgObj.speakerName = String(safeMeta.speakerName);
+        } else if (userName) {
+            msgObj.speakerName = String(userName);
+        }
+        if (Array.isArray(safeMeta.mentionIds)) {
+            msgObj.mentionIds = safeMeta.mentionIds.map(id => String(id));
+        } else {
+            msgObj.mentionIds = [];
+        }
+        msgObj.isAtBot = safeMeta.isAtBot === true;
+        if (typeof safeMeta.source === 'string' && safeMeta.source) {
+            msgObj.source = safeMeta.source;
         }
         
         context.push(msgObj);

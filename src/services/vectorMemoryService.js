@@ -483,15 +483,31 @@ class VectorMemoryService {
     }
 
     // Search for relevant memories (with L3 query caching)
-    async search(groupId, queryText, limit, currentUserId = null) {
+    async search(groupId, queryText, limit, currentUserId = null, options = {}) {
         try {
             // Use config value if limit not specified
             if (!limit) {
                 limit = config.getGroupConfig(groupId, 'aiVectorSearchLimit');
             }
 
+            const strictUserId = options.strictUserId != null ? String(options.strictUserId) : null;
+            const crossUserPenalty = typeof options.crossUserPenalty === 'number' ? options.crossUserPenalty : 0;
+            const includeRoles = Array.isArray(options.includeRoles) && options.includeRoles.length > 0
+                ? new Set(options.includeRoles.map(r => String(r)))
+                : null;
+            const excludeRoles = Array.isArray(options.excludeRoles) && options.excludeRoles.length > 0
+                ? new Set(options.excludeRoles.map(r => String(r)))
+                : null;
+
             // Build L3 cache key that includes userId to avoid cross-user cache collisions
-            const cacheKey = `${queryText}:${currentUserId || ''}`
+            const cacheKey = [
+                queryText,
+                currentUserId || '',
+                strictUserId || '',
+                crossUserPenalty,
+                includeRoles ? Array.from(includeRoles).join(',') : '',
+                excludeRoles ? Array.from(excludeRoles).join(',') : ''
+            ].join(':');
 
             // Check L3 query cache if enabled (with TTL)
             if (config.aiEnableVectorCache) {
@@ -517,17 +533,30 @@ class VectorMemoryService {
             if (memory.length === 0) return [];
 
             const scored = memory.map(m => {
+                if (strictUserId && String(m.userId || '') !== strictUserId) {
+                    return null;
+                }
+                if (includeRoles && !includeRoles.has(String(m.role || ''))) {
+                    return null;
+                }
+                if (excludeRoles && excludeRoles.has(String(m.role || ''))) {
+                    return null;
+                }
+
                 const semanticScore = this.cosineSimilarity(queryVector, m.vector)
                 const userBoost = (currentUserId && String(currentUserId) === String(m.userId)) ? SEARCH_USER_BOOST : 0
                 const ageHours = (Date.now() - (m.timestamp || 0)) / (1000 * 60 * 60)
                 const timeBoost = Math.max(0, SEARCH_TIME_BOOST_MAX * (1 - ageHours / (24 * SEARCH_TIME_DECAY_DAYS)))
+                const crossUserPenaltyScore = (currentUserId && m.userId && String(currentUserId) !== String(m.userId))
+                    ? crossUserPenalty
+                    : 0
                 return {
                     text: m.text,
                     role: m.role,
                     timestamp: m.timestamp,
                     userId: m.userId,
                     userName: m.userName,
-                    score: semanticScore + userBoost + timeBoost,
+                    score: semanticScore + userBoost + timeBoost - crossUserPenaltyScore,
                     memoryRef: m // Keep reference to update access count
                 }
             });
@@ -535,6 +564,7 @@ class VectorMemoryService {
             // Filter by relevance threshold and sort descending
             const threshold = config.getGroupConfig(groupId, 'aiVectorSimilarityThreshold');
             const results = scored
+                .filter(Boolean)
                 .filter(m => m.score > threshold && m.text !== queryText)
                 .sort((a, b) => b.score - a.score)
                 .slice(0, limit);

@@ -24,10 +24,32 @@ class MessageHandler {
     normalizeMessageForStorage(rawMessage) {
         if (!rawMessage || typeof rawMessage !== 'string') return '';
         return rawMessage
-            .replace(/\[CQ:at,qq=(\d+)\]/g, 'qq (line $1)')
-            .replace(/\[CQ:at,qq=all\]/g, 'qq (line all)')
+            .replace(/\[CQ:at,qq=(\d+)\]/g, '<AT:$1>')
+            .replace(/\[CQ:at,qq=all\]/g, '<AT:all>')
             .replace(/\[CQ:[^\]]+\]/g, '')
             .trim();
+    }
+
+    extractMessageMeta(messageData, groupId, userId, userName) {
+        const segments = Array.isArray(messageData?.message) ? messageData.message : [];
+        const mentionIds = [];
+
+        for (const seg of segments) {
+            if (seg?.type === 'at' && seg.data?.qq != null) {
+                mentionIds.push(String(seg.data.qq));
+            }
+        }
+
+        const uniqueMentions = [...new Set(mentionIds)];
+        const selfId = messageData?.self_id != null ? String(messageData.self_id) : null;
+
+        return {
+            speakerId: userId ? String(userId) : null,
+            speakerName: userName || null,
+            mentionIds: uniqueMentions,
+            isAtBot: !!(selfId && uniqueMentions.includes(selfId)),
+            source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group'
+        };
     }
 
     /**
@@ -146,11 +168,12 @@ class MessageHandler {
         // Record message for AI context
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
+        const messageMeta = this.extractMessageMeta(messageData, groupId, userId, userName);
         if (rawMessage && !rawMessage.trim().startsWith('/')) {
             // 与向量记忆保持一致：存储前保留 @QQ 信息并清洗其他 CQ 码
             const cleanForContext = this.normalizeMessageForStorage(rawMessage);
             if (cleanForContext) {
-                aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName);
+                aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName, messageMeta);
             }
         }
 
@@ -325,7 +348,7 @@ class MessageHandler {
         }
 
         // Check for AI Reply
-        const isAt = messageData.message.some(m => m.type === 'at' && String(m.data.qq) === String(messageData.self_id));
+        const isAt = messageMeta.isAtBot;
 
         if (aiHandler.shouldReply(rawMessage, isAt, groupId)) {
             const reply = await aiHandler.getReply(rawMessage, userId, groupId);

@@ -1,5 +1,11 @@
 # Repository Guidelines
 
+## Code Change Confirmation Rule
+
+- Before any code modification, explicitly ask for and receive user approval.
+- This applies to all code changes, including source files, scripts, configs, and tests.
+- If approval is not explicitly given, do not perform any code edits.
+
 ## Commit Message Rules
 
 - Branch-aware subject format:

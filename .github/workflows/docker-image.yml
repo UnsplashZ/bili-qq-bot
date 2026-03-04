@@ -109,19 +109,23 @@ jobs:
         run: |
           tag="v${{ needs.build-push.outputs.version }}"
           setup_url="${{ github.server_url }}/${{ github.repository }}/releases/download/${tag}/setup.sh"
+          commit_subject="$(git log -1 --pretty=%s)"
+          commit_body="$(git log -1 --pretty=%b)"
+          update_notes="${commit_subject}"
+          if [ -n "${commit_body}" ]; then
+            update_notes+=$'\n\n'"${commit_body}"
+          fi
           cat > release-notes.md <<EOF
-          ## 自动构建汇总
+          ## 版本更新说明
+
+          ${update_notes}
+
+          ## 发布信息
 
           - 版本: **${tag}**
-          - 触发事件: \`${{ github.event_name }}\`
           - 触发提交: \`${{ github.sha }}\`
           - Docker 镜像: \`${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.version }}\`
           - 同步 latest 标签: **true**
-
-          ## 资源文件
-
-          - GitHub 自动附带源码压缩包（zip / tar.gz）
-          - 一键安装脚本: [setup.sh](${setup_url})
 
           ## 简易 Docker 部署流程
 

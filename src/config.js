@@ -203,6 +203,9 @@ const META = {
     aiVectorBatchLoadSize: { env: null, def: 1000, type: 'int' },
     aiEnableVectorCache: { env: null, def: true, type: 'bool' },
     aiEnableSmartTrim: { env: null, def: true, type: 'bool' },
+    aiStructuredContextEnabled: { env: null, def: true, type: 'bool' },
+    aiIdentityRagMode: { env: null, def: 'strict', type: 'string' }, // strict | normal
+    aiAdminClaimRequiresTool: { env: null, def: true, type: 'bool' },
 
     // AI User Profile Configuration
     aiProfileEnabled: { env: null, def: false, type: 'bool' },
