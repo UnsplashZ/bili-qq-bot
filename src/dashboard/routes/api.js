@@ -40,6 +40,29 @@ function normalizeBlacklist(input) {
     return normalized;
 }
 
+function normalizeSyncGroupNames(input) {
+    if (Array.isArray(input)) {
+        return input.map(v => String(v).trim()).filter(Boolean);
+    }
+    if (typeof input === 'string') {
+        return input.split(',').map(v => v.trim()).filter(Boolean);
+    }
+    return [];
+}
+
+function extractFollowerUid(follower) {
+    if (!follower || typeof follower !== 'object') return '';
+    const raw = follower.uid ?? follower.mid ?? follower.id ?? '';
+    const uid = String(raw).trim();
+    return /^\d+$/.test(uid) ? uid : '';
+}
+
+function resolveFollowerName(follower, uid) {
+    if (!follower || typeof follower !== 'object') return `User_${uid}`;
+    const name = String(follower.name || follower.uname || '').trim();
+    return name || `User_${uid}`;
+}
+
 function stripMcpVersionField(config) {
     const stripped = {};
     if (!config || typeof config !== 'object') return stripped;
@@ -349,6 +372,11 @@ router.get('/groups', async (req, res) => {
             const groupIdNum = Number(groupIdStr);
             const groupInfo = bot?.groupList?.get(groupId) || bot?.groupList?.get(groupIdNum);
             const groupConfig = groupConfigs[groupIdStr] || {};
+            const normalizedRules = sysConfig.normalizeSubscriptionAtAllRules(groupConfig.subscriptionAtAllRules);
+            const configWithDefaults = {
+                ...groupConfig,
+                subscriptionAtAllRules: normalizedRules
+            };
             
             // Determine if bot is in group
             let isInGroup = true;
@@ -364,7 +392,7 @@ router.get('/groups', async (req, res) => {
                 name: groupInfo?.group_name || `群组 ${groupIdStr}`,
                 isEnabled: enabledGroups.has(groupIdStr),
                 isInGroup: isInGroup,
-                config: groupConfig
+                config: configWithDefaults
             };
         });
 
@@ -462,6 +490,16 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'subscriptionAtAll must be a boolean' });
         }
 
+        if (updates.hasOwnProperty('subscriptionAtAllRules')) {
+            if (updates.subscriptionAtAllRules === null) {
+                // null = reset to default behavior (remove group override)
+            } else if (!updates.subscriptionAtAllRules || typeof updates.subscriptionAtAllRules !== 'object') {
+                return res.status(400).json({ error: 'subscriptionAtAllRules must be an object or null' });
+            } else {
+                updates.subscriptionAtAllRules = sysConfig.normalizeSubscriptionAtAllRules(updates.subscriptionAtAllRules);
+            }
+        }
+
         if (updates.hasOwnProperty('showId') && typeof updates.showId !== 'boolean') {
             return res.status(400).json({ error: 'showId must be a boolean' });
         }
@@ -551,6 +589,12 @@ router.post('/groups/:id/config', async (req, res) => {
                 delete sysConfig.groupConfigs[groupIdStr].aiProfileEnabled;
             }
         }
+        if (updates.hasOwnProperty('subscriptionAtAllRules') && updates.subscriptionAtAllRules === null) {
+            delete cleanedUpdates.subscriptionAtAllRules;
+            if (sysConfig.groupConfigs[groupIdStr]) {
+                delete sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules;
+            }
+        }
 
         // 合并更新（已清理null值）
         sysConfig.groupConfigs[groupIdStr] = {
@@ -559,6 +603,11 @@ router.post('/groups/:id/config', async (req, res) => {
         };
 
         sysConfig.save();
+
+        const normalizedRules = sysConfig.normalizeSubscriptionAtAllRules(
+            sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules
+        );
+        sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules = normalizedRules;
 
         res.json({
             message: `Group ${groupId} configuration updated`,
@@ -1016,6 +1065,78 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
     } catch (error) {
         logger.error(`Error fetching subscriptions for group ${req.params.id}:`, error);
         res.status(500).json({ error: 'Failed to fetch subscriptions' });
+    }
+});
+
+// GET /api/groups/:id/atall-targets - Get source user lists for @all fine-grained settings
+router.get('/groups/:id/atall-targets', async (req, res) => {
+    try {
+        const groupId = normalizeGroupId(req.params.id);
+        const groupIdStr = String(groupId);
+        const groupIdNum = Number(groupIdStr);
+
+        if (!global.bot || !global.bot.groupList || (!global.bot.groupList.has(groupIdStr) && !global.bot.groupList.has(groupIdNum))) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        const groupConfig = (sysConfig.groupConfigs && sysConfig.groupConfigs[groupIdStr]) || {};
+        const syncGroupNames = normalizeSyncGroupNames(groupConfig.cookieSyncGroupNames);
+
+        const subs = await subscriptionService.getSubscriptionsByGroup(groupId);
+        const manualUsersRaw = Array.isArray(subs?.users) ? subs.users : [];
+        const manualUserMap = new Map();
+        for (const user of manualUsersRaw) {
+            const uid = String(user?.uid || '').trim();
+            if (!/^\d+$/.test(uid)) continue;
+            if (!manualUserMap.has(uid)) {
+                const name = String(user?.name || '').trim() || `User_${uid}`;
+                manualUserMap.set(uid, { uid, name });
+            }
+        }
+        const manualUsers = Array.from(manualUserMap.values()).sort((a, b) => Number(a.uid) - Number(b.uid));
+
+        const followings = await subscriptionService.getFollowingsForGroup(groupId);
+        const cookieUsersRaw = Array.isArray(followings) ? followings : [];
+        const cookieUserMap = new Map();
+
+        for (const follower of cookieUsersRaw) {
+            const uid = extractFollowerUid(follower);
+            if (!uid) continue;
+
+            const biliGroupsRaw = Array.isArray(follower?.biliGroups) ? follower.biliGroups : [];
+            const biliGroups = biliGroupsRaw.map(v => String(v).trim()).filter(Boolean);
+            const matchedSyncGroup = syncGroupNames.length === 0
+                ? true
+                : biliGroups.some(tag => syncGroupNames.includes(tag));
+
+            if (cookieUserMap.has(uid)) {
+                const existing = cookieUserMap.get(uid);
+                existing.matchedSyncGroup = existing.matchedSyncGroup || matchedSyncGroup;
+                if (biliGroups.length > 0) {
+                    const merged = new Set([...(existing.biliGroups || []), ...biliGroups]);
+                    existing.biliGroups = Array.from(merged);
+                }
+                continue;
+            }
+
+            cookieUserMap.set(uid, {
+                uid,
+                name: resolveFollowerName(follower, uid),
+                biliGroups,
+                matchedSyncGroup
+            });
+        }
+
+        const cookieUsers = Array.from(cookieUserMap.values()).sort((a, b) => Number(a.uid) - Number(b.uid));
+
+        return res.json({
+            manualUsers,
+            cookieUsers,
+            syncGroupNames
+        });
+    } catch (error) {
+        logger.error(`Error fetching @all targets for group ${req.params.id}:`, error);
+        return res.status(500).json({ error: 'Failed to fetch @all target lists' });
     }
 });
 

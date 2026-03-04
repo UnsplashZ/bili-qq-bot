@@ -82,6 +82,90 @@ function parseValue(val, type) {
     return parser ? parser(val) : val;
 }
 
+const SUBSCRIPTION_AT_ALL_SOURCE_KEYS = ['manual', 'cookieSync'];
+const SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = [
+    'video',
+    'dynamic',
+    'live',
+    'article',
+    'bangumi',
+    'movie',
+    'tv',
+    'guocha',
+    'doc',
+    'variety'
+];
+
+function createDefaultSubscriptionAtAllRules() {
+    const sources = {};
+    const categories = {};
+
+    SUBSCRIPTION_AT_ALL_SOURCE_KEYS.forEach((key) => {
+        sources[key] = true;
+    });
+    SUBSCRIPTION_AT_ALL_CATEGORY_KEYS.forEach((key) => {
+        categories[key] = true;
+    });
+
+    return {
+        sources,
+        categories,
+        manualDisabledIds: [],
+        cookieSyncDisabledIds: []
+    };
+}
+
+function normalizeIdList(values) {
+    if (!Array.isArray(values)) return [];
+
+    const normalized = [];
+    for (const value of values) {
+        if (value === null || value === undefined) continue;
+        const uid = String(value).trim();
+        if (!/^\d+$/.test(uid)) continue;
+        if (!normalized.includes(uid)) {
+            normalized.push(uid);
+        }
+    }
+    return normalized;
+}
+
+function normalizeSubscriptionAtAllRules(input) {
+    const defaults = createDefaultSubscriptionAtAllRules();
+    const raw = input && typeof input === 'object' ? input : {};
+    const sourceInput = raw.sources && typeof raw.sources === 'object' ? raw.sources : {};
+    const categoryInput = raw.categories && typeof raw.categories === 'object' ? raw.categories : {};
+
+    const normalizedSources = {};
+    const normalizedCategories = {};
+
+    SUBSCRIPTION_AT_ALL_SOURCE_KEYS.forEach((key) => {
+        if (typeof sourceInput[key] === 'boolean') {
+            normalizedSources[key] = sourceInput[key];
+        } else {
+            normalizedSources[key] = defaults.sources[key];
+        }
+    });
+
+    SUBSCRIPTION_AT_ALL_CATEGORY_KEYS.forEach((key) => {
+        if (typeof categoryInput[key] === 'boolean') {
+            normalizedCategories[key] = categoryInput[key];
+        } else {
+            normalizedCategories[key] = defaults.categories[key];
+        }
+    });
+
+    const manualDisabledIds = normalizeIdList(raw.manualDisabledIds);
+    const cookieSyncDisabledIds = normalizeIdList(raw.cookieSyncDisabledIds);
+
+    return {
+        sources: normalizedSources,
+        categories: normalizedCategories,
+        manualDisabledIds,
+        cookieSyncDisabledIds
+    };
+}
+
 // META: Configuration schema
 // - env: Environment variable name
 // - def: Default value
@@ -474,6 +558,7 @@ const config = {
                 },
                 enableCookieSync: false,
                 subscriptionAtAll: false,
+                subscriptionAtAllRules: createDefaultSubscriptionAtAllRules(),
                 cookieSyncGroupNames: [],
                 blacklistedQQs: [],
                 admins: [],  // 群组管理员列表
@@ -700,3 +785,7 @@ module.exports.isRagEnabledForGroup = isRagEnabledForGroup;
 module.exports.isVideoDownloadEnabledForGroup = isVideoDownloadEnabledForGroup;
 module.exports.getVideoDownloadResolutionForGroup = getVideoDownloadResolutionForGroup;
 module.exports.getVideoDownloadMaxDurationForGroup = getVideoDownloadMaxDurationForGroup;
+module.exports.createDefaultSubscriptionAtAllRules = createDefaultSubscriptionAtAllRules;
+module.exports.normalizeSubscriptionAtAllRules = normalizeSubscriptionAtAllRules;
+module.exports.SUBSCRIPTION_AT_ALL_SOURCE_KEYS = SUBSCRIPTION_AT_ALL_SOURCE_KEYS;
+module.exports.SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = SUBSCRIPTION_AT_ALL_CATEGORY_KEYS;

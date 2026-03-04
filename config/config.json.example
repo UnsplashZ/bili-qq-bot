@@ -36,6 +36,23 @@
       "aiContextLimit": 15,
       "aiProbability": 0.2,
       "subscriptionAtAll": false,
+      "subscriptionAtAllRules": {
+        "sources": { "manual": true, "cookieSync": true },
+        "categories": {
+          "video": true,
+          "dynamic": true,
+          "live": true,
+          "article": true,
+          "bangumi": true,
+          "movie": true,
+          "tv": true,
+          "guocha": true,
+          "doc": true,
+          "variety": true
+        },
+        "manualDisabledIds": [],
+        "cookieSyncDisabledIds": []
+      },
       "admins": ["123456789"]
     }
   }

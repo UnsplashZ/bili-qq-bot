@@ -9,6 +9,83 @@ import { Save, Power, Settings, Cpu, RefreshCw, MessageSquare, Bell, Ban, Trash2
 import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 
+const AT_ALL_SOURCE_KEYS = ['manual', 'cookieSync'];
+const AT_ALL_CATEGORY_ITEMS = [
+  { key: 'video', label: '视频' },
+  { key: 'dynamic', label: '动态' },
+  { key: 'live', label: '直播' },
+  { key: 'article', label: '专栏' },
+  { key: 'bangumi', label: '番剧' },
+  { key: 'movie', label: '电影' },
+  { key: 'tv', label: '电视剧' },
+  { key: 'guocha', label: '国创' },
+  { key: 'doc', label: '纪录片' },
+  { key: 'variety', label: '综艺' }
+];
+
+const createDefaultAtAllRules = () => ({
+  sources: {
+    manual: true,
+    cookieSync: true
+  },
+  categories: {
+    video: true,
+    dynamic: true,
+    live: true,
+    article: true,
+    bangumi: true,
+    movie: true,
+    tv: true,
+    guocha: true,
+    doc: true,
+    variety: true
+  },
+  manualDisabledIds: [],
+  cookieSyncDisabledIds: []
+});
+
+const normalizeIdList = (list) => {
+  if (!Array.isArray(list)) return [];
+  const normalized = [];
+  for (const item of list) {
+    const uid = String(item ?? '').trim();
+    if (!/^\d+$/.test(uid)) continue;
+    if (!normalized.includes(uid)) {
+      normalized.push(uid);
+    }
+  }
+  return normalized;
+};
+
+const normalizeAtAllRules = (rules) => {
+  const defaults = createDefaultAtAllRules();
+  const sourceInput = rules && typeof rules === 'object' && rules.sources && typeof rules.sources === 'object'
+    ? rules.sources
+    : {};
+  const categoryInput = rules && typeof rules === 'object' && rules.categories && typeof rules.categories === 'object'
+    ? rules.categories
+    : {};
+
+  const normalizedSources = {};
+  AT_ALL_SOURCE_KEYS.forEach((key) => {
+    normalizedSources[key] = typeof sourceInput[key] === 'boolean' ? sourceInput[key] : defaults.sources[key];
+  });
+
+  const normalizedCategories = {};
+  Object.keys(defaults.categories).forEach((key) => {
+    normalizedCategories[key] = typeof categoryInput[key] === 'boolean'
+      ? categoryInput[key]
+      : defaults.categories[key];
+  });
+
+  return {
+    sources: normalizedSources,
+    categories: normalizedCategories,
+    manualDisabledIds: normalizeIdList(rules?.manualDisabledIds),
+    cookieSyncDisabledIds: normalizeIdList(rules?.cookieSyncDisabledIds)
+  };
+};
+
 function Groups() {
   const [groups, setGroups] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState(null);
@@ -48,6 +125,7 @@ function Groups() {
     },
     enableCookieSync: false,
     subscriptionAtAll: false,
+    subscriptionAtAllRules: createDefaultAtAllRules(),
     cookieSyncGroupNames: [], // Array of strings
     blacklistedQQs: [],
     admins: [], // 群组管理员列表
@@ -85,6 +163,12 @@ function Groups() {
   // Bilibili Groups State (Follow Groups)
   const [biliGroups, setBiliGroups] = useState([]);
   const [biliGroupsLoading, setBiliGroupsLoading] = useState(false);
+  const [atAllTargets, setAtAllTargets] = useState({
+    manualUsers: [],
+    cookieUsers: [],
+    syncGroupNames: []
+  });
+  const [atAllTargetsLoading, setAtAllTargetsLoading] = useState(false);
 
   // 🆕 Global Bilibili Status
   const [globalBiliStatus, setGlobalBiliStatus] = useState({
@@ -252,81 +336,105 @@ function Groups() {
     }
   }, []);
 
-  useEffect(() => {
-    if (selectedGroupId) {
-      const group = groups.find(g => g.id === selectedGroupId);
-      if (group) {
-        const config = group.config || {};
-        const labels = config.labelConfig || {};
-
-        let syncGroups = [];
-        if (Array.isArray(config.cookieSyncGroupNames)) {
-            syncGroups = config.cookieSyncGroupNames;
-        } else if (typeof config.cookieSyncGroupNames === 'string') {
-            syncGroups = config.cookieSyncGroupNames.split(',').map(s => s.trim()).filter(Boolean);
-        }
-
-        setFormData({
-          linkCacheTimeout: config.linkCacheTimeout ?? 5,
-          showId: config.showId ?? globalConfig.showId ?? true,
-          labelConfig: {
-            video: labels.video ?? true,
-            dynamic: labels.dynamic ?? true,
-            live: labels.live ?? true,
-            article: labels.article ?? true,
-            bangumi: labels.bangumi ?? true,
-            movie: labels.movie ?? true,
-            tv: labels.tv ?? true,
-            guocha: labels.guocha ?? true,
-            doc: labels.doc ?? true,
-            variety: labels.variety ?? true
-          },
-          enableCookieSync: config.enableCookieSync ?? false,
-          subscriptionAtAll: config.subscriptionAtAll ?? false,
-          cookieSyncGroupNames: syncGroups,
-          blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
-          admins: Array.isArray(config.admins) ? config.admins : [],
-          // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
-          aiProbability: config.aiProbability ?? null,
-          aiContextLimit: config.aiContextLimit ?? null,
-          aiTemperature: config.aiTemperature ?? null,
-          aiEnabled: config.aiEnabled ?? null,           // null表示继承全局
-          aiRagEnabled: config.aiRagEnabled ?? null,     // null表示继承全局
-          aiProfileEnabled: config.aiProfileEnabled ?? null, // null表示继承全局
-          // 加载深色模式配置
-          nightMode: config.nightMode || {
-            mode: "off",
-            startTime: "21:00",
-            endTime: "06:00"
-          }
-        });
-
-        // Reset sub state
-        setSubscriptions([]);
-        // If on subs tab, fetch immediately
-        if (selectedTabIndex === 1) {
-            fetchSubscriptions(selectedGroupId);
-        }
-        // If on sync tab, fetch bili groups (index is 4 after merging tabs)
-        if (selectedTabIndex === 4) {
-            fetchBiliGroups(selectedGroupId);
-            // 🆕 Check global Bilibili login status
-            checkGlobalBiliStatus();
-        }
-        // If on video download tab (index 5), fetch video download config
-        if (selectedTabIndex === VIDEO_DOWNLOAD_TAB_INDEX) {
-            fetchVideoDownloadConfig(selectedGroupId);
-        }
-      }
+  const fetchAtAllTargets = useCallback(async (gid) => {
+    if (!gid) return;
+    setAtAllTargetsLoading(true);
+    try {
+      const resp = await api.get(`/api/groups/${gid}/atall-targets`);
+      setAtAllTargets({
+        manualUsers: Array.isArray(resp.data?.manualUsers) ? resp.data.manualUsers : [],
+        cookieUsers: Array.isArray(resp.data?.cookieUsers) ? resp.data.cookieUsers : [],
+        syncGroupNames: Array.isArray(resp.data?.syncGroupNames) ? resp.data.syncGroupNames : []
+      });
+    } catch (e) {
+      console.error('Failed to fetch @all targets:', e);
+      setAtAllTargets({ manualUsers: [], cookieUsers: [], syncGroupNames: [] });
+    } finally {
+      setAtAllTargetsLoading(false);
     }
-  }, [selectedGroupId, groups, selectedTabIndex, fetchSubscriptions, fetchBiliGroups, checkGlobalBiliStatus, fetchVideoDownloadConfig, VIDEO_DOWNLOAD_TAB_INDEX, globalConfig.showId]);
+  }, []);
 
-  // Fetch subscriptions when tab changes to index 1 (Subscriptions)
   useEffect(() => {
-      if (selectedTabIndex === 1 && selectedGroupId) {
-          fetchSubscriptions(selectedGroupId);
+    if (!selectedGroupId) return;
+
+    const group = groups.find(g => g.id === selectedGroupId);
+    if (!group) return;
+
+    const config = group.config || {};
+    const labels = config.labelConfig || {};
+    const atAllRules = normalizeAtAllRules(config.subscriptionAtAllRules);
+
+    let syncGroups = [];
+    if (Array.isArray(config.cookieSyncGroupNames)) {
+        syncGroups = config.cookieSyncGroupNames;
+    } else if (typeof config.cookieSyncGroupNames === 'string') {
+        syncGroups = config.cookieSyncGroupNames.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    setFormData({
+      linkCacheTimeout: config.linkCacheTimeout ?? 5,
+      showId: config.showId ?? globalConfig.showId ?? true,
+      labelConfig: {
+        video: labels.video ?? true,
+        dynamic: labels.dynamic ?? true,
+        live: labels.live ?? true,
+        article: labels.article ?? true,
+        bangumi: labels.bangumi ?? true,
+        movie: labels.movie ?? true,
+        tv: labels.tv ?? true,
+        guocha: labels.guocha ?? true,
+        doc: labels.doc ?? true,
+        variety: labels.variety ?? true
+      },
+      enableCookieSync: config.enableCookieSync ?? false,
+      subscriptionAtAll: config.subscriptionAtAll ?? false,
+      subscriptionAtAllRules: atAllRules,
+      cookieSyncGroupNames: syncGroups,
+      blacklistedQQs: Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [],
+      admins: Array.isArray(config.admins) ? config.admins : [],
+      // 加载AI配置（可能为 null）- 使用 ?? null 保留null值
+      aiProbability: config.aiProbability ?? null,
+      aiContextLimit: config.aiContextLimit ?? null,
+      aiTemperature: config.aiTemperature ?? null,
+      aiEnabled: config.aiEnabled ?? null,           // null表示继承全局
+      aiRagEnabled: config.aiRagEnabled ?? null,     // null表示继承全局
+      aiProfileEnabled: config.aiProfileEnabled ?? null, // null表示继承全局
+      // 加载深色模式配置
+      nightMode: config.nightMode || {
+        mode: "off",
+        startTime: "21:00",
+        endTime: "06:00"
       }
-  }, [selectedTabIndex, selectedGroupId, fetchSubscriptions]);
+    });
+
+    // 切换群组时清空订阅展示，避免旧数据闪现
+    setSubscriptions([]);
+  }, [selectedGroupId, groups, globalConfig.showId]);
+
+  useEffect(() => {
+    if (!selectedGroupId) return;
+
+    if (selectedTabIndex === 1) {
+      fetchSubscriptions(selectedGroupId);
+    }
+    if (selectedTabIndex === 4) {
+      fetchBiliGroups(selectedGroupId);
+      fetchAtAllTargets(selectedGroupId);
+      checkGlobalBiliStatus();
+    }
+    if (selectedTabIndex === VIDEO_DOWNLOAD_TAB_INDEX) {
+      fetchVideoDownloadConfig(selectedGroupId);
+    }
+  }, [
+    selectedTabIndex,
+    selectedGroupId,
+    fetchSubscriptions,
+    fetchBiliGroups,
+    fetchAtAllTargets,
+    checkGlobalBiliStatus,
+    fetchVideoDownloadConfig,
+    VIDEO_DOWNLOAD_TAB_INDEX
+  ]);
 
   // 🆕 Check global Bilibili status on mount
   useEffect(() => {
@@ -432,6 +540,7 @@ function Groups() {
           setIsSubModalOpen(false);
           setSubForm({ type: 'user', value: '' });
           fetchSubscriptions(selectedGroupId);
+          fetchAtAllTargets(selectedGroupId);
       } catch (err) {
           console.error(err);
           show('添加订阅失败', 'error');
@@ -445,6 +554,7 @@ function Groups() {
           show('删除订阅成功', 'success');
           // Optimistic or refetch
           setSubscriptions(prev => prev.filter(s => !(s.type === sub.type && s.value === sub.value)));
+          fetchAtAllTargets(selectedGroupId);
       } catch (err) {
           console.error(err);
           show('删除订阅失败', 'error');
@@ -654,6 +764,89 @@ function Groups() {
           }
       });
   };
+
+  const setAtAllRules = (updater) => {
+    setFormData(prev => {
+      const currentRules = normalizeAtAllRules(prev.subscriptionAtAllRules);
+      const nextRules = typeof updater === 'function' ? updater(currentRules) : updater;
+      return {
+        ...prev,
+        subscriptionAtAllRules: normalizeAtAllRules(nextRules)
+      };
+    });
+  };
+
+  const toggleAtAllSource = (sourceKey, enabled) => {
+    setAtAllRules((rules) => ({
+      ...rules,
+      sources: {
+        ...rules.sources,
+        [sourceKey]: enabled
+      }
+    }));
+  };
+
+  const toggleAtAllCategory = (categoryKey, enabled) => {
+    setAtAllRules((rules) => ({
+      ...rules,
+      categories: {
+        ...rules.categories,
+        [categoryKey]: enabled
+      }
+    }));
+  };
+
+  const setAllAtAllIdsEnabled = (sourceKey, enabled) => {
+    const listKey = sourceKey === 'cookieSync' ? 'cookieSyncDisabledIds' : 'manualDisabledIds';
+    const sourceUsers = sourceKey === 'cookieSync' ? atAllTargets.cookieUsers : atAllTargets.manualUsers;
+    const allIds = sourceUsers
+      .map(user => String(user?.uid || '').trim())
+      .filter(uid => /^\d+$/.test(uid));
+
+    setAtAllRules((rules) => {
+      if (enabled) {
+        return { ...rules, [listKey]: [] };
+      }
+      return { ...rules, [listKey]: Array.from(new Set(allIds)) };
+    });
+  };
+
+  const toggleAtAllUser = (sourceKey, uid, enabled) => {
+    const normalizedUid = String(uid || '').trim();
+    if (!/^\d+$/.test(normalizedUid)) return;
+
+    const listKey = sourceKey === 'cookieSync' ? 'cookieSyncDisabledIds' : 'manualDisabledIds';
+    setAtAllRules((rules) => {
+      const current = Array.isArray(rules[listKey]) ? [...rules[listKey]] : [];
+      const exists = current.includes(normalizedUid);
+
+      if (enabled && exists) {
+        return { ...rules, [listKey]: current.filter(v => v !== normalizedUid) };
+      }
+      if (!enabled && !exists) {
+        current.push(normalizedUid);
+      }
+
+      return { ...rules, [listKey]: current };
+    });
+  };
+
+  const isAtAllUserEnabled = (sourceKey, uid) => {
+    const normalizedUid = String(uid || '').trim();
+    if (!/^\d+$/.test(normalizedUid)) return false;
+    const rules = normalizeAtAllRules(formData.subscriptionAtAllRules);
+    const disabled = sourceKey === 'cookieSync' ? rules.cookieSyncDisabledIds : rules.manualDisabledIds;
+    return !disabled.includes(normalizedUid);
+  };
+
+  const isCookieUserInSelectedSyncGroups = (cookieUser) => {
+    const selectedGroups = Array.isArray(formData.cookieSyncGroupNames) ? formData.cookieSyncGroupNames : [];
+    if (selectedGroups.length === 0) return true;
+    const userGroups = Array.isArray(cookieUser?.biliGroups) ? cookieUser.biliGroups : [];
+    return selectedGroups.some(tag => userGroups.includes(tag));
+  };
+
+  const atAllRules = normalizeAtAllRules(formData.subscriptionAtAllRules);
 
   return (
     <div className="px-4 md:px-6 pt-4 md:pt-6 space-y-4 md:space-y-6 pb-6">
@@ -1260,6 +1453,171 @@ function Groups() {
                                 <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                              </div>
                          </label>
+                     </div>
+
+                     <div className={clsx("p-4 bg-white/5 rounded-lg border border-white/10 space-y-5", !formData.subscriptionAtAll && "opacity-50")}>
+                        <div>
+                          <div className="text-white font-medium">`@全体` 细粒度规则</div>
+                          <div className="text-sm text-gray-400 mt-1">
+                            命中规则：总开关开启 AND 来源开启 AND 分类开启 AND 该来源下 UID 未被关闭
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="text-sm text-gray-300 font-medium">来源开关</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!atAllRules.sources.manual}
+                                onChange={(e) => toggleAtAllSource('manual', e.target.checked)}
+                                disabled={!formData.subscriptionAtAll}
+                                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                              />
+                              <span className="text-gray-200 text-sm">手动订阅</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!atAllRules.sources.cookieSync}
+                                onChange={(e) => toggleAtAllSource('cookieSync', e.target.checked)}
+                                disabled={!formData.subscriptionAtAll}
+                                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                              />
+                              <span className="text-gray-200 text-sm">关注同步</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="text-sm text-gray-300 font-medium">分类开关</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {AT_ALL_CATEGORY_ITEMS.map((item) => (
+                              <label key={item.key} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!!atAllRules.categories[item.key]}
+                                  onChange={(e) => toggleAtAllCategory(item.key, e.target.checked)}
+                                  disabled={!formData.subscriptionAtAll}
+                                  className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                                />
+                                <span className="text-gray-200 text-sm">{item.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="text-sm text-gray-300 font-medium">逐个 UID 开关</div>
+
+                          <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm text-gray-200">手动订阅用户</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setAllAtAllIdsEnabled('manual', true)}
+                                  disabled={!formData.subscriptionAtAll}
+                                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                                >
+                                  全开
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAllAtAllIdsEnabled('manual', false)}
+                                  disabled={!formData.subscriptionAtAll}
+                                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                                >
+                                  全关
+                                </button>
+                              </div>
+                            </div>
+
+                            {atAllTargetsLoading ? (
+                              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                                <Loader2 size={14} className="animate-spin" />
+                                正在加载 UID 列表...
+                              </div>
+                            ) : atAllTargets.manualUsers.length === 0 ? (
+                              <div className="text-gray-500 text-sm italic">暂无手动订阅用户</div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {atAllTargets.manualUsers.map((user) => {
+                                  const enabled = isAtAllUserEnabled('manual', user.uid);
+                                  return (
+                                    <label key={`manual-${user.uid}`} className="flex items-center gap-2 p-2 rounded bg-white/5">
+                                      <input
+                                        type="checkbox"
+                                        checked={enabled}
+                                        onChange={(e) => toggleAtAllUser('manual', user.uid, e.target.checked)}
+                                        disabled={!formData.subscriptionAtAll}
+                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                                      />
+                                      <span className="text-sm text-gray-200">{user.name}</span>
+                                      <span className="text-xs text-gray-500 font-mono">{user.uid}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm text-gray-200">关注同步用户</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setAllAtAllIdsEnabled('cookieSync', true)}
+                                  disabled={!formData.subscriptionAtAll}
+                                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                                >
+                                  全开
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAllAtAllIdsEnabled('cookieSync', false)}
+                                  disabled={!formData.subscriptionAtAll}
+                                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                                >
+                                  全关
+                                </button>
+                              </div>
+                            </div>
+
+                            {atAllTargetsLoading ? (
+                              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                                <Loader2 size={14} className="animate-spin" />
+                                正在加载 UID 列表...
+                              </div>
+                            ) : atAllTargets.cookieUsers.length === 0 ? (
+                              <div className="text-gray-500 text-sm italic">暂无关注同步用户</div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {atAllTargets.cookieUsers.map((user) => {
+                                  const enabled = isAtAllUserEnabled('cookieSync', user.uid);
+                                  const matched = isCookieUserInSelectedSyncGroups(user);
+                                  return (
+                                    <label key={`cookie-${user.uid}`} className="flex items-center gap-2 p-2 rounded bg-white/5">
+                                      <input
+                                        type="checkbox"
+                                        checked={enabled}
+                                        onChange={(e) => toggleAtAllUser('cookieSync', user.uid, e.target.checked)}
+                                        disabled={!formData.subscriptionAtAll}
+                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                                      />
+                                      <span className="text-sm text-gray-200">{user.name}</span>
+                                      <span className="text-xs text-gray-500 font-mono">{user.uid}</span>
+                                      <span className={clsx("text-[10px] px-1.5 py-0.5 rounded", matched ? "bg-green-500/20 text-green-300" : "bg-gray-500/20 text-gray-400")}>
+                                        {matched ? '命中同步分组' : '不在当前同步分组'}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                      </div>
 
                      {/* 🆕 未登录提示 */}

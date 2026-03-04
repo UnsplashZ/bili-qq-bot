@@ -397,7 +397,7 @@ class SettingsCommand {
                     this.sendGroupMessage(ws, groupId, [{
                         type: 'text',
                         data: {
-                            text: `本群订阅推送@全体成员已${switchState}。将对订阅与关注同步更新推送生效。`
+                            text: `本群订阅推送@全体成员已${switchState}。将对订阅与关注同步更新推送生效。细粒度规则请在 WebUI 配置。`
                         }
                     }]);
                 } else {

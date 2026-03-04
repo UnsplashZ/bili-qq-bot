@@ -6,6 +6,40 @@ const config = require('../../config');
 const logger = require('../../utils/logger');
 const notificationHistory = require('../../utils/notificationHistory');
 
+const VALID_AT_ALL_SOURCES = new Set(config.SUBSCRIPTION_AT_ALL_SOURCE_KEYS || ['manual', 'cookieSync']);
+const VALID_AT_ALL_CATEGORIES = new Set(config.SUBSCRIPTION_AT_ALL_CATEGORY_KEYS || [
+    'video',
+    'dynamic',
+    'live',
+    'article',
+    'bangumi',
+    'movie',
+    'tv',
+    'guocha',
+    'doc',
+    'variety'
+]);
+
+function normalizeSourceList(value) {
+    const list = Array.isArray(value) ? value : [value];
+    const normalized = [];
+    for (const item of list) {
+        const source = String(item || '').trim();
+        if (!source || !VALID_AT_ALL_SOURCES.has(source)) continue;
+        if (!normalized.includes(source)) {
+            normalized.push(source);
+        }
+    }
+    return normalized;
+}
+
+function toUidString(value) {
+    if (value === null || value === undefined) return null;
+    const uid = String(value).trim();
+    if (!/^\d+$/.test(uid)) return null;
+    return uid;
+}
+
 /**
  * 解析专栏推送的实际类型和标题
  * 新版 B 站专栏（cv号）可能被重定向为 opus/动态格式，需按实际类型处理
@@ -328,6 +362,66 @@ class UpdateChecker {
         }
     }
 
+    createGroupSourceMap(groupIds = [], sources = ['manual']) {
+        const map = new Map();
+        const normalizedSources = normalizeSourceList(sources);
+        const fallbackSources = normalizedSources.length > 0 ? normalizedSources : ['manual'];
+
+        for (const groupId of groupIds || []) {
+            const gid = String(groupId);
+            if (!gid) continue;
+            const sourceSet = new Set();
+            fallbackSources.forEach(source => sourceSet.add(source));
+            map.set(gid, sourceSet);
+        }
+
+        return map;
+    }
+
+    mergeGroupSourceMap(targetMap, groupId, sources) {
+        if (!targetMap || !groupId) return;
+        const gid = String(groupId);
+        const normalizedSources = normalizeSourceList(sources);
+        const sourceList = normalizedSources.length > 0 ? normalizedSources : ['manual'];
+
+        if (!targetMap.has(gid)) {
+            targetMap.set(gid, new Set(sourceList));
+            return;
+        }
+
+        const existing = targetMap.get(gid);
+        sourceList.forEach(source => existing.add(source));
+    }
+
+    getGroupIdsFromSourceMap(sourceMap) {
+        if (!(sourceMap instanceof Map)) return [];
+        return Array.from(sourceMap.keys());
+    }
+
+    normalizeGroupSourceMap(groupTargets, fallbackSource = 'manual') {
+        if (groupTargets instanceof Map) {
+            const cloned = new Map();
+            for (const [groupId, sources] of groupTargets.entries()) {
+                this.mergeGroupSourceMap(cloned, groupId, Array.isArray(sources) ? sources : Array.from(sources || []));
+            }
+            return cloned;
+        }
+
+        if (Array.isArray(groupTargets)) {
+            return this.createGroupSourceMap(groupTargets, [fallbackSource]);
+        }
+
+        if (groupTargets && typeof groupTargets === 'object') {
+            const normalized = new Map();
+            for (const [groupId, sources] of Object.entries(groupTargets)) {
+                this.mergeGroupSourceMap(normalized, groupId, Array.isArray(sources) ? sources : [sources]);
+            }
+            return normalized;
+        }
+
+        return new Map();
+    }
+
     /**
      * 构建需要检查视频/专栏的统一用户列表
      * 合并手动订阅用户 + Cookie同步用户，自动去重
@@ -339,13 +433,18 @@ class UpdateChecker {
 
         // 1. 添加手动订阅用户
         for (const sub of subscriptionManager.userSubs) {
+            const manualUid = String(sub?.uid ?? '').trim();
+            if (!manualUid) continue;
+
             const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid));
             if (targetGroups.length === 0) continue;
+            const sourceMap = this.createGroupSourceMap(targetGroups, ['manual']);
 
-            userMap.set(sub.uid, {
-                uid: sub.uid,
+            userMap.set(manualUid, {
+                uid: manualUid,
                 name: sub.name,
                 targetGroups: targetGroups,
+                targetGroupSourceMap: sourceMap,
                 source: 'manual',
                 manualSub: sub // 保留原始订阅对象的引用
             });
@@ -357,16 +456,19 @@ class UpdateChecker {
                 const fid = subscriptionManager.getFollowerId(follower);
                 if (!fid) continue;
 
-                // 使用 findTargetGroupsForUser 判断哪些群组需要推送
-                const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
+                // 使用 findTargetGroupSourceMapForUser 判断哪些群组需要推送，并保留来源信息
+                const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups);
+                const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap);
                 if (targetGroups.length === 0) continue;
 
                 // 如果用户已存在（手动订阅），合并目标群组
                 if (userMap.has(fid)) {
                     const existing = userMap.get(fid);
-                    // 合并群组（去重）
-                    const mergedGroups = [...new Set([...existing.targetGroups, ...targetGroups])];
-                    existing.targetGroups = mergedGroups;
+                    // 合并群组和来源（去重）
+                    targetGroupSourceMap.forEach((sources, gid) => {
+                        this.mergeGroupSourceMap(existing.targetGroupSourceMap, gid, Array.from(sources));
+                    });
+                    existing.targetGroups = this.getGroupIdsFromSourceMap(existing.targetGroupSourceMap);
                     existing.source = 'both'; // 标记为双重来源
                     existing.cookieFollower = follower; // 添加Cookie follower引用
                     existing.accountUid = accountUid; // Cookie所属账号
@@ -375,6 +477,7 @@ class UpdateChecker {
                         uid: fid,
                         name: follower.name || `User_${fid}`,
                         targetGroups: targetGroups,
+                        targetGroupSourceMap,
                         source: 'cookie',
                         cookieFollower: follower,
                         accountUid: accountUid // Cookie所属账号
@@ -550,7 +653,8 @@ class UpdateChecker {
                         continue;
                     }
 
-                    const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
+                    const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups);
+                    const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap);
 
                     if (targetGroups.length > 0) {
                         // Fetch dynamic detail using standard API (unified with linkHandler)
@@ -570,7 +674,14 @@ class UpdateChecker {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImageAndCache(targetGroups, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(
+                            targetGroupSourceMap,
+                            info,
+                            info.type || 'dynamic',
+                            url,
+                            notificationText,
+                            { actorUid: authorUid, fallbackSources: ['cookieSync'] }
+                        );
                     }
                 }
 
@@ -629,7 +740,8 @@ class UpdateChecker {
 
             // Check if status changed from 0 to 1
             if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
-                const targetGroups = this.findTargetGroupsForUser(accountUid, follower, activeGroups);
+                const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups);
+                const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap);
 
                 if (targetGroups.length > 0) {
                     const roomId = item.room_id || item.roomid;
@@ -650,7 +762,14 @@ class UpdateChecker {
                     liveInfo.id = roomId;
                     const roomUrl = `https://live.bilibili.com/${roomId}`;
 
-                    await this.notifyGroupsWithImageAndCache(targetGroups, liveInfo, 'live', roomUrl, `${name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(
+                        targetGroupSourceMap,
+                        liveInfo,
+                        'live',
+                        roomUrl,
+                        `${name} 开播了！`,
+                        { actorUid: uid, fallbackSources: ['cookieSync'] }
+                    );
                 }
             }
 
@@ -677,9 +796,12 @@ class UpdateChecker {
         return { ok: true };
     }
 
-    findTargetGroupsForUser(accountUid, follower, activeGroups = null) {
-        const targetGroups = [];
+    findTargetGroupSourceMapForUser(accountUid, follower, activeGroups = null) {
+        const targetMap = new Map();
         const followerId = subscriptionManager.getFollowerId(follower);
+        const followerTags = Array.isArray(follower?.biliGroups)
+            ? follower.biliGroups.map(tag => String(tag))
+            : [];
 
         // 1. Find all groups bound to this account (Cookie Sync)
         for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
@@ -694,17 +816,17 @@ class UpdateChecker {
             // Check Tag filtering
             let allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames');
             if (typeof allowedTags === 'string') {
-                allowedTags = allowedTags.split(',').map(s => s.trim());
+                allowedTags = allowedTags.split(',').map(s => s.trim()).filter(Boolean);
             }
-            if (Array.isArray(allowedTags) && allowedTags.length > 0) {
-                // follower.biliGroups should be an array of tag names
-                const followerTags = follower.biliGroups || [];
-                // Check intersection
+            if (!Array.isArray(allowedTags)) {
+                allowedTags = [];
+            }
+            if (allowedTags.length > 0) {
                 const hasTag = allowedTags.some(tag => followerTags.includes(tag));
                 if (!hasTag) continue;
             }
 
-            targetGroups.push(gid);
+            this.mergeGroupSourceMap(targetMap, gid, ['cookieSync']);
         }
 
         // 2. Find manual subscriptions for this user (Group Subscription)
@@ -714,16 +836,17 @@ class UpdateChecker {
         if (manualSub) {
             manualSub.groupIds.forEach(gid => {
                 // Filter out inactive groups
-                if (activeGroups && !activeGroups.has(gid)) return;
-
-                // Deduplicate: avoid adding if already added via sync
-                if (!targetGroups.includes(String(gid))) {
-                    targetGroups.push(String(gid));
-                }
+                if (activeGroups && !activeGroups.has(String(gid))) return;
+                this.mergeGroupSourceMap(targetMap, gid, ['manual']);
             });
         }
 
-        return targetGroups;
+        return targetMap;
+    }
+
+    findTargetGroupsForUser(accountUid, follower, activeGroups = null) {
+        const sourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups);
+        return this.getGroupIdsFromSourceMap(sourceMap);
     }
 
     isLiveDynamic(card) {
@@ -843,6 +966,7 @@ class UpdateChecker {
     async checkUserDynamic(sub, targetGroups = null, force = false) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
+        const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual']);
         try {
             const res = await biliApi.getUserDynamic(sub.uid, null, true);
             if (res.status !== 'success') {
@@ -970,13 +1094,25 @@ class UpdateChecker {
                     // Notify
                     try {
                         const url = `https://t.bilibili.com/${cardId}`;
-                        await this.notifyGroupsWithImageAndCache(groupsToNotify, info, info.type || 'dynamic', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(
+                            targetGroupSourceMap,
+                            info,
+                            info.type || 'dynamic',
+                            url,
+                            notificationText,
+                            { actorUid: sub.uid, fallbackSources: ['manual'] }
+                        );
 
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e);
                         // Fallback text
                         const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`;
-                        this.notifyGroups(groupsToNotify, msg, cardId);
+                        this.notifyGroups(
+                            targetGroupSourceMap,
+                            msg,
+                            cardId,
+                            { actorUid: sub.uid, category: info.type || 'dynamic', fallbackSources: ['manual'] }
+                        );
                     }
                 }
 
@@ -994,6 +1130,7 @@ class UpdateChecker {
     async checkUserLive(sub, targetGroups = null, force = false) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
+        const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual']);
         // 使用第一个群组的cookie获取用户信息
         const groupId = groupsToNotify[0];
         try {
@@ -1038,7 +1175,14 @@ class UpdateChecker {
                     logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`);
                 } else {
                     liveInfo.id = roomId;
-                    await this.notifyGroupsWithImageAndCache(groupsToNotify, liveInfo, 'live', roomUrl, `${sub.name} 开播了！`);
+                    await this.notifyGroupsWithImageAndCache(
+                        targetGroupSourceMap,
+                        liveInfo,
+                        'live',
+                        roomUrl,
+                        `${sub.name} 开播了！`,
+                        { actorUid: sub.uid, fallbackSources: ['manual'] }
+                    );
                 }
             }
 
@@ -1054,6 +1198,7 @@ class UpdateChecker {
     async checkBangumi(sub, targetGroups = null) {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds;
+        const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual']);
         try {
             const res = await biliApi.getBangumiInfo(sub.seasonId);
             if (res.status !== 'success') return;
@@ -1073,10 +1218,22 @@ class UpdateChecker {
                 const notificationText = `${sub.title} 更新了：${newEp.index_show}`;
 
                 try {
-                    await this.notifyGroupsWithImageAndCache(groupsToNotify, res, 'bangumi', url, notificationText);
+                    await this.notifyGroupsWithImageAndCache(
+                        targetGroupSourceMap,
+                        res,
+                        'bangumi',
+                        url,
+                        notificationText,
+                        { actorUid: null, fallbackSources: ['manual'] }
+                    );
                 } catch (e) {
                     logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e);
-                    this.notifyGroups(groupsToNotify, `${notificationText}\n${url}`, newEp.id);
+                    this.notifyGroups(
+                        targetGroupSourceMap,
+                        `${notificationText}\n${url}`,
+                        newEp.id,
+                        { actorUid: null, category: 'bangumi', fallbackSources: ['manual'] }
+                    );
                 }
 
                 await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id });
@@ -1092,9 +1249,23 @@ class UpdateChecker {
      * @param {boolean} force - 是否强制检查
      */
     async checkUserVideoUnified(userItem, force = false) {
-        const { uid, name, targetGroups, source, manualSub, cookieFollower, accountUid } = userItem;
+        const {
+            uid,
+            name,
+            targetGroups: rawTargetGroups,
+            source,
+            manualSub,
+            cookieFollower,
+            accountUid,
+            targetGroupSourceMap
+        } = userItem;
+
+        const fallbackSource = source === 'cookie' ? 'cookieSync' : 'manual';
+        const normalizedTargetGroupSourceMap = this.normalizeGroupSourceMap(targetGroupSourceMap || rawTargetGroups, fallbackSource);
+        const targetGroups = this.getGroupIdsFromSourceMap(normalizedTargetGroupSourceMap);
 
         try {
+            if (targetGroups.length === 0) return;
             const groupId = targetGroups[0];
             const res = await biliApi.getUserVideos(uid, groupId);
 
@@ -1188,7 +1359,14 @@ class UpdateChecker {
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`;
                         const url = `https://www.bilibili.com/video/${bvid}`;
-                        await this.notifyGroupsWithImageAndCache(targetGroups, info, 'video', url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(
+                            normalizedTargetGroupSourceMap,
+                            info,
+                            'video',
+                            url,
+                            notificationText,
+                            { actorUid: uid, fallbackSources: [fallbackSource] }
+                        );
 
                         // 订阅推送后下载视频一次，发送到所有目标群
                         const videoDownloadService = require('../../services/videoDownloadService')
@@ -1215,9 +1393,23 @@ class UpdateChecker {
      * @param {boolean} force - 是否强制检查
      */
     async checkUserArticleUnified(userItem, force = false) {
-        const { uid, name, targetGroups, source, manualSub, cookieFollower, accountUid } = userItem;
+        const {
+            uid,
+            name,
+            targetGroups: rawTargetGroups,
+            source,
+            manualSub,
+            cookieFollower,
+            accountUid,
+            targetGroupSourceMap
+        } = userItem;
+
+        const fallbackSource = source === 'cookie' ? 'cookieSync' : 'manual';
+        const normalizedTargetGroupSourceMap = this.normalizeGroupSourceMap(targetGroupSourceMap || rawTargetGroups, fallbackSource);
+        const targetGroups = this.getGroupIdsFromSourceMap(normalizedTargetGroupSourceMap);
 
         try {
+            if (targetGroups.length === 0) return;
             const groupId = targetGroups[0];
             const res = await biliApi.getUserArticles(uid, groupId);
 
@@ -1308,7 +1500,14 @@ class UpdateChecker {
                         const { actualType, title: articleTitle } = resolveArticleTitle(info)
                         const notificationText = `${name} 发布了新专栏：\n${articleTitle}`;
                         const url = `https://www.bilibili.com/read/${cvid}`;
-                        await this.notifyGroupsWithImageAndCache(targetGroups, info, actualType, url, notificationText);
+                        await this.notifyGroupsWithImageAndCache(
+                            normalizedTargetGroupSourceMap,
+                            info,
+                            actualType,
+                            url,
+                            notificationText,
+                            { actorUid: uid, fallbackSources: [fallbackSource] }
+                        );
 
                         logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`);
                     } catch (e) {
@@ -1399,6 +1598,92 @@ class UpdateChecker {
 
     isSubscriptionAtAllEnabled(groupId) {
         return config.getGroupConfig(groupId, 'subscriptionAtAll') === true;
+    }
+
+    getSubscriptionAtAllRules(groupId) {
+        const rules = config.getGroupConfig(groupId, 'subscriptionAtAllRules');
+        return config.normalizeSubscriptionAtAllRules(rules);
+    }
+
+    resolveContentSubtype(type, data) {
+        let subtype = type;
+
+        if (type === 'bangumi') {
+            const seasonType = data?.season_type ?? data?.data?.season_type;
+            if (seasonType === 2) subtype = 'movie';
+            else if (seasonType === 3) subtype = 'doc';
+            else if (seasonType === 4) subtype = 'guocha';
+            else if (seasonType === 5) subtype = 'tv';
+            else if (seasonType === 7) subtype = 'variety';
+        } else if (type === 'dynamic' && data && data.item && data.item.desc) {
+            if (data.item.desc.type === 8) subtype = 'video';
+            else if (data.item.desc.type === 64) subtype = 'article';
+        }
+
+        return subtype;
+    }
+
+    resolveAtAllCategory(type, data) {
+        const subtype = this.resolveContentSubtype(type, data);
+        if (VALID_AT_ALL_CATEGORIES.has(subtype)) return subtype;
+
+        if (subtype === 'forward') return 'dynamic';
+        if (type === 'bangumi') return 'bangumi';
+        if (type === 'live') return 'live';
+        if (type === 'video') return 'video';
+        if (type === 'article') return 'article';
+        return 'dynamic';
+    }
+
+    buildAtAllMetaForGroup(groupId, groupSourceMap, rawMeta = {}, type = null, data = null) {
+        const gid = String(groupId);
+        const sourcesFromMap = groupSourceMap instanceof Map && groupSourceMap.has(gid)
+            ? normalizeSourceList(Array.from(groupSourceMap.get(gid) || []))
+            : [];
+        const sourcesFromMeta = normalizeSourceList(rawMeta?.sources || rawMeta?.fallbackSources || ['manual', 'cookieSync']);
+        const sources = sourcesFromMap.length > 0 ? sourcesFromMap : sourcesFromMeta;
+
+        const categoryFromMeta = String(rawMeta?.category || '').trim();
+        const category = VALID_AT_ALL_CATEGORIES.has(categoryFromMeta)
+            ? categoryFromMeta
+            : (type ? this.resolveAtAllCategory(type, data) : null);
+
+        const actorUid = toUidString(rawMeta?.actorUid);
+
+        return {
+            sources,
+            category,
+            actorUid
+        };
+    }
+
+    shouldAtAll(groupId, meta = {}) {
+        const rules = this.getSubscriptionAtAllRules(groupId);
+        const sources = normalizeSourceList(meta.sources);
+        const effectiveSources = sources.length > 0 ? sources : ['manual', 'cookieSync'];
+        const category = String(meta.category || '').trim();
+        const actorUid = toUidString(meta.actorUid);
+
+        if (category && VALID_AT_ALL_CATEGORIES.has(category) && rules.categories[category] === false) {
+            return false;
+        }
+
+        for (const source of effectiveSources) {
+            if (rules.sources[source] !== true) continue;
+
+            if (actorUid) {
+                const disabledIds = source === 'cookieSync'
+                    ? rules.cookieSyncDisabledIds
+                    : rules.manualDisabledIds;
+                if (Array.isArray(disabledIds) && disabledIds.includes(actorUid)) {
+                    continue;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     getSubscriptionAtAllWarmupGroups() {
@@ -1640,8 +1925,12 @@ class UpdateChecker {
         }
     }
 
-    async buildSubscriptionMessageChain(groupId, messageChain) {
+    async buildSubscriptionMessageChain(groupId, messageChain, atAllMeta = {}) {
         if (!this.isSubscriptionAtAllEnabled(groupId)) {
+            return messageChain;
+        }
+
+        if (!this.shouldAtAll(groupId, atAllMeta)) {
             return messageChain;
         }
 
@@ -1683,12 +1972,12 @@ class UpdateChecker {
         return messageChain.some(seg => seg?.type === 'at' && String(seg?.data?.qq) === 'all');
     }
 
-    async sendSubscriptionMessage(groupId, baseMessageChain) {
+    async sendSubscriptionMessage(groupId, baseMessageChain, atAllMeta = {}) {
         if (!this.ws) return;
 
         try {
             const processedBaseMessageChain = notificationService.processMessageChain(baseMessageChain, 'UpdateChecker');
-            const messageChain = await this.buildSubscriptionMessageChain(groupId, processedBaseMessageChain);
+            const messageChain = await this.buildSubscriptionMessageChain(groupId, processedBaseMessageChain, atAllMeta);
 
             const firstSendResult = await this.sendGroupMessageByAction(groupId, messageChain);
             if (firstSendResult.ok) {
@@ -1721,9 +2010,14 @@ class UpdateChecker {
         }
     }
 
-    notifyGroups(groupIds, text, dedupKey = null) {
+    notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
         if (!this.ws) return;
-        groupIds.forEach(gid => {
+
+        const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual']);
+        const fallbackSource = fallbackSources[0] || 'manual';
+        const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource);
+
+        groupSourceMap.forEach((_sources, gid) => {
             // Check for deduplication if key is provided
             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'));
             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0;
@@ -1732,22 +2026,28 @@ class UpdateChecker {
                 return;
             }
 
-            if (config.isGroupEnabled(gid)) {
-                const messageChain = [{ type: 'text', data: { text } }];
-                this.sendSubscriptionMessage(gid, messageChain).catch(e => {
-                    logger.error(`[UpdateChecker] Error in text notification task for group ${gid}:`, e);
-                });
-                
-                // Record notification history if key provided
-                if (dedupKey) {
-                    notificationHistory.add(gid, dedupKey, ttlMs);
-                }
+            if (!config.isGroupEnabled(gid)) return;
+
+            const messageChain = [{ type: 'text', data: { text } }];
+            const resolvedMeta = this.buildAtAllMetaForGroup(gid, groupSourceMap, atAllMeta);
+            this.sendSubscriptionMessage(gid, messageChain, resolvedMeta).catch(e => {
+                logger.error(`[UpdateChecker] Error in text notification task for group ${gid}:`, e);
+            });
+
+            // Record notification history if key provided
+            if (dedupKey) {
+                notificationHistory.add(gid, dedupKey, ttlMs);
             }
         });
     }
 
-    async notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText = '') {
-        if (!this.ws || !groupIds || groupIds.length === 0) return;
+    async notifyGroupsWithImage(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
+        const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual']);
+        const fallbackSource = fallbackSources[0] || 'manual';
+        const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource);
+        const groupIds = this.getGroupIdsFromSourceMap(groupSourceMap);
+
+        if (!this.ws || groupIds.length === 0) return;
 
         // Deduplication Logic
         // Determine unique ID based on data
@@ -1786,19 +2086,7 @@ class UpdateChecker {
             
             // Label Config Check
             const labelConfig = config.getGroupConfig(groupId, 'labelConfig');
-            let subtype = type;
-            // Attempt to refine subtype from data if possible
-            if (type === 'bangumi') {
-                const st = data?.season_type ?? data?.data?.season_type;
-                if (st === 2) subtype = 'movie';
-                else if (st === 3) subtype = 'doc';
-                else if (st === 4) subtype = 'guocha';
-                else if (st === 5) subtype = 'tv';
-                else if (st === 7) subtype = 'variety';
-            } else if (type === 'dynamic' && data && data.item && data.item.desc) {
-                 if (data.item.desc.type === 8) subtype = 'video';
-                 else if (data.item.desc.type === 64) subtype = 'article';
-            }
+            const subtype = this.resolveContentSubtype(type, data);
 
             const showLabel = (labelConfig && labelConfig[subtype] !== undefined) 
                 ? labelConfig[subtype] 
@@ -1831,7 +2119,18 @@ class UpdateChecker {
                         { type: 'image', data: { file: `base64://${base64Image}` } },
                         { type: 'text', data: { text: textMsg } }
                     ];
-                    await this.sendSubscriptionMessage(gid, baseMessageChain);
+                    const resolvedMeta = this.buildAtAllMetaForGroup(
+                        gid,
+                        groupSourceMap,
+                        {
+                            ...atAllMeta,
+                            category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
+                            fallbackSources
+                        },
+                        type,
+                        data
+                    );
+                    await this.sendSubscriptionMessage(gid, baseMessageChain, resolvedMeta);
                     
                     // Record history
                     if (dedupId) {
@@ -1845,7 +2144,25 @@ class UpdateChecker {
                 logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e);
                 // Fallback to text for these groups
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl;
-                this.notifyGroups(targetGroupIds, `预览生成失败，已降级为文本链接：\n${textMsg}`, dedupId);
+                const fallbackGroupSourceMap = new Map();
+                targetGroupIds.forEach(gid => {
+                    const groupSources = groupSourceMap.get(String(gid));
+                    this.mergeGroupSourceMap(
+                        fallbackGroupSourceMap,
+                        gid,
+                        groupSources ? Array.from(groupSources) : fallbackSources
+                    );
+                });
+                this.notifyGroups(
+                    fallbackGroupSourceMap,
+                    `预览生成失败，已降级为文本链接：\n${textMsg}`,
+                    dedupId,
+                    {
+                        ...atAllMeta,
+                        category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
+                        fallbackSources
+                    }
+                );
             }
         }
     }
@@ -1854,9 +2171,18 @@ class UpdateChecker {
      * 🆕 推送消息并添加链接到缓存
      * 封装notifyGroupsWithImage + 缓存逻辑，避免重复代码
      */
-    async notifyGroupsWithImageAndCache(groupIds, data, type, textUrl, descriptionText = '') {
+    async notifyGroupsWithImageAndCache(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
+        const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual']);
+        const fallbackSource = fallbackSources[0] || 'manual';
+        const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource);
+        const groupIds = this.getGroupIdsFromSourceMap(groupSourceMap);
+        if (groupIds.length === 0) return;
+
         // 推送消息
-        await this.notifyGroupsWithImage(groupIds, data, type, textUrl, descriptionText);
+        await this.notifyGroupsWithImage(groupSourceMap, data, type, textUrl, descriptionText, {
+            ...atAllMeta,
+            fallbackSources
+        });
 
         // 添加链接到缓存
         const linkHandler = require('../../handlers/linkHandler');
