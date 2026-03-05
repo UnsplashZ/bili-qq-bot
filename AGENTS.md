@@ -45,5 +45,14 @@
 - If a feature requires NapCat interfaces, first consult `docs/napcat_interface/llms.txt`.
 - Use that index file to locate the corresponding interface documentation link and details.
 
+## Review Quality & Reliability Rule
+
+- For any review request, prioritize code quality and runtime reliability over style suggestions.
+- Reviews should focus first on: bugs, regression risks, error handling gaps, edge cases, and missing/weak tests.
+- For Node.js changes, pay special attention to async flow correctness (`await`/Promise chains), timeout and retry behavior, null/undefined safety, and resource cleanup.
+- For Python changes, pay special attention to exception paths, I/O or async blocking risks, data validation, and cleanup of external resources.
+- For CSS changes, verify layout stability and consistency (especially responsive behavior, overflow/truncation, and cross-module visual regressions).
+- When tests or runtime checks cannot be executed, explicitly state the unverified parts and residual risk in the review output.
+
   
   ## read CLAUDE.md for more details on development commands, project architecture, and key directories.

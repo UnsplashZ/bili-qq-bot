@@ -3,6 +3,24 @@ const { isNightMode } = require('../core/theme');
 const { escapeHtml, getCustomFonts } = require('../core/formatters');
 const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
 
+function renderUserCards(users, show_id) {
+    return users.map((u) => `
+        <div class="user-card">
+            <div class="avatar-container">
+                <img src="${u.face}" class="avatar" crossorigin="anonymous">
+            </div>
+            <div class="user-info">
+                <div class="user-name-row">
+                    <span class="user-name">${escapeHtml(u.name)}</span>
+                </div>
+                <div class="user-details">
+                    ${show_id ? `<span class="uid">UID:${u.uid}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
 /**
  * 生成订阅列表图片
  * @param {Object} data - 订阅数据 { users: [], bangumis: [], accountFollows: [] }
@@ -13,7 +31,7 @@ const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/d
  */
 async function generateSubscriptionList(data, groupId, show_id = true, title = '订阅列表') {
     await browserManager.init();
-    const page = await browserManager.createPage({ width: 880, height: 1000, deviceScaleFactor: 1.5 });
+    const page = await browserManager.createPage({ width: 960, height: 1000, deviceScaleFactor: 1.5 });
 
     try {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -30,7 +48,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
         gradientMix: isNight ? 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)' : 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)',
         currentType: { label: '订阅列表', color: '#FB7299', icon: '📋' }
     };
-    const viewport = { width: 880, minWidth: 400 };
+    const viewport = { width: 960, minWidth: 400 };
     const baseCss = generateUnifiedCSS(colorData, viewport, { customFontsCss, customFontFamilies });
 
     const html = `<!DOCTYPE html>
@@ -48,7 +66,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
             #wrapper {
                 padding: 40px;
                 border-radius: var(--radius-container);
-                width: 800px;
+                width: 880px;
                 overflow: hidden;
                 position: relative;
             }
@@ -62,6 +80,9 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 backdrop-filter: blur(24px) saturate(180%);
                 -webkit-backdrop-filter: blur(24px) saturate(180%);
                 position: relative;
+                display: block;
+                width: 100%;
+                box-sizing: border-box;
             }
 
             .container::before {
@@ -77,7 +98,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 pointer-events: none;
             }
             .header {
-                text-align: center;
+                text-align: left;
                 margin-bottom: 28px;
                 border-bottom: 2px solid var(--color-border);
                 padding-bottom: 20px;
@@ -93,6 +114,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
             }
             .section {
                 margin-bottom: 28px;
+                width: 100%;
             }
             .section-title {
                 font-size: 20px;
@@ -124,11 +146,15 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 16px;
+                width: 100%;
             }
             .user-card {
                 display: flex;
                 align-items: center;
                 padding: 12px;
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
                 background-color: var(--color-soft-bg);
                 border-radius: 12px;
                 border: 1px solid var(--color-border);
@@ -246,23 +272,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 </div>
                 ${data.users.length > 0 ? `
                     <div class="user-list">
-                        ${data.users.map(u => {
-                            return `
-                            <div class="user-card">
-                                <div class="avatar-container">
-                                    <img src="${u.face}" class="avatar" crossorigin="anonymous">
-                                </div>
-                                <div class="user-info">
-                                    <div class="user-name-row">
-                                        <span class="user-name">${escapeHtml(u.name)}</span>
-                                    </div>
-                                    <div class="user-details">
-                                        ${show_id ? `<span class="uid">UID:${u.uid}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                            `;
-                        }).join('')}
+                        ${renderUserCards(data.users, show_id)}
                     </div>
                 ` : '<div class="empty-tip">暂无用户订阅</div>'}
             </div>
@@ -291,23 +301,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 </div>
                 ${(data.accountFollows && data.accountFollows.length > 0) ? `
                     <div class="user-list">
-                        ${data.accountFollows.map(u => {
-                            return `
-                            <div class="user-card">
-                                <div class="avatar-container">
-                                    <img src="${u.face}" class="avatar" crossorigin="anonymous">
-                                </div>
-                                <div class="user-info">
-                                    <div class="user-name-row">
-                                        <span class="user-name">${escapeHtml(u.name)}</span>
-                                    </div>
-                                    <div class="user-details">
-                                        ${show_id ? `<span class="uid">UID:${u.uid}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                            `;
-                        }).join('')}
+                        ${renderUserCards(data.accountFollows, show_id)}
                     </div>
                 ` : '<div class="empty-tip">暂无关注</div>'}
             </div>
