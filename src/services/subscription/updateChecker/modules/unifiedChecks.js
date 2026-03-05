@@ -7,7 +7,8 @@ module.exports = {
      * @param {Object} userItem - 从buildUserCheckList返回的用户对象
      * @param {boolean} force - 是否强制检查
      */
-    async checkUserVideoUnified(userItem, force = false) {
+    async checkUserVideoUnified(userItem, force = false, options = {}) {
+        const persistState = options.persistState !== false
         const {
             uid,
             name,
@@ -58,7 +59,9 @@ module.exports = {
 
             // 首次检查：记录最新视频但不推送
             if (!lastVideoId && !force) {
-                await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                if (persistState) {
+                    await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                }
                 logger.info(`[UpdateChecker] Initialized lastVideoId for ${name} (${source}): ${latestBvid}`)
                 return
             }
@@ -68,7 +71,9 @@ module.exports = {
                 // 兼容旧状态：仅有 lastVideoId 无时间戳，且 lastVideoId 已不在列表中
                 // 避免升级后的首轮回放旧视频
                 if (!force && lastVideoId && lastVideoCreated === null && !videos.some(v => v.bvid === lastVideoId)) {
-                    await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                    if (persistState) {
+                        await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                    }
                     logger.debug(`[UpdateChecker] Legacy video anchor missing for ${name}, refreshed to ${latestBvid}`)
                     return
                 }
@@ -89,7 +94,9 @@ module.exports = {
                 let videoToPush
                 if (newVideos.length === 0) {
                     if (!force) {
-                        await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                        if (persistState) {
+                            await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                        }
                         logger.debug(`[UpdateChecker] No new videos for ${name}, updated tracking to ${latestBvid}`)
                         return
                     } else {
@@ -139,7 +146,9 @@ module.exports = {
                     }
                 }
 
-                await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                if (persistState) {
+                    await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                }
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking videos for ${name} (${source}):`, e)
@@ -151,7 +160,8 @@ module.exports = {
      * @param {Object} userItem - 从buildUserCheckList返回的用户对象
      * @param {boolean} force - 是否强制检查
      */
-    async checkUserArticleUnified(userItem, force = false) {
+    async checkUserArticleUnified(userItem, force = false, options = {}) {
+        const persistState = options.persistState !== false
         const {
             uid,
             name,
@@ -202,7 +212,9 @@ module.exports = {
 
             // 首次检查：记录最新专栏但不推送
             if (!lastArticleId && !force) {
-                await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                if (persistState) {
+                    await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                }
                 logger.info(`[UpdateChecker] Initialized lastArticleId for ${name} (${source}): ${latestCvid}`)
                 return
             }
@@ -212,7 +224,9 @@ module.exports = {
                 // 兼容旧状态：仅有 lastArticleId 无时间戳，且 lastArticleId 已不在列表中
                 // 避免升级后的首轮回放旧专栏
                 if (!force && lastArticleId && lastArticlePublishTime === null && !articles.some(a => `cv${a.id}` === lastArticleId)) {
-                    await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                    if (persistState) {
+                        await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                    }
                     logger.debug(`[UpdateChecker] Legacy article anchor missing for ${name}, refreshed to ${latestCvid}`)
                     return
                 }
@@ -234,7 +248,9 @@ module.exports = {
                 let articleToPush
                 if (newArticles.length === 0) {
                     if (!force) {
-                        await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                        if (persistState) {
+                            await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                        }
                         logger.debug(`[UpdateChecker] No new articles for ${name}, updated tracking to ${latestCvid}`)
                         return
                     } else {
@@ -274,7 +290,9 @@ module.exports = {
                     }
                 }
 
-                await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                if (persistState) {
+                    await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                }
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking articles for ${name} (${source}):`, e)

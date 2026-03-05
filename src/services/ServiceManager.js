@@ -143,7 +143,7 @@ class ServiceManager {
         throw new Error('Timeout waiting for Python server health check');
     }
 
-    async sendCommand(endpoint, data) {
+    async sendCommand(endpoint, data, options = {}) {
         // Ensure server is running
         if (!this.process) {
             await this.start();
@@ -154,9 +154,14 @@ class ServiceManager {
         // Remove leading slash if present to avoid double slashes
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
         const url = `${this.baseUrl}/${cleanEndpoint}`;
+        const timeoutMs = Number(options.timeoutMs);
+        const requestOptions =
+            Number.isFinite(timeoutMs) && timeoutMs > 0
+                ? { timeout: timeoutMs }
+                : {};
 
         try {
-            const response = await axios.post(url, data);
+            const response = await axios.post(url, data, requestOptions);
             return response.data;
         } catch (error) {
             logger.error(`[ServiceManager] Error sending command to ${endpoint}:`, error.message);

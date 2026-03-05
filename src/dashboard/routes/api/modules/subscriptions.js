@@ -2,6 +2,7 @@ const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const subscriptionService = require('../../../../services/subscriptionService')
+const subscriptionUserMetaCacheService = require('../../../../services/subscriptionUserMetaCacheService')
 const {
     normalizeSyncGroupNames,
     extractFollowerUid,
@@ -50,8 +51,12 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
         const subs = await subscriptionService.getSubscriptionsByGroup(groupId)
+        const enrichedUsers = await subscriptionUserMetaCacheService.enrichSubscriptions(
+            subs.users,
+            groupId
+        )
         const mergedSubs = [
-            ...(subs.users || []).map(u => ({ ...u, type: 'user', value: u.uid })),
+            ...enrichedUsers.map(u => ({ ...u, type: 'user', value: u.uid })),
             ...(subs.bangumis || []).map(b => ({
                 ...b,
                 type: 'bangumi',
@@ -169,6 +174,14 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
         let resultName
         if (normalized.type === 'user') {
             resultName = await subscriptionService.addUserSubscription(normalized.value, groupId)
+            subscriptionUserMetaCacheService
+                .preheat(normalized.value, groupId)
+                .catch(error => {
+                    logger.warn(
+                        `[Subscriptions API] Failed to preheat user meta cache for uid=${normalized.value}:`,
+                        error
+                    )
+                })
         } else if (normalized.type === 'bangumi') {
             resultName = await subscriptionService.addBangumiSubscription(
                 normalized.value,

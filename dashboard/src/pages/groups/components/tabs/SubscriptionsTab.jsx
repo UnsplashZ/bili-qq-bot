@@ -1,5 +1,61 @@
 import { Tab } from '@headlessui/react';
-import { Bell, Plus, Trash2 } from 'lucide-react';
+import { BadgeCheck, Bell, Plus, Trash2 } from 'lucide-react';
+
+const DEFAULT_AVATAR_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+
+const normalizeVerifyInfo = (raw) => {
+  if (!raw || typeof raw !== 'object') return null;
+  const type = Number(raw.type);
+  if (!Number.isFinite(type) || ![0, 1].includes(type)) return null;
+  return {
+    type,
+    desc: String(raw.desc || raw.title || '').trim()
+  };
+};
+
+const getVerifyInfo = (sub) => {
+  const candidates = [
+    sub?.officialVerify,
+    sub?.official_verify,
+    sub?.dynamic?.modules?.module_author?.official_verify
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeVerifyInfo(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+};
+
+const handleAvatarError = (event) => {
+  if (event.currentTarget.src === DEFAULT_AVATAR_URL) return;
+  event.currentTarget.src = DEFAULT_AVATAR_URL;
+};
+
+const VerifyBadge = ({ verifyInfo }) => {
+  if (!verifyInfo) return null;
+
+  const isOrganization = verifyInfo.type === 1;
+  const title = verifyInfo.desc
+    ? `认证用户：${verifyInfo.desc}`
+    : '认证用户';
+
+  return (
+    <span
+      title={title}
+      className="absolute -right-0.5 -bottom-0.5 rounded-full bg-slate-900/90 p-px ring-1 ring-white/15"
+    >
+      <BadgeCheck
+        size={14}
+        className={isOrganization ? 'text-sky-400' : 'text-amber-400'}
+        fill="currentColor"
+        stroke="white"
+        strokeWidth={1.8}
+      />
+    </span>
+  );
+};
 
 const SubscriptionsTab = ({
   subsLoading,
@@ -46,9 +102,22 @@ const SubscriptionsTab = ({
                   </td>
                   <td className="p-3 text-white">
                     {(sub.name || sub.title) ? (
-                      <div>
-                        <div className="font-medium">{sub.name || sub.title}</div>
-                        <div className="text-xs text-gray-400 font-mono">{sub.value}</div>
+                      <div className="flex items-center gap-3 min-w-0">
+                        {sub.type === 'user' && (
+                          <div className="relative shrink-0">
+                            <img
+                              src={sub.face || DEFAULT_AVATAR_URL}
+                              alt={sub.name || '用户头像'}
+                              onError={handleAvatarError}
+                              className="w-9 h-9 rounded-full object-cover border border-white/10 bg-black/30"
+                            />
+                            <VerifyBadge verifyInfo={getVerifyInfo(sub)} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{sub.name || sub.title}</div>
+                          <div className="text-xs text-gray-400 font-mono">{sub.value}</div>
+                        </div>
                       </div>
                     ) : (
                       <div className="font-mono">{sub.value}</div>

@@ -99,6 +99,25 @@ class SubscriptionService {
             
             // Also force check live status
             await updateChecker.checkUserLive(tempSub, null, true);
+
+            // Force check video/article for this user in current group only
+            const targetGroupSourceMap = typeof updateChecker.createGroupSourceMap === 'function'
+                ? updateChecker.createGroupSourceMap([targetGroupId], ['manual'])
+                : new Map([[targetGroupId, new Set(['manual'])]]);
+            const manualUserItem = {
+                uid: targetUid,
+                name: sub.name,
+                targetGroups: [targetGroupId],
+                targetGroupSourceMap,
+                source: 'manual',
+                manualSub: sub
+            };
+            await updateChecker.checkUserVideoUnified(manualUserItem, true, {
+                persistState: false
+            });
+            await updateChecker.checkUserArticleUnified(manualUserItem, true, {
+                persistState: false
+            });
             
             return true;
         }

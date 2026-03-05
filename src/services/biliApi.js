@@ -124,9 +124,10 @@ class BiliApi {
         );
     }
 
-    async getUserInfo(uid, groupId) {
+    async getUserInfo(uid, groupId, bypassCache = false, requestOptions = {}) {
         return this._withCache('user', uid, groupId, () =>
-            serviceManager.sendCommand('user_info', { uid, group_id: groupId })
+            serviceManager.sendCommand('user_info', { uid, group_id: groupId }, requestOptions),
+            bypassCache
         );
     }
 
