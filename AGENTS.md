@@ -40,6 +40,11 @@
 - For local testing that generates preview images, always write outputs to `./test/output`.
 - Do not place such generated preview files in `./test/debug` or other directories unless the user explicitly requests otherwise.
 
+## Test Script Tracking Rule
+
+- `test/` 目录下文件主要用于本地功能验证脚本，默认不要求纳入版本控制。
+- 若需要将某个测试脚本提交到仓库，需由用户明确提出。
+
 ## NapCat Interface Lookup Rule
 
 - If a feature requires NapCat interfaces, first consult `docs/napcat_interface/llms.txt`.

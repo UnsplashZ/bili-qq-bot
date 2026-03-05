@@ -8,6 +8,7 @@ const mcpManager = require('./services/mcpManager');
 const ServiceManager = require('./services/ServiceManager');
 const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
+const requestApprovalService = require('./services/requestApprovalService');
 
 global.bot = global.bot || { groupList: new Map(), selfId: '0' };
 
@@ -180,6 +181,11 @@ function createWebSocketConnection() {
                     logger.info(`Received private message from ${payload.user_id}`);
                     messageHandler.handleMessage(ws, payload);
                 }
+            }
+
+            // Handle Requests (friend/group add/group invite)
+            if (payload.post_type === 'request') {
+                requestApprovalService.handleRequestEvent(ws, payload);
             }
 
             // Handle Notices (e.g. Bot join/leave group)

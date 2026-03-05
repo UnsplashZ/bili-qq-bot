@@ -8,6 +8,7 @@ const config = require('../config');
 const linkHandler = require('./linkHandler');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
+const requestApprovalService = require('../services/requestApprovalService');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -121,6 +122,12 @@ class MessageHandler {
             // Root admin: allow and use virtual groupId
             groupId = `private_${userId}`;
             logger.info(`[MessageHandler] Processing private message from Root Admin ${userId} as virtual group ${groupId}`);
+
+            // 审批拦截：Root Admin 私聊回复“是/否”优先处理好友/群申请
+            const consumedByApproval = await requestApprovalService.tryHandleAdminDecision(ws, messageData);
+            if (consumedByApproval) {
+                return;
+            }
         }
 
         logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}: ${rawMessage.substring(0, 100)}...`);
