@@ -6,6 +6,19 @@
 - Documentation-only edits include writing/updating local `.md` docs (for example `README.md`, `docs/**`, `AGENTS.md`, `CLAUDE.md`) with no code/config/script/test changes.
 - Any non-documentation code modification still requires explicit user approval first, including source files, scripts, configs, and tests.
 - If a change mixes docs and code/config/script/test edits, get user approval before making any edits.
+- Treat explicit approval as a hard gate: before approval is granted, do not perform any non-documentation write operation.
+- Non-documentation write operations include direct edits and automated writes, such as `apply_patch`, shell redirection (`>`, `>>`), in-place edits (`sed -i`, `perl -pi`), formatters with write mode, and scripts that generate or rewrite code/config/test files.
+- If approval is missing or ambiguous, stop at read-only analysis and ask for explicit authorization before editing.
+- Approval scope is limited to the files/tasks that were clearly authorized; if scope changes, request authorization again before writing.
+
+## Documentation Location Rule
+
+- Default location for newly created work documents is `docs/plans/`.
+- Work documents include analysis notes, implementation plans, review reports, investigation summaries, and execution records produced during an active request.
+- Do **not** place new work documents directly under `docs/done/` unless the user explicitly asks for archival/completion placement.
+- Moving a document from `docs/plans/` to `docs/done/` requires explicit user instruction.
+- If the user explicitly specifies a target doc path/directory, follow the user instruction first.
+- Keep date-prefixed naming for new work docs, e.g. `YYYY-MM-DD-topic.md`.
 
 ## Commit Message Rules
 
