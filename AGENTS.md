@@ -29,5 +29,21 @@
   - `main`: `v1.4.3 修复订阅刷新超时问题`
   - non-`main`: `fix: 修复订阅刷新超时问题`
 
+## Python Test Environment Rule
+
+- Before running local Python tests, first check whether a local `venv` virtual environment exists.
+- If `venv` exists, use that virtual environment for test execution.
+- If `venv` does not exist, create it first and then run tests within that environment.
+
+## Local Preview Output Rule
+
+- For local testing that generates preview images, always write outputs to `./test/output`.
+- Do not place such generated preview files in `./test/debug` or other directories unless the user explicitly requests otherwise.
+
+## NapCat Interface Lookup Rule
+
+- If a feature requires NapCat interfaces, first consult `docs/napcat_interface/llms.txt`.
+- Use that index file to locate the corresponding interface documentation link and details.
+
   
   ## read CLAUDE.md for more details on development commands, project architecture, and key directories.

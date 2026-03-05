@@ -1,5 +1,6 @@
 const { escapeHtml, formatDuration, formatPubTime, formatNumber } = require('../core/formatters');
 const ICONS = require('./icons');
+const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
  * 渲染视频内容
@@ -8,6 +9,11 @@ const ICONS = require('./icons');
  */
 function renderVideoContent(data) {
     const info = data.data;
+    const owner = info.owner || {};
+    const ownerFace = owner.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+    const ownerName = owner.name || 'Unknown';
+    const verifyType = Number(owner.official_verify?.type);
+    const verifyBadgeHtml = renderVerifyBadge(verifyType, 'author-verify-badge--video');
     const durationStr = info.duration ? ` • 时长: ${formatDuration(info.duration)}` : '';
     return `
         <div class="cover-container">
@@ -17,10 +23,11 @@ function renderVideoContent(data) {
             <div class="header">
                 <div class="header-left">
                     <div class="avatar-wrapper">
-                        <img class="avatar no-frame" src="${info.owner.face}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        <img class="avatar no-frame" src="${ownerFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        ${verifyBadgeHtml}
                     </div>
                     <div class="user-info">
-                        <span class="user-name">${escapeHtml(info.owner.name)}</span>
+                        <span class="user-name">${escapeHtml(ownerName)}</span>
                         <span class="pub-time">${formatPubTime(info.pubdate)}${durationStr}</span>
                     </div>
                 </div>

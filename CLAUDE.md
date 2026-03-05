@@ -23,13 +23,14 @@ bili-qq-bot/
 ├── dashboard/              # Dashboard frontend (React/Vite)
 │   ├── src/                # React components and pages
 │   └── dist/               # Production build (served by bot)
-├── test/                   # Test files and scripts
-│   └── (test files here)   # Unit tests, integration tests, debugging tools
+├── test/                   # Test files and generated outputs
+│   ├── unit/               # Unit tests (*.test.js)
+│   └── output/             # Local generated preview images
 ├── docs/                   # Documentation
-│   ├── plans/              # Design documents and implementation plans (active)
-│   ├── done/               # Completed implementation plans (archived)
-│   ├── diagnosis/          # Bug investigation and fix records
-│   └── README.md           # Project documentation
+│   ├── plans/              # Active plans (work in progress)
+│   ├── done/               # Completed plans and records
+│   ├── images/             # Screenshots and visual references
+│   └── napcat_interface/   # NapCat interface docs/assets
 ├── data/                   # Persistent data (not in git)
 │   ├── cache/              # API response cache
 │   ├── contexts/           # AI conversation history
@@ -44,10 +45,11 @@ bili-qq-bot/
 ```
 
 **Key Directories:**
-- **test/** - All test files, debugging scripts, and test utilities go here
-- **docs/plans/** - Active implementation plans, design documents (markdown format)
-- **docs/done/** - Completed/archived implementation plans (moved here after execution)
-- **docs/diagnosis/** - Bug investigation records and postmortems
+- **test/unit/** - Unit tests (`*.test.js`)
+- **test/output/** - Local generated preview outputs (including image preview tests)
+- **docs/plans/** - New plan documents (active work) must be created here
+- **docs/done/** - Completed plans are moved here after execution
+- **docs/images/** - Screenshots and visual references
 - **data/** - Runtime data (excluded from git, auto-created on first run)
 
 ## Common Development Commands
@@ -57,7 +59,9 @@ bili-qq-bot/
 ```bash
 # Local development (requires NapCat running separately)
 npm install
-pip install bilibili-api-python
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 npm start
 
 # Docker deployment
@@ -249,7 +253,7 @@ Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.j
 | AI context | `/src/handlers/aiHandler.js` | `getReply()` |
 | Vector search | `/src/services/vectorMemoryService.js` | `searchSimilar()` |
 | Config resolution | `/src/config.js` | Lines 84-200 (META) |
-| Image generation | `/src/services/imageGenerator/index.js` | `generate()` |
+| Image generation | `/src/services/imageGenerator/index.js` | `generatePreviewCard()` |
 | Python API | `/src/services/bili_server_core/` | `web/handlers.py` + `services/*.py` |
 
 ## Configuration System Deep Dive
@@ -532,7 +536,7 @@ Located in `/dashboard/src/`:
 
 ## Testing Strategy
 
-All test files and debugging scripts are organized in the `/test/` directory.
+All test files and generated preview outputs are organized in the `/test/` directory.
 
 ### Test Organization
 
@@ -540,19 +544,16 @@ All test files and debugging scripts are organized in the `/test/` directory.
 ```
 test/
 ├── unit/               # Unit tests
-├── integration/        # Integration tests
-├── debug/              # Debugging scripts (one-off tools)
-└── fixtures/           # Test data and fixtures
+└── output/             # Generated files from local test runs
 ```
 
 **Naming Convention:**
 - Test files: `*.test.js` or `test_*.js`
-- Debug scripts: Descriptive names (e.g., `test_dynamic_types.js`)
-- Cleanup after use: Remove debug scripts once investigation is complete
+- Generated previews: write to `test/output/` (prefer `test/output/previews/`)
 
 ### Current Testing Status
 
-Unit tests exist in `test/unit/` (6 files: detectChargingContent, feedState-race, messageHandler-emojiReaction, messageHandler-linkReaction, resolveArticleTitle, updateVideoState-race). `npm test` is still a placeholder — run individual files with `node`.
+Unit tests exist in `test/unit/` and cover core modules such as message/link handlers, update checker, vector memory, dashboard API behavior, and video download config. `npm test` is still a placeholder — run individual files with `node`.
 
 ### Recommended Test Coverage
 
@@ -564,18 +565,12 @@ Unit tests exist in `test/unit/` (6 files: detectChargingContent, feedState-race
 - Storage utils (size checks, atomic writes)
 - Subscription system state management
 
-**Integration Tests (to be added in test/integration/):**
+**Integration Tests (future expansion):**
 - WebSocket message routing
 - Python service communication
 - Dashboard API routes
 - Subscription polling cycle
 - Image generation pipeline
-
-**Debug Scripts (examples):**
-- Type validation tools (e.g., dynamic type checker)
-- Config validation scripts
-- API endpoint testing
-- State consistency checks
 
 **Mocking Targets:**
 - `ws` for WebSocket events
@@ -590,10 +585,7 @@ Unit tests exist in `test/unit/` (6 files: detectChargingContent, feedState-race
 npm test
 
 # Run specific test file
-node test/unit/config.test.js
-
-# Run debug script
-node test/debug/test_dynamic_types.js
+node test/unit/detectChargingContent.test.js
 ```
 
 ## Documentation Organization
@@ -602,40 +594,34 @@ All documentation is organized in the `/docs/` directory with specific subdirect
 
 ### Directory Structure
 
-**docs/plans/** - Active implementation plans and design documents:
+**docs/plans/** - Active implementation/design plans:
 - Markdown format (`.md` files)
-- Named with date prefix: `YYYY-MM-DD-feature-name-design.md`
+- Named with date prefix: `YYYY-MM-DD-topic.md`
 - Contains: requirements, approach, implementation steps, risks
-- Written BEFORE implementing complex features
-- **Move to `docs/done/` after plan is fully executed**
-- Examples: `2026-02-06-array-bounds-fix-design.md`
+- New plans should be written here first
 
-**docs/done/** - Completed/archived plans:
-- Implementation plans that have been fully executed
-- Moved from `docs/plans/` upon completion
-- Preserves history of past decisions and implementations
-
-**docs/diagnosis/** - Bug investigation and postmortems:
-- Detailed investigation records for complex bugs
-- Root cause analysis and solutions
-- Lessons learned and prevention strategies
-- Named with date prefix: `YYYY-MM-DD-issue-description.md`
-- Examples: `2026-02-06-subscription-video-article-fix.md`
+**docs/done/** - Completed implementation/design records:
+- Move files from `docs/plans/` to `docs/done/` after execution is complete
+- May also contain execution/retrospective records
+- Preserves history of decisions and completed work
 
 **docs/images/** - Screenshots and diagrams:
 - Architecture diagrams
 - UI screenshots
 - Flow charts and visualizations
 
+**docs/napcat_interface/** - NapCat interface documentation and related materials.
+
 ### Documentation Best Practices
 
-**When to Create a Plan Document:**
+**When to Create a Plan/Record Document:**
 - Multi-file changes affecting 3+ files
 - Complex logic changes (e.g., subscription system)
 - New feature implementation
 - Refactoring with architectural impact
+- Placement rule: create in `docs/plans/`, move to `docs/done/` when finished
 
-**When to Create a Diagnosis Document:**
+**When to Add Investigation Notes:**
 - Non-obvious bugs requiring investigation
 - Issues affecting multiple components
 - Bugs with instructive lessons for future development
@@ -643,15 +629,16 @@ All documentation is organized in the `/docs/` directory with specific subdirect
 
 **Naming Convention:**
 ```
-docs/plans/YYYY-MM-DD-{feature}-{action}-{type}.md   # Active plans
-docs/done/YYYY-MM-DD-{feature}-{action}-{type}.md    # Completed plans (moved here)
-docs/diagnosis/YYYY-MM-DD-{issue-description}.md
+docs/plans/YYYY-MM-DD-{feature}-{action}-{type}.md
+docs/done/YYYY-MM-DD-{feature}-{action}-{type}.md
+docs/done/YYYY-MM-DD-{issue}-diagnosis.md
 ```
 
 Examples:
-- `docs/plans/2026-02-06-cookie-sync-state-preservation-fix.md` (active)
-- `docs/done/2026-02-06-array-bounds-fix-design.md` (completed)
-- `docs/diagnosis/2026-02-06-subscription-video-article-fix.md`
+- `docs/plans/2026-03-06-video-auth-badge-plan.md`
+- `docs/done/2026-02-06-array-bounds-fix-design.md`
+- `docs/done/2026-03-04-groups-page-split-plan.md`
+- `docs/done/2026-02-06-cookie-sync-video-article-fix.md`
 
 **Template Structure for Plans:**
 ```markdown
@@ -812,11 +799,11 @@ Look for:
 
 ### Creating Debug Scripts
 
-When investigating complex issues, create debug scripts in `/test/debug/`:
+When investigating complex issues, create one-off scripts under `/test/` (prefer temporary local usage and clean up after use):
 
 ```javascript
-// test/debug/test_subscription_state.js
-const subscriptionManager = require('../../src/services/subscription/subscriptionManager')
+// test/temp_subscription_state.js
+const subscriptionManager = require('../src/services/subscription/subscriptionManager')
 
 async function main() {
     // Load current state
@@ -839,8 +826,9 @@ main().catch(console.error)
 ```
 
 **Remember to:**
-- Document findings in `/docs/diagnosis/`
-- Remove debug scripts after investigation
+- Write generated preview images to `test/output/`
+- Document findings in `/docs/done/`
+- Remove one-off scripts after investigation
 - Add relevant insights to MEMORY.md
 
 ## Code Style Conventions
@@ -1004,22 +992,17 @@ let result = await biliApi.getVideoInfo('BV1xx411c7mD', groupId)
 if (result.status === 'success') {
     console.log(result.data.title)
 }
-
-// With caching
-let cached = await biliApi.getVideoInfo('BV1xx411c7mD', groupId, 600) // 600s TTL
 ```
 
 ### Generating Preview Images
 
 ```javascript
+const fs = require('fs')
 const imageGenerator = require('./services/imageGenerator')
 
-let buffer = await imageGenerator.generate(data, {
-    type: 'video',  // video, dynamic, article, live, user, bangumi
-    groupId: '123456789',
-    theme: 'dark'  // or 'light', auto-detected if omitted
-})
+const base64 = await imageGenerator.generatePreviewCard(data, 'video', '123456789')
+const buffer = Buffer.from(base64, 'base64')
 
 // Save or send
-fs.writeFileSync('/path/to/preview.png', buffer)
+fs.writeFileSync('test/output/previews/video-preview.png', buffer)
 ```
