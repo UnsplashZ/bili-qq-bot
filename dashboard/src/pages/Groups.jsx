@@ -162,13 +162,13 @@ function Groups() {
   ]);
 
   return (
-    <div className="px-4 md:px-6 pt-4 md:pt-6 space-y-4 md:space-y-6 pb-6">
+    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 space-y-4 md:space-y-6 pb-5 md:pb-6">
       <header>
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">群组管理</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">群组管理</h1>
         <p className="text-sm md:text-base text-gray-400">管理QQ群组配置、订阅和权限设置</p>
       </header>
 
-      <div className="flex flex-col lg:flex-row gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
+      <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
         <GroupListPanel
           groups={groups}
           loading={loading}
@@ -182,26 +182,26 @@ function Groups() {
           {selectedGroupId ? (
             <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden">
               <Tab.Group as="div" className="flex flex-col h-full" selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
-                <div className="flex-shrink-0 border-b border-white/10 bg-white/5 px-4 pt-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">
+                <div className="flex-shrink-0 border-b border-white/10 bg-white/5 px-3 sm:px-4 pt-3 sm:pt-4">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3 sm:mb-4">
+                    <h2 className="text-lg sm:text-xl font-bold truncate">
                       {groups.find((group) => group.id === selectedGroupId)?.name || '群组设置'}
                     </h2>
                     <button
                       onClick={handleSave}
                       disabled={saving}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Save size={16} />
                       {saving ? '保存中...' : '保存更改'}
                     </button>
                   </div>
-                  <Tab.List className="flex space-x-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/20">
+                  <Tab.List className="flex gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/20 pb-1">
                     {categories.map((category) => (
                       <Tab
                         key={category.name}
                         className={({ selected }) => clsx(
-                          'w-full py-2.5 text-sm font-medium leading-5 rounded-t-lg transition-all focus:outline-none',
+                          'shrink-0 px-3 sm:px-4 py-2 md:py-2.5 text-xs sm:text-sm font-medium leading-5 rounded-t-lg transition-all focus:outline-none whitespace-nowrap',
                           selected
                             ? 'bg-white/10 text-blue-400 border-b-2 border-blue-400'
                             : 'text-gray-400 hover:bg-white/5 hover:text-gray-200 border-b-2 border-transparent'
@@ -216,7 +216,7 @@ function Groups() {
                   </Tab.List>
                 </div>
 
-                <Tab.Panels className="flex-1 min-h-0 p-6 overflow-y-auto">
+                <Tab.Panels className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 overflow-y-auto">
                   <GeneralTab formData={formData} setFormData={setFormData} />
                   <SubscriptionsTab
                     subsLoading={subsLoading}

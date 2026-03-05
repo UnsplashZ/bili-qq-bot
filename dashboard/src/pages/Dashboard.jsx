@@ -49,28 +49,28 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold text-white mb-6 md:mb-8">系统监控</h1>
+    <div className="p-0 md:p-6 space-y-4 md:space-y-6">
+      <h1 className="text-2xl md:text-3xl font-bold text-white mb-4 md:mb-8">系统监控</h1>
 
       {/* Summary Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        <GlassCard className="p-6 flex items-center space-x-4">
-          <div className="p-3 bg-blue-500/20 rounded-lg">
-            <Cpu className="w-8 h-8 text-blue-400" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
+        <GlassCard className="p-4 md:p-6 flex items-center gap-3 md:gap-4">
+          <div className="p-2.5 md:p-3 bg-blue-500/20 rounded-lg">
+            <Cpu className="w-6 h-6 md:w-8 md:h-8 text-blue-400" />
           </div>
           <div className="min-w-0">
             <p className="text-gray-400 text-sm truncate">CPU 负载</p>
-            <p className="text-2xl font-bold text-white truncate">{stats.cpu.toFixed(1)}%</p>
+            <p className="text-xl md:text-2xl font-bold text-white truncate">{stats.cpu.toFixed(1)}%</p>
           </div>
         </GlassCard>
 
-        <GlassCard className="p-6 flex items-center space-x-4">
-          <div className="p-3 bg-purple-500/20 rounded-lg">
-            <HardDrive className="w-8 h-8 text-purple-400" />
+        <GlassCard className="p-4 md:p-6 flex items-center gap-3 md:gap-4">
+          <div className="p-2.5 md:p-3 bg-purple-500/20 rounded-lg">
+            <HardDrive className="w-6 h-6 md:w-8 md:h-8 text-purple-400" />
           </div>
           <div className="min-w-0">
             <p className="text-gray-400 text-sm truncate">内存使用</p>
-            <p className="text-2xl font-bold text-white truncate">
+            <p className="text-xl md:text-2xl font-bold text-white truncate">
               {formatBytes(stats.memory.used)}
             </p>
             <p className="text-sm text-gray-500">
@@ -79,36 +79,36 @@ const Dashboard = () => {
           </div>
         </GlassCard>
 
-        <GlassCard className="p-6 flex items-center space-x-4">
-          <div className="p-3 bg-green-500/20 rounded-lg">
-            <Network className="w-8 h-8 text-green-400" />
+        <GlassCard className="p-4 md:p-6 flex items-center gap-3 md:gap-4">
+          <div className="p-2.5 md:p-3 bg-green-500/20 rounded-lg">
+            <Network className="w-6 h-6 md:w-8 md:h-8 text-green-400" />
           </div>
           <div className="min-w-0">
             <p className="text-gray-400 text-sm truncate">网络流量 (上/下)</p>
             <div className="text-white">
-              <span className="text-lg font-bold whitespace-nowrap">↑ {formatNetSpeed(stats.network.up)}</span>
+              <span className="text-base md:text-lg font-bold whitespace-nowrap">↑ {formatNetSpeed(stats.network.up)}</span>
               <br />
-              <span className="text-lg font-bold whitespace-nowrap">↓ {formatNetSpeed(stats.network.down)}</span>
+              <span className="text-base md:text-lg font-bold whitespace-nowrap">↓ {formatNetSpeed(stats.network.down)}</span>
             </div>
           </div>
         </GlassCard>
 
-        <GlassCard className="p-6 flex items-center space-x-4">
-          <div className="p-3 bg-orange-500/20 rounded-lg">
-            <Clock className="w-8 h-8 text-orange-400" />
+        <GlassCard className="p-4 md:p-6 flex items-center gap-3 md:gap-4">
+          <div className="p-2.5 md:p-3 bg-orange-500/20 rounded-lg">
+            <Clock className="w-6 h-6 md:w-8 md:h-8 text-orange-400" />
           </div>
           <div className="min-w-0">
             <p className="text-gray-400 text-sm truncate">运行时间</p>
-            <p className="text-xl font-bold text-white truncate">{formatUptime(stats.uptime)}</p>
+            <p className="text-lg md:text-xl font-bold text-white truncate">{formatUptime(stats.uptime)}</p>
           </div>
         </GlassCard>
       </div>
 
       {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        <GlassCard className="p-6">
-          <h3 className="text-xl font-semibold text-white mb-4">CPU 历史趋势</h3>
-          <div className="h-64">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+        <GlassCard className="p-4 md:p-6">
+          <h3 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">CPU 历史趋势</h3>
+          <div className="h-56 md:h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history}>
                 <defs>
@@ -137,9 +137,9 @@ const Dashboard = () => {
           </div>
         </GlassCard>
 
-        <GlassCard className="p-6">
-          <h3 className="text-xl font-semibold text-white mb-4">内存历史趋势</h3>
-          <div className="h-64">
+        <GlassCard className="p-4 md:p-6">
+          <h3 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">内存历史趋势</h3>
+          <div className="h-56 md:h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history}>
                 <defs>

@@ -55,9 +55,9 @@ const Settings = () => {
   }
 
   return (
-    <div className="px-4 md:px-6 pt-4 md:pt-6 space-y-6 md:space-y-8 pb-12">
+    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 space-y-5 md:space-y-8 pb-8 md:pb-12">
       <header>
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">系统设置</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">系统设置</h1>
         <p className="text-sm md:text-base text-gray-400">管理全局 AI 配置、常规选项和系统扩展。</p>
       </header>
 

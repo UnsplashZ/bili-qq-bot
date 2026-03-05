@@ -27,14 +27,14 @@ const Layout = ({ children }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-black text-white">
       {/* Mobile Header */}
-      <header className="md:hidden fixed top-0 left-0 right-0 h-16 bg-black/20 backdrop-blur-xl border-b border-white/10 z-30 flex items-center px-4">
+      <header className="md:hidden fixed top-0 left-0 right-0 h-14 sm:h-16 bg-black/20 backdrop-blur-xl border-b border-white/10 z-30 flex items-center px-3 sm:px-4">
         <button
           onClick={() => setMobileMenuOpen(true)}
-          className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+          className="p-1.5 sm:p-2 rounded-lg hover:bg-white/10 transition-colors"
         >
-          <Menu size={24} className="text-white" />
+          <Menu size={22} className="text-white sm:w-6 sm:h-6" />
         </button>
-        <h1 className="ml-3 text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
+        <h1 className="ml-2.5 sm:ml-3 text-lg sm:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
           控制面板
         </h1>
       </header>
@@ -82,7 +82,7 @@ const Layout = ({ children }) => {
       />
 
       {/* Main Content */}
-      <main className="pt-16 md:pt-0 md:ml-64 p-4 md:p-8">
+      <main className="pt-14 sm:pt-16 md:pt-0 md:ml-64 p-3 sm:p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
           {children}
         </div>

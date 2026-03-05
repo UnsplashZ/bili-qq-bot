@@ -11,14 +11,14 @@ const GroupListPanel = ({
   onDeleteConfig
 }) => {
   return (
-    <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[50vh] lg:max-h-none">
-      <div className="p-4 border-b border-white/10 bg-white/5">
+    <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[38vh] sm:max-h-[45vh] lg:max-h-none">
+      <div className="p-3 sm:p-4 border-b border-white/10 bg-white/5">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <MessageSquare size={18} />
           群组 ({groups.length})
         </h2>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto p-1.5 sm:p-2 space-y-1">
         {loading ? (
           <div className="text-center p-4 text-gray-400">加载中...</div>
         ) : groups.length === 0 ? (
@@ -29,7 +29,7 @@ const GroupListPanel = ({
               key={group.id}
               onClick={() => onSelectGroup(group.id)}
               className={clsx(
-                'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all',
+                'flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all',
                 'hover:bg-white/5',
                 selectedGroupId === group.id
                   ? 'bg-blue-500/20 ring-2 ring-blue-500'

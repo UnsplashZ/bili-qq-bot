@@ -22,9 +22,9 @@ const SyncTab = ({
   toggleSyncGroup
 }) => {
   return (
-    <Tab.Panel className="space-y-8 focus:outline-none">
-      <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-        <label className="flex items-center justify-between cursor-pointer">
+    <Tab.Panel className="space-y-6 md:space-y-8 focus:outline-none">
+      <div className="p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10">
+        <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
           <div>
             <span className="text-white font-medium block">订阅推送 @全体成员</span>
             <span className="text-gray-400 text-sm">开启后，订阅与关注同步推送会附带 @全体成员（需机器人具备权限）</span>
@@ -41,7 +41,7 @@ const SyncTab = ({
         </label>
       </div>
 
-      <div className={clsx('p-4 bg-white/5 rounded-lg border border-white/10 space-y-5', !formData.subscriptionAtAll && 'opacity-50')}>
+      <div className={clsx('p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10 space-y-4 md:space-y-5', !formData.subscriptionAtAll && 'opacity-50')}>
         <div>
           <div className="text-white font-medium">`@全体` 细粒度规则</div>
           <div className="text-sm text-gray-400 mt-1">
@@ -77,7 +77,7 @@ const SyncTab = ({
 
         <div className="space-y-3">
           <div className="text-sm text-gray-300 font-medium">分类开关</div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {atAllCategoryItems.map((item) => (
               <label key={item.key} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
                 <input
@@ -97,9 +97,9 @@ const SyncTab = ({
           <div className="text-sm text-gray-300 font-medium">逐个 UID 开关</div>
 
           <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="text-sm text-gray-200">手动订阅用户</div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('manual', true)}
@@ -131,7 +131,7 @@ const SyncTab = ({
                 {atAllTargets.manualUsers.map((user) => {
                   const enabled = isAtAllUserEnabled('manual', user.uid);
                   return (
-                    <label key={`manual-${user.uid}`} className="flex items-center gap-2 p-2 rounded bg-white/5">
+                    <label key={`manual-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded bg-white/5">
                       <input
                         type="checkbox"
                         checked={enabled}
@@ -149,9 +149,9 @@ const SyncTab = ({
           </div>
 
           <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="text-sm text-gray-200">关注同步用户</div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('cookieSync', true)}
@@ -184,7 +184,7 @@ const SyncTab = ({
                   const enabled = isAtAllUserEnabled('cookieSync', user.uid);
                   const matched = isCookieUserInSelectedSyncGroups(user);
                   return (
-                    <label key={`cookie-${user.uid}`} className="flex items-center gap-2 p-2 rounded bg-white/5">
+                    <label key={`cookie-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded bg-white/5">
                       <input
                         type="checkbox"
                         checked={enabled}
@@ -228,12 +228,12 @@ const SyncTab = ({
           <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg mb-4">
             <div className="flex items-center gap-2 text-green-400 text-sm">
               <div className="w-2 h-2 rounded-full bg-green-400" />
-              <span>已使用全局B站账号：{globalBiliStatus.username} (UID: {globalBiliStatus.uid})</span>
+              <span className="break-all">已使用全局B站账号：{globalBiliStatus.username} (UID: {globalBiliStatus.uid})</span>
             </div>
           </div>
 
-          <div className="p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
-            <label className="flex items-center justify-between cursor-pointer">
+          <div className="p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
+            <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
               <div>
                 <span className="text-white font-medium block">启用关注列表同步</span>
                 <span className="text-gray-400 text-sm">自动同步所选分组的 UP 主更新</span>
@@ -263,7 +263,7 @@ const SyncTab = ({
                 未找到关注分组，请先登录 Bilibili 账号。
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {biliGroups.map((group) => {
                   const groupName = typeof group === 'string' ? group : group.name;
                   return (

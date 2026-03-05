@@ -7,7 +7,7 @@ const GlassCard = ({ children, className }) => {
     <div
       className={twMerge(
         clsx(
-          'bg-white/10 backdrop-blur-md border border-white/20 rounded-xl shadow-lg p-4 md:p-6 text-white',
+          'bg-white/10 backdrop-blur-md border border-white/20 rounded-xl shadow-lg p-3 sm:p-4 md:p-6 text-white',
           className
         )
       )}

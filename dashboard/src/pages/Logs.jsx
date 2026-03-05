@@ -114,36 +114,36 @@ const Logs = () => {
   };
 
   return (
-    <div className="px-4 md:px-6 pt-4 md:pt-6 flex flex-col space-y-4 pb-6 min-h-[calc(100vh-8rem)]">
-      <header className="flex justify-between items-center flex-wrap gap-2">
+    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 flex flex-col space-y-3 md:space-y-4 pb-5 md:pb-6 min-h-[calc(100vh-7rem)] md:min-h-[calc(100vh-8rem)]">
+      <header className="flex justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
-           <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">系统日志</h1>
+           <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">系统日志</h1>
            <p className="text-sm md:text-base text-gray-400">实时监控系统运行状态</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full sm:w-auto justify-end gap-2">
             <button
                 onClick={() => setLogs([])}
-                className="p-2 hover:bg-white/10 rounded-lg text-gray-300 transition-colors"
+                className="w-9 h-9 md:w-auto md:h-auto md:p-2 flex items-center justify-center hover:bg-white/10 rounded-lg text-gray-300 transition-colors"
                 title="清空日志"
             >
-                <Trash2 size={20} />
+                <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <button
                 onClick={() => setIsPaused(!isPaused)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${isPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm md:text-base font-medium transition-colors ${isPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}
             >
-                {isPaused ? <Play size={18} /> : <Pause size={18} />}
+                {isPaused ? <Play className="w-4 h-4 md:w-[18px] md:h-[18px]" /> : <Pause className="w-4 h-4 md:w-[18px] md:h-[18px]" />}
                 {isPaused ? '继续' : '暂停'}
             </button>
         </div>
       </header>
 
       <GlassCard className="flex-1 overflow-hidden p-0 flex flex-col bg-[#0d1117] border-white/10">
-        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border-b border-white/5 text-xs text-gray-500 font-mono">
+        <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5 text-xs text-gray-500 font-mono">
             <Terminal size={12} />
             <span>root@bot-server:~/logs/stream</span>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 font-mono text-sm space-y-1 custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-1 custom-scrollbar">
             {logs.length === 0 && (
                 <div className="text-gray-600 italic text-center mt-10">等待日志数据...</div>
             )}
