@@ -334,3 +334,325 @@
 3. 最后做“存储与契约层优化”。
 
 按以上顺序推进，可以在较低改造风险下，显著提升订阅服务的一致性与运行可靠性。
+
+---
+
+## 9. 补充审查（服务层漏检补齐）
+
+## 9.1 本轮新增覆盖文件
+
+补充审查了上一轮未展开的订阅相关服务文件:
+
+1. `src/services/subscriptionUserMetaCacheService.js`
+2. `src/services/bili_server_core/services/follow_service.py`
+3. `src/services/ServiceManager.js`
+4. `src/services/imageGenerator/generators/subscriptionList.js`
+5. `src/services/subscription/updateChecker/{constants.js,helpers/*,adapters/deps.js}`
+6. `src/services/subscription/updateChecker.js`
+
+其中第 5、6 项主要为常量/工具/依赖透传与兼容导出，未发现新的高风险逻辑问题。
+
+## 9.2 新增发现（按严重度）
+
+### J. `中` 用户元信息缓存并发键仅按 UID，忽略 groupId 上下文
+
+现象:
+
+- `inFlight` 仅以 `uid` 作为并发去重键。
+- 实际抓取 `biliApi.getUserInfo` 带 `groupId` 上下文（不同群可能对应不同 Cookie）。
+- 并发下，同 UID 不同群会复用同一 in-flight Promise，可能把一个群的上下文结果“借给”另一个群。
+
+关键位置:
+
+- `src/services/subscriptionUserMetaCacheService.js:75`
+- `src/services/subscriptionUserMetaCacheService.js:301`
+- `src/services/subscriptionUserMetaCacheService.js:306`
+- `src/services/subscriptionUserMetaCacheService.js:226`
+
+### K. `中` 用户元信息缓存的进程内比较集合无清理，存在缓慢增长风险
+
+现象:
+
+- `_comparedInProcess` 在比较后持续 `add(uid)`，未见回收逻辑。
+- 长周期运行且 UID 持续增长时，该集合会单向增长。
+
+关键位置:
+
+- `src/services/subscriptionUserMetaCacheService.js:76`
+- `src/services/subscriptionUserMetaCacheService.js:222`
+- `src/services/subscriptionUserMetaCacheService.js:229`
+
+### L. `低` 用户元信息缓存记录缺少淘汰策略，缓存文件可能持续膨胀
+
+现象:
+
+- 持久化时直接遍历 `records` 全量写回，未见按订阅活跃度或时效做裁剪。
+- 退订或长期不活跃 UID 记录会长期保留。
+
+关键位置:
+
+- `src/services/subscriptionUserMetaCacheService.js:162`
+- `src/services/subscriptionUserMetaCacheService.js:163`
+- `src/services/subscriptionUserMetaCacheService.js:166`
+
+### M. `中` 关注同步标签补全路径复杂度高，刷新周期下有性能与超时风险
+
+现象:
+
+- `get_my_followings` 在“拉取全部关注”后，会再拉取所有分组并逐组分页获取成员做 tag 映射。
+- 复杂度接近 `分组数 * 分组成员分页`，账号关注量大时耗时明显。
+- 当前订阅维护链路按小时刷新关注，容易形成稳定高负载。
+
+关键位置:
+
+- `src/services/bili_server_core/services/follow_service.py:95`
+- `src/services/bili_server_core/services/follow_service.py:106`
+- `src/services/bili_server_core/services/follow_service.py:115`
+- `src/services/bili_server_core/services/follow_service.py:143`
+- `src/services/subscription/updateChecker/modules/maintenance.js:80`
+- `src/services/subscription/updateChecker/modules/maintenance.js:84`
+
+### N. `低` follow_service 日志输出风格不统一（`print`），可观测性较弱
+
+关键位置:
+
+- `src/services/bili_server_core/services/follow_service.py:58`
+- `src/services/bili_server_core/services/follow_service.py:145`
+- `src/services/bili_server_core/services/follow_service.py:154`
+
+### O. `低` Python 服务崩溃自恢复固定 1s 重启，缺少退避策略
+
+现象:
+
+- 子进程异常退出后固定 1 秒重启。
+- 持续故障场景下会出现高频重启与日志噪声。
+
+关键位置:
+
+- `src/services/ServiceManager.js:117`
+- `src/services/ServiceManager.js:118`
+
+### P. `低` 订阅列表图片渲染中头像 URL 未做属性级转义
+
+现象:
+
+- 用户名使用 `escapeHtml`，但头像 URL 直接插入 `img src`。
+- 数据来源虽通常可信，但属于外部输入，理论上存在 HTML 属性注入风险。
+
+关键位置:
+
+- `src/services/imageGenerator/generators/subscriptionList.js:10`
+- `src/services/imageGenerator/generators/subscriptionList.js:15`
+
+## 9.3 补充后结论是否变化
+
+补充审查后，主结论不变:
+
+1. 仍应以“状态推进安全 + 边界语义统一”为第一优先级。
+2. 新增补充问题主要集中在“缓存并发键设计、缓存生命周期治理、关注同步性能路径”。
+3. 重构策略依然建议采用增量收敛，不做新一轮大拆目录。
+
+---
+
+## 10. 完备重构计划（解决现有问题 + 订阅系统整体重构）
+
+本节定义“要把当前问题系统性解决，并完成一次完整可落地重构”所需的计划包。
+
+## 10.1 总体目标
+
+1. 消除“推送失败但状态前移”的漏推风险。
+2. 统一群边界语义（启用状态、在群状态、推送通道过滤）。
+3. 统一配置语义（特别是 cookie 同步空分组语义）。
+4. 建立稳定的数据契约、状态存储与并发模型。
+5. 补齐订阅主链路自动化测试和灰度发布机制。
+
+## 10.2 计划分解（建议 8 个计划）
+
+### 计划 A: 基线冻结与观测增强（P0）
+
+目标:
+
+1. 建立重构前行为基线，避免“改好了结构但改坏了行为”。
+
+范围:
+
+1. 补充关键日志字段:
+   - 事件 ID、UID、来源（manual/cookieSync）、目标群、状态推进前后值、发送结果。
+2. 固化关键运行快照:
+   - 每轮 `checkAll` 耗时、检查用户数、发送成功/失败数量、状态更新数量。
+
+验收:
+
+1. 能按单 UID 追踪“发现更新 -> 推送 -> 状态推进”的完整链路。
+
+---
+
+### 计划 B: 订阅状态机重构（P0，最高优先级）
+
+目标:
+
+1. 将“发现内容”和“状态推进”解耦为显式状态机，状态推进与发送结果绑定。
+
+范围:
+
+1. 为动态/视频/专栏/直播统一结果模型:
+   - `discovered`
+   - `notified_success`
+   - `notified_failed`
+   - `state_advanced`
+2. 统一推进策略:
+   - 默认仅 `notified_success` 才推进锚点。
+   - 可选策略需显式配置（例如部分失败阈值）。
+3. 修复对应风险点 A（manual/feed/unified 的推进逻辑）。
+
+验收:
+
+1. 注入发送失败时，下一轮仍会重试，不发生锚点误推进。
+
+---
+
+### 计划 C: 群边界语义统一（P0）
+
+目标:
+
+1. 统一 `isGroupEnabled`、`isInGroup`、推送通道过滤规则，杜绝“图文被禁用但视频仍下发”。
+
+范围:
+
+1. 抽象统一群可达性判定函数（建议单点入口）:
+   - `isGroupReachableForSubscription(groupId, channel)`。
+2. 图文、文本、视频扇出统一走该判定。
+3. 修复风险点 B 与 E。
+
+验收:
+
+1. 被禁用群、已退群在所有订阅通道都不再收到推送（含视频扇出）。
+
+---
+
+### 计划 D: 配置语义统一与输入防护（P0-P1）
+
+目标:
+
+1. 统一执行层/命令文案/WebUI 展示语义，消除分叉。
+
+范围:
+
+1. 明确 `cookieSyncGroupNames=[]` 的唯一语义（建议显式配置策略）:
+   - “同步全部”或“不同步任何”，二选一并全栈对齐。
+2. `/设置 轮询` 与 WebAPI 保持一致的正整数校验。
+3. 命令返回文案、WebUI提示、后端执行逻辑同步更新。
+4. 修复风险点 C 与 D。
+
+验收:
+
+1. 同一配置在命令/WebUI/执行结果保持一致。
+
+---
+
+### 计划 E: 通知契约与去重机制统一（P1）
+
+目标:
+
+1. 统一通知 payload 结构，稳定 dedup 键提取，不依赖调用方“猜结构”。
+
+范围:
+
+1. 定义标准通知载荷:
+   - `payload.id`
+   - `payload.type`
+   - `payload.data`
+2. 各调用方统一转换后再进入 `notify` 层。
+3. dedup 逻辑只对标准载荷读取。
+4. 修复风险点 F。
+
+验收:
+
+1. 同一内容跨 manual/feed/unified 路径都能稳定去重。
+
+---
+
+### 计划 F: 状态存储与并发写优化（P1）
+
+目标:
+
+1. 降低 follower 状态高频写盘，收敛并发写风险。
+
+范围:
+
+1. 引入状态写入缓冲/批处理接口:
+   - `beginBatch -> update -> flush`
+2. 对 `updateCookieFollowerState` 的循环调用改为批量提交。
+3. 增加崩溃恢复策略（批次落盘失败时的重试/回退）。
+4. 修复风险点 G、L、K（缓存集合与记录治理可在此阶段并行处理）。
+
+验收:
+
+1. 同规模负载下写盘次数显著下降，状态一致性不退化。
+
+---
+
+### 计划 G: 同步与缓存子系统重构（P1-P2）
+
+目标:
+
+1. 解决元信息缓存和关注同步链路的上下文与性能问题。
+
+范围:
+
+1. `subscriptionUserMetaCacheService`:
+   - 并发键从 `uid` 升级为 `uid+groupId`（或账号上下文键）。
+   - 增加 `_comparedInProcess` 清理策略。
+   - 增加缓存记录 TTL/裁剪策略。
+2. `follow_service.py`:
+   - 优化标签补全策略（增量拉取或限流批次）。
+   - 统一日志为 logger，替换 `print`。
+3. 修复风险点 J/K/L/M/N。
+
+验收:
+
+1. 大关注量账号同步耗时可控，且不出现上下文串用。
+
+---
+
+### 计划 H: 编排层收敛 + 测试与灰度发布（P2）
+
+目标:
+
+1. 完成最终编排重构并安全上线。
+
+范围:
+
+1. 将 `checkAll` 重构为显式 pipeline stage:
+   - feed stage
+   - manual fallback stage
+   - unified stage
+   - maintenance stage
+2. 建立测试矩阵:
+   - 单元测试（targeting/notify/state transition）
+   - 集成测试（mock biliApi + mock ws）
+   - 回归用例（失败重试、去重、群过滤、空分组语义）
+3. 灰度开关:
+   - 新旧逻辑可切换
+   - 分组灰度
+   - 快速回滚开关
+
+验收:
+
+1. 主链路自动化测试覆盖通过。
+2. 灰度期关键指标（漏推/重推/失败率）无回归后全量切换。
+
+## 10.3 交付里程碑建议
+
+1. M1（P0 完成）: 计划 A+B+C+D  
+   - 先把“漏推风险 + 边界不一致 + 输入校验”清零。
+2. M2（P1 完成）: 计划 E+F+G  
+   - 完成契约统一、存储优化、同步性能和缓存治理。
+3. M3（P2 完成）: 计划 H  
+   - 完成编排收敛、测试闭环与灰度全量。
+
+## 10.4 计划执行原则
+
+1. 每个计划必须“先验收后下一步”，禁止跨计划大面积并行改动。
+2. 每个计划都要给出可回滚点（配置开关或分支回退）。
+3. 任何涉及状态推进逻辑的改动必须附带失败注入测试。
