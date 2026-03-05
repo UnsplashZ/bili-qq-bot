@@ -42,8 +42,8 @@
 
 ## Test Script Tracking Rule
 
-- `test/` 目录下文件主要用于本地功能验证脚本，默认不要求纳入版本控制。
-- 若需要将某个测试脚本提交到仓库，需由用户明确提出。
+- Files under `test/` are mainly local functional verification scripts and are not required to be tracked by default.
+- If any test script needs to be committed to the repository, explicit user request is required first.
 
 ## NapCat Interface Lookup Rule
 

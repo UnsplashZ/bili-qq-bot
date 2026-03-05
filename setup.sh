@@ -31,6 +31,70 @@ download_with_fallback() {
     return 1
 }
 
+# 安全更新/追加 .env 键值，避免 sed 替换时被特殊字符破坏
+upsert_env_var() {
+    local key="$1"
+    local value="$2"
+    local env_file="$3"
+    local tmp_file
+
+    tmp_file=$(mktemp)
+    awk -v key="$key" -v value="$value" '
+        BEGIN { updated = 0 }
+        index($0, key "=") == 1 {
+            print key "=" value
+            updated = 1
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                print key "=" value
+            }
+        }
+    ' "$env_file" > "$tmp_file" && mv "$tmp_file" "$env_file"
+}
+
+# 监控 NapCat 日志，等待登录成功；超时返回 124
+wait_for_napcat_login() {
+    local timeout_seconds="$1"
+    local monitor_pid
+    local start_ts
+
+    start_ts=$(date +%s)
+
+    docker logs -f napcat 2>&1 | awk '
+    BEGIN { matched = 0 }
+    {
+        print $0
+        fflush()
+    }
+    /Login Success|登录成功|Server Started|WebSocket Server] Server Started/ {
+        matched = 1
+        print "\n\033[0;32m>>> 检测到登录成功或服务已就绪！ <<<\033[0m"
+        exit 0
+    }
+    END {
+        if (!matched) {
+            exit 1
+        }
+    }
+    ' &
+    monitor_pid=$!
+
+    while kill -0 "$monitor_pid" 2>/dev/null; do
+        if [ $(( $(date +%s) - start_ts )) -ge "$timeout_seconds" ]; then
+            kill "$monitor_pid" 2>/dev/null
+            wait "$monitor_pid" 2>/dev/null
+            return 124
+        fi
+        sleep 1
+    done
+
+    wait "$monitor_pid"
+    return $?
+}
+
 # 1. 检测系统环境
 echo -e "${GREEN}[1/8] 检测系统环境...${NC}"
 
@@ -327,20 +391,10 @@ fi
 # 设置 WS_URL (默认为 Docker 内部网络地址)
 read -p "请输入 NapCat WebSocket 地址 (默认: ws://napcat:3001): " ws_url
 ws_url=${ws_url:-ws://napcat:3001}
-escaped_ws_url=$(echo "$ws_url" | sed 's/\//\\\//g')
-
-if grep -q "^WS_URL=" config/.env; then
-    sed -i "s/^WS_URL=.*/WS_URL=$escaped_ws_url/" config/.env
-else
-    echo "WS_URL=$ws_url" >> config/.env
-fi
+upsert_env_var "WS_URL" "$ws_url" "config/.env"
 
 # 设置 WS_TOKEN
-if grep -q "^WS_TOKEN=" config/.env; then
-    sed -i "s/^WS_TOKEN=.*/WS_TOKEN=$ws_token/" config/.env
-else
-    echo "WS_TOKEN=$ws_token" >> config/.env
-fi
+upsert_env_var "WS_TOKEN" "$ws_token" "config/.env"
 echo "已配置 WS_TOKEN"
 
 # 设置管理员 QQ
@@ -353,11 +407,7 @@ while true; do
     fi
 done
 
-if grep -q "^ADMIN_QQ=" config/.env; then
-    sed -i "s/^ADMIN_QQ=.*/ADMIN_QQ=$admin_qq/" config/.env
-else
-    echo "ADMIN_QQ=$admin_qq" >> config/.env
-fi
+upsert_env_var "ADMIN_QQ" "$admin_qq" "config/.env"
 
 # --- WebUI 配置 ---
 echo -e "${GREEN}[6.5/8] WebUI 管理面板配置...${NC}"
@@ -367,11 +417,7 @@ webui_port=${webui_port:-3000}
 read -p "请设置 WebUI 面板密码 (默认: admin): " dashboard_pwd
 dashboard_pwd=${dashboard_pwd:-admin}
 
-if grep -q "^DASHBOARD_PASSWORD=" config/.env; then
-    sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$dashboard_pwd/" config/.env
-else
-    echo "DASHBOARD_PASSWORD=$dashboard_pwd" >> config/.env
-fi
+upsert_env_var "DASHBOARD_PASSWORD" "$dashboard_pwd" "config/.env"
 
 # --- 公网访问配置 ---
 echo ""
@@ -400,11 +446,7 @@ if [[ "$config_public_access" =~ ^[Yy]$ ]]; then
             fi
         fi
 
-        if grep -q "^DASHBOARD_ALLOWED_ORIGINS=" config/.env; then
-            sed -i "s|^DASHBOARD_ALLOWED_ORIGINS=.*|DASHBOARD_ALLOWED_ORIGINS=$allowed_origins|" config/.env
-        else
-            echo "DASHBOARD_ALLOWED_ORIGINS=$allowed_origins" >> config/.env
-        fi
+        upsert_env_var "DASHBOARD_ALLOWED_ORIGINS" "$allowed_origins" "config/.env"
         echo -e "${GREEN}已配置公网访问白名单: $allowed_origins${NC}"
     else
         echo -e "${YELLOW}未填写，将仅允许本地和内网访问${NC}"
@@ -515,18 +557,22 @@ if [ $? -eq 0 ]; then
     echo "3. 登录成功后，脚本将自动完成并退出。"
     echo "---------------------------------------------------"
     
-    # 实时监控日志并等待登录成功
-    # 使用 awk 打印日志并在匹配到成功信息时退出
-    docker logs -f napcat 2>&1 | awk '
-    {
-        print $0
-        fflush()
-    }
-    /Login Success|登录成功|Server Started|WebSocket Server] Server Started/ {
-        print "\n\033[0;32m>>> 检测到登录成功或服务已就绪！ <<<\033[0m"
-        exit 0
-    }
-    '
+    # 实时监控日志并等待登录成功，超时则提示手动扫码后继续
+    login_wait_timeout=180
+    wait_for_napcat_login "$login_wait_timeout"
+    login_wait_status=$?
+    if [ "$login_wait_status" -ne 0 ]; then
+        if [ "$login_wait_status" -eq 124 ]; then
+            echo -e "\n${YELLOW}在 ${login_wait_timeout} 秒内未检测到登录成功。${NC}"
+            echo "你可以稍后手动完成登录："
+            echo "1. 执行: docker logs -f napcat"
+            echo "2. 使用手机 QQ 扫描日志中的二维码完成登录"
+            echo "3. 登录后执行: $CMD ps"
+        else
+            echo -e "\n${YELLOW}未能从日志确认登录状态（可能是日志中断或容器重启）。${NC}"
+            echo "请手动查看登录日志: docker logs -f napcat"
+        fi
+    fi
     
     echo "---------------------------------------------------"
     echo -e "${GREEN}部署全部完成！${NC}"

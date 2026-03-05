@@ -914,9 +914,13 @@ function generateCSS(colorData, viewport) {
                 gap: 40px;
                 margin: 30px auto 0 auto;
                 padding: 20px 40px;
-                background: var(--color-soft-bg);
+                background: rgba(240, 242, 245, 0.78);
                 border-radius: 12px;
                 width: fit-content;
+            }
+
+            .theme-dark .user-stats {
+                background: rgba(18, 22, 27, 0.72);
             }
 
             .user-stat-item {
