@@ -1,7 +1,12 @@
 const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
-const { normalizeGroupId } = require('../shared/normalize')
+const {
+    assertWebuiManageableGroup,
+    getKnownManageableNumericGroupIds,
+    getNumericGroupIdsInBotGroupList,
+    isInBotGroupList
+} = require('../shared/group-guard')
 
 const router = express.Router()
 
@@ -10,27 +15,16 @@ router.get('/groups', async (req, res) => {
     try {
         const bot = global.bot
         const groupConfigs = sysConfig.groupConfigs || {}
-        const enabledGroups = new Set(sysConfig.enabledGroups || [])
+        const enabledGroups = Array.isArray(sysConfig.enabledGroups)
+            ? sysConfig.enabledGroups.map(id => String(id))
+            : []
+        const enabledSet = new Set(enabledGroups)
+        const whitelistMode = enabledGroups.length > 0
+        const allGroupIds = getKnownManageableNumericGroupIds(sysConfig, bot)
 
-        const allGroupIds = new Set()
-
-        if (bot && bot.groupList) {
-            bot.groupList.forEach((info, groupId) => {
-                allGroupIds.add(groupId)
-            })
-        }
-
-        Object.keys(groupConfigs).forEach(groupId => {
-            allGroupIds.add(groupId)
-        })
-
-        if (sysConfig.enabledGroups) {
-            sysConfig.enabledGroups.forEach(groupId => {
-                allGroupIds.add(groupId)
-            })
-        }
-
-        const groupsData = Array.from(allGroupIds).map(groupId => {
+        const groupsData = Array.from(allGroupIds)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(groupId => {
             const groupIdStr = String(groupId)
             const groupIdNum = Number(groupIdStr)
             const groupInfo =
@@ -46,8 +40,7 @@ router.get('/groups', async (req, res) => {
 
             let isInGroup = true
             if (bot && bot.groupList) {
-                isInGroup =
-                    bot.groupList.has(groupId) || bot.groupList.has(groupIdNum)
+                isInGroup = isInBotGroupList(bot, groupIdStr)
             } else {
                 isInGroup = groupConfig.isInGroup !== false
             }
@@ -55,7 +48,7 @@ router.get('/groups', async (req, res) => {
             return {
                 id: groupIdStr,
                 name: groupInfo?.group_name || `群组 ${groupIdStr}`,
-                isEnabled: enabledGroups.has(groupIdStr),
+                isEnabled: whitelistMode ? enabledSet.has(groupIdStr) : true,
                 isInGroup,
                 config: configWithDefaults
             }
@@ -71,34 +64,46 @@ router.get('/groups', async (req, res) => {
 // POST /api/groups/:id/toggle - Toggle group enabled status
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const groupIdStr = String(groupId)
-        const groupIdNum = Number(groupIdStr)
-
-        if (
-            !global.bot ||
-            !global.bot.groupList ||
-            (!global.bot.groupList.has(groupIdStr) &&
-                !global.bot.groupList.has(groupIdNum))
-        ) {
-            return res.status(404).json({ error: 'Group not found' })
-        }
 
         if (!sysConfig.enabledGroups) {
             sysConfig.enabledGroups = []
         }
 
-        const index = sysConfig.enabledGroups.indexOf(groupIdStr)
+        let enabledGroups = Array.isArray(sysConfig.enabledGroups)
+            ? sysConfig.enabledGroups.map(id => String(id))
+            : []
+        const enabledSet = new Set(enabledGroups)
+        const currentlyEnabled = enabledGroups.length === 0 || enabledSet.has(groupIdStr)
         let isEnabled
 
-        if (index === -1) {
-            sysConfig.enabledGroups.push(groupIdStr)
-            isEnabled = true
-        } else {
-            sysConfig.enabledGroups.splice(index, 1)
+        if (currentlyEnabled) {
+            if (enabledGroups.length === 0) {
+                // 运行时语义中空白名单表示“全部启用”，禁用单群时先显式展开当前在群列表
+                enabledGroups = Array.from(getNumericGroupIdsInBotGroupList(global.bot))
+                if (enabledGroups.length === 0) {
+                    // Bot 离线时回退到已知群集合，避免“返回禁用成功但空白名单仍表示全部启用”
+                    enabledGroups = Array.from(
+                        getKnownManageableNumericGroupIds(sysConfig, global.bot)
+                    )
+                }
+            }
+            enabledGroups = enabledGroups.filter(id => id !== groupIdStr)
             isEnabled = false
+        } else {
+            if (!enabledSet.has(groupIdStr)) {
+                enabledGroups.push(groupIdStr)
+            }
+            isEnabled = true
         }
 
+        sysConfig.enabledGroups = Array.from(new Set(enabledGroups))
         sysConfig.save()
         res.json({ message: `Group ${groupId} toggled`, isEnabled })
     } catch (error) {
@@ -109,19 +114,14 @@ router.post('/groups/:id/toggle', async (req, res) => {
 // POST /api/groups/:id/config - Update specific group config
 router.post('/groups/:id/config', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const groupIdStr = String(groupId)
-        const groupIdNum = Number(groupIdStr)
         const updates = req.body
-
-        if (
-            !global.bot ||
-            !global.bot.groupList ||
-            (!global.bot.groupList.has(groupIdStr) &&
-                !global.bot.groupList.has(groupIdNum))
-        ) {
-            return res.status(404).json({ error: 'Group not found' })
-        }
 
         if (!updates || typeof updates !== 'object') {
             return res.status(400).json({ error: 'Invalid configuration data' })
@@ -331,21 +331,14 @@ router.post('/groups/:id/config', async (req, res) => {
 // DELETE /api/groups/:id - Delete config for a left group
 router.delete('/groups/:id', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const groupIdStr = String(groupId)
-        const groupIdNum = Number(groupIdStr)
-        const groupConfig = sysConfig.groupConfigs?.[groupIdStr]
 
-        const bot = global.bot
-        let isInBotGroup = true
-        if (bot && bot.groupList) {
-            isInBotGroup =
-                bot.groupList.has(groupIdStr) || bot.groupList.has(groupIdNum)
-        } else if (groupConfig) {
-            isInBotGroup = groupConfig.isInGroup !== false
-        }
-
-        if (isInBotGroup) {
+        if (guarded.isInGroup) {
             return res.status(400).json({
                 error: 'Can only delete configs for groups that bot has left'
             })
@@ -353,7 +346,10 @@ router.delete('/groups/:id', async (req, res) => {
 
         let modified = false
 
-        if (groupConfig) {
+        if (
+            sysConfig.groupConfigs &&
+            Object.prototype.hasOwnProperty.call(sysConfig.groupConfigs, groupIdStr)
+        ) {
             delete sysConfig.groupConfigs[groupIdStr]
             modified = true
         }
@@ -384,4 +380,3 @@ router.delete('/groups/:id', async (req, res) => {
 })
 
 module.exports = router
-

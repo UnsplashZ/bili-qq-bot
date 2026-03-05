@@ -885,22 +885,14 @@ if (!isRoot) {
 
 ### Private Chat Restriction
 
-私聊功能仅限Root管理员（`ADMIN_QQ`）使用：
+私聊入口仅限 Root 管理员（`ADMIN_QQ`）使用：
 
-```javascript
-// messageHandler.js
-if (messageData.message_type === 'private') {
-    const isRootAdmin = config.isRootAdmin(userId);
-    if (!isRootAdmin) {
-        // 非Root管理员，发送提示并返回
-        this.sendPrivateMessage(ws, userId, '此功能仅限管理员使用');
-        return;
-    }
-    // Root管理员继续处理
-}
-```
+1. 非 Root 私聊消息会被直接拒绝（提示“此功能仅限管理员使用”）。
+2. Root 私聊可用能力：聊天/AI/链接解析/下载。
+3. Root 私聊不支持群管理能力：`/设置`、`/管理`、订阅管理（`/订阅*`、`/取消订阅*`、`/查询订阅`）会被统一拒绝，并提示在目标群聊或 WebUI 操作。
+4. WebUI 群管理域仅允许数字群号；`private_*` 会返回 `400 WebUI 不支持私聊会话管理`。
 
-群管理员（非Root）无法使用私聊功能。
+群管理员（非 Root）无法使用私聊功能。
 
 ## Performance Optimization
 

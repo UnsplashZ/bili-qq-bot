@@ -7,9 +7,17 @@ const notificationService = require('../services/notificationService');
 class AdminCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
+        const isPrivateGroup = typeof groupId === 'string' && groupId.startsWith('private_');
 
         // 12. 管理 (/管理 <群列表|清理> [群号])
         if (rawMessage.startsWith('/管理 ') || rawMessage.startsWith('/admin ')) {
+            if (isPrivateGroup) {
+                this.sendGroupMessage(ws, groupId, [{
+                    type: 'text',
+                    data: { text: '私聊仅支持聊天/AI/链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
+                }]);
+                return true;
+            }
             if (!config.isRootAdmin(userId)) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
                 return true;

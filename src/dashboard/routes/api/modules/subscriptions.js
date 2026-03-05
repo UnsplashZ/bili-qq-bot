@@ -3,11 +3,11 @@ const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const subscriptionService = require('../../../../services/subscriptionService')
 const {
-    normalizeGroupId,
     normalizeSyncGroupNames,
     extractFollowerUid,
     resolveFollowerName
 } = require('../shared/normalize')
+const { assertWebuiManageableGroup } = require('../shared/group-guard')
 
 const router = express.Router()
 
@@ -43,7 +43,12 @@ function normalizeSubscriptionInput(type, value) {
 // GET /api/groups/:id/subscriptions - List subscriptions for a group
 router.get('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const subs = await subscriptionService.getSubscriptionsByGroup(groupId)
         const mergedSubs = [
             ...(subs.users || []).map(u => ({ ...u, type: 'user', value: u.uid })),
@@ -63,18 +68,13 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
 // GET /api/groups/:id/atall-targets - Get source user lists for @all fine-grained settings
 router.get('/groups/:id/atall-targets', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const groupIdStr = String(groupId)
-        const groupIdNum = Number(groupIdStr)
-
-        if (
-            !global.bot ||
-            !global.bot.groupList ||
-            (!global.bot.groupList.has(groupIdStr) &&
-                !global.bot.groupList.has(groupIdNum))
-        ) {
-            return res.status(404).json({ error: 'Group not found' })
-        }
 
         const groupConfig =
             (sysConfig.groupConfigs && sysConfig.groupConfigs[groupIdStr]) || {}
@@ -156,7 +156,12 @@ router.get('/groups/:id/atall-targets', async (req, res) => {
 // POST /api/groups/:id/subscriptions - Add a subscription
 router.post('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const { type, value } = req.body
         const normalized = normalizeSubscriptionInput(type, value)
         if (!normalized.ok) return res.status(400).json({ error: normalized.error })
@@ -181,7 +186,12 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
 // DELETE /api/groups/:id/subscriptions - Remove a subscription
 router.delete('/groups/:id/subscriptions', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.id)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'id',
+            requireInGroup: true
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const type = req.body.type || req.query.type
         const value = req.body.value || req.query.value
         const normalized = normalizeSubscriptionInput(type, value)

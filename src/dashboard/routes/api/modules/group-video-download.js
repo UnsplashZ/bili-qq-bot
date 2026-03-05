@@ -1,12 +1,17 @@
 const express = require('express')
 const sysConfig = require('../../../../config')
+const { assertWebuiManageableGroup } = require('../shared/group-guard')
 
 const router = express.Router()
 
 // GET /api/groups/:groupId/video-download-config - Get group-level video download config
 router.get('/groups/:groupId/video-download-config', async (req, res) => {
     try {
-        const groupId = String(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const groupConfig = sysConfig.groupConfigs[groupId] || {}
         res.json({
             videoDownloadEnabled: groupConfig.videoDownloadEnabled ?? null,
@@ -21,7 +26,11 @@ router.get('/groups/:groupId/video-download-config', async (req, res) => {
 // PUT /api/groups/:groupId/video-download-config - Update group-level video download config
 router.put('/groups/:groupId/video-download-config', async (req, res) => {
     try {
-        const groupId = String(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         sysConfig.ensureGroupConfig(groupId)
         const {
             videoDownloadEnabled,
@@ -88,7 +97,11 @@ router.put('/groups/:groupId/video-download-config', async (req, res) => {
 // DELETE /api/groups/:groupId/video-download-config - Reset group-level video download config
 router.delete('/groups/:groupId/video-download-config', async (req, res) => {
     try {
-        const groupId = String(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         if (sysConfig.groupConfigs[groupId]) {
             delete sysConfig.groupConfigs[groupId].videoDownloadEnabled
             delete sysConfig.groupConfigs[groupId].videoDownloadResolution
@@ -102,4 +115,3 @@ router.delete('/groups/:groupId/video-download-config', async (req, res) => {
 })
 
 module.exports = router
-

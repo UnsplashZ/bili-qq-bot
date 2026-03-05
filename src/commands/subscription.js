@@ -12,9 +12,31 @@ class SubscriptionCommand {
 
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
+        const trimmedMessage = rawMessage.trim();
+        const isPrivateGroup = typeof groupId === 'string' && groupId.startsWith('private_');
+
+        if (isPrivateGroup) {
+            const isSubscriptionMgmtCommand =
+                trimmedMessage === '/订阅列表' ||
+                trimmedMessage === '/listsub' ||
+                trimmedMessage.startsWith('/订阅用户 ') ||
+                trimmedMessage.startsWith('/订阅番剧 ') ||
+                trimmedMessage.startsWith('/取消订阅用户 ') ||
+                trimmedMessage.startsWith('/取消订阅番剧 ') ||
+                trimmedMessage.startsWith('/查询订阅 ') ||
+                trimmedMessage.startsWith('/checksub ');
+
+            if (isSubscriptionMgmtCommand) {
+                this.sendGroupMessage(ws, groupId, [{
+                    type: 'text',
+                    data: { text: '私聊仅支持聊天/AI/链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
+                }]);
+                return true;
+            }
+        }
         
         // Command: /订阅列表
-        if (rawMessage.trim() === '/订阅列表' || rawMessage.trim() === '/listsub') {
+        if (trimmedMessage === '/订阅列表' || trimmedMessage === '/listsub') {
             logger.info(`[SubscriptionCommand] Processing /订阅列表 for group: ${groupId} (type: ${typeof groupId})`);
 
             const now = Date.now();

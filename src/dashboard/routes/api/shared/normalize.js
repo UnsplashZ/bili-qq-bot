@@ -2,6 +2,14 @@ function normalizeGroupId(groupId) {
     return groupId ? String(groupId) : null
 }
 
+function isPrivateVirtualGroupId(groupId) {
+    return typeof groupId === 'string' && /^private_\d+$/.test(groupId)
+}
+
+function isNumericGroupId(groupId) {
+    return typeof groupId === 'string' && /^\d+$/.test(groupId)
+}
+
 function normalizeQQ(qq) {
     if (qq === null || qq === undefined) return ''
     return String(qq).trim()
@@ -51,6 +59,8 @@ function isValidProfileGroupId(groupId) {
 
 module.exports = {
     normalizeGroupId,
+    isPrivateVirtualGroupId,
+    isNumericGroupId,
     normalizeQQ,
     normalizeBlacklist,
     normalizeSyncGroupNames,
@@ -58,4 +68,3 @@ module.exports = {
     resolveFollowerName,
     isValidProfileGroupId
 }
-

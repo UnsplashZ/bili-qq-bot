@@ -56,7 +56,15 @@ class SettingsCommand {
 
         // 统一指令入口：/设置
         const trimmedMessage = rawMessage.trim();
+        const isPrivateGroup = typeof groupId === 'string' && groupId.startsWith('private_');
         if (trimmedMessage === '/设置' || trimmedMessage.startsWith('/设置 ')) {
+            if (isPrivateGroup) {
+                this.sendGroupMessage(ws, groupId, [{
+                    type: 'text',
+                    data: { text: '私聊仅支持聊天/AI/链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
+                }]);
+                return true;
+            }
              if (!config.isGroupAdmin(groupId, userId)) {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限群管理员或全局管理员使用。' } }]);
                 return true;

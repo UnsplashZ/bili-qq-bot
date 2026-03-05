@@ -1,14 +1,18 @@
 const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
-const { normalizeGroupId } = require('../shared/normalize')
+const { assertWebuiManageableGroup } = require('../shared/group-guard')
 
 const router = express.Router()
 
 // GET /api/groups/:groupId/ai-config - Get group-level AI configuration
 router.get('/groups/:groupId/ai-config', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
 
         sysConfig.ensureGroupConfig(groupId)
 
@@ -40,7 +44,11 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
 // PUT /api/groups/:groupId/ai-config - Update group-level AI configuration
 router.put('/groups/:groupId/ai-config', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
         const { aiEnabled, aiRagEnabled, aiProfileEnabled } = req.body
 
         if (
@@ -124,7 +132,11 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
 // DELETE /api/groups/:groupId/ai-config - Reset group-level AI configuration
 router.delete('/groups/:groupId/ai-config', async (req, res) => {
     try {
-        const groupId = normalizeGroupId(req.params.groupId)
+        const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
+            paramName: 'groupId'
+        })
+        if (!guarded) return
+        const groupId = guarded.groupId
 
         sysConfig.ensureGroupConfig(groupId)
 
@@ -153,4 +165,3 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
 })
 
 module.exports = router
-
