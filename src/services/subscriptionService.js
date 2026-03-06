@@ -12,7 +12,15 @@ class SubscriptionService {
     get userSubs() { return subscriptionManager.userSubs; }
     get bangumiSubs() { return subscriptionManager.bangumiSubs; }
     get cookieFollowings() { return subscriptionManager.cookieFollowings; }
-    set cookieFollowings(val) { subscriptionManager.setCookieFollowings(val); }
+    set cookieFollowings(val) {
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+            subscriptionManager.replaceCookieFollowingsMap(val).catch(error => {
+                logger.error('[SubscriptionService] Failed to replace cookieFollowings via compatibility setter:', error);
+            });
+            return;
+        }
+        logger.warn('[SubscriptionService] cookieFollowings setter ignored: expected map object.');
+    }
 
     // Ensure subscriptions are loaded (for direct access to userSubs/bangumiSubs)
     async ensureLoaded() {
@@ -63,6 +71,10 @@ class SubscriptionService {
     async getFollowingsForGroup(groupId) {
         await subscriptionManager._ensureFollowersLoaded();
         return subscriptionManager.getFollowingsForGroup(groupId);
+    }
+
+    async setCookieFollowings(accountUid, newFollowings) {
+        return await subscriptionManager.setCookieFollowings(accountUid, newFollowings);
     }
 
     async removeAllGroupSubscriptions(groupId) {

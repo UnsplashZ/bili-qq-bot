@@ -26,6 +26,13 @@ class SubscriptionManager {
         this._loadingPromise = null;
         this._followersLoaded = false;
         this._followersLoadingPromise = null;
+
+        this.schemaVersion = 2;
+
+        this.followerSaveDebounceMs = 50;
+        this._followerSaveTimer = null;
+        this._followerSaveDirty = false;
+        this._followerSaveInFlight = null;
     }
 
     _normalizeNumericId(value) {
@@ -181,6 +188,43 @@ class SubscriptionManager {
         return changed;
     }
 
+    _isPlainObject(value) {
+        return value !== null && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    _normalizeFollowersPayload(rawPayload) {
+        if (!this._isPlainObject(rawPayload)) {
+            return { followings: {}, groupMap: {} };
+        }
+
+        const followings = this._isPlainObject(rawPayload.followings)
+            ? rawPayload.followings
+            : this._isPlainObject(rawPayload.cookieFollowings) ? rawPayload.cookieFollowings : {};
+        const groupMap = this._isPlainObject(rawPayload.groupMap)
+            ? rawPayload.groupMap
+            : this._isPlainObject(rawPayload.groupToAccountMap) ? rawPayload.groupToAccountMap : {};
+
+        return { followings, groupMap };
+    }
+
+    _normalizeCookieFollowingsMap(rawFollowings) {
+        if (!this._isPlainObject(rawFollowings)) {
+            return {};
+        }
+
+        const normalized = {};
+        for (const [accountUidRaw, followers] of Object.entries(rawFollowings)) {
+            const accountUid = String(accountUidRaw || '').trim();
+            if (!accountUid || !Array.isArray(followers)) continue;
+
+            normalized[accountUid] = followers
+                .filter(item => item && typeof item === 'object')
+                .map(item => this._normalizeFollowerState({ ...item }));
+        }
+
+        return normalized;
+    }
+
     /**
      * 确保目录存在（异步）
      */
@@ -267,9 +311,14 @@ class SubscriptionManager {
                 }
 
                 const data = JSON.parse(content);
+                let needsMigration = false;
+                const loadedSchemaVersion = this._isPlainObject(data) && Number.isInteger(data.schemaVersion)
+                    ? data.schemaVersion
+                    : 1;
 
                 // 兼容性处理
                 if (Array.isArray(data)) {
+                    needsMigration = true;
                     if (data.length === 0) {
                         this.userSubs = [];
                         this.bangumiSubs = [];
@@ -281,11 +330,18 @@ class SubscriptionManager {
                 } else {
                     this.userSubs = data.users || data.userSubs || [];
                     this.bangumiSubs = data.bangumis || data.bangumiSubs || [];
+                    if (loadedSchemaVersion < this.schemaVersion) {
+                        needsMigration = true;
+                    }
                 }
 
                 const normalized = this._normalizeLoadedSubscriptions();
-                if (normalized) {
-                    logger.info('[SubscriptionManager] Normalized subscription data on load.');
+                if (normalized || needsMigration) {
+                    if (needsMigration) {
+                        logger.info(`[SubscriptionManager] Migrated subscriptions schema to v${this.schemaVersion}.`);
+                    } else {
+                        logger.info('[SubscriptionManager] Normalized subscription data on load.');
+                    }
                     await this._saveSubscriptions();
                 }
                 logger.info(`[SubscriptionManager] Loaded ${this.userSubs.length} users and ${this.bangumiSubs.length} bangumis.`);
@@ -315,6 +371,7 @@ class SubscriptionManager {
     async _saveSubscriptions() {
         try {
             const data = {
+                schemaVersion: this.schemaVersion,
                 users: this.userSubs,
                 bangumis: this.bangumiSubs
             };
@@ -355,15 +412,24 @@ class SubscriptionManager {
         if (await this._fileExists(this.followersFile)) {
             try {
                 const data = await storageUtils.safeReadJSON(this.followersFile, {});
+                let needsMigration = false;
+                const loadedSchemaVersion = this._isPlainObject(data) && Number.isInteger(data.schemaVersion)
+                    ? data.schemaVersion
+                    : 1;
 
                 // Compatibility check: if it's an array (old format), migrate it or discard
                 if (Array.isArray(data)) {
                     logger.warn('[SubscriptionManager] Old array format detected in subfollowers.json. Data will be reset on next sync.');
                     this.cookieFollowings = {};
                     this.groupToAccountMap = {};
+                    needsMigration = true;
                 } else {
-                    this.cookieFollowings = data.followings || {};
-                    this.groupToAccountMap = data.groupMap || {};
+                    const normalizedPayload = this._normalizeFollowersPayload(data);
+                    this.cookieFollowings = normalizedPayload.followings;
+                    this.groupToAccountMap = normalizedPayload.groupMap;
+                    if (loadedSchemaVersion < this.schemaVersion) {
+                        needsMigration = true;
+                    }
 
                     // Normalize state for all loaded followers
                     for (const uid in this.cookieFollowings) {
@@ -371,6 +437,10 @@ class SubscriptionManager {
                             this.cookieFollowings[uid].forEach(f => this._normalizeFollowerState(f));
                         }
                     }
+                }
+                if (needsMigration) {
+                    logger.info(`[SubscriptionManager] Migrated followers schema to v${this.schemaVersion}.`);
+                    await this._saveFollowers();
                 }
                 logger.info(`[SubscriptionManager] Loaded followers for ${Object.keys(this.cookieFollowings).length} accounts.`);
             } catch (e) {
@@ -387,6 +457,7 @@ class SubscriptionManager {
     async _saveFollowers() {
         try {
             const data = {
+                schemaVersion: this.schemaVersion,
                 followings: this.cookieFollowings,
                 groupMap: this.groupToAccountMap
             };
@@ -396,6 +467,65 @@ class SubscriptionManager {
             logger.error('[SubscriptionManager] Failed to save followers:', error);
             throw error; // Re-throw to let caller handle
         }
+    }
+
+    _scheduleFollowerSave() {
+        this._followerSaveDirty = true;
+
+        if (this._followerSaveTimer || this._followerSaveInFlight) {
+            return;
+        }
+
+        this._followerSaveTimer = setTimeout(() => {
+            this._followerSaveTimer = null;
+            this._flushFollowerSaveOnce().catch((error) => {
+                logger.error('[SubscriptionManager] Batched follower save failed:', error);
+            });
+        }, this.followerSaveDebounceMs);
+    }
+
+    async _flushFollowerSaveOnce() {
+        if (this._followerSaveInFlight) {
+            return this._followerSaveInFlight;
+        }
+        if (!this._followerSaveDirty) {
+            return;
+        }
+
+        this._followerSaveDirty = false;
+        this._followerSaveInFlight = this._saveFollowers();
+
+        try {
+            await this._followerSaveInFlight;
+        } finally {
+            this._followerSaveInFlight = null;
+            if (this._followerSaveDirty && !this._followerSaveTimer) {
+                this._scheduleFollowerSave();
+            }
+        }
+    }
+
+    async flushPendingFollowerSaves() {
+        let attempts = 0;
+        while (attempts < 5) {
+            attempts += 1;
+
+            if (this._followerSaveTimer) {
+                clearTimeout(this._followerSaveTimer);
+                this._followerSaveTimer = null;
+            }
+
+            await this._flushFollowerSaveOnce();
+
+            if (!this._followerSaveDirty && !this._followerSaveTimer && !this._followerSaveInFlight) {
+                return;
+            }
+        }
+    }
+
+    async replaceCookieFollowingsMap(nextFollowings) {
+        this.cookieFollowings = this._normalizeCookieFollowingsMap(nextFollowings);
+        await this._saveFollowers();
     }
 
     async setCookieFollowings(accountUid, newFollowings) {
@@ -509,7 +639,7 @@ class SubscriptionManager {
         const follower = followings.find(f => this.getFollowerId(f) === targetStr);
         if (follower) {
             Object.assign(follower, updates);
-            await this._saveFollowers();
+            this._scheduleFollowerSave();
         }
     }
 

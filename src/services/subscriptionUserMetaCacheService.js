@@ -6,6 +6,8 @@ const storageUtils = require('../utils/storageUtils')
 const COMPARE_WINDOW_MS = 6 * 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 2500
 const RETRY_BACKOFF_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000]
+const DEFAULT_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const DEFAULT_MAX_RECORDS = 5000
 const CACHE_FILE = path.join(
     process.cwd(),
     'data',
@@ -73,7 +75,9 @@ class SubscriptionUserMetaCacheService {
         this._savePromise = null
         this._saveScheduled = false
         this._inFlight = new Map()
-        this._comparedInProcess = new Set()
+        this._comparedInProcess = new Map()
+        this.recordRetentionMs = DEFAULT_RECORD_RETENTION_MS
+        this.maxRecords = DEFAULT_MAX_RECORDS
     }
 
     async ensureLoaded() {
@@ -93,6 +97,11 @@ class SubscriptionUserMetaCacheService {
                 const normalized = this._normalizeRecord(record, safeUid)
                 if (!normalized) continue
                 this.records.set(safeUid, normalized)
+            }
+            const loadedCount = this.records.size
+            this._cleanupStaleRecords(Date.now())
+            if (this.records.size !== loadedCount) {
+                this._scheduleSave()
             }
             this._loaded = true
         })().catch(error => {
@@ -159,6 +168,7 @@ class SubscriptionUserMetaCacheService {
     }
 
     async _saveNow() {
+        this._cleanupStaleRecords(Date.now())
         const records = {}
         for (const [uid, record] of this.records.entries()) {
             records[uid] = this._toPersistedRecord(record)
@@ -189,10 +199,82 @@ class SubscriptionUserMetaCacheService {
         }
     }
 
+    _getRecordActivityAt(record) {
+        if (!record || typeof record !== 'object') return 0
+        return Math.max(
+            Number(record.lastComparedAt) || 0,
+            Number(record.lastChangedAt) || 0,
+            Number(record.nextRetryAt) || 0
+        )
+    }
+
+    _cleanupStaleRecords(now = Date.now()) {
+        const retentionMs = Number(this.recordRetentionMs)
+        const maxRecords = Number(this.maxRecords)
+        const applyRetention = Number.isFinite(retentionMs) && retentionMs > 0
+
+        if (applyRetention) {
+            for (const [uid, record] of this.records.entries()) {
+                const activityAt = this._getRecordActivityAt(record)
+                if (activityAt > 0 && now - activityAt > retentionMs) {
+                    this.records.delete(uid)
+                }
+            }
+        }
+
+        if (!Number.isFinite(maxRecords) || maxRecords <= 0 || this.records.size <= maxRecords) {
+            return
+        }
+
+        const ranked = Array.from(this.records.entries()).sort((a, b) => {
+            const diff = this._getRecordActivityAt(b[1]) - this._getRecordActivityAt(a[1])
+            if (diff !== 0) return diff
+            return String(a[0]).localeCompare(String(b[0]))
+        })
+        const keep = new Set(ranked.slice(0, maxRecords).map(([uid]) => uid))
+        for (const uid of this.records.keys()) {
+            if (!keep.has(uid)) {
+                this.records.delete(uid)
+            }
+        }
+    }
+
+    _normalizeGroupScope(groupId) {
+        const scope = String(groupId || '').trim()
+        return scope || 'global'
+    }
+
+    _buildInFlightKey(uid, groupId) {
+        return `${uid}:${this._normalizeGroupScope(groupId)}`
+    }
+
+    _cleanupComparedInProcess(now = Date.now()) {
+        for (const [uid, comparedAt] of this._comparedInProcess.entries()) {
+            if (!Number.isFinite(comparedAt) || now - comparedAt >= COMPARE_WINDOW_MS) {
+                this._comparedInProcess.delete(uid)
+            }
+        }
+    }
+
+    _markComparedInProcess(uid, now = Date.now()) {
+        this._cleanupComparedInProcess(now)
+        this._comparedInProcess.set(uid, now)
+    }
+
+    _hasComparedInProcess(uid, now = Date.now()) {
+        const comparedAt = this._comparedInProcess.get(uid)
+        if (!Number.isFinite(comparedAt)) return false
+        if (now - comparedAt >= COMPARE_WINDOW_MS) {
+            this._comparedInProcess.delete(uid)
+            return false
+        }
+        return true
+    }
+
     _shouldCompare(uid, record, now, forceCompare) {
         if (forceCompare) return true
 
-        if (!this._comparedInProcess.has(uid)) return true
+        if (!this._hasComparedInProcess(uid, now)) return true
         if (!record) return true
         if (!record.lastComparedAt) return true
 
@@ -219,14 +301,14 @@ class SubscriptionUserMetaCacheService {
             existing.nextRetryAt > 0 &&
             now < existing.nextRetryAt
         ) {
-            this._comparedInProcess.add(uid)
+            this._markComparedInProcess(uid, now)
             return this._buildResultFromSources(baseSub, existing, uid)
         }
 
         const info = await biliApi.getUserInfo(uid, groupId, true, {
             timeoutMs: FETCH_TIMEOUT_MS
         })
-        this._comparedInProcess.add(uid)
+        this._markComparedInProcess(uid, now)
 
         if (!info || info.status !== 'success' || !info.data) {
             const failCount = (existing?.failCount || 0) + 1
@@ -298,7 +380,8 @@ class SubscriptionUserMetaCacheService {
         const uid = normalizeUid(sub?.uid)
         if (!uid) return sub
 
-        const existingFlight = this._inFlight.get(uid)
+        const inFlightKey = this._buildInFlightKey(uid, groupId)
+        const existingFlight = this._inFlight.get(inFlightKey)
         if (existingFlight) {
             return existingFlight
         }
@@ -309,10 +392,10 @@ class SubscriptionUserMetaCacheService {
             sub,
             Boolean(options.forceCompare)
         ).finally(() => {
-            this._inFlight.delete(uid)
+            this._inFlight.delete(inFlightKey)
         })
 
-        this._inFlight.set(uid, task)
+        this._inFlight.set(inFlightKey, task)
         return task
     }
 
