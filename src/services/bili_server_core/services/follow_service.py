@@ -1,9 +1,121 @@
 import asyncio
+import logging
+import time
 
 from bilibili_api import user
 from bilibili_api.utils.network import Api
 
 from ..auth.credential_store import load_credential
+
+logger = logging.getLogger(__name__)
+
+TAG_USERS_CACHE_TTL_SECONDS = 300
+TAG_USERS_CACHE_MAX_ENTRIES = 256
+_tag_users_cache = {}
+_tag_users_inflight = {}
+
+
+def _build_tag_users_cache_key(my_uid, tag_id):
+    return f"{my_uid}:{tag_id}"
+
+
+def _cleanup_tag_users_cache(now_ts=None):
+    now = now_ts if now_ts is not None else time.time()
+    expired_keys = [
+        key
+        for key, entry in _tag_users_cache.items()
+        if not isinstance(entry, dict) or entry.get("expires_at", 0) <= now
+    ]
+    for key in expired_keys:
+        _tag_users_cache.pop(key, None)
+
+    if len(_tag_users_cache) <= TAG_USERS_CACHE_MAX_ENTRIES:
+        return
+
+    # LRU-like trim by oldest expiry first
+    sorted_items = sorted(
+        _tag_users_cache.items(), key=lambda kv: kv[1].get("expires_at", 0)
+    )
+    over_limit = len(_tag_users_cache) - TAG_USERS_CACHE_MAX_ENTRIES
+    for key, _ in sorted_items[:over_limit]:
+        _tag_users_cache.pop(key, None)
+
+
+def _get_cached_tag_users(cache_key, now_ts=None):
+    now = now_ts if now_ts is not None else time.time()
+    entry = _tag_users_cache.get(cache_key)
+    if not entry:
+        return None
+    if entry.get("expires_at", 0) <= now:
+        _tag_users_cache.pop(cache_key, None)
+        return None
+    users = entry.get("users")
+    if not isinstance(users, list):
+        return None
+    return users
+
+
+def _set_cached_tag_users(cache_key, users, now_ts=None):
+    now = now_ts if now_ts is not None else time.time()
+    _tag_users_cache[cache_key] = {
+        "expires_at": now + TAG_USERS_CACHE_TTL_SECONDS,
+        "users": list(users) if isinstance(users, list) else [],
+    }
+    _cleanup_tag_users_cache(now)
+
+
+async def _fetch_tag_users_pages(cred, my_uid, tag_id, page_size=50, max_pages=50):
+    users = []
+    page = 1
+    while True:
+        group_users_api = Api(
+            "https://api.bilibili.com/x/relation/tag",
+            method="GET",
+            credential=cred,
+        )
+        group_users_api.update_params(mid=my_uid, tagid=tag_id, pn=page, ps=page_size)
+        group_users = await group_users_api.result
+
+        if not group_users or not isinstance(group_users, list):
+            break
+
+        users.extend(group_users)
+
+        if len(group_users) < page_size:
+            break
+
+        page += 1
+        if page > max_pages:
+            break
+
+        await asyncio.sleep(0.1)
+
+    return users
+
+
+async def _get_tag_users_with_cache(cred, my_uid, tag_id):
+    cache_key = _build_tag_users_cache_key(my_uid, tag_id)
+    _cleanup_tag_users_cache()
+
+    cached = _get_cached_tag_users(cache_key)
+    if cached is not None:
+        return cached
+
+    existing = _tag_users_inflight.get(cache_key)
+    if existing:
+        return await existing
+
+    async def _task():
+        users = await _fetch_tag_users_pages(cred, my_uid, tag_id)
+        _set_cached_tag_users(cache_key, users)
+        return users
+
+    task = asyncio.create_task(_task())
+    _tag_users_inflight[cache_key] = task
+    try:
+        return await task
+    finally:
+        _tag_users_inflight.pop(cache_key, None)
 
 
 async def get_my_followings(group_name=None, group_id=None):
@@ -55,7 +167,12 @@ async def get_my_followings(group_name=None, group_id=None):
                     )
                     res = await group_users_api.result
                 except Exception as e:
-                    print(f"Error fetching group users: {e}")
+                    logger.warning(
+                        "Error fetching group users (tagid=%s, page=%s): %s",
+                        tagid,
+                        page,
+                        e,
+                    )
                     break
 
                 if not res:
@@ -111,39 +228,24 @@ async def get_my_followings(group_name=None, group_id=None):
                         if not count or count == 0:
                             continue
 
-                        g_page = 1
-                        while True:
-                            try:
-                                group_users_api = Api(
-                                    "https://api.bilibili.com/x/relation/tag",
-                                    method="GET",
-                                    credential=cred,
-                                )
-                                group_users_api.update_params(
-                                    mid=my_uid, tagid=tag_id, pn=g_page, ps=50
-                                )
-                                g_res = await group_users_api.result
+                        try:
+                            tag_users = await _get_tag_users_with_cache(
+                                cred, my_uid, tag_id
+                            )
 
-                                if not g_res or not isinstance(g_res, list):
-                                    break
-
-                                for gu in g_res:
-                                    guid = gu.get("mid")
-                                    if guid:
-                                        if guid not in uid_tags_map:
-                                            uid_tags_map[guid] = []
-                                        uid_tags_map[guid].append(tag_name)
-
-                                if len(g_res) < 50:
-                                    break
-                                g_page += 1
-                                if g_page > 50:
-                                    break
-
-                                await asyncio.sleep(0.1)
-                            except Exception as e:
-                                print(f"Error fetching users for tag {tag_name}: {e}")
-                                break
+                            for gu in tag_users:
+                                guid = gu.get("mid")
+                                if guid:
+                                    if guid not in uid_tags_map:
+                                        uid_tags_map[guid] = []
+                                    uid_tags_map[guid].append(tag_name)
+                        except Exception as e:
+                            logger.warning(
+                                "Error fetching users for tag (name=%s, tag_id=%s): %s",
+                                tag_name,
+                                tag_id,
+                                e,
+                            )
 
                     for f in all_followings:
                         f_uid = f.get("mid")
@@ -151,7 +253,7 @@ async def get_my_followings(group_name=None, group_id=None):
                             f["biliGroups"] = uid_tags_map[f_uid]
 
             except Exception as e:
-                print(f"Error fetching groups info: {e}")
+                logger.warning("Error fetching groups info: %s", e)
 
         result = []
         for f in all_followings:
@@ -228,4 +330,3 @@ async def get_follow_groups(group_id=None):
             return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-

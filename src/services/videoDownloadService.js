@@ -10,6 +10,9 @@ const {
     getVideoDownloadResolutionForGroup,
     getVideoDownloadMaxDurationForGroup,
 } = require('../config')
+const {
+    canReceiveSubscriptionVideoDownload
+} = require('./subscription/updateChecker/helpers/groupReachability')
 
 // 下载目录必须与 NapCat 共享目录对齐，否则 NapCat 无法读取本地视频文件
 const DOWNLOADS_DIR = path.join(config.napcatTempPath, 'downloads')
@@ -411,7 +414,7 @@ class VideoDownloadService {
      * 按群独立过滤时长限制，取所有目标群中最高的分辨率下载
      */
     async downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0) {
-        const enabledGroups = groupIds.filter(gid => isVideoDownloadEnabledForGroup(gid))
+        const enabledGroups = groupIds.filter(gid => canReceiveSubscriptionVideoDownload(gid))
         if (enabledGroups.length === 0) return
 
         const downloadKey = `subscription:${bvid}:${pageIndex}`

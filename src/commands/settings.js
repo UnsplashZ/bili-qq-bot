@@ -322,11 +322,11 @@ class SettingsCommand {
                      return true;
                 }
                 const value = parseInt(parts[2]);
-                if (!isNaN(value)) {
+                if (!isNaN(value) && value > 0) {
                     subscriptionService.updateCheckInterval(value);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局订阅轮询间隔已设置为 ${value} 秒。` } }]);
                 } else {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的秒数。' } }]);
+                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的正整数秒数。' } }]);
                 }
                 return true;
             }
@@ -338,10 +338,17 @@ class SettingsCommand {
 
                 if (action === '开') {
                     config.setGroupConfig(groupId, 'enableCookieSync', true);
-                    const currentGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
+                    let currentGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames');
+                    if (typeof currentGroups === 'string') {
+                        currentGroups = currentGroups.split(',').map(item => String(item).trim()).filter(Boolean);
+                    } else if (Array.isArray(currentGroups)) {
+                        currentGroups = currentGroups.map(item => String(item).trim()).filter(Boolean);
+                    } else {
+                        currentGroups = [];
+                    }
                     
                     if (currentGroups.length === 0) {
-                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已开启关注同步功能。注意：当前未设置任何同步分组，请使用 /设置 关注同步 添加 <分组名> 来添加需要同步的分组。' } }]);
+                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已开启关注同步功能。当前生效分组：全部分组（不过滤）。如需按分组过滤，请使用 /设置 关注同步 添加 <分组名>。' } }]);
                     } else {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已开启关注同步功能。当前生效分组：${currentGroups.join(', ')}。` } }]);
                     }

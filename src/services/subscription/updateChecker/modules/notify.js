@@ -1,10 +1,28 @@
 const { notificationService, imageGenerator, config, logger, notificationHistory } = require('../adapters/deps')
 const { normalizeSourceList } = require('../helpers/sourceMap')
+const { resolveDedupKey } = require('../helpers/dedupKey')
+const { canReceiveSubscriptionNotification } = require('../helpers/groupReachability')
+
+function createNotifyResult(dedupKey = null) {
+    return {
+        successGroups: [],
+        failedGroups: [],
+        dedupKey
+    }
+}
+
+function pushUniqueGroup(target, gid) {
+    const value = String(gid)
+    if (!target.includes(value)) {
+        target.push(value)
+    }
+}
 
 module.exports = {
     notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
         if (!this.ws) return
 
+        const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
@@ -13,12 +31,12 @@ module.exports = {
             // Check for deduplication if key is provided
             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
-            if (dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
+            if (!disableDedup && dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
                 logger.info(`[UpdateChecker] Skipping duplicate text notification for group ${gid} (key: ${dedupKey})`)
                 return
             }
 
-            if (!config.isGroupEnabled(gid)) return
+            if (!canReceiveSubscriptionNotification(gid)) return
 
             const messageChain = [{ type: 'text', data: { text } }]
             const resolvedMeta = this.buildAtAllMetaForGroup(gid, groupSourceMap, atAllMeta)
@@ -27,30 +45,27 @@ module.exports = {
             })
 
             // Record notification history if key provided
-            if (dedupKey) {
+            if (!disableDedup && dedupKey) {
                 notificationHistory.add(gid, dedupKey, ttlMs)
             }
         })
     },
 
     async notifyGroupsWithImage(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
+        const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
         const groupIds = this.getGroupIdsFromSourceMap(groupSourceMap)
 
-        if (!this.ws || groupIds.length === 0) return
+        const dedupId = resolveDedupKey(type, data)
 
-        // Deduplication Logic
-        // Determine unique ID based on data
-        let dedupId = null
-        if (data && data.id) dedupId = data.id // dynamic id
-        else if (data && data.ep_id) dedupId = data.ep_id // bangumi ep id (if available)
-        else if (type === 'live' && data && data.id) dedupId = `live_${data.id}` // live room/user id
+        const result = createNotifyResult(dedupId)
+        if (!this.ws || groupIds.length === 0) return result
 
         // Filter out groups that already received this notification
         const pendingGroupIds = []
-        if (dedupId) {
+        if (!disableDedup && dedupId) {
             for (const gid of groupIds) {
                 const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                 const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
@@ -65,13 +80,13 @@ module.exports = {
             pendingGroupIds.push(...groupIds)
         }
 
-        if (pendingGroupIds.length === 0) return
+        if (pendingGroupIds.length === 0) return result
 
         // Group by config signature to handle Night Mode / Show ID differences
         const groupsByConfig = new Map() // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
 
         for (const groupId of pendingGroupIds) {
-            if (!config.isGroupEnabled(groupId)) continue
+            if (!canReceiveSubscriptionNotification(groupId)) continue
 
             const isNight = imageGenerator.isNightMode(groupId)
             const showId = config.getGroupConfig(groupId, 'showId')
@@ -107,55 +122,74 @@ module.exports = {
 
                 // Send to all groups in this configuration batch
                 await Promise.all(targetGroupIds.map(async gid => {
-                    const baseMessageChain = [
-                        { type: 'image', data: { file: `base64://${base64Image}` } },
-                        { type: 'text', data: { text: textMsg } }
-                    ]
-                    const resolvedMeta = this.buildAtAllMetaForGroup(
-                        gid,
-                        groupSourceMap,
-                        {
-                            ...atAllMeta,
-                            category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
-                            fallbackSources
-                        },
-                        type,
-                        data
-                    )
-                    await this.sendSubscriptionMessage(gid, baseMessageChain, resolvedMeta)
+                    try {
+                        const baseMessageChain = [
+                            { type: 'image', data: { file: `base64://${base64Image}` } },
+                            { type: 'text', data: { text: textMsg } }
+                        ]
+                        const resolvedMeta = this.buildAtAllMetaForGroup(
+                            gid,
+                            groupSourceMap,
+                            {
+                                ...atAllMeta,
+                                category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
+                                fallbackSources
+                            },
+                            type,
+                            data
+                        )
+                        await this.sendSubscriptionMessage(gid, baseMessageChain, resolvedMeta)
+                        pushUniqueGroup(result.successGroups, gid)
 
-                    // Record history
-                    if (dedupId) {
-                        const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
-                        const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
-                        notificationHistory.add(gid, dedupId, ttlMs)
+                        // Record history
+                        if (!disableDedup && dedupId) {
+                            const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
+                            const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
+                            notificationHistory.add(gid, dedupId, ttlMs)
+                        }
+                    } catch (sendError) {
+                        logger.error(`[UpdateChecker] Error in image notification task for group ${gid}:`, sendError)
+                        pushUniqueGroup(result.failedGroups, gid)
                     }
                 }))
             } catch (e) {
                 logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e)
                 // Fallback to text for these groups
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl
-                const fallbackGroupSourceMap = new Map()
-                targetGroupIds.forEach(gid => {
-                    const groupSources = groupSourceMap.get(String(gid))
-                    this.mergeGroupSourceMap(
-                        fallbackGroupSourceMap,
-                        gid,
-                        groupSources ? Array.from(groupSources) : fallbackSources
-                    )
-                })
-                this.notifyGroups(
-                    fallbackGroupSourceMap,
-                    `预览生成失败，已降级为文本链接：\n${textMsg}`,
-                    dedupId,
-                    {
-                        ...atAllMeta,
-                        category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
-                        fallbackSources
+                const fallbackText = `预览生成失败，已降级为文本链接：\n${textMsg}`
+                for (const gid of targetGroupIds) {
+                    try {
+                        const resolvedMeta = this.buildAtAllMetaForGroup(
+                            gid,
+                            groupSourceMap,
+                            {
+                                ...atAllMeta,
+                                category: atAllMeta?.category || this.resolveAtAllCategory(type, data),
+                                fallbackSources
+                            },
+                            type,
+                            data
+                        )
+                        await this.sendSubscriptionMessage(
+                            gid,
+                            [{ type: 'text', data: { text: fallbackText } }],
+                            resolvedMeta
+                        )
+                        pushUniqueGroup(result.successGroups, gid)
+                        if (!disableDedup && dedupId) {
+                            const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
+                            const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
+                            notificationHistory.add(gid, dedupId, ttlMs)
+                        }
+                    } catch (fallbackError) {
+                        logger.error(`[UpdateChecker] Error in fallback text notification task for group ${gid}:`, fallbackError)
+                        pushUniqueGroup(result.failedGroups, gid)
                     }
-                )
+                }
             }
         }
+
+        return result
     },
 
     /**
@@ -167,18 +201,27 @@ module.exports = {
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
         const groupIds = this.getGroupIdsFromSourceMap(groupSourceMap)
-        if (groupIds.length === 0) return
+        if (groupIds.length === 0) return createNotifyResult(null)
 
         // 推送消息
-        await this.notifyGroupsWithImage(groupSourceMap, data, type, textUrl, descriptionText, {
+        const notifyResult = await this.notifyGroupsWithImage(groupSourceMap, data, type, textUrl, descriptionText, {
             ...atAllMeta,
             fallbackSources
         })
 
         // 添加链接到缓存
         const linkHandler = require('../../../../handlers/linkHandler')
-        for (const groupId of groupIds) {
+        const cacheGroupIds = Array.isArray(notifyResult?.successGroups)
+            ? notifyResult.successGroups
+            : groupIds
+        for (const groupId of cacheGroupIds) {
             linkHandler.addUrlToCache(textUrl, groupId)
+        }
+
+        return {
+            successGroups: Array.isArray(notifyResult?.successGroups) ? notifyResult.successGroups : [],
+            failedGroups: Array.isArray(notifyResult?.failedGroups) ? notifyResult.failedGroups : [],
+            dedupKey: notifyResult?.dedupKey ?? null
         }
     }
 }

@@ -12,7 +12,15 @@ class SubscriptionService {
     get userSubs() { return subscriptionManager.userSubs; }
     get bangumiSubs() { return subscriptionManager.bangumiSubs; }
     get cookieFollowings() { return subscriptionManager.cookieFollowings; }
-    set cookieFollowings(val) { subscriptionManager.setCookieFollowings(val); }
+    set cookieFollowings(val) {
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+            subscriptionManager.replaceCookieFollowingsMap(val).catch(error => {
+                logger.error('[SubscriptionService] Failed to replace cookieFollowings via compatibility setter:', error);
+            });
+            return;
+        }
+        logger.warn('[SubscriptionService] cookieFollowings setter ignored: expected map object.');
+    }
 
     // Ensure subscriptions are loaded (for direct access to userSubs/bangumiSubs)
     async ensureLoaded() {
@@ -65,6 +73,10 @@ class SubscriptionService {
         return subscriptionManager.getFollowingsForGroup(groupId);
     }
 
+    async setCookieFollowings(accountUid, newFollowings) {
+        return await subscriptionManager.setCookieFollowings(accountUid, newFollowings);
+    }
+
     async removeAllGroupSubscriptions(groupId) {
         return await subscriptionManager.removeAllGroupSubscriptions(groupId);
     }
@@ -95,10 +107,14 @@ class SubscriptionService {
             };
             // updateChecker.checkUserDynamic now internally uses bypassCache=true
             // 3rd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
-            await updateChecker.checkUserDynamic(tempSub, null, true);
+            await updateChecker.checkUserDynamic(tempSub, null, true, {
+                disableDedup: true
+            });
             
             // Also force check live status
-            await updateChecker.checkUserLive(tempSub, null, true);
+            await updateChecker.checkUserLive(tempSub, null, true, {
+                disableDedup: true
+            });
 
             // Force check video/article for this user in current group only
             const targetGroupSourceMap = typeof updateChecker.createGroupSourceMap === 'function'
@@ -113,10 +129,12 @@ class SubscriptionService {
                 manualSub: sub
             };
             await updateChecker.checkUserVideoUnified(manualUserItem, true, {
-                persistState: false
+                persistState: false,
+                disableDedup: true
             });
             await updateChecker.checkUserArticleUnified(manualUserItem, true, {
-                persistState: false
+                persistState: false,
+                disableDedup: true
             });
             
             return true;

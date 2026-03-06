@@ -4,18 +4,34 @@
 
 - Local documentation-only edits can proceed without prior approval.
 - Documentation-only edits include writing/updating local `.md` docs (for example `README.md`, `docs/**`, `AGENTS.md`, `CLAUDE.md`) with no code/config/script/test changes.
+- Exception: governance documentation changes still require explicit user approval, including `AGENTS.md`, `CLAUDE.md`, and `docs/policies/**`.
 - Any non-documentation code modification still requires explicit user approval first, including source files, scripts, configs, and tests.
 - If a change mixes docs and code/config/script/test edits, get user approval before making any edits.
+- Treat explicit approval as a hard gate: before approval is granted, do not perform any non-documentation write operation.
+- Non-documentation write operations include direct edits and automated writes, such as `apply_patch`, shell redirection (`>`, `>>`), in-place edits (`sed -i`, `perl -pi`), formatters with write mode, and scripts that generate or rewrite code/config/test files.
+- If approval is missing or ambiguous, stop at read-only analysis and ask for explicit authorization before editing.
+- Approval scope is limited to the files/tasks that were clearly authorized; if scope changes, request authorization again before writing.
+
+## Documentation Location Rule
+
+- Default location for newly created work documents is `docs/plans/`.
+- Work documents include analysis notes, implementation plans, review reports, investigation summaries, and execution records produced during an active request.
+- Do **not** place new work documents directly under `docs/done/` unless the user explicitly asks for archival/completion placement.
+- Moving a document from `docs/plans/` to `docs/done/` requires explicit user instruction.
+- If the user explicitly specifies a target doc path/directory, follow the user instruction first.
+- Keep date-prefixed naming for new work docs, e.g. `YYYY-MM-DD-topic.md`.
 
 ## Commit Message Rules
 
 - Branch-aware subject format:
   - On `main` branch: `vxx.yy.zz <summary>`
   - On non-`main` branches: `<type>: <summary>`
+- Allowed `<type>` values on non-`main` branches: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
 - On `main` branch, do not add type prefix in subject (`feat:`/`fix:`/etc.).
 - Commit body is required by default for both `main` and non-`main` branches.
 - If you intentionally omit commit body, get explicit user approval first.
 - On `main` branch, before creating a commit, read the latest commit subject on `main`, parse `vxx.yy.zz` as the baseline version, then apply the bump policy below.
+- If the latest `main` subject cannot be parsed as `vxx.yy.zz`, stop automatic version inference and require manual baseline version input from the user before committing.
 - Version bump policy for `vxx.yy.zz`:
   - Minor bug fix or small feature adjustment: increment `zz` by 1
   - Major feature adjustment: increment `yy` by 1 and reset `zz` to `0`
@@ -35,6 +51,14 @@
 - If `venv` exists, use that virtual environment for test execution.
 - If `venv` does not exist, create it first and then run tests within that environment.
 
+## Verification Before Completion Rule
+
+- For any non-documentation change, run the smallest relevant verification before claiming completion.
+- For Node.js changes, run the affected test file(s) or equivalent minimal verification command.
+- For Python changes, run tests using the local `venv` per the Python Test Environment Rule.
+- For frontend/dashboard changes, run targeted checks first; if build or broader checks are relevant, run them before completion when feasible.
+- If verification cannot be executed due to environment or external constraints, explicitly report unverified scope and residual risk in the final response.
+
 ## Local Preview Output Rule
 
 - For local testing that generates preview images, always write outputs to `./test/output`.
@@ -44,6 +68,8 @@
 
 - Files under `test/` are mainly local functional verification scripts and are not required to be tracked by default.
 - If any test script needs to be committed to the repository, explicit user request is required first.
+- Formal unit test files are tracked by default and do not require extra approval to commit, including `test/unit/**/*.test.js` and `test/unit/**/*.spec.js`.
+- Temporary or one-off scripts remain untracked by default, including `test/temp_*` and files under `test/debug/**`.
 
 ## NapCat Interface Lookup Rule
 
@@ -60,4 +86,6 @@
 - When tests or runtime checks cannot be executed, explicitly state the unverified parts and residual risk in the review output.
 
   
-  ## read CLAUDE.md for more details on development commands, project architecture, and key directories.
+## References
+
+- Read `CLAUDE.md` for more details on development commands, project architecture, and key directories.

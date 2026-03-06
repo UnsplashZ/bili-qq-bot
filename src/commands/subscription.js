@@ -159,7 +159,14 @@ class SubscriptionCommand {
                     const showId = config.getGroupConfig(groupId, 'showId');
 
                     const enableSync = config.getGroupConfig(groupId, 'enableCookieSync');
-                    const syncGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
+                    let syncGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames');
+                    if (typeof syncGroups === 'string') {
+                        syncGroups = syncGroups.split(',').map(item => String(item).trim()).filter(Boolean);
+                    } else if (Array.isArray(syncGroups)) {
+                        syncGroups = syncGroups.map(item => String(item).trim()).filter(Boolean);
+                    } else {
+                        syncGroups = [];
+                    }
 
                     if (!enableSync) {
                         data.accountFollows = null; // Explicitly null to indicate disabled
@@ -176,17 +183,12 @@ class SubscriptionCommand {
                         );
                         data.accountFollowsTitle = `关注列表 - ${syncGroups.join(' & ')}`;
                     } else {
-                        data.accountFollows = []; // Enabled but no groups configured? Treat as empty list or show all?
-                        // Previous logic implied showing all if no groups configured?
-                        // "关注列表 (未配置分组)" -> seems like we want to show it but maybe it's empty because of logic?
-                        // Actually, if syncGroups is empty, previous logic was:
-                        // data.accountFollows = [];
-                        // So let's keep it as [] to show "No groups configured" or similar if we want to show the section.
-                        // But wait, if syncGroups is empty, we probably shouldn't show anything or show a warning.
-                        // Let's stick to [] so it shows the section with "暂无关注" or similar, 
-                        // but maybe we want to be clearer. 
-                        // For now, let's keep [] so it behaves as "enabled but empty result".
-                        data.accountFollowsTitle = '关注列表 (未配置分组)';
+                        if (!Array.isArray(data.accountFollows)) {
+                            logger.warn(`[SubscriptionCommand] data.accountFollows is not an array: ${typeof data.accountFollows}`);
+                            data.accountFollows = [];
+                        }
+                        // 空同步分组语义统一为“不按分组过滤”
+                        data.accountFollowsTitle = '关注列表 - 全部分组';
                     }
 
                     if (data.users.length === 0 && data.bangumis.length === 0 && (!data.accountFollows || data.accountFollows.length === 0)) {

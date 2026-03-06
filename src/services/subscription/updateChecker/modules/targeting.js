@@ -153,7 +153,7 @@ module.exports = {
         const targetMap = new Map()
         const followerId = subscriptionManager.getFollowerId(follower)
         const followerTags = Array.isArray(follower?.biliGroups)
-            ? follower.biliGroups.map(tag => String(tag))
+            ? follower.biliGroups.map(tag => String(tag).trim()).filter(Boolean)
             : []
 
         // 1. Find all groups bound to this account (Cookie Sync)
@@ -170,10 +170,13 @@ module.exports = {
             let allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames')
             if (typeof allowedTags === 'string') {
                 allowedTags = allowedTags.split(',').map(s => s.trim()).filter(Boolean)
+            } else if (Array.isArray(allowedTags)) {
+                allowedTags = allowedTags.map(tag => String(tag).trim()).filter(Boolean)
             }
             if (!Array.isArray(allowedTags)) {
                 allowedTags = []
             }
+            // 空分组配置表示不过滤（全量同步）
             if (allowedTags.length > 0) {
                 const hasTag = allowedTags.some(tag => followerTags.includes(tag))
                 if (!hasTag) continue
