@@ -156,11 +156,40 @@ module.exports = {
             // Build active groups set (only groups where isInGroup !== false)
             const activeGroups = new Set()
             const groupConfigs = config.groupConfigs || {}
+            const isGroupActive = (groupId) => {
+                const gid = String(groupId)
+                if (!gid) return false
+                const groupConfig = groupConfigs[gid]
+                return !groupConfig || groupConfig.isInGroup !== false
+            }
+            const tryAddActiveGroup = (groupId) => {
+                const gid = String(groupId)
+                if (!gid) return
+                if (isGroupActive(gid)) {
+                    activeGroups.add(gid)
+                }
+            }
 
             for (const [groupId, groupConfig] of Object.entries(groupConfigs)) {
                 if (groupConfig.isInGroup !== false) {
                     activeGroups.add(groupId)
                 }
+            }
+
+            for (const sub of subscriptionManager.userSubs || []) {
+                for (const gid of sub.groupIds || []) {
+                    tryAddActiveGroup(gid)
+                }
+            }
+
+            for (const sub of subscriptionManager.bangumiSubs || []) {
+                for (const gid of sub.groupIds || []) {
+                    tryAddActiveGroup(gid)
+                }
+            }
+
+            for (const gid of Object.keys(subscriptionManager.groupToAccountMap || {})) {
+                tryAddActiveGroup(gid)
             }
 
             logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`)
@@ -251,6 +280,13 @@ module.exports = {
         } catch (error) {
             logger.error('[UpdateChecker] Scheduled check failed:', error)
         } finally {
+            try {
+                if (typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
+                    await subscriptionManager.flushPendingFollowerSaves()
+                }
+            } catch (flushError) {
+                logger.error('[UpdateChecker] Failed to flush pending follower saves after scheduled check:', flushError)
+            }
             this._checkAllInFlight = false
         }
     }
