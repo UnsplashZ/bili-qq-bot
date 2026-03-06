@@ -269,12 +269,21 @@ function renderOrigContent(origItemRaw) {
     const o_voteHtml = renderVoteCard(o_voteObj);
     const o_name = o_author.name || 'Unknown';
     const o_face = o_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+    const o_pubTime = formatPubTime(oitem.pub_ts) || formatPubTime(o_author.pub_ts) || o_author.pub_time || '';
+    const o_verifyType = Number(o_author.official_verify?.type)
+    const o_verifyBadge = renderVerifyBadge(o_verifyType, 'author-verify-badge--orig')
 
     return `
         <div class="orig-card">
             <div class="orig-header">
-                <img class="orig-author-avatar" src="${o_face}">
-                <span class="orig-author-name">${o_name}</span>
+                <div class="avatar-wrapper avatar-wrapper--orig">
+                    <img class="orig-author-avatar" src="${escapeHtml(o_face)}">
+                    ${o_verifyBadge}
+                </div>
+                <div class="orig-author-meta">
+                    <span class="orig-author-name">${escapeHtml(o_name)}</span>
+                    ${o_pubTime ? `<span class="orig-pub-time">${escapeHtml(String(o_pubTime))}</span>` : ''}
+                </div>
             </div>
             <div class="orig-content">
                 ${o_title ? `<div class="orig-title">${o_title}</div>` : ''}
