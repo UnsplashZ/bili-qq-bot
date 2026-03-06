@@ -855,17 +855,42 @@ function generateCSS(colorData, viewport) {
                 background: var(--color-soft-bg);
             }
 
+            .avatar-wrapper--orig {
+                width: 56px;
+                height: 56px;
+                margin-right: 0;
+                flex-shrink: 0;
+                --verify-size: 20px;
+                --verify-right: -2px;
+                --verify-bottom: -2px;
+            }
+
             .orig-author-avatar {
-                width: 48px;
-                height: 48px;
+                width: 100%;
+                height: 100%;
                 border-radius: 50%;
                 box-shadow: var(--shadow-sm);
+                display: block;
+            }
+
+            .orig-author-meta {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-width: 0;
             }
 
             .orig-author-name {
                 font-weight: 700;
                 font-size: 20px;
                 color: var(--color-text);
+                line-height: 1.35;
+            }
+
+            .orig-pub-time {
+                font-size: 16px;
+                color: var(--color-subtext);
+                font-weight: 400;
             }
 
             .orig-content { padding: 16px; }

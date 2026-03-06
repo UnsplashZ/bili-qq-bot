@@ -7,6 +7,10 @@ const {
     getNumericGroupIdsInBotGroupList,
     isInBotGroupList
 } = require('../shared/group-guard')
+const {
+    AiConfigValidationError,
+    normalizeAiConfigField
+} = require('../../../../services/ai/validation')
 
 const router = express.Router()
 
@@ -127,46 +131,18 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' })
         }
 
-        if (updates.hasOwnProperty('aiProbability') && updates.aiProbability !== null) {
-            const prob = parseFloat(updates.aiProbability)
-            if (isNaN(prob) || prob < 0 || prob > 1) {
-                return res
-                    .status(400)
-                    .json({ error: 'aiProbability must be between 0 and 1' })
-            }
-            updates.aiProbability = prob
-        }
-
-        if (updates.hasOwnProperty('aiContextLimit') && updates.aiContextLimit !== null) {
-            const limit = parseInt(updates.aiContextLimit, 10)
-            if (isNaN(limit) || limit < 1 || limit > 100) {
-                return res
-                    .status(400)
-                    .json({ error: 'aiContextLimit must be between 1 and 100' })
-            }
-            updates.aiContextLimit = limit
-        }
-
-        if (updates.hasOwnProperty('aiTemperature') && updates.aiTemperature !== null) {
-            const temp = parseFloat(updates.aiTemperature)
-            if (isNaN(temp) || temp < 0 || temp > 2) {
-                return res
-                    .status(400)
-                    .json({ error: 'aiTemperature must be between 0 and 2' })
-            }
-            updates.aiTemperature = temp
-        }
-
-        const aiToggleKeys = ['aiEnabled', 'aiRagEnabled', 'aiProfileEnabled']
-        for (const key of aiToggleKeys) {
-            if (
-                updates.hasOwnProperty(key) &&
-                updates[key] !== null &&
-                typeof updates[key] !== 'boolean'
-            ) {
-                return res
-                    .status(400)
-                    .json({ error: `${key} must be a boolean or null` })
+        const aiFields = ['aiProbability', 'aiContextLimit', 'aiTemperature', 'aiEnabled', 'aiRagEnabled', 'aiProfileEnabled']
+        for (const key of aiFields) {
+            if (!updates.hasOwnProperty(key) || updates[key] === null) continue
+            try {
+                updates[key] = normalizeAiConfigField(key, updates[key], {
+                    contextLimitRange: { min: 1, max: 100 }
+                })
+            } catch (e) {
+                if (e instanceof AiConfigValidationError) {
+                    return res.status(400).json({ error: e.message, field: e.field })
+                }
+                throw e
             }
         }
 

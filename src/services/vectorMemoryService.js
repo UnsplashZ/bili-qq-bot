@@ -34,11 +34,21 @@ class VectorMemoryService {
         // 🆕 Single group size limit (max 50% of total memory)
         this.maxSingleGroupSize = this.maxL1MemoryBytes * 0.5;
 
+        // Embedding write queue (protect external embedding API from request storms)
+        const concurrency = parseInt(process.env.AI_EMBEDDING_CONCURRENCY || '2', 10);
+        const queueSize = parseInt(process.env.AI_EMBEDDING_QUEUE_SIZE || '200', 10);
+        this.maxEmbeddingConcurrency = Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 2;
+        this.maxEmbeddingQueueSize = Number.isFinite(queueSize) && queueSize > 0 ? queueSize : 200;
+        this.embeddingQueue = [];
+        this.activeEmbeddingJobs = 0;
+
         logger.info('[VectorMemory] Service initialized', {
             maxL1Memory: `${(this.maxL1MemoryBytes / 1024 / 1024).toFixed(0)}MB`,
             maxCachedGroups: this.maxCachedGroups,
             maxQueryCacheSize: this.maxQueryCacheSize,
-            maxSingleGroup: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(0)}MB`
+            maxSingleGroup: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(0)}MB`,
+            embeddingConcurrency: this.maxEmbeddingConcurrency,
+            embeddingQueueSize: this.maxEmbeddingQueueSize
         });
 
         this.init();
@@ -252,32 +262,97 @@ class VectorMemoryService {
         return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
+    _isLowPriorityMemory(role, text, shortThreshold) {
+        if (role !== 'user') return false;
+        const len = String(text || '').length;
+        return len < shortThreshold * 2;
+    }
+
+    _drainEmbeddingQueue() {
+        while (this.activeEmbeddingJobs < this.maxEmbeddingConcurrency && this.embeddingQueue.length > 0) {
+            const job = this.embeddingQueue.shift();
+            this.activeEmbeddingJobs += 1;
+
+            Promise.resolve()
+                .then(job.run)
+                .then(result => job.resolve({ dropped: false, result }))
+                .catch(error => job.reject(error))
+                .finally(() => {
+                    this.activeEmbeddingJobs -= 1;
+                    this._drainEmbeddingQueue();
+                });
+        }
+    }
+
+    _enqueueEmbeddingJob(run, lowPriority, meta = {}) {
+        if (this.embeddingQueue.length >= this.maxEmbeddingQueueSize) {
+            if (lowPriority) {
+                logger.debug(`[VectorMemory] Dropping low-priority embedding task (queue full): group=${meta.groupId}, role=${meta.role}`);
+                return Promise.resolve({ dropped: true });
+            }
+
+            const removableIndex = this.embeddingQueue.findIndex(job => job.lowPriority);
+            if (removableIndex >= 0) {
+                const [removed] = this.embeddingQueue.splice(removableIndex, 1);
+                removed.resolve({ dropped: true, reason: 'evicted_low_priority' });
+                logger.warn(`[VectorMemory] Queue full, evicted a low-priority embedding task for group=${meta.groupId}`);
+            } else {
+                logger.warn(`[VectorMemory] Queue full, dropping high-priority task for group=${meta.groupId}`);
+                return Promise.resolve({ dropped: true, reason: 'queue_full' });
+            }
+        }
+
+        return new Promise((resolve, reject) => {
+            this.embeddingQueue.push({ run, resolve, reject, lowPriority });
+            this._drainEmbeddingQueue();
+        });
+    }
+
     // Get Embedding from API
     async getEmbedding(text) {
         if (!config.aiEmbeddingApiKey) return null;
-        
-        try {
-            const proxyConfig = getAxiosProxyConfig(config.aiEmbeddingProxy);
-            const response = await axios.post(config.aiEmbeddingApiUrl, {
-                input: text,
-                model: config.aiEmbeddingModel
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${config.aiEmbeddingApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                proxy: proxyConfig,
-                timeout: 10000
-            });
 
-            if (response.data && response.data.data && response.data.data.length > 0) {
-                return response.data.data[0].embedding;
-            }
-        } catch (error) {
-            // Silently fail if embedding is not supported or configured wrong
-            logger.error(`[VectorMemory] Failed to get embedding: ${error.message}`);
-            if (error.response) {
-                logger.error(`[VectorMemory] Response data: ${JSON.stringify(error.response.data)}`);
+        const retryMax = parseInt(process.env.AI_EMBEDDING_RETRY_MAX || '2', 10);
+        const retryDelayBaseMs = parseInt(process.env.AI_EMBEDDING_RETRY_DELAY_MS || '300', 10);
+        const maxRetries = Number.isFinite(retryMax) && retryMax >= 0 ? retryMax : 2;
+        const baseDelayMs = Number.isFinite(retryDelayBaseMs) && retryDelayBaseMs > 0 ? retryDelayBaseMs : 300;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const proxyConfig = getAxiosProxyConfig(config.aiEmbeddingProxy);
+                const response = await axios.post(config.aiEmbeddingApiUrl, {
+                    input: text,
+                    model: config.aiEmbeddingModel
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${config.aiEmbeddingApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    proxy: proxyConfig,
+                    timeout: 10000
+                });
+
+                if (response.data && response.data.data && response.data.data.length > 0) {
+                    return response.data.data[0].embedding;
+                }
+                return null;
+            } catch (error) {
+                const status = error && error.response ? error.response.status : null;
+                const retryable = status === 429 || (status >= 500 && status < 600);
+                const canRetry = retryable && attempt < maxRetries;
+
+                if (canRetry) {
+                    const delayMs = baseDelayMs * (2 ** attempt);
+                    logger.warn(`[VectorMemory] Embedding request retry (${attempt + 1}/${maxRetries}) after ${delayMs}ms, status=${status}`);
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                    continue;
+                }
+
+                logger.error(`[VectorMemory] Failed to get embedding: ${error.message}`);
+                if (error.response) {
+                    logger.error(`[VectorMemory] Response data: ${JSON.stringify(error.response.data)}`);
+                }
+                return null;
             }
         }
         return null;
@@ -316,6 +391,24 @@ class VectorMemoryService {
             return;
         }
 
+        const lowPriority = this._isLowPriorityMemory(role, text, shortThreshold);
+
+        try {
+            const queued = await this._enqueueEmbeddingJob(
+                async () => this._addMemoryCore(groupId, text, role, userId, userName),
+                lowPriority,
+                { groupId, role }
+            );
+
+            if (queued && queued.dropped) {
+                logger.debug(`[VectorMemory] Memory write dropped for group ${groupId}`);
+            }
+        } catch (e) {
+            logger.error('[VectorMemory] Error adding memory:', e);
+        }
+    }
+
+    async _addMemoryCore(groupId, text, role, userId = null, userName = null) {
         try {
             const embeddingText = (role === 'user' && userName) ? `${userName}: ${text}` : text
             logger.info(`[VectorMemory] Getting embedding for: "${embeddingText.substring(0, 20)}..."`);
@@ -502,6 +595,7 @@ class VectorMemoryService {
             // Build L3 cache key that includes userId to avoid cross-user cache collisions
             const cacheKey = [
                 queryText,
+                limit,
                 currentUserId || '',
                 strictUserId || '',
                 crossUserPenalty,
@@ -517,7 +611,7 @@ class VectorMemoryService {
                     // 检查是否过期
                     if (cached.expires > Date.now()) {
                         logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
-                        return cached.results;
+                        return cached.results.slice(0, limit);
                     } else {
                         // 过期则删除
                         cache.queryCache.delete(cacheKey);

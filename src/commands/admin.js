@@ -1,6 +1,5 @@
 const config = require('../config');
 const logger = require('../utils/logger');
-const aiHandler = require('../handlers/aiHandler');
 const subscriptionService = require('../services/subscriptionService');
 const notificationService = require('../services/notificationService');
 
@@ -25,12 +24,7 @@ class AdminCommand {
             const parts = rawMessage.trim().split(/\s+/);
             const subCommand = parts[1];
 
-            if (subCommand === '新对话' || subCommand === 'newchat') {
-                const targetGid = parts[2] || groupId;
-                aiHandler.resetContext(targetGid);
-                this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已重置群 ${targetGid} 的 AI 对话记忆。` } }]);
-                return true;
-            } else if (subCommand === '群列表' || subCommand === 'list') {
+            if (subCommand === '群列表' || subCommand === 'list') {
                  // Ensure subscriptions are loaded before accessing
                  await subscriptionService.ensureLoaded();
 

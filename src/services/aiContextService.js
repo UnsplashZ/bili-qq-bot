@@ -23,6 +23,24 @@ class AiContextService {
         this.init();
     }
 
+    validateContextId(groupId) {
+        const normalized = String(groupId || '').trim();
+        if (/^\d+$/.test(normalized) || /^private_\d+$/.test(normalized)) {
+            return normalized;
+        }
+        throw new Error(`Invalid context id: ${groupId}`);
+    }
+
+    _resolveContextFilePath(groupId) {
+        const safeGroupId = this.validateContextId(groupId);
+        const resolvedBaseDir = path.resolve(this.contextsDir);
+        const resolvedPath = path.resolve(resolvedBaseDir, `${safeGroupId}.json`);
+        if (resolvedPath !== resolvedBaseDir && !resolvedPath.startsWith(resolvedBaseDir + path.sep)) {
+            throw new Error(`Unsafe context path for id: ${groupId}`);
+        }
+        return { safeGroupId, resolvedPath };
+    }
+
     // Initialize storage and migrate legacy data if exists
     init() {
         try {
@@ -41,8 +59,12 @@ class AiContextService {
                     const entries = JSON.parse(data);
                     // entries is [[key, value], ...]
                     for (const [key, value] of entries) {
-                        const filePath = path.join(this.contextsDir, `${key}.json`);
-                        fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8');
+                        try {
+                            const { resolvedPath } = this._resolveContextFilePath(key);
+                            fs.writeFileSync(resolvedPath, JSON.stringify(value, null, 2), 'utf8');
+                        } catch (e) {
+                            logger.warn(`[AiContextService] Skip invalid legacy context key: ${key}`);
+                        }
                     }
                     // Rename legacy file to .bak
                     fs.renameSync(this.legacyFile, this.legacyFile + '.bak');
@@ -58,11 +80,12 @@ class AiContextService {
 
     // Get context for a group, loading from disk if necessary
     getContext(groupId) {
+        const safeGroupId = this.validateContextId(groupId);
         // 更新访问时间（用于 LRU 和 TTL）
-        this.lastAccess.set(groupId, Date.now());
+        this.lastAccess.set(safeGroupId, Date.now());
 
-        if (this.contexts.has(groupId)) {
-            return this.contexts.get(groupId);
+        if (this.contexts.has(safeGroupId)) {
+            return this.contexts.get(safeGroupId);
         }
 
         // 加载前检查是否超过最大缓存数量限制
@@ -70,37 +93,39 @@ class AiContextService {
             this.evictLRUContext();
         }
 
-        const filePath = path.join(this.contextsDir, `${groupId}.json`);
+        const { resolvedPath } = this._resolveContextFilePath(safeGroupId);
         try {
-            if (fs.existsSync(filePath)) {
-                const data = fs.readFileSync(filePath, 'utf8');
+            if (fs.existsSync(resolvedPath)) {
+                const data = fs.readFileSync(resolvedPath, 'utf8');
                 if (!data || data.trim() === '') {
                     throw new Error('Empty file');
                 }
                 const context = JSON.parse(data);
-                this.contexts.set(groupId, context);
-                logger.debug(`[AiContext] Loaded context for group ${groupId} (${context.length} messages)`);
+                this.contexts.set(safeGroupId, context);
+                logger.debug(`[AiContext] Loaded context for group ${safeGroupId} (${context.length} messages)`);
                 return context;
             }
         } catch (e) {
-            logger.error(`[AiContextService] Failed to load history for group ${groupId}:`, e);
+            logger.error(`[AiContextService] Failed to load history for group ${safeGroupId}:`, e);
         }
 
         // Return empty context if file doesn't exist or error
         const newContext = [];
-        this.contexts.set(groupId, newContext);
+        this.contexts.set(safeGroupId, newContext);
         return newContext;
     }
 
     // Save context for a specific group asynchronously with debounce
     saveContext(groupId) {
-        if (this.saveTimers.has(groupId)) {
-            clearTimeout(this.saveTimers.get(groupId));
+        const safeGroupId = this.validateContextId(groupId);
+
+        if (this.saveTimers.has(safeGroupId)) {
+            clearTimeout(this.saveTimers.get(safeGroupId));
         }
 
         const timer = setTimeout(async () => {
             try {
-                const context = this.contexts.get(groupId);
+                const context = this.contexts.get(safeGroupId);
                 if (!context) return;
 
                 if (!fs.existsSync(this.contextsDir)) {
@@ -108,22 +133,22 @@ class AiContextService {
                 }
 
                 // Check size and trim before saving using storageUtils
-                const maxSize = config.getGroupConfig(groupId, 'aiHistoryMaxSize');
-                const trimRatio = config.getGroupConfig(groupId, 'aiTrimRatio');
+                const maxSize = config.getGroupConfig(safeGroupId, 'aiHistoryMaxSize');
+                const trimRatio = config.getGroupConfig(safeGroupId, 'aiTrimRatio');
                 storageUtils.checkSizeAndTrim(context, maxSize, trimRatio);
 
-                const filePath = path.join(this.contextsDir, `${groupId}.json`);
+                const { resolvedPath } = this._resolveContextFilePath(safeGroupId);
 
                 // Use atomic write with backup
-                await storageUtils.asyncWriteWithBackup(filePath, context);
+                await storageUtils.asyncWriteWithBackup(resolvedPath, context);
 
-                this.saveTimers.delete(groupId);
+                this.saveTimers.delete(safeGroupId);
             } catch (e) {
-                logger.error(`[AiContextService] Error saving history for group ${groupId}:`, e);
+                logger.error(`[AiContextService] Error saving history for group ${safeGroupId}:`, e);
             }
         }, 1000); // Wait 1s after last change before saving
 
-        this.saveTimers.set(groupId, timer);
+        this.saveTimers.set(safeGroupId, timer);
     }
 
     // Helper to add message, trim context, and trigger save
@@ -179,9 +204,10 @@ class AiContextService {
 
     // Reset context for a group
     resetContext(groupId) {
-        this.contexts.set(groupId, []);
-        this.saveContext(groupId);
-        logger.info(`[AiContextService] Reset context for group ${groupId}`);
+        const safeGroupId = this.validateContextId(groupId);
+        this.contexts.set(safeGroupId, []);
+        this.saveContext(safeGroupId);
+        logger.info(`[AiContextService] Reset context for group ${safeGroupId}`);
     }
 
     // 清理超过 TTL 的上下文（基于时间）
@@ -221,13 +247,14 @@ class AiContextService {
 
     // 卸载上下文（保存到磁盘后从内存移除）
     unloadContext(groupId) {
+        const safeGroupId = this.validateContextId(groupId);
         // 先取消待保存的定时器，立即保存
-        if (this.saveTimers.has(groupId)) {
-            clearTimeout(this.saveTimers.get(groupId));
-            this.saveTimers.delete(groupId);
+        if (this.saveTimers.has(safeGroupId)) {
+            clearTimeout(this.saveTimers.get(safeGroupId));
+            this.saveTimers.delete(safeGroupId);
         }
 
-        const context = this.contexts.get(groupId);
+        const context = this.contexts.get(safeGroupId);
         if (context) {
             try {
                 if (!fs.existsSync(this.contextsDir)) {
@@ -235,21 +262,21 @@ class AiContextService {
                 }
 
                 // 使用 storageUtils 进行裁剪和保存
-                const maxSize = config.getGroupConfig(groupId, 'aiHistoryMaxSize');
-                const trimRatio = config.getGroupConfig(groupId, 'aiTrimRatio');
+                const maxSize = config.getGroupConfig(safeGroupId, 'aiHistoryMaxSize');
+                const trimRatio = config.getGroupConfig(safeGroupId, 'aiTrimRatio');
                 storageUtils.checkSizeAndTrim(context, maxSize, trimRatio);
 
-                const filePath = path.join(this.contextsDir, `${groupId}.json`);
-                fs.writeFileSync(filePath, JSON.stringify(context, null, 2), 'utf8');
-                logger.debug(`[AiContext] Saved and unloaded context for group ${groupId} (${context.length} messages)`);
+                const { resolvedPath } = this._resolveContextFilePath(safeGroupId);
+                fs.writeFileSync(resolvedPath, JSON.stringify(context, null, 2), 'utf8');
+                logger.debug(`[AiContext] Saved and unloaded context for group ${safeGroupId} (${context.length} messages)`);
             } catch (e) {
-                logger.error(`[AiContext] Failed to save before unload for group ${groupId}:`, e);
+                logger.error(`[AiContext] Failed to save before unload for group ${safeGroupId}:`, e);
             }
         }
 
         // 从内存中移除
-        this.contexts.delete(groupId);
-        this.lastAccess.delete(groupId);
+        this.contexts.delete(safeGroupId);
+        this.lastAccess.delete(safeGroupId);
     }
 
     // 清理所有定时器（进程退出时调用）

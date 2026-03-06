@@ -9,6 +9,7 @@ const linkHandler = require('./linkHandler');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 const requestApprovalService = require('../services/requestApprovalService');
+const aiIdempotency = require('../services/ai/idempotency');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -99,6 +100,7 @@ class MessageHandler {
 
     async handleMessage(ws, messageData) {
         const message = messageData.message;
+        const messageSegments = Array.isArray(message) ? message : [];
         let rawMessage = messageData.raw_message;
         const userId = messageData.user_id ? String(messageData.user_id) : null;
         let groupId = messageData.group_id ? String(messageData.group_id) : null;
@@ -130,7 +132,18 @@ class MessageHandler {
             }
         }
 
-        logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}: ${rawMessage.substring(0, 100)}...`);
+        const messageId = messageData.message_id != null ? String(messageData.message_id) : '';
+        const traceId = `${groupId || 'unknown'}:${userId || 'unknown'}:${messageId || Date.now()}`;
+        if (messageId) {
+            const scopeId = groupId || `private_${userId || 'unknown'}`;
+            const dedupKey = `${scopeId}:${userId || 'unknown'}:${messageId}`;
+            if (!aiIdempotency.markIfNew(dedupKey)) {
+                logger.info(`[MessageHandler] Duplicate message ignored: ${dedupKey}, trace=${traceId}`);
+                return;
+            }
+        }
+
+        logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}, trace=${traceId}: ${rawMessage.substring(0, 100)}...`);
 
         // Auto-create group configuration if not exists (skip for private messages)
         const isPrivateMsg = typeof groupId === 'string' && groupId.startsWith('private_');
@@ -185,7 +198,7 @@ class MessageHandler {
         }
 
         // Check for JSON message (Mini Program) and extract URL (before cache check)
-        const jsonMsg = message.find(m => m.type === 'json');
+        const jsonMsg = messageSegments.find(m => m.type === 'json');
         if (jsonMsg) {
             try {
                 logger.info(`[MessageHandler] Found JSON message, attempting to extract URL...`);
@@ -358,7 +371,7 @@ class MessageHandler {
         const isAt = messageMeta.isAtBot;
 
         if (aiHandler.shouldReply(rawMessage, isAt, groupId)) {
-            const reply = await aiHandler.getReply(rawMessage, userId, groupId);
+            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceId);
             if (reply) {
                 this.sendGroupMessage(ws, groupId, [
                     { type: 'text', data: { text: reply } }

@@ -24,15 +24,7 @@ config/mcp_servers.json
 config/.jwtSecret
 
 # Data (Runtime)
-data/cookies*
-data/subscriptions*
-data/subfollowers*
-data/contexts/*
-data/vectors/*
-data/cache/*
-data/downloads/*
-data/*.json
-data/profiles/*
+data/*
 napcat/*
 
 # Project Logs
@@ -50,10 +42,7 @@ logs/
 Thumbs.db
 
 # Temp Files
-tmp/
-temp/
 *.tmp
 
 # Test
 test*
-coverage/

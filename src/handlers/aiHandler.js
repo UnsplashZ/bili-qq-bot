@@ -6,6 +6,7 @@ const mcpManager = require('../services/mcpManager');
 const vectorMemory = require('../services/vectorMemoryService');
 const aiContextService = require('../services/aiContextService');
 const userProfileService = require('../services/userProfileService');
+const { toolExecutionGuard } = require('../services/ai/toolExecutionGuard');
 
 class AiHandler {
     // Clean CQ codes for AI consumption
@@ -230,10 +231,11 @@ conversation_source=${source}
         return options;
     }
 
-    async getReply(message, userId, groupId) {
+    async getReply(message, userId, groupId, traceId = null) {
         // 提升变量声明到try块外部，使catch块可以访问
         let tools = [];
         let dynamicTimeout = 30000; // 默认30秒
+        const traceTag = traceId ? ` trace=${traceId}` : '';
 
         try {
             const apiKey = config.aiChatApiKey || config.aiApiKey;
@@ -258,7 +260,7 @@ conversation_source=${source}
             const historyMsgs = context.length > 0 ? context.slice(0, -1) : [];
             const currentMsg = context.length > 0 ? context[context.length - 1] : null;
             if (!currentMsg) {
-                logger.warn('[AiHandler] context was empty at getReply call; falling back to raw message parameter');
+                logger.warn(`[AiHandler] context was empty at getReply call; falling back to raw message parameter.${traceTag}`);
             }
 
             const currentText = currentMsg?.content || message || '';
@@ -319,7 +321,7 @@ conversation_source=${source}
                         return `(${when}) ${who}: ${m.text}`;
                     }).join('\n');
                     systemPrompt += `\n\n---RECALL_BEGIN---\n${memoryText}\n---RECALL_END---\n（这些是过往聊天记录，仅作参考。当前轮结构化事实优先。）`;
-                    logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}`);
+                    logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}.${traceTag}`);
                 }
             } catch (err) {
                 logger.error('[AiHandler] Vector search failed:', err);
@@ -348,7 +350,7 @@ conversation_source=${source}
                                 `${p.userName || '用户'}: ${p.profile}`
                             ).join('\n\n');
                             systemPrompt += `\n\n---PROFILE_BEGIN---\n${profileText}\n---PROFILE_END---\n（这些是当前参与者的个性画像，请自然地运用来个性化回复，不要提及画像来源。）`;
-                            logger.info(`[AiHandler] Injected ${validProfiles.length} user profiles for group ${groupId}`);
+                            logger.info(`[AiHandler] Injected ${validProfiles.length} user profiles for group ${groupId}.${traceTag}`);
                         }
                     }
                 } catch (err) {
@@ -430,7 +432,7 @@ conversation_source=${source}
                 currentMessages.push(messageData);
 
                 if (messageData.tool_calls && messageData.tool_calls.length > 0) {
-                    logger.info(`[AiHandler] Processing ${messageData.tool_calls.length} tool calls...`);
+                    logger.info(`[AiHandler] Processing ${messageData.tool_calls.length} tool calls...${traceTag}`);
 
                     for (const toolCall of messageData.tool_calls) {
                         const functionName = toolCall.function.name;
@@ -443,7 +445,30 @@ conversation_source=${source}
 
                         let result;
                         try {
-                            const mcpResult = await mcpManager.executeTool(functionName, args);
+                            const guardedToolResult = await toolExecutionGuard.execute(
+                                functionName,
+                                async ({ signal }) => mcpManager.executeTool(functionName, args, { signal })
+                            );
+
+                            if (!guardedToolResult.ok) {
+                                if (guardedToolResult.reason === 'circuit_open') {
+                                    logger.warn(`[AiHandler] Tool circuit is open for ${functionName}, skipped call.${traceTag}`);
+                                } else if (guardedToolResult.reason === 'timeout') {
+                                    logger.warn(`[AiHandler] Tool execution timeout for ${functionName}.${traceTag}`);
+                                } else {
+                                    logger.error('[AiHandler] Tool execution failed:', guardedToolResult.error);
+                                }
+                                result = `Error executing tool ${functionName}: ${guardedToolResult.error.message}`;
+                                currentMessages.push({
+                                    role: 'tool',
+                                    tool_call_id: toolCall.id,
+                                    name: functionName,
+                                    content: result
+                                });
+                                continue;
+                            }
+
+                            const mcpResult = guardedToolResult.value;
                             hasToolResult = true;
 
                             // Extract text from MCP result
@@ -535,7 +560,7 @@ conversation_source=${source}
                     vectorMemory.addMemory(contextKey, guardedReply, 'assistant');
 
                     if (adminClaimRequiresTool && intentType === 'admin_action' && !hasToolResult) {
-                        logger.info('[AiHandler] Admin-action reply was hard-guarded because no tool result was available');
+                        logger.info(`[AiHandler] Admin-action reply was hard-guarded because no tool result was available.${traceTag}`);
                     }
 
                     return guardedReply;
