@@ -44,12 +44,7 @@ function overrideConfigValue(key, value) {
 
 function restoreConfigValues() {
     Object.keys(originalConfigDescriptors).forEach((key) => {
-        const descriptor = originalConfigDescriptors[key]
-        if (descriptor) {
-            Object.defineProperty(config, key, descriptor)
-        } else {
-            delete config[key]
-        }
+        Object.defineProperty(config, key, originalConfigDescriptors[key])
     })
 }
 
