@@ -107,10 +107,14 @@ class SubscriptionService {
             };
             // updateChecker.checkUserDynamic now internally uses bypassCache=true
             // 3rd arg true = force (process even if ID hasn't changed, needed for "Check Now" command)
-            await updateChecker.checkUserDynamic(tempSub, null, true);
+            await updateChecker.checkUserDynamic(tempSub, null, true, {
+                disableDedup: true
+            });
             
             // Also force check live status
-            await updateChecker.checkUserLive(tempSub, null, true);
+            await updateChecker.checkUserLive(tempSub, null, true, {
+                disableDedup: true
+            });
 
             // Force check video/article for this user in current group only
             const targetGroupSourceMap = typeof updateChecker.createGroupSourceMap === 'function'
@@ -125,10 +129,12 @@ class SubscriptionService {
                 manualSub: sub
             };
             await updateChecker.checkUserVideoUnified(manualUserItem, true, {
-                persistState: false
+                persistState: false,
+                disableDedup: true
             });
             await updateChecker.checkUserArticleUnified(manualUserItem, true, {
-                persistState: false
+                persistState: false,
+                disableDedup: true
             });
             
             return true;

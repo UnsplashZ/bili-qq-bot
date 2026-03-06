@@ -40,6 +40,7 @@ module.exports = {
      */
     async checkUserVideoUnified(userItem, force = false, options = {}) {
         const persistState = options.persistState !== false
+        const disableDedup = Boolean(options && options.disableDedup)
         const {
             uid,
             name,
@@ -174,7 +175,7 @@ module.exports = {
                             'video',
                             url,
                             notificationText,
-                            { actorUid: uid, fallbackSources: [fallbackSource] }
+                            { actorUid: uid, fallbackSources: [fallbackSource], disableDedup }
                         )
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentVideo = decision.action === 'advance'
@@ -211,6 +212,7 @@ module.exports = {
      */
     async checkUserArticleUnified(userItem, force = false, options = {}) {
         const persistState = options.persistState !== false
+        const disableDedup = Boolean(options && options.disableDedup)
         const {
             uid,
             name,
@@ -342,7 +344,7 @@ module.exports = {
                             actualType,
                             url,
                             notificationText,
-                            { actorUid: uid, fallbackSources: [fallbackSource] }
+                            { actorUid: uid, fallbackSources: [fallbackSource], disableDedup }
                         )
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentArticle = decision.action === 'advance'

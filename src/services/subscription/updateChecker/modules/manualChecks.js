@@ -81,7 +81,8 @@ module.exports = {
         return `${userName} 发布了新动态`
     },
 
-    async checkUserDynamic(sub, targetGroups = null, force = false) {
+    async checkUserDynamic(sub, targetGroups = null, force = false, options = {}) {
+        const disableDedup = Boolean(options && options.disableDedup)
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
@@ -218,7 +219,7 @@ module.exports = {
                             info.type || 'dynamic',
                             url,
                             notificationText,
-                            { actorUid: sub.uid, fallbackSources: ['manual'] }
+                            { actorUid: sub.uid, fallbackSources: ['manual'], disableDedup }
                         )
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentDynamic = decision.action === 'advance'
@@ -233,7 +234,7 @@ module.exports = {
                             targetGroupSourceMap,
                             msg,
                             cardId,
-                            { actorUid: sub.uid, category: info.type || 'dynamic', fallbackSources: ['manual'] }
+                            { actorUid: sub.uid, category: info.type || 'dynamic', fallbackSources: ['manual'], disableDedup }
                         )
                     }
 
@@ -247,7 +248,8 @@ module.exports = {
         }
     },
 
-    async checkUserLive(sub, targetGroups = null, force = false) {
+    async checkUserLive(sub, targetGroups = null, force = false, options = {}) {
+        const disableDedup = Boolean(options && options.disableDedup)
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
@@ -300,7 +302,7 @@ module.exports = {
                         'live',
                         roomUrl,
                         `${sub.name} 开播了！`,
-                        { actorUid: sub.uid, fallbackSources: ['manual'] }
+                        { actorUid: sub.uid, fallbackSources: ['manual'], disableDedup }
                     )
                     const decision = decideAdvance(notifyResult)
                     canAdvanceLiveStatus = decision.action === 'advance'

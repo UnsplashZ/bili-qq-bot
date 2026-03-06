@@ -22,6 +22,7 @@ module.exports = {
     notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
         if (!this.ws) return
 
+        const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
@@ -30,7 +31,7 @@ module.exports = {
             // Check for deduplication if key is provided
             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
-            if (dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
+            if (!disableDedup && dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
                 logger.info(`[UpdateChecker] Skipping duplicate text notification for group ${gid} (key: ${dedupKey})`)
                 return
             }
@@ -44,13 +45,14 @@ module.exports = {
             })
 
             // Record notification history if key provided
-            if (dedupKey) {
+            if (!disableDedup && dedupKey) {
                 notificationHistory.add(gid, dedupKey, ttlMs)
             }
         })
     },
 
     async notifyGroupsWithImage(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
+        const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
@@ -63,7 +65,7 @@ module.exports = {
 
         // Filter out groups that already received this notification
         const pendingGroupIds = []
-        if (dedupId) {
+        if (!disableDedup && dedupId) {
             for (const gid of groupIds) {
                 const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                 const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
@@ -140,7 +142,7 @@ module.exports = {
                         pushUniqueGroup(result.successGroups, gid)
 
                         // Record history
-                        if (dedupId) {
+                        if (!disableDedup && dedupId) {
                             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
                             notificationHistory.add(gid, dedupId, ttlMs)
@@ -174,7 +176,7 @@ module.exports = {
                             resolvedMeta
                         )
                         pushUniqueGroup(result.successGroups, gid)
-                        if (dedupId) {
+                        if (!disableDedup && dedupId) {
                             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
                             notificationHistory.add(gid, dedupId, ttlMs)
