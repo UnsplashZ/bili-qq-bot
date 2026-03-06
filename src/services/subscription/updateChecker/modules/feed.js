@@ -1,4 +1,5 @@
 const { subscriptionManager, biliApi, config, logger } = require('../adapters/deps')
+const { decideAdvance } = require('../helpers/stateAdvance')
 
 module.exports = {
     async checkFeedUpdate(feedCoverage = null, activeGroups = null) {
@@ -139,6 +140,7 @@ module.exports = {
                 }
 
                 if (isNew) {
+                    let canAdvanceCurrentDynamic = false
                     // Check for live dynamic to skip (handled by processLiveFeed)
                     if (this.isLiveDynamic(item)) {
                         continue
@@ -165,7 +167,7 @@ module.exports = {
 
                         // Prevent sending duplicate notifications if multiple accounts follow same user
                         // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        await this.notifyGroupsWithImageAndCache(
+                        const notifyResult = await this.notifyGroupsWithImageAndCache(
                             targetGroupSourceMap,
                             info,
                             info.type || 'dynamic',
@@ -173,6 +175,15 @@ module.exports = {
                             notificationText,
                             { actorUid: authorUid, fallbackSources: ['cookieSync'] }
                         )
+                        const decision = decideAdvance(notifyResult)
+                        canAdvanceCurrentDynamic = decision.action === 'advance'
+                        if (!canAdvanceCurrentDynamic) {
+                            logger.warn(`[UpdateChecker] Skip feed dynamic state advance for UID ${authorUid}: notify decision=${decision.action}, reason=${decision.reason}`)
+                        }
+                    }
+
+                    if (!canAdvanceCurrentDynamic) {
+                        continue
                     }
                 }
 
@@ -198,6 +209,9 @@ module.exports = {
         // 避免最终 setCookieFollowings 调用因竞态条件覆盖状态
         for (const [uid, updates] of pendingUpdates) {
             await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates)
+        }
+        if (pendingUpdates.size > 0 && typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
+            await subscriptionManager.flushPendingFollowerSaves()
         }
 
         return { ok: true }
@@ -230,6 +244,7 @@ module.exports = {
             const liveStatus = item.live_status // Should be 1 in live feed
 
             // Check if status changed from 0 to 1
+            let canAdvanceCurrentLive = true
             if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
                 const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
                 const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
@@ -253,7 +268,7 @@ module.exports = {
                     liveInfo.id = roomId
                     const roomUrl = `https://live.bilibili.com/${roomId}`
 
-                    await this.notifyGroupsWithImageAndCache(
+                    const notifyResult = await this.notifyGroupsWithImageAndCache(
                         targetGroupSourceMap,
                         liveInfo,
                         'live',
@@ -261,10 +276,20 @@ module.exports = {
                         `${name} 开播了！`,
                         { actorUid: uid, fallbackSources: ['cookieSync'] }
                     )
+                    const decision = decideAdvance(notifyResult)
+                    canAdvanceCurrentLive = decision.action === 'advance'
+                    if (!canAdvanceCurrentLive) {
+                        logger.warn(`[UpdateChecker] Skip feed live state advance for UID ${uid}: notify decision=${decision.action}, reason=${decision.reason}`)
+                    }
+                } else {
+                    canAdvanceCurrentLive = false
                 }
             }
 
             if (follower.lastLiveStatus !== liveStatus) {
+                if (liveStatus === 1 && !canAdvanceCurrentLive) {
+                    continue
+                }
                 pendingUpdates.set(uid, { lastLiveStatus: liveStatus })
             }
         }
@@ -282,6 +307,9 @@ module.exports = {
         // 避免最终 setCookieFollowings 调用因竞态条件覆盖状态
         for (const [uid, updates] of pendingUpdates) {
             await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates)
+        }
+        if (pendingUpdates.size > 0 && typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
+            await subscriptionManager.flushPendingFollowerSaves()
         }
 
         return { ok: true }

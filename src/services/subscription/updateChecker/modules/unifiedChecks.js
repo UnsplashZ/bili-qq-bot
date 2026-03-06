@@ -1,7 +1,38 @@
 const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
 const { resolveArticleTitle } = require('../helpers/article')
+const { decideAdvance } = require('../helpers/stateAdvance')
 
 module.exports = {
+    async fetchWithGroupFallback(groupIds, fetcher, contextLabel) {
+        const candidates = Array.isArray(groupIds)
+            ? groupIds.map(id => String(id)).filter(Boolean)
+            : []
+
+        if (candidates.length === 0) {
+            return { groupId: '', res: { status: 'error', message: 'no_target_groups' } }
+        }
+
+        let lastRes = null
+        let lastError = null
+
+        for (const groupId of candidates) {
+            try {
+                const res = await fetcher(groupId)
+                if (res && res.status === 'success') {
+                    return { groupId, res }
+                }
+                lastRes = res
+                logger.warn(`[UpdateChecker] ${contextLabel} failed on group ${groupId}: ${res?.message || res?.status || 'unknown'}`)
+            } catch (error) {
+                lastError = error
+                logger.warn(`[UpdateChecker] ${contextLabel} threw on group ${groupId}: ${error?.message || error}`)
+            }
+        }
+
+        if (lastError) throw lastError
+        return { groupId: candidates[0], res: lastRes || { status: 'error', message: 'all_groups_failed' } }
+    },
+
     /**
      * 统一的视频检查方法（支持手动订阅和Cookie同步）
      * @param {Object} userItem - 从buildUserCheckList返回的用户对象
@@ -26,8 +57,13 @@ module.exports = {
 
         try {
             if (targetGroups.length === 0) return
-            const groupId = targetGroups[0]
-            const res = await biliApi.getUserVideos(uid, groupId)
+            const listFetch = await this.fetchWithGroupFallback(
+                targetGroups,
+                (groupId) => biliApi.getUserVideos(uid, groupId),
+                `getUserVideos uid=${uid}`
+            )
+            const groupId = listFetch.groupId
+            const res = listFetch.res
 
             if (res.status !== 'success' || !res.data.videos || res.data.videos.length === 0) {
                 return
@@ -109,9 +145,16 @@ module.exports = {
                 }
 
                 for (const video of videoToPush) {
+                    let canAdvanceCurrentVideo = false
                     try {
                         const bvid = video.bvid
-                        const info = await biliApi.getVideoInfo(bvid, groupId)
+                        const detailGroupCandidates = [groupId, ...targetGroups.filter(gid => String(gid) !== String(groupId))]
+                        const detailFetch = await this.fetchWithGroupFallback(
+                            detailGroupCandidates,
+                            (candidateGroupId) => biliApi.getVideoInfo(bvid, candidateGroupId),
+                            `getVideoInfo bvid=${bvid}`
+                        )
+                        const info = detailFetch.res
 
                         if (info.status !== 'success') {
                             logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`)
@@ -125,7 +168,7 @@ module.exports = {
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`
                         const url = `https://www.bilibili.com/video/${bvid}`
-                        await this.notifyGroupsWithImageAndCache(
+                        const notifyResult = await this.notifyGroupsWithImageAndCache(
                             normalizedTargetGroupSourceMap,
                             info,
                             'video',
@@ -133,21 +176,27 @@ module.exports = {
                             notificationText,
                             { actorUid: uid, fallbackSources: [fallbackSource] }
                         )
+                        const decision = decideAdvance(notifyResult)
+                        canAdvanceCurrentVideo = decision.action === 'advance'
 
                         // 订阅推送后下载视频一次，发送到所有目标群
-                        const videoDownloadService = require('../../../videoDownloadService')
-                        videoDownloadService.downloadAndSendToGroups(this.ws, targetGroups, bvid, info).catch(e => {
-                            logger.error(`[UpdateChecker] downloadAndSendToGroups failed for ${bvid}:`, e)
-                        })
+                        if (canAdvanceCurrentVideo) {
+                            const videoDownloadService = require('../../../videoDownloadService')
+                            videoDownloadService.downloadAndSendToGroups(this.ws, targetGroups, bvid, info).catch(e => {
+                                logger.error(`[UpdateChecker] downloadAndSendToGroups failed for ${bvid}:`, e)
+                            })
+                        } else {
+                            logger.warn(`[UpdateChecker] Skip video state advance for ${name} (${source}): notify decision=${decision.action}, reason=${decision.reason}`)
+                        }
 
                         logger.info(`[UpdateChecker] Pushed new video for ${name} (${source}): ${bvid}`)
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e)
                     }
-                }
 
-                if (persistState) {
-                    await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                    if (persistState && canAdvanceCurrentVideo) {
+                        await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
+                    }
                 }
             }
         } catch (e) {
@@ -179,8 +228,13 @@ module.exports = {
 
         try {
             if (targetGroups.length === 0) return
-            const groupId = targetGroups[0]
-            const res = await biliApi.getUserArticles(uid, groupId)
+            const listFetch = await this.fetchWithGroupFallback(
+                targetGroups,
+                (groupId) => biliApi.getUserArticles(uid, groupId),
+                `getUserArticles uid=${uid}`
+            )
+            const groupId = listFetch.groupId
+            const res = listFetch.res
 
             if (res.status !== 'success' || !res.data.articles || res.data.articles.length === 0) {
                 return
@@ -263,9 +317,16 @@ module.exports = {
                 }
 
                 for (const article of articleToPush) {
+                    let canAdvanceCurrentArticle = false
                     try {
                         const cvid = `cv${article.id}`
-                        const info = await biliApi.getArticleInfo(cvid, groupId)
+                        const detailGroupCandidates = [groupId, ...targetGroups.filter(gid => String(gid) !== String(groupId))]
+                        const detailFetch = await this.fetchWithGroupFallback(
+                            detailGroupCandidates,
+                            (candidateGroupId) => biliApi.getArticleInfo(cvid, candidateGroupId),
+                            `getArticleInfo cvid=${cvid}`
+                        )
+                        const info = detailFetch.res
 
                         if (info.status !== 'success') {
                             logger.warn(`[UpdateChecker] Failed to get article detail for ${cvid}`)
@@ -275,7 +336,7 @@ module.exports = {
                         const { actualType, title: articleTitle } = resolveArticleTitle(info)
                         const notificationText = `${name} 发布了新专栏：\n${articleTitle}`
                         const url = `https://www.bilibili.com/read/${cvid}`
-                        await this.notifyGroupsWithImageAndCache(
+                        const notifyResult = await this.notifyGroupsWithImageAndCache(
                             normalizedTargetGroupSourceMap,
                             info,
                             actualType,
@@ -283,15 +344,20 @@ module.exports = {
                             notificationText,
                             { actorUid: uid, fallbackSources: [fallbackSource] }
                         )
+                        const decision = decideAdvance(notifyResult)
+                        canAdvanceCurrentArticle = decision.action === 'advance'
+                        if (!canAdvanceCurrentArticle) {
+                            logger.warn(`[UpdateChecker] Skip article state advance for ${name} (${source}): notify decision=${decision.action}, reason=${decision.reason}`)
+                        }
 
                         logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`)
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to push article cv${article.id}:`, e)
                     }
-                }
 
-                if (persistState) {
-                    await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                    if (persistState && canAdvanceCurrentArticle) {
+                        await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
+                    }
                 }
             }
         } catch (e) {

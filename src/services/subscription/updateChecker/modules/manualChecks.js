@@ -1,4 +1,5 @@
 const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
+const { decideAdvance } = require('../helpers/stateAdvance')
 
 module.exports = {
     /**
@@ -208,9 +209,10 @@ module.exports = {
                     const notificationText = this.generateNotificationText(sub.name, info)
 
                     // Notify
+                    let canAdvanceCurrentDynamic = false
                     try {
                         const url = `https://t.bilibili.com/${cardId}`
-                        await this.notifyGroupsWithImageAndCache(
+                        const notifyResult = await this.notifyGroupsWithImageAndCache(
                             targetGroupSourceMap,
                             info,
                             info.type || 'dynamic',
@@ -218,6 +220,11 @@ module.exports = {
                             notificationText,
                             { actorUid: sub.uid, fallbackSources: ['manual'] }
                         )
+                        const decision = decideAdvance(notifyResult)
+                        canAdvanceCurrentDynamic = decision.action === 'advance'
+                        if (!canAdvanceCurrentDynamic) {
+                            logger.warn(`[UpdateChecker] Skip dynamic state advance for ${sub.name}: notify decision=${decision.action}, reason=${decision.reason}`)
+                        }
                     } catch (e) {
                         logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e)
                         // Fallback text
@@ -229,11 +236,9 @@ module.exports = {
                             { actorUid: sub.uid, category: info.type || 'dynamic', fallbackSources: ['manual'] }
                         )
                     }
-                }
 
-                if (!force) {
-                    if (latestNonLiveId) {
-                        await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestNonLiveId })
+                    if (!force && canAdvanceCurrentDynamic) {
+                        await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: cardId })
                     }
                 }
             }
@@ -280,6 +285,7 @@ module.exports = {
             const roomUrl = liveRoom.url || `https://live.bilibili.com/${roomId}`
 
             if ((liveStatus === 1 && sub.lastLiveStatus === 0) || (force && liveStatus === 1)) {
+                let canAdvanceLiveStatus = false
                 // Started Streaming or Force Check
                 // Fetch live room detail using standard API (unified with linkHandler)
                 const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId)
@@ -288,7 +294,7 @@ module.exports = {
                     logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`)
                 } else {
                     liveInfo.id = roomId
-                    await this.notifyGroupsWithImageAndCache(
+                    const notifyResult = await this.notifyGroupsWithImageAndCache(
                         targetGroupSourceMap,
                         liveInfo,
                         'live',
@@ -296,7 +302,18 @@ module.exports = {
                         `${sub.name} 开播了！`,
                         { actorUid: sub.uid, fallbackSources: ['manual'] }
                     )
+                    const decision = decideAdvance(notifyResult)
+                    canAdvanceLiveStatus = decision.action === 'advance'
+                    if (!canAdvanceLiveStatus) {
+                        logger.warn(`[UpdateChecker] Skip live state advance for ${sub.name}: notify decision=${decision.action}, reason=${decision.reason}`)
+                    }
                 }
+
+                // Guard against transient API anomalies: do not overwrite status with undefined/null.
+                if ((liveStatus === 0 || liveStatus === 1) && liveStatus !== sub.lastLiveStatus && canAdvanceLiveStatus) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus })
+                }
+                return
             }
 
             // Guard against transient API anomalies: do not overwrite status with undefined/null.
@@ -329,9 +346,10 @@ module.exports = {
                 // New Episode - use standard API response format (unified with linkHandler)
                 const url = `https://www.bilibili.com/bangumi/play/ep${newEp.id}`
                 const notificationText = `${sub.title} 更新了：${newEp.index_show}`
+                let canAdvanceBangumi = false
 
                 try {
-                    await this.notifyGroupsWithImageAndCache(
+                    const notifyResult = await this.notifyGroupsWithImageAndCache(
                         targetGroupSourceMap,
                         res,
                         'bangumi',
@@ -339,6 +357,11 @@ module.exports = {
                         notificationText,
                         { actorUid: null, fallbackSources: ['manual'] }
                     )
+                    const decision = decideAdvance(notifyResult)
+                    canAdvanceBangumi = decision.action === 'advance'
+                    if (!canAdvanceBangumi) {
+                        logger.warn(`[UpdateChecker] Skip bangumi state advance for ${sub.title}: notify decision=${decision.action}, reason=${decision.reason}`)
+                    }
                 } catch (e) {
                     logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e)
                     this.notifyGroups(
@@ -349,7 +372,9 @@ module.exports = {
                     )
                 }
 
-                await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id })
+                if (canAdvanceBangumi) {
+                    await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id })
+                }
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e)
