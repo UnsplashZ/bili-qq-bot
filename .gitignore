@@ -32,6 +32,7 @@ data/vectors/*
 data/cache/*
 data/downloads/*
 data/*.json
+data/*.bak
 data/profiles/*
 napcat/*
 
