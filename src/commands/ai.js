@@ -2,6 +2,7 @@ const aiHandler = require('../handlers/aiHandler');
 const config = require('../config');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
+const { normalizeAiContextLimit, normalizeAiConfigField, AiConfigValidationError } = require('../services/ai/validation');
 
 class AiCommand {
     async handle(context) {
@@ -35,9 +36,14 @@ class AiCommand {
                     return true;
                 }
 
-                const value = parseInt(parts[2]);
-                if (isNaN(value) || value < 1 || value > 50) {
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 上下文 <1-50>\n示例: /AI 上下文 15' } }]);
+                let value;
+                try {
+                    value = normalizeAiContextLimit(parts[2], { min: 1, max: 100 });
+                } catch (e) {
+                    const hint = e instanceof AiConfigValidationError
+                        ? '格式错误。用法: /AI 上下文 <1-100>\n示例: /AI 上下文 15'
+                        : '设置 AI 上下文失败，请稍后重试。';
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: hint } }]);
                     return true;
                 }
 
@@ -53,8 +59,10 @@ class AiCommand {
                     return true;
                 }
 
-                const value = parseFloat(parts[2]);
-                if (isNaN(value) || value < 0 || value > 1) {
+                let value;
+                try {
+                    value = normalizeAiConfigField('aiProbability', parts[2]);
+                } catch (e) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 概率 <0-1>\n示例: /AI 概率 0.3' } }]);
                     return true;
                 }
@@ -71,8 +79,10 @@ class AiCommand {
                     return true;
                 }
 
-                const value = parseFloat(parts[2]);
-                if (isNaN(value) || value < 0 || value > 1) {
+                let value;
+                try {
+                    value = normalizeAiConfigField('aiVectorSimilarityThreshold', parts[2]);
+                } catch (e) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 向量阈值 <0-1>\n示例: /AI 向量阈值 0.5' } }]);
                     return true;
                 }
@@ -90,8 +100,10 @@ class AiCommand {
                     return true;
                 }
 
-                const value = parseInt(parts[2]);
-                if (isNaN(value) || value < 1 || value > 10) {
+                let value;
+                try {
+                    value = normalizeAiConfigField('aiVectorSearchLimit', parts[2]);
+                } catch (e) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 向量数量 <1-10>\n示例: /AI 向量数量 5' } }]);
                     return true;
                 }
@@ -109,8 +121,10 @@ class AiCommand {
                     return true;
                 }
 
-                const value = parseInt(parts[2]);
-                if (isNaN(value) || value < 1 || value > 50) {
+                let value;
+                try {
+                    value = normalizeAiConfigField('aiShortMessageThreshold', parts[2]);
+                } catch (e) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 短消息过滤 <1-50>\n示例: /AI 短消息过滤 10' } }]);
                     return true;
                 }
@@ -167,7 +181,12 @@ class AiCommand {
 
             // 9. AI新对话 (/AI 新对话 [群号]) - 群级操作
             if (subCommand === '新对话') {
-                const targetGid = parts[2] || groupId;
+                const targetGid = String(parts[2] || groupId || '').trim();
+
+                if (!/^\d+$/.test(targetGid) && !/^private_\d+$/.test(targetGid)) {
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '群号格式无效：仅支持纯数字群号或 private_数字。' } }]);
+                    return true;
+                }
 
                 // 权限检查：Root可以重置任何群，群管只能重置本群
                 if (!config.isRootAdmin(userId)) {

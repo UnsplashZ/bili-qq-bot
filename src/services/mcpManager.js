@@ -344,7 +344,7 @@ class McpManager {
         return tools;
     }
 
-    async executeTool(name, args) {
+    async executeTool(name, args, requestOptions = {}) {
         const toolInfo = this.toolsMap.get(name);
         if (!toolInfo) {
             throw new Error(`Tool ${name} not found`);
@@ -356,6 +356,10 @@ class McpManager {
         }
 
         try {
+            if (requestOptions.signal && requestOptions.signal.aborted) {
+                throw requestOptions.signal.reason || new Error(`Tool ${name} aborted before execution`);
+            }
+
             if (this._startupStartedAt && this._startupDelayMs > 0) {
                 const elapsed = Date.now() - this._startupStartedAt;
                 const remaining = this._startupDelayMs - elapsed;
@@ -363,10 +367,22 @@ class McpManager {
                     await new Promise(resolve => setTimeout(resolve, remaining));
                 }
             }
-            const result = await client.callTool({
+
+            const callParams = {
                 name: toolInfo.originalName,
                 arguments: args
-            });
+            };
+            const callOptions = {};
+            if (requestOptions.signal) {
+                callOptions.signal = requestOptions.signal;
+            }
+            if (Number.isFinite(requestOptions.timeout) && requestOptions.timeout > 0) {
+                callOptions.timeout = requestOptions.timeout;
+            }
+
+            const result = Object.keys(callOptions).length > 0
+                ? await client.callTool(callParams, undefined, callOptions)
+                : await client.callTool(callParams);
             
             // Format result for OpenAI
             // MCP result is { content: [{ type: 'text', text: '...' }] }
