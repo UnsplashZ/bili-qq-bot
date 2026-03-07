@@ -61,14 +61,13 @@
 
 ## Local Preview Output Rule
 
-- For local testing that generates preview images, always write outputs to `./test/output`.
+- For local testing that generates preview images, always write outputs directly to the root of `./test/output`.
 - Do not place such generated preview files in `./test/debug` or other directories unless the user explicitly requests otherwise.
 
 ## Test Script Tracking Rule
 
 - Files under `test/` are mainly local functional verification scripts and are not required to be tracked by default.
 - If any test script needs to be committed to the repository, explicit user request is required first.
-- Formal unit test files are tracked by default and do not require extra approval to commit, including `test/unit/**/*.test.js` and `test/unit/**/*.spec.js`.
 - Temporary or one-off scripts remain untracked by default, including `test/temp_*` and files under `test/debug/**`.
 
 ## NapCat Interface Lookup Rule

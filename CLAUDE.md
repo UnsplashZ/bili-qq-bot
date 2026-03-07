@@ -549,7 +549,7 @@ test/
 
 **Naming Convention:**
 - Test files: `*.test.js` or `test_*.js`
-- Generated previews: write to `test/output/` (prefer `test/output/previews/`)
+- Generated previews: write directly to `test/output/`
 
 ### Current Testing Status
 
@@ -996,5 +996,5 @@ const base64 = await imageGenerator.generatePreviewCard(data, 'video', '12345678
 const buffer = Buffer.from(base64, 'base64')
 
 // Save or send
-fs.writeFileSync('test/output/previews/video-preview.png', buffer)
+fs.writeFileSync('test/output/video-preview.png', buffer)
 ```

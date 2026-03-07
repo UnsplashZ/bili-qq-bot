@@ -6,6 +6,7 @@ const { renderArticleContent } = require('../renderers/article');
 const { renderLiveContent } = require('../renderers/live');
 const { renderDynamicContent } = require('../renderers/dynamic');
 const { renderUserContent } = require('../renderers/user');
+const { createRenderEmojiContext } = require('../renderers/components/renderEmojiContext');
 const config = require('../../../config');
 
 /**
@@ -93,21 +94,22 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
 
             // Generate CSS
             const css = generateCSS(colorData, viewport);
+            const emojiContext = await createRenderEmojiContext({ seedData: data });
 
             // Render Content
             let contentHtml = '';
             if (type === 'video') {
-                contentHtml = renderVideoContent(data);
+                contentHtml = renderVideoContent(data, emojiContext);
             } else if (type === 'bangumi') {
-                contentHtml = renderBangumiContent(data);
+                contentHtml = renderBangumiContent(data, emojiContext);
             } else if (type === 'article') {
-                contentHtml = renderArticleContent(data);
+                contentHtml = renderArticleContent(data, emojiContext);
             } else if (type === 'live') {
-                contentHtml = renderLiveContent(data);
+                contentHtml = renderLiveContent(data, emojiContext);
             } else if (type === 'dynamic') {
-                contentHtml = renderDynamicContent(data);
+                contentHtml = renderDynamicContent(data, emojiContext);
             } else if (type === 'user') {
-                contentHtml = renderUserContent(data, show_id);
+                contentHtml = renderUserContent(data, show_id, emojiContext);
             }
 
             // Generate Type Badge HTML

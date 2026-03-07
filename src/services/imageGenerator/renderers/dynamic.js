@@ -1,5 +1,9 @@
 const { formatPubTime, formatNumber, escapeHtml } = require('../core/formatters');
 const { parseRichText } = require('./components/richtext');
+const {
+    collectDynamicImages: sharedCollectDynamicImages,
+    resolveDynamicContent
+} = require('./components/contentNodes');
 const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderMediaHtml } = require('./components/media');
 const { renderVerifyBadge } = require('./components/verifyBadge');
@@ -56,6 +60,26 @@ function canBorrowSummaryNodes(descText, summaryText) {
     const normalizedSummary = normalizeForNodeCompare(summaryText)
     if (!normalizedDesc || !normalizedSummary) return false
     return normalizedDesc === normalizedSummary
+}
+
+function hasRichLinkNodes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return false
+    const richTypes = new Set([
+        'RICH_TEXT_NODE_TYPE_WEB',
+        'RICH_TEXT_NODE_TYPE_URL',
+        'RICH_TEXT_NODE_TYPE_BV',
+        'RICH_TEXT_NODE_TYPE_VOTE',
+        'RICH_TEXT_NODE_TYPE_LOTTERY'
+    ])
+    return nodes.some(node => richTypes.has(node?.type))
+}
+
+function looksLikeAddressLabelButMissingValue(text) {
+    const normalized = normalizePlainText(text)
+    if (!normalized) return false
+    const hasAddressLabel = /直播间地址[:：]|下载(?:游戏|地址)?[:：]/.test(normalized)
+    const hasUrl = /https?:\/\/|www\./i.test(normalized)
+    return hasAddressLabel && !hasUrl
 }
 
 function buildNodesFromSummary(descText, summaryNodes) {
@@ -158,7 +182,20 @@ function injectTopicNodeIfNeeded(nodes, topic, plainText) {
     if (typeof plainText === 'string' && (plainText.includes(topicBase) || plainText.includes(topicFull))) {
         return nodes
     }
-    return nodes
+    return [
+        {
+            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
+            text: topic.name,
+            orig_text: topic.name,
+            jump_url: jumpUrl
+        },
+        {
+            type: 'RICH_TEXT_NODE_TYPE_TEXT',
+            text: '\n',
+            orig_text: '\n'
+        },
+        ...nodes
+    ]
 }
 
 function toSafeNumber(value) {
@@ -196,11 +233,29 @@ function resolveDynamicText(dynamicModule, hasImages) {
     let text = ''
     let richTextNodes = null
     let source = 'empty'
+    const summary = dynamicModule.major?.opus?.summary || {}
+    const summaryText = summary.text || ''
+    const summaryNodes = summary.rich_text_nodes
 
     if (dynamicModule.desc) {
         text = dynamicModule.desc.text || ''
         richTextNodes = dynamicModule.desc.rich_text_nodes
         source = 'desc'
+    }
+
+    const shouldPreferSummary =
+        source === 'desc' &&
+        normalizePlainText(summaryText) &&
+        hasRichLinkNodes(summaryNodes) &&
+        (
+            looksLikeAddressLabelButMissingValue(text) ||
+            ((!Array.isArray(richTextNodes) || richTextNodes.length === 0) && normalizePlainText(text))
+        )
+
+    if (shouldPreferSummary) {
+        text = summaryText
+        richTextNodes = summaryNodes
+        source = 'opus_summary_preferred'
     }
 
     // desc 有正文但缺少 rich nodes 时，借用 summary 的富文本节点（用于恢复 emoji 等）
@@ -210,13 +265,11 @@ function resolveDynamicText(dynamicModule, hasImages) {
         (!Array.isArray(richTextNodes) || richTextNodes.length === 0) &&
         dynamicModule.major?.opus?.summary
     ) {
-        const summary = dynamicModule.major.opus.summary
-        const summaryNodes = summary.rich_text_nodes
         if (
             Array.isArray(summaryNodes) &&
             summaryNodes.length > 0 &&
             summaryNodes.some(node => node?.type && node.type !== 'RICH_TEXT_NODE_TYPE_TEXT') &&
-            canBorrowSummaryNodes(text, summary.text || '')
+            canBorrowSummaryNodes(text, summaryText)
         ) {
             const borrowedNodes = buildNodesFromSummary(text, summaryNodes)
             if (Array.isArray(borrowedNodes) && borrowedNodes.length > 0) {
@@ -227,8 +280,8 @@ function resolveDynamicText(dynamicModule, hasImages) {
     }
 
     if (!normalizePlainText(text) && dynamicModule.major?.opus?.summary) {
-        text = dynamicModule.major.opus.summary.text || ''
-        richTextNodes = dynamicModule.major.opus.summary.rich_text_nodes
+        text = summaryText
+        richTextNodes = summaryNodes
         source = 'opus_summary'
     }
 
@@ -245,17 +298,18 @@ function resolveDynamicText(dynamicModule, hasImages) {
 /**
  * 渲染转发的原动态内容
  * @param {Object} origItemRaw - 原动态数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderOrigContent(origItemRaw) {
+function renderOrigContent(origItemRaw, emojiContext = null) {
     const oitem = origItemRaw.item ? origItemRaw.item : origItemRaw;
     const omodules = oitem.modules || {};
     const o_author = omodules.module_author || {};
     const o_dynamic = omodules.module_dynamic || {};
 
-    const o_images = collectDynamicImages(o_dynamic);
-    const resolvedOrig = resolveDynamicText(o_dynamic, o_images.length > 0);
-    const o_text = parseRichText(resolvedOrig.richTextNodes, resolvedOrig.text);
+    const o_images = sharedCollectDynamicImages(o_dynamic);
+    const resolvedOrig = resolveDynamicContent(o_dynamic, o_images.length > 0);
+    const o_text = parseRichText(resolvedOrig.richTextNodes, resolvedOrig.text, emojiContext);
     const o_title = resolvedOrig.title;
 
     let o_videoCard = null;
@@ -298,9 +352,10 @@ function renderOrigContent(origItemRaw) {
 /**
  * 渲染动态内容
  * @param {Object} data - 动态数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderDynamicContent(data) {
+function renderDynamicContent(data, emojiContext = null) {
     let modules = {};
     let item = {};
     if (data.data.item) {
@@ -408,9 +463,9 @@ function renderDynamicContent(data) {
         }
     }
 
-    let images = collectDynamicImages(module_dynamic);
-    const resolvedText = resolveDynamicText(module_dynamic, images.length > 0);
-    text = parseRichText(resolvedText.richTextNodes, resolvedText.text);
+    let images = sharedCollectDynamicImages(module_dynamic);
+    const resolvedText = resolveDynamicContent(module_dynamic, images.length > 0);
+    text = parseRichText(resolvedText.richTextNodes, resolvedText.text, emojiContext);
     title = resolvedText.title;
 
     const dynamicId = item.id_str || data.data?.id_str || '';
@@ -446,7 +501,7 @@ function renderDynamicContent(data) {
 
     let origHtml = '';
     if (item.orig) {
-        origHtml = renderOrigContent(item.orig);
+        origHtml = renderOrigContent(item.orig, emojiContext);
     }
 
     return `
@@ -497,7 +552,7 @@ module.exports = {
         canBorrowSummaryNodes,
         buildNodesFromSummary,
         injectTopicNodeIfNeeded,
-        collectDynamicImages,
-        resolveDynamicText
+        collectDynamicImages: sharedCollectDynamicImages,
+        resolveDynamicText: resolveDynamicContent
     }
 };

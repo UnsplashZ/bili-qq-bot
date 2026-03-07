@@ -1151,10 +1151,10 @@ function generateCSS(colorData, viewport) {
 
             /* Rich Text & Special Content */
             .emoji {
-                width: 32px;
-                height: 32px;
-                vertical-align: text-bottom;
-                margin: 0 2px;
+                width: 1.15em;
+                height: 1.15em;
+                vertical-align: -0.18em;
+                margin: 0 0.08em;
                 display: inline-block;
             }
 
@@ -1175,6 +1175,34 @@ function generateCSS(colorData, viewport) {
                 color: var(--color-secondary);
                 text-decoration: none;
                 cursor: pointer;
+            }
+
+            .rt-link-inline {
+                display: inline;
+                color: var(--color-secondary);
+                font-weight: 600;
+                max-width: 100%;
+            }
+
+            .rt-link-icon {
+                width: 1em;
+                height: 1em;
+                display: inline-block;
+                margin-right: 0.12em;
+                vertical-align: -0.12em;
+            }
+
+            .rt-link-icon-svg {
+                width: 100%;
+                height: 100%;
+                display: block;
+                fill: currentColor;
+            }
+
+            .rt-link-text {
+                color: var(--color-secondary);
+                word-break: break-all;
+                vertical-align: baseline;
             }
 
             .vote-card {

@@ -1,13 +1,16 @@
 const { escapeHtml, formatNumber } = require('../core/formatters');
+const { collectDynamicImages, resolveDynamicContent } = require('./components/contentNodes');
+const { parseRichText } = require('./components/richtext');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
  * 渲染用户主页内容
  * @param {Object} data - 用户数据
  * @param {Boolean} show_id - 是否显示UID
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderUserContent(data, show_id) {
+function renderUserContent(data, show_id, emojiContext = null) {
     const info = data.data;
     const face = info.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const name = info.name || 'Unknown';
@@ -35,17 +38,8 @@ function renderUserContent(data, show_id) {
     if (info.dynamic) {
         const dyn = info.dynamic;
         const modules = dyn.modules || {};
-        const dynDesc = modules.module_dynamic ? modules.module_dynamic.desc : null;
-        const dynMajor = modules.module_dynamic ? modules.module_dynamic.major : null;
-
-        let dynText = dynDesc ? dynDesc.text : '';
-        if (!dynText && dynMajor) {
-            if (dynMajor.opus && dynMajor.opus.summary) {
-                 dynText = dynMajor.opus.summary.text || (dynMajor.opus.summary.rich_text_nodes || []).map(n => n.text).join('');
-            } else if (dynMajor.draw && dynMajor.draw.items) {
-                 // fallback
-            }
-        }
+        const dynamicModule = modules.module_dynamic || {};
+        const dynMajor = dynamicModule.major || null;
 
         let dynImages = [];
         let dynVideo = null;
@@ -57,9 +51,15 @@ function renderUserContent(data, show_id) {
                 dynImages = dynMajor.opus.pics.map(i => i.url);
             } else if (dynMajor.archive) {
                 dynVideo = dynMajor.archive;
-                if (!dynText) dynText = dynVideo.desc;
             }
         }
+
+        const resolvedDynamic = resolveDynamicContent(
+            dynamicModule,
+            collectDynamicImages(dynamicModule).length > 0
+        )
+        let dynText = resolvedDynamic.text
+        if (!dynText && dynVideo) dynText = dynVideo.desc || ''
 
         let mediaHtml = '';
         if (dynImages.length > 0) {
@@ -73,10 +73,12 @@ function renderUserContent(data, show_id) {
              </div>`;
         }
 
+        const dynContentHtml = parseRichText(resolvedDynamic.richTextNodes, dynText, emojiContext)
+
         dynamicHtml = `
             <div class="user-dynamic-section">
                 <div class="user-dynamic-title">最近动态</div>
-                <div class="user-dynamic-text">${escapeHtml(dynText)}</div>
+                <div class="user-dynamic-text">${dynContentHtml}</div>
                 ${mediaHtml}
             </div>
         `;

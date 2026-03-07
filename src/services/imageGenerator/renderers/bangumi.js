@@ -1,12 +1,14 @@
 const { escapeHtml, formatNumber } = require('../core/formatters');
 const ICONS = require('./icons');
+const { parseRichText } = require('./components/richtext');
 
 /**
  * 渲染番剧内容
  * @param {Object} data - 番剧数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderBangumiContent(data) {
+function renderBangumiContent(data, emojiContext = null) {
     const info = data.data;
     const releaseDate = info.publish?.release_date_show || '未知';
     const isFinish = info.publish?.is_finish === 1;
@@ -62,7 +64,7 @@ function renderBangumiContent(data) {
             <img class="cover bangumi" src="${info.cover}" />
         </div>
         <div class="content">
-            <div class="title">${escapeHtml(info.title)}</div>
+            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
             <div class="status-line">
                 <span class="status-prefix">${statusText}</span>
                 ${metaSuffix ? `<span class="status-meta">${metaSuffix}</span>` : ''}
@@ -73,7 +75,7 @@ function renderBangumiContent(data) {
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.stat?.danmakus)}</span>
                 <span class="stat-item">${ICONS.star} ${info.rating?.score || 'N/A'}分</span>
             </div>
-            <div class="text-content">${escapeHtml(info.desc || '')}</div>
+            <div class="text-content">${parseRichText(null, info.desc || '', emojiContext)}</div>
         </div>
     `;
 }

@@ -1,13 +1,15 @@
 const { escapeHtml, formatDuration, formatPubTime, formatNumber } = require('../core/formatters');
 const ICONS = require('./icons');
+const { parseRichText } = require('./components/richtext');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
  * 渲染视频内容
  * @param {Object} data - 视频数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderVideoContent(data) {
+function renderVideoContent(data, emojiContext = null) {
     const info = data.data;
     const owner = info.owner || {};
     const ownerFace = owner.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
@@ -32,13 +34,13 @@ function renderVideoContent(data) {
                     </div>
                 </div>
             </div>
-            <div class="title">${escapeHtml(info.title)}</div>
+            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
             <div class="stats video-stats">
                 <span class="stat-item">${ICONS.view} ${formatNumber(info.view?.count || info.stat?.view)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.like || info.stat?.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.reply || info.stat?.reply)}</span>
             </div>
-            ${info.desc ? `<div class="text-content">${escapeHtml(info.desc)}</div>` : ''}
+            ${info.desc ? `<div class="text-content">${parseRichText(null, info.desc, emojiContext)}</div>` : ''}
         </div>
     `;
 }

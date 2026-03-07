@@ -1,4 +1,6 @@
 const { escapeHtml, formatPubTime, formatNumber } = require('../core/formatters');
+const { parseRichText } = require('./components/richtext');
+const { replaceEmojiTokensInHtml } = require('./components/articleHtmlEmoji');
 const ICONS = require('./icons');
 
 const EMPTY_PARAGRAPH_START_RE = /^\s*<p(?:\s[^>]*)?>\s*(?:<br\s*\/?>|&nbsp;|\u00a0|\s)*\s*<\/p>/i
@@ -30,17 +32,18 @@ function normalizeArticleSummary(summary) {
 /**
  * 渲染专栏内容
  * @param {Object} data - 专栏数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderArticleContent(data) {
+function renderArticleContent(data, emojiContext = null) {
     const info = data.data;
     const pubDate = formatPubTime(info.publish_time);
     const authorFace = info.author_face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const hasHtmlContent = !!info.html_content;
     const contentClass = hasHtmlContent ? 'article-body' : 'text-content';
     const contentHtml = hasHtmlContent
-        ? trimArticleBlankParagraphs(info.html_content)
-        : escapeHtml(normalizeArticleSummary(info.summary || ''));
+        ? replaceEmojiTokensInHtml(trimArticleBlankParagraphs(info.html_content), emojiContext)
+        : parseRichText(null, normalizeArticleSummary(info.summary || ''), emojiContext);
 
     return `
         <div class="content">
@@ -55,7 +58,7 @@ function renderArticleContent(data) {
                     </div>
                 </div>
             </div>
-            <div class="title">${escapeHtml(info.title)}</div>
+            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
             <div class="${contentClass}">${contentHtml}</div>
             <div class="stats article-stats">
                 <span class="stat-item">${ICONS.share} ${formatNumber(info.stats?.share)}</span>

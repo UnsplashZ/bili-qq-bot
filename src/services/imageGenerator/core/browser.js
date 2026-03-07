@@ -36,8 +36,15 @@ class BrowserManager {
         this.maxPages = 5; // 最大同时打开页面数
         this.pageTimeout = 60000; // 页面超时时间（60秒）
         this.pageTimeouts = new Map(); // 页面超时定时器
+        this.idleTimeoutMs = 5 * 60 * 1000; // 浏览器空闲超时（5分钟，写死）
+        this.idleCheckIntervalMs = 30 * 1000; // 空闲检查间隔（30秒）
+        this.lastRequestAt = Date.now(); // 最近一次渲染请求进入时间
+        this.activeRenderCount = 0; // 当前活跃渲染任务数
+        this.idleCloseInProgress = false; // 空闲关闭防重入
         this.cleanupInterval = null; // 定期清理定时器
+        this.idleMonitorInterval = null; // 空闲监控定时器
         this.startCleanupMonitor();
+        this.startIdleMonitor();
     }
 
     /**
@@ -76,6 +83,77 @@ class BrowserManager {
     }
 
     /**
+     * 启动空闲关闭监控
+     * 每 30 秒检查一次，若浏览器空闲超过 5 分钟则自动关闭
+     */
+    startIdleMonitor() {
+        if (this.idleMonitorInterval) {
+            clearInterval(this.idleMonitorInterval);
+        }
+
+        this.idleMonitorInterval = setInterval(() => {
+            this.checkAndCloseIdleBrowser().catch((error) => {
+                logger.error('Error during idle browser check:', error);
+            });
+        }, this.idleCheckIntervalMs);
+    }
+
+    /**
+     * 标记渲染请求开始
+     */
+    markRequestStart() {
+        this.lastRequestAt = Date.now();
+        this.activeRenderCount += 1;
+        logger.debug(`[Browser] Render request started, active=${this.activeRenderCount}`);
+    }
+
+    /**
+     * 标记渲染请求结束
+     */
+    markRequestEnd() {
+        this.activeRenderCount = Math.max(0, this.activeRenderCount - 1);
+        logger.debug(`[Browser] Render request finished, active=${this.activeRenderCount}`);
+    }
+
+    /**
+     * 清理已追踪页面状态（不触发页面关闭）
+     */
+    clearTrackedPageState() {
+        for (const timeoutId of this.pageTimeouts.values()) {
+            clearTimeout(timeoutId);
+        }
+        this.pageTimeouts.clear();
+        this.pagePool.clear();
+    }
+
+    /**
+     * 检查并关闭空闲浏览器
+     */
+    async checkAndCloseIdleBrowser() {
+        if (!this.browser) return;
+        if (this.activeRenderCount > 0) return;
+        if (this.idleCloseInProgress) return;
+
+        const idleMs = Date.now() - this.lastRequestAt;
+        if (idleMs < this.idleTimeoutMs) return;
+
+        this.idleCloseInProgress = true;
+        try {
+            // 二次校验，避免检查与关闭之间有新任务进入
+            if (!this.browser || this.activeRenderCount > 0) {
+                return;
+            }
+
+            logger.info(`[Browser] Idle for ${Math.floor(idleMs / 1000)}s, closing Chromium process to release memory`);
+            await this.browser.close();
+            this.browser = null;
+            this.clearTrackedPageState();
+        } finally {
+            this.idleCloseInProgress = false;
+        }
+    }
+
+    /**
      * 初始化浏览器实例 (懒加载)
      */
     async init() {
@@ -107,7 +185,7 @@ class BrowserManager {
             this.browser.on('disconnected', () => {
                 logger.warn('Puppeteer browser disconnected! Resetting instance...');
                 this.browser = null;
-                this.pagePool.clear();
+                this.clearTrackedPageState();
             });
         }
     }
@@ -119,44 +197,49 @@ class BrowserManager {
      * @returns {Promise<any>} 操作结果
      */
     async withRetry(operation, maxRetries = 1) {
-        let lastError;
-        
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                // 如果是重试，且浏览器已断开，重新初始化
-                if (attempt > 0 && !this.browser) {
-                    logger.info(`[Browser] Re-initializing browser for retry attempt ${attempt}...`);
-                    await this.init();
-                }
-                
-                return await operation();
-            } catch (error) {
-                lastError = error;
-                const isProtocolError = error.message && (
-                    error.message.includes('Protocol error') || 
-                    error.message.includes('Target closed') ||
-                    error.message.includes('Session closed')
-                );
+        let lastError
+        this.markRequestStart()
 
-                if (isProtocolError && attempt < maxRetries) {
-                    logger.warn(`[Browser] Operation failed with protocol error (attempt ${attempt + 1}/${maxRetries + 1}). Retrying...`);
-                    // 如果是协议错误，强制重置浏览器
-                    if (this.browser) {
-                        try {
-                            await this.browser.close();
-                        } catch (e) { /* ignore */ }
-                        this.browser = null;
-                        this.pagePool.clear();
+        try {
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    // 如果是重试，且浏览器已断开，重新初始化
+                    if (attempt > 0 && !this.browser) {
+                        logger.info(`[Browser] Re-initializing browser for retry attempt ${attempt}...`);
+                        await this.init();
                     }
-                    // 等待一小会儿再重试
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                } else {
-                    // 如果不是协议错误，或者是最后一次尝试，则抛出异常
-                    throw error;
+
+                    return await operation();
+                } catch (error) {
+                    lastError = error;
+                    const isProtocolError = error.message && (
+                        error.message.includes('Protocol error') ||
+                        error.message.includes('Target closed') ||
+                        error.message.includes('Session closed')
+                    );
+
+                    if (isProtocolError && attempt < maxRetries) {
+                        logger.warn(`[Browser] Operation failed with protocol error (attempt ${attempt + 1}/${maxRetries + 1}). Retrying...`);
+                        // 如果是协议错误，强制重置浏览器
+                        if (this.browser) {
+                            try {
+                                await this.browser.close();
+                            } catch (e) { /* ignore */ }
+                            this.browser = null;
+                            this.clearTrackedPageState();
+                        }
+                        // 等待一小会儿再重试
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } else {
+                        // 如果不是协议错误，或者是最后一次尝试，则抛出异常
+                        throw error;
+                    }
                 }
             }
+            throw lastError;
+        } finally {
+            this.markRequestEnd();
         }
-        throw lastError;
     }
 
     /**
@@ -288,6 +371,10 @@ class BrowserManager {
             clearInterval(this.cleanupInterval);
             this.cleanupInterval = null;
         }
+        if (this.idleMonitorInterval) {
+            clearInterval(this.idleMonitorInterval);
+            this.idleMonitorInterval = null;
+        }
 
         // 关闭所有页面
         const pages = Array.from(this.pagePool);
@@ -300,6 +387,9 @@ class BrowserManager {
             await this.browser.close();
             this.browser = null;
         }
+        this.clearTrackedPageState();
+        this.activeRenderCount = 0;
+        this.idleCloseInProgress = false;
 
         logger.info('Browser resources cleaned up');
     }

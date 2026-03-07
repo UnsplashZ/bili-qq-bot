@@ -1,12 +1,14 @@
 const { escapeHtml } = require('../core/formatters');
+const { parseRichText } = require('./components/richtext');
 const ICONS = require('./icons');
 
 /**
  * 渲染直播间内容
  * @param {Object} data - 直播间数据
+ * @param {Object|null} emojiContext - 当前卡片表情渲染上下文
  * @returns {String} HTML 字符串
  */
-function renderLiveContent(data) {
+function renderLiveContent(data, emojiContext = null) {
     const info = data.data;
     const roomInfo = info.room_info || {};
     const anchorInfo = info.anchor_info || {};
@@ -36,10 +38,10 @@ function renderLiveContent(data) {
                     </div>
                 </div>
             </div>
-            <div class="title">${escapeHtml(roomInfo.title)}</div>
+            <div class="title">${parseRichText(null, roomInfo.title, emojiContext)}</div>
             <div class="stats">
                 <span class="stat-item">${ICONS.fire} ${watched.text_large || watched.num || 0}</span>
-                <span class="stat-item">${ICONS.star} ${escapeHtml(roomInfo.parent_area_name || '')} · ${escapeHtml(roomInfo.area_name || '')}</span>
+                <span class="stat-item">${ICONS.star} ${parseRichText(null, roomInfo.parent_area_name || '', emojiContext)} · ${parseRichText(null, roomInfo.area_name || '', emojiContext)}</span>
             </div>
         </div>
     `;
