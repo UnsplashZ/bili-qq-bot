@@ -1,7 +1,13 @@
 import { Tab } from '@headlessui/react';
-import { BadgeCheck, Bell, Plus, Trash2 } from 'lucide-react';
+import { Bell, Plus, Trash2 } from 'lucide-react';
+import personalVerifyBadgeUrl from '../../../../assets/verify/PERSONAL_OFFICIAL_VERIFY.svg';
+import organizationVerifyBadgeUrl from '../../../../assets/verify/ORGANIZATION_OFFICIAL_VERIFY.svg';
 
 const DEFAULT_AVATAR_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+const VERIFY_BADGE_ICON_MAP = {
+  0: personalVerifyBadgeUrl,
+  1: organizationVerifyBadgeUrl
+};
 
 const normalizeVerifyInfo = (raw) => {
   if (!raw || typeof raw !== 'object') return null;
@@ -36,7 +42,9 @@ const handleAvatarError = (event) => {
 const VerifyBadge = ({ verifyInfo }) => {
   if (!verifyInfo) return null;
 
-  const isOrganization = verifyInfo.type === 1;
+  const iconSrc = VERIFY_BADGE_ICON_MAP[verifyInfo.type];
+  if (!iconSrc) return null;
+
   const title = verifyInfo.desc
     ? `认证用户：${verifyInfo.desc}`
     : '认证用户';
@@ -44,14 +52,12 @@ const VerifyBadge = ({ verifyInfo }) => {
   return (
     <span
       title={title}
-      className="absolute -right-0.5 -bottom-0.5 rounded-full bg-slate-900/90 p-px ring-1 ring-white/15"
+      className="absolute -right-0.5 -bottom-0.5 w-4 h-4 drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]"
     >
-      <BadgeCheck
-        size={14}
-        className={isOrganization ? 'text-sky-400' : 'text-amber-400'}
-        fill="currentColor"
-        stroke="white"
-        strokeWidth={1.8}
+      <img
+        src={iconSrc}
+        alt="用户认证图标"
+        className="block w-full h-full"
       />
     </span>
   );
