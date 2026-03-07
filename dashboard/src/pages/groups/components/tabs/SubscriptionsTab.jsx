@@ -109,6 +109,7 @@ const SubscriptionsTab = ({
                               src={sub.face || DEFAULT_AVATAR_URL}
                               alt={sub.name || '用户头像'}
                               onError={handleAvatarError}
+                              referrerPolicy="no-referrer"
                               className="w-9 h-9 rounded-full object-cover border border-white/10 bg-black/30"
                             />
                             <VerifyBadge verifyInfo={getVerifyInfo(sub)} />

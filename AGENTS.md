@@ -66,9 +66,10 @@
 
 ## Test Script Tracking Rule
 
-- Files under `test/` are local verification artifacts and must remain untracked.
-- Do not commit any file under `test/`, even if explicitly modified for local debugging or validation.
-- Temporary or one-off scripts remain untracked, including `test/temp_*`, files under `test/debug/**`, and any other paths inside `test/`.
+- Automated test scripts under `test/` may be tracked when they are part of the product's repeatable verification suite.
+- Keep committed tests organized under stable paths such as `test/unit/**`.
+- Local verification artifacts must remain untracked, including generated previews in `test/output/**`, temporary scripts like `test/temp_*`, and files under `test/debug/**`.
+- Do not commit one-off debugging helpers or generated files under `test/`.
 
 ## NapCat Interface Lookup Rule
 

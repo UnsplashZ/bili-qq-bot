@@ -1,5 +1,6 @@
 const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
 const { decideAdvance } = require('../helpers/stateAdvance')
+const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
 module.exports = {
     /**
@@ -261,41 +262,55 @@ module.exports = {
 
             const liveRoom = res.data.live_room || {}
 
-            let liveStatus = liveRoom.liveStatus // 1: live, 0: offline
-            let roomId = liveRoom.roomid || liveRoom.room_id
+            const directRoomId = normalizeRoomId(liveRoom.roomid, liveRoom.room_id)
+            if (directRoomId && sub.roomId !== directRoomId) {
+                logger.info(`[UpdateChecker] Caching roomId ${directRoomId} for user ${sub.uid} (${sub.name})`)
+                await subscriptionManager.updateUserSub(sub.uid, { roomId: directRoomId })
+                sub.roomId = directRoomId
+            }
 
-            // roomId 缓存逻辑：如果API返回了roomId，保存到subscription；如果没有，使用缓存的
-            if (roomId) {
-                // API返回了roomId，缓存它
-                if (sub.roomId !== roomId) {
-                    logger.info(`[UpdateChecker] Caching roomId ${roomId} for user ${sub.uid} (${sub.name})`)
-                    await subscriptionManager.updateUserSub(sub.uid, { roomId })
-                    sub.roomId = roomId // 同步更新内存中的值
+            let roomInfo = null
+            let liveState = resolveLiveState({
+                liveRoom,
+                cachedRoomId: sub.roomId
+            })
+
+            if (liveState.status === 'unknown' && liveState.roomId) {
+                logger.debug(`[UpdateChecker] Live status unknown for ${sub.uid} (${sub.name}), confirming via room ${liveState.roomId}`)
+                roomInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
+                liveState = resolveLiveState({
+                    liveRoom,
+                    cachedRoomId: sub.roomId,
+                    roomInfo
+                })
+            }
+
+            if (!liveState.roomId && liveState.status === 'offline') {
+                if (sub.lastLiveStatus !== 0) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 0 })
                 }
-            } else if (sub.roomId) {
-                // API没有返回roomId，但subscription中有缓存
-                roomId = sub.roomId
-                logger.debug(`[UpdateChecker] API returned empty live_room for user ${sub.uid} (${sub.name}), using cached roomId ${roomId}`)
-                // 注意：此时liveStatus为undefined，不会触发开播通知，这是期望的行为
-                // 下次API正常时会恢复检查
-            } else {
-                // API没有返回，缓存中也没有，跳过检查
+                return
+            }
+
+            if (!liveState.roomId) {
                 logger.warn(`[UpdateChecker] No room ID available for user ${sub.uid} (${sub.name}), skipping live check. User may not have a live room.`)
                 return
             }
 
-            const roomUrl = liveRoom.url || `https://live.bilibili.com/${roomId}`
+            const roomUrl = liveState.roomUrl || `https://live.bilibili.com/${liveState.roomId}`
 
-            if ((liveStatus === 1 && sub.lastLiveStatus === 0) || (force && liveStatus === 1)) {
+            if ((liveState.status === 'online' && sub.lastLiveStatus !== 1) || (force && liveState.status === 'online')) {
                 let canAdvanceLiveStatus = false
                 // Started Streaming or Force Check
                 // Fetch live room detail using standard API (unified with linkHandler)
-                const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId)
+                const liveInfo = roomInfo && roomInfo.status === 'success'
+                    ? roomInfo
+                    : await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
 
                 if (liveInfo.status !== 'success') {
-                    logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${sub.name}), skipping notification`)
+                    logger.warn(`[UpdateChecker] Failed to get live room info for ${liveState.roomId} (${sub.name}), skipping notification`)
                 } else {
-                    liveInfo.id = roomId
+                    liveInfo.id = liveState.roomId
                     const notifyResult = await this.notifyGroupsWithImageAndCache(
                         targetGroupSourceMap,
                         liveInfo,
@@ -311,16 +326,19 @@ module.exports = {
                     }
                 }
 
-                // Guard against transient API anomalies: do not overwrite status with undefined/null.
-                if ((liveStatus === 0 || liveStatus === 1) && liveStatus !== sub.lastLiveStatus && canAdvanceLiveStatus) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus })
+                if (canAdvanceLiveStatus && sub.lastLiveStatus !== 1) {
+                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 1 })
                 }
                 return
             }
 
-            // Guard against transient API anomalies: do not overwrite status with undefined/null.
-            if ((liveStatus === 0 || liveStatus === 1) && liveStatus !== sub.lastLiveStatus) {
-                await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: liveStatus })
+            if (liveState.status === 'offline' && sub.lastLiveStatus !== 0) {
+                await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 0 })
+                return
+            }
+
+            if (liveState.status === 'unknown') {
+                logger.debug(`[UpdateChecker] Live status remains unknown for ${sub.uid} (${sub.name}); keeping previous state ${sub.lastLiveStatus}`)
             }
         } catch (e) {
             logger.error(`[UpdateChecker] Error checking live for ${sub.name}:`, e)

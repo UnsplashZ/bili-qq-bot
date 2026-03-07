@@ -2,12 +2,26 @@ const browserManager = require('../core/browser');
 const { isNightMode } = require('../core/theme');
 const { escapeHtml, getCustomFonts } = require('../core/formatters');
 const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
+const { renderVerifyBadge } = require('../renderers/components/verifyBadge');
+
+const DEFAULT_AVATAR_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+
+function resolveAvatarSrc(user) {
+    const face = String(user?.face || '').trim();
+    return face || DEFAULT_AVATAR_URL;
+}
 
 function renderUserCards(users, show_id) {
     return users.map((u) => `
         <div class="user-card">
             <div class="avatar-container">
-                <img src="${u.face}" class="avatar" crossorigin="anonymous">
+                <img
+                    src="${escapeHtml(resolveAvatarSrc(u))}"
+                    class="avatar"
+                    crossorigin="anonymous"
+                    onerror="this.onerror=null;this.src='${DEFAULT_AVATAR_URL}'"
+                >
+                ${renderVerifyBadge(u?.officialVerify?.type)}
             </div>
             <div class="user-info">
                 <div class="user-name-row">
@@ -175,6 +189,22 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
                 border: 2px solid var(--color-card-bg);
                 box-shadow: 0 2px 6px rgba(0,0,0,0.1);
             }
+            .author-verify-badge {
+                position: absolute;
+                right: -4px;
+                bottom: -2px;
+                width: 20px;
+                height: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+            }
+            .author-verify-icon {
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
             .user-info {
                 flex: 1;
                 min-width: 0;
@@ -326,4 +356,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
     }
 }
 
-module.exports = { generateSubscriptionList };
+module.exports = {
+    generateSubscriptionList,
+    renderUserCards
+};

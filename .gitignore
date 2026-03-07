@@ -45,4 +45,6 @@ Thumbs.db
 *.tmp
 
 # Test
-test*
+test/output/
+test/debug/
+test/temp_*

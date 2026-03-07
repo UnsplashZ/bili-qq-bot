@@ -8,6 +8,8 @@ const FETCH_TIMEOUT_MS = 2500
 const RETRY_BACKOFF_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000]
 const DEFAULT_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const DEFAULT_MAX_RECORDS = 5000
+const DEFAULT_AVATAR_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg'
+const ENRICH_CONCURRENCY_LIMIT = 3
 const CACHE_FILE = path.join(
     process.cwd(),
     'data',
@@ -22,6 +24,14 @@ function normalizeUid(uid) {
 function normalizeFace(raw) {
     const value = String(raw || '').trim()
     return value || ''
+}
+
+function resolveDisplayFace(...candidates) {
+    for (const candidate of candidates) {
+        const normalized = normalizeFace(candidate)
+        if (normalized) return normalized
+    }
+    return DEFAULT_AVATAR_URL
 }
 
 function normalizeName(raw, uid) {
@@ -64,6 +74,31 @@ function isOfficialVerifyEqual(a, b) {
     if (!left || !right) return false
 
     return left.type === right.type && left.desc === right.desc
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+    const safeItems = Array.isArray(items) ? items : []
+    if (safeItems.length === 0) return []
+
+    const maxConcurrency = Math.max(1, Number(limit) || 1)
+    const results = new Array(safeItems.length)
+    let nextIndex = 0
+
+    async function worker() {
+        while (nextIndex < safeItems.length) {
+            const currentIndex = nextIndex
+            nextIndex += 1
+            results[currentIndex] = await mapper(safeItems[currentIndex], currentIndex)
+        }
+    }
+
+    const workers = []
+    const workerCount = Math.min(maxConcurrency, safeItems.length)
+    for (let i = 0; i < workerCount; i += 1) {
+        workers.push(worker())
+    }
+    await Promise.all(workers)
+    return results
 }
 
 class SubscriptionUserMetaCacheService {
@@ -185,7 +220,7 @@ class SubscriptionUserMetaCacheService {
         const safeSub = sub && typeof sub === 'object' ? sub : {}
         const baseName = normalizeName(safeSub.name, uid)
         const name = normalizeName(record?.name || baseName, uid)
-        const face = normalizeFace(record?.face || safeSub.face || safeSub.avatar)
+        const face = resolveDisplayFace(record?.face, safeSub.face, safeSub.avatar)
         const officialVerify =
             normalizeOfficialVerify(record?.officialVerify) ||
             extractOfficialVerify(safeSub)
@@ -194,7 +229,7 @@ class SubscriptionUserMetaCacheService {
             ...safeSub,
             uid,
             name,
-            ...(face ? { face } : {}),
+            face,
             ...(officialVerify ? { officialVerify } : {})
         }
     }
@@ -404,8 +439,10 @@ class SubscriptionUserMetaCacheService {
         if (safeUsers.length === 0) return []
         await this.ensureLoaded()
 
-        return Promise.all(
-            safeUsers.map(sub => this.enrichSubscription(sub, groupId))
+        return mapWithConcurrency(
+            safeUsers,
+            ENRICH_CONCURRENCY_LIMIT,
+            sub => this.enrichSubscription(sub, groupId)
         )
     }
 

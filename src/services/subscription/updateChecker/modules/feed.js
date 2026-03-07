@@ -1,7 +1,17 @@
 const { subscriptionManager, biliApi, config, logger } = require('../adapters/deps')
 const { decideAdvance } = require('../helpers/stateAdvance')
+const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
 module.exports = {
+    mergePendingLiveUpdate(pendingUpdates, uid, updates) {
+        if (!uid || !updates || typeof updates !== 'object') return
+        const existing = pendingUpdates.get(uid) || {}
+        pendingUpdates.set(uid, {
+            ...existing,
+            ...updates
+        })
+    },
+
     async checkFeedUpdate(feedCoverage = null, activeGroups = null) {
         const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
             // Only check groups that are active (not left)
@@ -241,32 +251,42 @@ module.exports = {
             if (!followerMap.has(uid)) continue
 
             const follower = followerMap.get(uid)
-            const liveStatus = item.live_status // Should be 1 in live feed
+            const roomId = normalizeRoomId(item.room_id, item.roomid, follower.roomId)
+            const liveState = resolveLiveState({
+                liveRoom: {
+                    live_status: item.live_status,
+                    room_id: roomId
+                },
+                cachedRoomId: follower.roomId
+            })
+
+            if (roomId && follower.roomId !== roomId) {
+                this.mergePendingLiveUpdate(pendingUpdates, uid, { roomId })
+            }
 
             // Check if status changed from 0 to 1
             let canAdvanceCurrentLive = true
-            if (liveStatus === 1 && follower.lastLiveStatus !== 1) {
+            if (liveState.status === 'online' && follower.lastLiveStatus !== 1) {
                 const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
                 const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
 
                 if (targetGroups.length > 0) {
-                    const roomId = item.room_id || item.roomid
                     const name = item.uname
 
-                    if (!roomId) {
+                    if (!liveState.roomId) {
                         logger.warn(`[UpdateChecker] No room ID for user ${uid} (${name}), skipping live notification`)
                         continue
                     }
 
                     // Fetch live room detail using standard API (unified with linkHandler)
-                    const liveInfo = await biliApi.getLiveRoomInfo(roomId, groupId)
+                    const liveInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
                     if (liveInfo.status !== 'success') {
-                        logger.warn(`[UpdateChecker] Failed to get live room info for ${roomId} (${name}), skipping`)
+                        logger.warn(`[UpdateChecker] Failed to get live room info for ${liveState.roomId} (${name}), skipping`)
                         continue
                     }
 
-                    liveInfo.id = roomId
-                    const roomUrl = `https://live.bilibili.com/${roomId}`
+                    liveInfo.id = liveState.roomId
+                    const roomUrl = liveState.roomUrl || `https://live.bilibili.com/${liveState.roomId}`
 
                     const notifyResult = await this.notifyGroupsWithImageAndCache(
                         targetGroupSourceMap,
@@ -286,20 +306,58 @@ module.exports = {
                 }
             }
 
-            if (follower.lastLiveStatus !== liveStatus) {
-                if (liveStatus === 1 && !canAdvanceCurrentLive) {
+            if (liveState.status === 'online' && follower.lastLiveStatus !== 1) {
+                if (!canAdvanceCurrentLive) {
                     continue
                 }
-                pendingUpdates.set(uid, { lastLiveStatus: liveStatus })
+                this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 1 })
             }
         }
 
         // Handle offline users
-        // If a user was live (lastLiveStatus === 1) but is no longer in the live list, set them to offline (0)
+        // If a user was live (lastLiveStatus === 1) but is no longer in the live list,
+        // confirm offline via room info when possible. Treat fetch failures as unknown.
         for (const follower of followers) {
             const uid = subscriptionManager.getFollowerId(follower)
             if (follower.lastLiveStatus === 1 && !onlineUids.has(uid)) {
-                pendingUpdates.set(uid, { lastLiveStatus: 0 })
+                const cachedRoomId = normalizeRoomId(follower.roomId)
+                if (!cachedRoomId) {
+                    let userInfo = null
+                    try {
+                        userInfo = await biliApi.getUserInfo(uid, groupId, true)
+                    } catch (error) {
+                        logger.warn(`[UpdateChecker] User live fallback failed for ${uid}: ${error?.message || error}`)
+                    }
+
+                    const liveState = resolveLiveState({
+                        liveRoom: userInfo?.status === 'success' ? userInfo.data?.live_room : {},
+                        cachedRoomId: ''
+                    })
+                    if (liveState.status === 'offline') {
+                        this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                    } else {
+                        logger.debug(`[UpdateChecker] Missing cached roomId for live follower ${uid}; keeping previous live state`)
+                    }
+                    continue
+                }
+
+                let roomInfo = null
+                try {
+                    roomInfo = await biliApi.getLiveRoomInfo(cachedRoomId, groupId)
+                } catch (error) {
+                    logger.warn(`[UpdateChecker] Live room confirm failed for ${cachedRoomId} (${uid}): ${error?.message || error}`)
+                }
+
+                const liveState = resolveLiveState({
+                    cachedRoomId,
+                    roomInfo
+                })
+
+                if (liveState.status === 'offline') {
+                    this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                } else if (liveState.status === 'unknown') {
+                    logger.debug(`[UpdateChecker] Live status unknown for feed follower ${uid}; keeping previous live state`)
+                }
             }
         }
 

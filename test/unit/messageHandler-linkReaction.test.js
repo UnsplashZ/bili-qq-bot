@@ -14,6 +14,7 @@ const path = require('path')
 
 // --- Mock: linkHandler ---
 const linkHandler = require(path.join(__dirname, '../../src/handlers/linkHandler'))
+const aiIdempotency = require(path.join(__dirname, '../../src/services/ai/idempotency'))
 
 // --- Mock: 其他依赖（防止副作用）---
 const aiHandler = require(path.join(__dirname, '../../src/handlers/aiHandler'))
@@ -47,13 +48,15 @@ function makeMockWs() {
 }
 
 // --- 构造最简 messageData ---
-function makeMessageData(rawMsg, messageId = 99999) {
+let nextMessageId = 99999
+function makeMessageData(rawMsg, messageId = null) {
+    const resolvedMessageId = messageId == null ? nextMessageId++ : messageId
     return {
         message_type: 'group',
         group_id: '123456',
         user_id: '111111',
         self_id: '000000',
-        message_id: messageId,
+        message_id: resolvedMessageId,
         raw_message: rawMsg,
         message: [],
         sender: { nickname: 'TestUser' }
@@ -91,6 +94,7 @@ async function test(name, fn) {
         linkHandler.processSingleLink = _originals.processSingleLink
         linkHandler.addLinkToCache    = _originals.addLinkToCache
         aiHandler.shouldReply         = _originals.shouldReply
+        aiIdempotency.reset()
     }
 }
 

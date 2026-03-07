@@ -4,6 +4,7 @@ const imageGenerator = require('../services/imageGenerator');
 const logger = require('../utils/logger');
 const config = require('../config');
 const notificationService = require('../services/notificationService');
+const subscriptionUserMetaCacheService = require('../services/subscriptionUserMetaCacheService');
 
 class SubscriptionCommand {
     constructor() {
@@ -115,40 +116,10 @@ class SubscriptionCommand {
                     userSubs = groupUserSubs;
                     bangumiSubs = groupBangumiSubs;
 
-                    // Fetch user details for Group Subs (with concurrency limit and lightweight API)
-                    const detailedUserSubs = [];
-                    const CONCURRENCY_LIMIT = 3; // Limit parallel requests to avoid rate limits
-
-                    for (let i = 0; i < userSubs.length; i += CONCURRENCY_LIMIT) {
-                         const chunk = userSubs.slice(i, i + CONCURRENCY_LIMIT);
-                         const chunkResults = await Promise.all(chunk.map(async (sub) => {
-                            try {
-                                // Use lighter getUserCard instead of full getUserInfo
-                                const info = await biliApi.getUserCard(sub.uid);
-                                if (info && info.status === 'success' && info.data) {
-                                    logger.info(`[SubscriptionCommand] Fetched card for ${sub.uid}: face=${info.data.face}`);
-                                    return {
-                                        ...sub,
-                                        name: info.data.name || sub.name,
-                                        face: info.data.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
-                                        level: 0,
-                                        pendant: {},
-                                        fans_medal: {}
-                                    };
-                                }
-                            } catch (e) {
-                                logger.error(`[SubscriptionCommand] Failed to fetch card for user ${sub.uid}`, e);
-                            }
-                            return {
-                                ...sub,
-                                face: 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
-                                level: 0,
-                                pendant: {},
-                                fans_medal: {}
-                            };
-                        }));
-                        detailedUserSubs.push(...chunkResults);
-                    }
+                    const detailedUserSubs = await subscriptionUserMetaCacheService.enrichSubscriptions(
+                        userSubs,
+                        groupId
+                    );
 
                     const data = {
                         users: detailedUserSubs,
