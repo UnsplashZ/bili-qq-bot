@@ -66,9 +66,9 @@
 
 ## Test Script Tracking Rule
 
-- Files under `test/` are mainly local functional verification scripts and are not required to be tracked by default.
-- If any test script needs to be committed to the repository, explicit user request is required first.
-- Temporary or one-off scripts remain untracked by default, including `test/temp_*` and files under `test/debug/**`.
+- Files under `test/` are local verification artifacts and must remain untracked.
+- Do not commit any file under `test/`, even if explicitly modified for local debugging or validation.
+- Temporary or one-off scripts remain untracked, including `test/temp_*`, files under `test/debug/**`, and any other paths inside `test/`.
 
 ## NapCat Interface Lookup Rule
 

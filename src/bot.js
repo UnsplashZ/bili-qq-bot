@@ -9,8 +9,11 @@ const ServiceManager = require('./services/ServiceManager');
 const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
 const requestApprovalService = require('./services/requestApprovalService');
+const { warmupEmojiIndexProvider } = require('./services/imageGenerator/renderers/components/emojiIndexProvider');
 
 global.bot = global.bot || { groupList: new Map(), selfId: '0' };
+
+warmupEmojiIndexProvider()
 
 // WebSocket连接管理
 let ws = null;

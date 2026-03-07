@@ -159,8 +159,17 @@ function getDefaultEmojiIndexProvider() {
     return defaultProvider
 }
 
+function warmupEmojiIndexProvider(provider = getDefaultEmojiIndexProvider()) {
+    try {
+        return provider?.refreshInBackground?.() || null
+    } catch (_) {
+        return null
+    }
+}
+
 module.exports = {
     EmojiIndexProvider,
     defaultLoadEmojiIndex,
-    getDefaultEmojiIndexProvider
+    getDefaultEmojiIndexProvider,
+    warmupEmojiIndexProvider
 }

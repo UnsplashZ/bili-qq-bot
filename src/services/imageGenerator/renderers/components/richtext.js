@@ -9,8 +9,7 @@ const ICON_LINK_TYPES = new Set([
     'RICH_TEXT_NODE_TYPE_WEB',
     'RICH_TEXT_NODE_TYPE_VOTE',
     'RICH_TEXT_NODE_TYPE_LOTTERY',
-    'RICH_TEXT_NODE_TYPE_BV',
-    'RICH_TEXT_NODE_TYPE_TOPIC'
+    'RICH_TEXT_NODE_TYPE_BV'
 ])
 
 const TEXT_LINK_TYPES = new Set([
@@ -55,6 +54,12 @@ function resolveLinkText(node) {
     if (origText) return origText
 
     return rawText || '链接'
+}
+
+function isTopicDetailJumpUrl(url) {
+    const jumpUrl = normalizeJumpUrl(url)
+    if (!jumpUrl) return false
+    return /\/v\/topic\/detail\/\?topic_id=\d+/.test(jumpUrl)
 }
 
 function renderTextLink(node, extraClassName = '') {
@@ -130,10 +135,17 @@ function parseRichText(nodes, rawText, emojiContext = null) {
                 return renderEmojiImage(icon, text)
             }
 
+            if (type === 'RICH_TEXT_NODE_TYPE_TOPIC') {
+                if (isTopicDetailJumpUrl(node?.jump_url)) {
+                    return renderIconLink(node, 'topic-tag')
+                }
+                return renderTextLink(node, 'topic-tag')
+            }
+
             if (ICON_LINK_TYPES.has(type)) {
                 const extraClassName = type === 'RICH_TEXT_NODE_TYPE_VOTE'
                     ? 'vote-inline'
-                    : (type === 'RICH_TEXT_NODE_TYPE_TOPIC' ? 'topic-tag' : '')
+                    : ''
                 return renderIconLink(node, extraClassName)
             }
 
