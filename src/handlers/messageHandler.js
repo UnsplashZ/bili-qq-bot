@@ -10,6 +10,9 @@ const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 const requestApprovalService = require('../services/requestApprovalService');
 const aiIdempotency = require('../services/ai/idempotency');
+const { replyGateService } = require('../services/ai/replyGateService');
+const { selectContext } = require('../services/ai/contextSelectorService');
+const { classifyResponseMode } = require('../services/ai/responseModeService');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -35,21 +38,51 @@ class MessageHandler {
     extractMessageMeta(messageData, groupId, userId, userName) {
         const segments = Array.isArray(messageData?.message) ? messageData.message : [];
         const mentionIds = [];
+        let replyToMessageId = null;
+        let replyToSpeakerId = null;
 
         for (const seg of segments) {
             if (seg?.type === 'at' && seg.data?.qq != null) {
                 mentionIds.push(String(seg.data.qq));
             }
+            if (!replyToMessageId && seg?.type === 'reply' && seg.data?.id != null) {
+                replyToMessageId = String(seg.data.id);
+                const replySpeaker = seg.data.qq ?? seg.data.user_id ?? seg.data.sender_id ?? seg.data.uid;
+                if (replySpeaker != null) {
+                    replyToSpeakerId = String(replySpeaker);
+                }
+            }
         }
 
         const uniqueMentions = [...new Set(mentionIds)];
         const selfId = messageData?.self_id != null ? String(messageData.self_id) : null;
+        const currentMentionsBot = !!(selfId && uniqueMentions.includes(selfId));
+        const rawMessage = typeof messageData?.raw_message === 'string' ? messageData.raw_message : '';
+        const botNames = [];
+        const configuredBotName = String(config.getGroupConfig(groupId, 'aiBotName') || '').trim();
+        if (configuredBotName) botNames.push(configuredBotName);
+        const configuredBotAliases = config.getGroupConfig(groupId, 'aiBotAliases');
+        if (Array.isArray(configuredBotAliases)) {
+            for (const alias of configuredBotAliases) {
+                if (typeof alias !== 'string') continue;
+                const trimmed = alias.trim();
+                if (trimmed) botNames.push(trimmed);
+            }
+        }
+
+        const normalizedBotNames = [...new Set(botNames)];
+        const botNameHit = normalizedBotNames.find(name => rawMessage.includes(name)) || null;
 
         return {
             speakerId: userId ? String(userId) : null,
             speakerName: userName || null,
             mentionIds: uniqueMentions,
-            isAtBot: !!(selfId && uniqueMentions.includes(selfId)),
+            isAtBot: currentMentionsBot,
+            currentMentionsBot,
+            replyToMessageId,
+            replyToSpeakerId,
+            isReplyToBot: !!(selfId && replyToSpeakerId && replyToSpeakerId === selfId),
+            botNameHit,
             source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group'
         };
     }
@@ -370,12 +403,69 @@ class MessageHandler {
         // Check for AI Reply
         const isAt = messageMeta.isAtBot;
 
-        if (aiHandler.shouldReply(rawMessage, isAt, groupId)) {
-            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceId);
+        let shouldReply = false
+        let aiPipelineInput = null
+
+        if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
+            const gateDecision = replyGateService.evaluate({
+                groupId,
+                userId,
+                rawMessage,
+                messageMeta
+            })
+            logger.info(`[MessageHandler] AI gate decision trace=${traceId}`, {
+                shouldReply: gateDecision.shouldReply,
+                score: gateDecision.score,
+                busyMode: gateDecision.busyMode,
+                triggerLevel: gateDecision.triggerLevel,
+                reasons: gateDecision.reasons
+            })
+            shouldReply = gateDecision.shouldReply
+
+            if (shouldReply) {
+                const contextKey = groupId || userId
+                const fullContext = aiContextService.getContext(contextKey)
+                const currentTurn = fullContext[fullContext.length - 1] || null
+                const selectedContext = config.getGroupConfig(groupId, 'aiContextSelectorEnabled') !== false
+                    ? selectContext({
+                        context: fullContext.slice(0, -1),
+                        currentTurn,
+                        messageMeta
+                    })
+                    : { currentTurn, threadMessages: [], backgroundSummary: '', stats: {} }
+                logger.info(`[MessageHandler] AI context selected trace=${traceId}`, {
+                    selectedCount: selectedContext.threadMessages.length,
+                    hasSummary: !!selectedContext.backgroundSummary,
+                    stats: selectedContext.stats
+                })
+                const responseMode = config.getGroupConfig(groupId, 'aiResponseModeEnabled') !== false
+                    ? classifyResponseMode({
+                        rawMessage,
+                        messageMeta,
+                        triggerLevel: gateDecision.triggerLevel
+                    })
+                    : { mode: 'answer_only', reasons: ['feature_disabled'] }
+                logger.info(`[MessageHandler] AI response mode trace=${traceId}`, responseMode)
+
+                aiPipelineInput = {
+                    gateDecision,
+                    selectedContext,
+                    responseMode
+                }
+            }
+        } else {
+            shouldReply = aiHandler.shouldReply(rawMessage, isAt, groupId)
+        }
+
+        if (shouldReply) {
+            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceId, aiPipelineInput);
             if (reply) {
                 this.sendGroupMessage(ws, groupId, [
                     { type: 'text', data: { text: reply } }
                 ]);
+                if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
+                    replyGateService.recordBotReply(groupId, userId)
+                }
                 // Async profile update check (fire-and-forget, only triggers if conditions met)
                 userProfileService.maybeUpdateProfile(groupId, userId, userName, aiContextService, vectorMemoryService).catch(e => {
                     logger.error('[MessageHandler] Failed to maybe update user profile:', e);

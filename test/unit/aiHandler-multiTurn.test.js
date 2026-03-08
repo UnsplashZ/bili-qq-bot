@@ -44,7 +44,12 @@ function overrideConfigValue(key, value) {
 
 function restoreConfigValues() {
     Object.keys(originalConfigDescriptors).forEach((key) => {
-        Object.defineProperty(config, key, originalConfigDescriptors[key])
+        const descriptor = originalConfigDescriptors[key]
+        if (descriptor) {
+            Object.defineProperty(config, key, descriptor)
+        } else {
+            delete config[key]
+        }
     })
 }
 
@@ -245,6 +250,52 @@ async function run() {
     const passed = await aiHandler.getReply('raw message', '2402855757', '1065812436')
     assert.strictEqual(passed, '已根据执行结果处理。')
     console.log('✓ Case 6: 有成功工具结果时按模型回复返回')
+
+    // Case 7: confirm_needed 时不应向模型暴露工具
+    let capturedConfirmPayload = null
+    mcpManager.getOpenAITools = () => ([{
+        type: 'function',
+        function: { name: 'dangerous_action', description: 'danger', parameters: { type: 'object', properties: {} } }
+    }])
+    axios.post = async (_url, payload) => {
+        capturedConfirmPayload = payload
+        return {
+            data: {
+                choices: [{ message: { role: 'assistant', content: '先确认一下你的具体意思。' } }]
+            }
+        }
+    }
+    const confirmReply = await aiHandler.getReply(
+        '那就处理一下吧',
+        '2402855757',
+        '1065812436',
+        null,
+        {
+            selectedContext: {
+                currentTurn: {
+                    role: 'user',
+                    content: '那就处理一下吧',
+                    userId: '2402855757',
+                    userName: '管理员',
+                    speakerId: '2402855757',
+                    speakerName: '管理员',
+                    mentionIds: ['1099804769'],
+                    isAtBot: true,
+                    source: 'group',
+                    timestamp: Date.now()
+                },
+                threadMessages: [],
+                backgroundSummary: ''
+            },
+            responseMode: {
+                mode: 'confirm_needed',
+                reasons: ['ambiguous_action']
+            }
+        }
+    )
+    assert.strictEqual(confirmReply, '先确认一下你的具体意思。')
+    assert.ok(!capturedConfirmPayload.tools)
+    console.log('✓ Case 7: confirm_needed 时不会暴露工具给模型')
 
     console.log('\n所有测试通过 ✓')
 }

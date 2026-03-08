@@ -15,11 +15,13 @@ const path = require('path')
 // --- Mock: linkHandler ---
 const linkHandler = require(path.join(__dirname, '../../src/handlers/linkHandler'))
 const aiIdempotency = require(path.join(__dirname, '../../src/services/ai/idempotency'))
+const { replyGateService } = require(path.join(__dirname, '../../src/services/ai/replyGateService'))
 
 // --- Mock: 其他依赖（防止副作用）---
 const aiHandler = require(path.join(__dirname, '../../src/handlers/aiHandler'))
-aiHandler.shouldReply = () => false  // 禁止 AI 处理
 aiHandler.addMessageToContext = () => {}
+replyGateService.evaluate = () => ({ shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] })
+replyGateService.recordBotReply = () => {}
 
 const vectorMemoryService = require(path.join(__dirname, '../../src/services/vectorMemoryService'))
 vectorMemoryService.addMemory = async () => {}
@@ -72,6 +74,8 @@ const _originals = {
     processSingleLink: linkHandler.processSingleLink,
     addLinkToCache:    linkHandler.addLinkToCache,
     shouldReply:       aiHandler.shouldReply,
+    gateEvaluate:      replyGateService.evaluate,
+    gateRecordBotReply: replyGateService.recordBotReply,
 }
 
 // ---- 测试运行器 ----
@@ -94,6 +98,8 @@ async function test(name, fn) {
         linkHandler.processSingleLink = _originals.processSingleLink
         linkHandler.addLinkToCache    = _originals.addLinkToCache
         aiHandler.shouldReply         = _originals.shouldReply
+        replyGateService.evaluate     = _originals.gateEvaluate
+        replyGateService.recordBotReply = _originals.gateRecordBotReply
         aiIdempotency.reset()
     }
 }
@@ -194,10 +200,13 @@ async function runTests() {
     await test('无链接时不影响 AI 处理路径（shouldReply 被调用）', async () => {
         linkHandler.extractLinks = () => []
         let aiCalled = false
-        aiHandler.shouldReply = () => { aiCalled = true; return false }
+        replyGateService.evaluate = () => {
+            aiCalled = true
+            return { shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] }
+        }
         const ws = makeMockWs()
         await handler.handleMessage(ws, makeMessageData('你好'))
-        assert.ok(aiCalled, 'aiHandler.shouldReply 应该被调用')
+        assert.ok(aiCalled, 'replyGateService.evaluate 应该被调用')
     })
 
     console.log(`\n结果: ${passed} passed, ${failed} failed\n`)

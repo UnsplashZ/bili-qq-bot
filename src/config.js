@@ -290,6 +290,18 @@ const META = {
     aiStructuredContextEnabled: { env: null, def: true, type: 'bool' },
     aiIdentityRagMode: { env: null, def: 'strict', type: 'string' }, // strict | normal
     aiAdminClaimRequiresTool: { env: null, def: true, type: 'bool' },
+    aiReplyGateEnabled: { env: null, def: true, type: 'bool' },
+    aiContextSelectorEnabled: { env: null, def: true, type: 'bool' },
+    aiResponseModeEnabled: { env: null, def: true, type: 'bool' },
+    aiPromptAssemblerEnabled: { env: null, def: true, type: 'bool' },
+    aiReplyScoreThreshold: { env: null, def: 45, type: 'int' },
+    aiBusyReplyScoreThreshold: { env: null, def: 80, type: 'int' },
+    aiBusyWindowSeconds: { env: null, def: 10, type: 'int' },
+    aiBusyMessageCount: { env: null, def: 12, type: 'int' },
+    aiReplyCooldownMs: { env: null, def: 15000, type: 'int' },
+    aiMaxRepliesPerWindow: { env: null, def: 3, type: 'int' },
+    aiBotName: { env: null, def: '', type: 'string' },
+    aiBotAliases: { env: null, def: [], type: 'array', lazyInit: true },
 
     // AI User Profile Configuration
     aiProfileEnabled: { env: null, def: false, type: 'bool' },

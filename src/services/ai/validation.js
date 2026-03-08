@@ -41,7 +41,19 @@ const AI_ALLOWED_FIELDS = new Set([
     'aiAdminClaimRequiresTool',
     'aiEnabled',
     'aiRagEnabled',
-    'aiProfileEnabled'
+    'aiProfileEnabled',
+    'aiReplyGateEnabled',
+    'aiContextSelectorEnabled',
+    'aiResponseModeEnabled',
+    'aiPromptAssemblerEnabled',
+    'aiReplyScoreThreshold',
+    'aiBusyReplyScoreThreshold',
+    'aiBusyWindowSeconds',
+    'aiBusyMessageCount',
+    'aiReplyCooldownMs',
+    'aiMaxRepliesPerWindow',
+    'aiBotName',
+    'aiBotAliases'
 ])
 
 const BOOLEAN_FIELDS = new Set([
@@ -51,8 +63,38 @@ const BOOLEAN_FIELDS = new Set([
     'aiAdminClaimRequiresTool',
     'aiEnabled',
     'aiRagEnabled',
-    'aiProfileEnabled'
+    'aiProfileEnabled',
+    'aiReplyGateEnabled',
+    'aiContextSelectorEnabled',
+    'aiResponseModeEnabled',
+    'aiPromptAssemblerEnabled'
 ])
+
+function _ensureStringArray(field, value, { maxItems = 20, maxItemLength = 64 } = {}) {
+    if (!Array.isArray(value)) {
+        throw new AiConfigValidationError(field, `${field} must be an array`)
+    }
+
+    const normalized = []
+    for (const item of value) {
+        if (typeof item !== 'string') {
+            throw new AiConfigValidationError(field, `${field} must contain only strings`)
+        }
+        const trimmed = item.trim()
+        if (!trimmed) continue
+        if (trimmed.length > maxItemLength) {
+            throw new AiConfigValidationError(field, `${field} items must be at most ${maxItemLength} characters`)
+        }
+        if (!normalized.includes(trimmed)) {
+            normalized.push(trimmed)
+        }
+    }
+
+    if (normalized.length > maxItems) {
+        throw new AiConfigValidationError(field, `${field} must contain at most ${maxItems} items`)
+    }
+    return normalized
+}
 
 function _ensureIntInRange(field, value, min, max) {
     let parsed
@@ -135,6 +177,17 @@ function normalizeAiConfigField(field, value, options = {}) {
             return _ensureIntInRange(field, value, 1, 10000)
         case 'aiHistoryMaxSize':
             return _ensureIntInRange(field, value, 1024 * 1024, 10000 * 1024 * 1024)
+        case 'aiReplyScoreThreshold':
+        case 'aiBusyReplyScoreThreshold':
+            return _ensureIntInRange(field, value, 0, 100)
+        case 'aiBusyWindowSeconds':
+            return _ensureIntInRange(field, value, 1, 300)
+        case 'aiBusyMessageCount':
+            return _ensureIntInRange(field, value, 1, 200)
+        case 'aiReplyCooldownMs':
+            return _ensureIntInRange(field, value, 0, 300000)
+        case 'aiMaxRepliesPerWindow':
+            return _ensureIntInRange(field, value, 1, 20)
         case 'aiIdentityRagMode': {
             const mode = String(value).trim().toLowerCase()
             if (!['strict', 'normal'].includes(mode)) {
@@ -142,6 +195,10 @@ function normalizeAiConfigField(field, value, options = {}) {
             }
             return mode
         }
+        case 'aiBotName':
+            return String(value).trim()
+        case 'aiBotAliases':
+            return _ensureStringArray(field, value)
         default:
             return value
     }

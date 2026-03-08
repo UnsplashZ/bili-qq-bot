@@ -71,7 +71,19 @@ router.post('/ai/reset', async (req, res) => {
             'aiEnableSmartTrim',
             'aiStructuredContextEnabled',
             'aiIdentityRagMode',
-            'aiAdminClaimRequiresTool'
+            'aiAdminClaimRequiresTool',
+            'aiReplyGateEnabled',
+            'aiContextSelectorEnabled',
+            'aiResponseModeEnabled',
+            'aiPromptAssemblerEnabled',
+            'aiReplyScoreThreshold',
+            'aiBusyReplyScoreThreshold',
+            'aiBusyWindowSeconds',
+            'aiBusyMessageCount',
+            'aiReplyCooldownMs',
+            'aiMaxRepliesPerWindow',
+            'aiBotName',
+            'aiBotAliases'
         ]
 
         sysConfig.deleteKeys(aiKeys)
