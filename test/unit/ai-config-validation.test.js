@@ -13,7 +13,18 @@ function run() {
         aiContextLimit: '50',
         aiTemperature: '1.2',
         aiIdentityRagMode: 'STRICT',
-        aiStructuredContextEnabled: true
+        aiStructuredContextEnabled: true,
+        aiReplyGateEnabled: true,
+        aiContextSelectorEnabled: true,
+        aiResponseModeEnabled: true,
+        aiPromptAssemblerEnabled: true,
+        aiReplyScoreThreshold: '45',
+        aiBusyReplyScoreThreshold: '80',
+        aiBusyWindowSeconds: '10',
+        aiBusyMessageCount: '12',
+        aiReplyCooldownMs: '15000',
+        aiMaxRepliesPerWindow: '3',
+        aiBotAliases: ['小助手', ' BiliBot ']
     })
 
     assert.strictEqual(normalized.aiProbability, 0.35)
@@ -21,6 +32,17 @@ function run() {
     assert.strictEqual(normalized.aiTemperature, 1.2)
     assert.strictEqual(normalized.aiIdentityRagMode, 'strict')
     assert.strictEqual(normalized.aiStructuredContextEnabled, true)
+    assert.strictEqual(normalized.aiReplyGateEnabled, true)
+    assert.strictEqual(normalized.aiContextSelectorEnabled, true)
+    assert.strictEqual(normalized.aiResponseModeEnabled, true)
+    assert.strictEqual(normalized.aiPromptAssemblerEnabled, true)
+    assert.strictEqual(normalized.aiReplyScoreThreshold, 45)
+    assert.strictEqual(normalized.aiBusyReplyScoreThreshold, 80)
+    assert.strictEqual(normalized.aiBusyWindowSeconds, 10)
+    assert.strictEqual(normalized.aiBusyMessageCount, 12)
+    assert.strictEqual(normalized.aiReplyCooldownMs, 15000)
+    assert.strictEqual(normalized.aiMaxRepliesPerWindow, 3)
+    assert.deepStrictEqual(normalized.aiBotAliases, ['小助手', 'BiliBot'])
 
     assert.throws(
         () => normalizeAiConfigUpdates({ aiContextLimit: 0 }),
@@ -40,6 +62,21 @@ function run() {
     assert.throws(
         () => normalizeAiConfigUpdates({ aiContextLimit: '10foo' }),
         (err) => err instanceof AiConfigValidationError && err.field === 'aiContextLimit'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiReplyGateEnabled: 'true' }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiReplyGateEnabled'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiBusyMessageCount: 0 }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiBusyMessageCount'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiBotAliases: 'not-array' }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiBotAliases'
     )
 
     console.log('✓ AI 配置统一校验模块工作正常')

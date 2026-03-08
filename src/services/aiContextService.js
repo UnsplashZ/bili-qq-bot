@@ -185,6 +185,33 @@ class AiContextService {
             msgObj.mentionIds = [];
         }
         msgObj.isAtBot = safeMeta.isAtBot === true;
+        if (safeMeta.messageId != null) {
+            msgObj.messageId = String(safeMeta.messageId);
+        }
+        if (safeMeta.replyToMessageId != null) {
+            msgObj.replyToMessageId = String(safeMeta.replyToMessageId);
+        }
+        if (safeMeta.replyToSpeakerId != null) {
+            msgObj.replyToSpeakerId = String(safeMeta.replyToSpeakerId);
+        }
+        if (safeMeta.isReplyToBot === true) {
+            msgObj.isReplyToBot = true;
+        }
+        if (typeof safeMeta.normalizedText === 'string' && safeMeta.normalizedText.trim()) {
+            msgObj.normalizedText = safeMeta.normalizedText.trim();
+        }
+        if (Array.isArray(safeMeta.topicHints)) {
+            msgObj.topicHints = safeMeta.topicHints
+                .filter(item => typeof item === 'string')
+                .map(item => item.trim())
+                .filter(Boolean);
+        }
+        if (safeMeta.currentMentionsBot === true) {
+            msgObj.currentMentionsBot = true;
+        }
+        if (typeof safeMeta.botNameHit === 'string' && safeMeta.botNameHit.trim()) {
+            msgObj.botNameHit = safeMeta.botNameHit.trim();
+        }
         if (typeof safeMeta.source === 'string' && safeMeta.source) {
             msgObj.source = safeMeta.source;
         }

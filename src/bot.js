@@ -144,6 +144,9 @@ function createWebSocketConnection() {
 
             if (payload && payload.echo === 'init_self_id' && payload.data && payload.data.user_id) {
                 global.bot.selfId = String(payload.data.user_id)
+                if (payload.data.nickname) {
+                    global.bot.nickname = String(payload.data.nickname)
+                }
                 logger.info(`[Bot] selfId initialized from login_info: ${global.bot.selfId}`)
             }
 

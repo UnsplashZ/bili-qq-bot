@@ -128,10 +128,52 @@ async function testApiRejectsUnknownAiField() {
     console.log('✓ /api/ai 拒绝未知字段（防 mass assignment）')
 }
 
+async function testApiResetClearsNewAiFields() {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', apiRouter)
+
+    const token = buildToken()
+
+    config.aiReplyGateEnabled = false
+    config.aiContextSelectorEnabled = false
+    config.aiResponseModeEnabled = false
+    config.aiPromptAssemblerEnabled = false
+    config.aiReplyScoreThreshold = 66
+    config.aiBusyReplyScoreThreshold = 99
+    config.aiBusyWindowSeconds = 30
+    config.aiBusyMessageCount = 88
+    config.aiReplyCooldownMs = 25000
+    config.aiMaxRepliesPerWindow = 7
+    config.aiBotName = '临时机器人'
+    config.aiBotAliases = ['临时别名']
+
+    const res = await request(app)
+        .post('/api/ai/reset')
+        .set('Authorization', `Bearer ${token}`)
+        .send({})
+
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(config.aiReplyGateEnabled, true)
+    assert.strictEqual(config.aiContextSelectorEnabled, true)
+    assert.strictEqual(config.aiResponseModeEnabled, true)
+    assert.strictEqual(config.aiPromptAssemblerEnabled, true)
+    assert.strictEqual(config.aiReplyScoreThreshold, 45)
+    assert.strictEqual(config.aiBusyReplyScoreThreshold, 80)
+    assert.strictEqual(config.aiBusyWindowSeconds, 10)
+    assert.strictEqual(config.aiBusyMessageCount, 12)
+    assert.strictEqual(config.aiReplyCooldownMs, 15000)
+    assert.strictEqual(config.aiMaxRepliesPerWindow, 3)
+    assert.strictEqual(config.aiBotName, '')
+    assert.deepStrictEqual(config.aiBotAliases, [])
+    console.log('✓ /api/ai/reset 会清理新增 AI 配置字段')
+}
+
 async function run() {
     await testCommandsUseSameContextLimitRange()
     await testAiCommandRejectsDirtyProbabilityInput()
     await testApiRejectsUnknownAiField()
+    await testApiResetClearsNewAiFields()
 }
 
 run()

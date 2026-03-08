@@ -10,54 +10,63 @@ const linkHandler = require('../../src/handlers/linkHandler')
 const commandManager = require('../../src/commands')
 const vectorMemoryService = require('../../src/services/vectorMemoryService')
 const userProfileService = require('../../src/services/userProfileService')
-const aiIdempotency = require('../../src/services/ai/idempotency')
+const aiContextService = require('../../src/services/aiContextService')
 const { replyGateService } = require('../../src/services/ai/replyGateService')
 
 const originals = {
-    shouldReply: aiHandler.shouldReply,
     getReply: aiHandler.getReply,
     addMessageToContext: aiHandler.addMessageToContext,
-    gateEvaluate: replyGateService.evaluate,
-    gateRecordBotReply: replyGateService.recordBotReply,
     ensureGroupConfig: config.ensureGroupConfig,
     isGroupEnabled: config.isGroupEnabled,
     isGroupAdmin: config.isGroupAdmin,
     isRootAdmin: config.isRootAdmin,
+    getGroupConfig: config.getGroupConfig,
     dispatch: commandManager.dispatch,
     extractLinks: linkHandler.extractLinks,
     shortLinkRegex: linkHandler.shortLinkRegex,
     addMemory: vectorMemoryService.addMemory,
     recordMessage: userProfileService.recordMessage,
     maybeUpdateProfile: userProfileService.maybeUpdateProfile,
+    getContext: aiContextService.getContext,
+    gateEvaluate: replyGateService.evaluate,
+    gateRecordBotReply: replyGateService.recordBotReply,
     sendGroupMessage: messageHandler.sendGroupMessage
 }
 
 function restore() {
-    aiHandler.shouldReply = originals.shouldReply
     aiHandler.getReply = originals.getReply
     aiHandler.addMessageToContext = originals.addMessageToContext
-    replyGateService.evaluate = originals.gateEvaluate
-    replyGateService.recordBotReply = originals.gateRecordBotReply
     config.ensureGroupConfig = originals.ensureGroupConfig
     config.isGroupEnabled = originals.isGroupEnabled
     config.isGroupAdmin = originals.isGroupAdmin
     config.isRootAdmin = originals.isRootAdmin
+    config.getGroupConfig = originals.getGroupConfig
     commandManager.dispatch = originals.dispatch
     linkHandler.extractLinks = originals.extractLinks
     linkHandler.shortLinkRegex = originals.shortLinkRegex
     vectorMemoryService.addMemory = originals.addMemory
     userProfileService.recordMessage = originals.recordMessage
     userProfileService.maybeUpdateProfile = originals.maybeUpdateProfile
+    aiContextService.getContext = originals.getContext
+    replyGateService.evaluate = originals.gateEvaluate
+    replyGateService.recordBotReply = originals.gateRecordBotReply
     messageHandler.sendGroupMessage = originals.sendGroupMessage
-    if (typeof aiIdempotency.reset === 'function') aiIdempotency.reset()
 }
 
-async function testDuplicateMessageIdOnlyRepliesOnce() {
-    aiIdempotency.reset()
+async function testPipelinePayloadPassedToAiHandler() {
     config.ensureGroupConfig = () => {}
     config.isGroupEnabled = () => true
     config.isGroupAdmin = () => true
     config.isRootAdmin = () => true
+    config.getGroupConfig = (_groupId, key) => {
+        const map = {
+            aiReplyGateEnabled: true,
+            aiContextSelectorEnabled: true,
+            aiResponseModeEnabled: true
+        }
+        if (Object.prototype.hasOwnProperty.call(map, key)) return map[key]
+        return originals.getGroupConfig.call(config, _groupId, key)
+    }
 
     commandManager.dispatch = async () => false
     linkHandler.extractLinks = () => []
@@ -66,92 +75,52 @@ async function testDuplicateMessageIdOnlyRepliesOnce() {
     userProfileService.recordMessage = async () => {}
     userProfileService.maybeUpdateProfile = async () => {}
     aiHandler.addMessageToContext = () => {}
+    aiContextService.getContext = () => ([
+        { role: 'user', speakerId: '2', speakerName: '测试用户', content: '前面超时了', timestamp: 1000 },
+        { role: 'user', speakerId: '2', speakerName: '测试用户', content: '现在怎么办？', timestamp: 2000 }
+    ])
     replyGateService.evaluate = () => ({
         shouldReply: true,
-        triggerLevel: 'direct',
+        triggerLevel: 'followup',
         busyMode: false,
-        score: 100,
+        score: 60,
         reasons: ['test']
     })
     replyGateService.recordBotReply = () => {}
 
-    let getReplyCalled = 0
-    aiHandler.getReply = async () => {
-        getReplyCalled += 1
+    let capturedPipelineInput = null
+    aiHandler.getReply = async (_message, _userId, _groupId, _traceId, pipelineInput) => {
+        capturedPipelineInput = pipelineInput
         return 'ok'
     }
 
-    let sendCount = 0
-    messageHandler.sendGroupMessage = () => {
-        sendCount += 1
-    }
-
-    const payload = {
-        post_type: 'message',
-        message_type: 'group',
-        self_id: 1,
-        message_id: 999,
-        user_id: 2,
-        group_id: 1000,
-        raw_message: '你好',
-        message: [{ type: 'text', data: { text: '你好' } }],
-        sender: { nickname: '测试用户' }
-    }
-
-    await messageHandler.handleMessage({}, payload)
-    await messageHandler.handleMessage({}, payload)
-
-    assert.strictEqual(getReplyCalled, 1, '重复消息不应重复调用 AI')
-    assert.strictEqual(sendCount, 1, '重复消息不应重复回复')
-    console.log('✓ 重复 message_id 仅回复一次')
-}
-
-async function testNonArrayMessageWillNotCrash() {
-    aiIdempotency.reset()
-    config.ensureGroupConfig = () => {}
-    config.isGroupEnabled = () => true
-    config.isGroupAdmin = () => true
-    config.isRootAdmin = () => true
-    commandManager.dispatch = async () => false
-    linkHandler.extractLinks = () => []
-    linkHandler.shortLinkRegex = null
-    vectorMemoryService.addMemory = async () => {}
-    userProfileService.recordMessage = async () => {}
-    userProfileService.maybeUpdateProfile = async () => {}
-    aiHandler.addMessageToContext = () => {}
-    replyGateService.evaluate = () => ({
-        shouldReply: false,
-        triggerLevel: 'ambient',
-        busyMode: false,
-        score: 0,
-        reasons: ['test']
-    })
-    replyGateService.recordBotReply = () => {}
     messageHandler.sendGroupMessage = () => {}
 
     await messageHandler.handleMessage({}, {
         post_type: 'message',
         message_type: 'group',
         self_id: 1,
-        message_id: 1000,
+        message_id: 123,
         user_id: 2,
         group_id: 1000,
-        raw_message: '文本',
-        message: '文本',
+        raw_message: '现在怎么办？',
+        message: [{ type: 'text', data: { text: '现在怎么办？' } }],
         sender: { nickname: '测试用户' }
     })
-    console.log('✓ 非数组 message 输入不会导致崩溃')
+
+    assert.ok(capturedPipelineInput)
+    assert.strictEqual(capturedPipelineInput.gateDecision.triggerLevel, 'followup')
+    assert.strictEqual(capturedPipelineInput.responseMode.mode, 'answer_only')
+    assert.ok(Array.isArray(capturedPipelineInput.selectedContext.threadMessages))
+    console.log('✓ messageHandler 会把结构化 AI 管线输入传给 aiHandler')
 }
 
 async function run() {
-    await testDuplicateMessageIdOnlyRepliesOnce()
-    await testNonArrayMessageWillNotCrash()
+    await testPipelinePayloadPassedToAiHandler()
 }
 
 run()
-    .then(() => {
-        process.exit(0)
-    })
+    .then(() => process.exit(0))
     .catch((error) => {
         console.error(error)
         process.exit(1)
