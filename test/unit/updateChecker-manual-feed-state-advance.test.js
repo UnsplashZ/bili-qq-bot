@@ -244,4 +244,46 @@ describe('updateChecker manual/feed state advance policy', function () {
 
         assert.deepStrictEqual(manualUpdates, [{ lastLiveStatus: 0 }])
     })
+
+    it('feed live 仅看到 UID 但未形成可靠 manual 处理结果时不应覆盖 manual fallback', async function () {
+        deps.subscriptionManager.cookieFollowings = {
+            acc1: [
+                {
+                    uid: '123',
+                    uname: 'tester',
+                    roomId: 9527,
+                    lastLiveStatus: 0
+                }
+            ]
+        }
+        deps.subscriptionManager.userSubs = [
+            {
+                uid: '123',
+                name: 'tester',
+                groupIds: ['1000'],
+                roomId: 9527,
+                lastLiveStatus: 0
+            }
+        ]
+        deps.subscriptionManager.groupToAccountMap = {
+            '1000': 'acc1'
+        }
+        deps.biliApi.getLiveFeed = async () => ({
+            status: 'success',
+            data: {
+                list: [
+                    {
+                        uid: '123',
+                        uname: 'tester',
+                        room_id: 9527,
+                        live_status: 0
+                    }
+                ]
+            }
+        })
+
+        const result = await updateChecker.processLiveFeed('acc1', '1000', new Set(['1000']))
+
+        assert.deepStrictEqual(result.coveredUids || [], [])
+    })
 })

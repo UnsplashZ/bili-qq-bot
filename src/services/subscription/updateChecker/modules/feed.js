@@ -350,7 +350,7 @@ module.exports = {
             if (liveState.status === 'online' && manualNeedsNotify && canAdvanceManualLive) {
                 await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 1 })
             }
-            if (manualSub && (!manualNeedsNotify || canAdvanceManualLive)) {
+            if (manualSub && liveState.status === 'online' && (!manualNeedsNotify || canAdvanceManualLive)) {
                 coveredUids.add(uid)
             }
         }
