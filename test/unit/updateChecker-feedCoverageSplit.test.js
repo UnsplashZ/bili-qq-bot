@@ -129,7 +129,7 @@ describe('UpdateChecker feed coverage split', function () {
         updateChecker.processDynamicFeed = async () => {
             throw new Error('dynamic failed')
         }
-        updateChecker.processLiveFeed = async () => ({ ok: true })
+        updateChecker.processLiveFeed = async () => ({ ok: true, coveredUids: ['u1'] })
 
         const coverage = { dynamicUids: new Set(), liveUids: new Set() }
 
@@ -158,7 +158,7 @@ describe('UpdateChecker feed coverage split', function () {
 
         updateChecker.findTargetGroupsForUser = () => ['1000']
         updateChecker.processDynamicFeed = async () => ({ ok: false, reason: 'dynamic_feed_fetch_failed' })
-        updateChecker.processLiveFeed = async () => ({ ok: true })
+        updateChecker.processLiveFeed = async () => ({ ok: true, coveredUids: ['u1'] })
 
         const coverage = { dynamicUids: new Set(), liveUids: new Set() }
 
@@ -188,6 +188,35 @@ describe('UpdateChecker feed coverage split', function () {
         updateChecker.findTargetGroupsForUser = () => ['1000']
         updateChecker.processDynamicFeed = async () => ({ ok: true })
         updateChecker.processLiveFeed = async () => ({ ok: false, reason: 'live_feed_fetch_failed' })
+
+        const coverage = { dynamicUids: new Set(), liveUids: new Set() }
+
+        await withFastTimers(async () => {
+            await originals.checkFeedUpdate.call(updateChecker, coverage, new Set(['1000']))
+        })
+
+        assert.strictEqual(coverage.dynamicUids.has('u1'), true)
+        assert.strictEqual(coverage.liveUids.has('u1'), false)
+    })
+
+    it('不提交 live 覆盖：live 成功但未声明实际覆盖 UID', async function () {
+        overwriteGroupConfigs({
+            '1000': {
+                isInGroup: true,
+                enableCookieSync: true,
+            },
+        })
+
+        subscriptionManager.groupToAccountMap = {
+            '1000': 'acc1',
+        }
+        subscriptionManager.cookieFollowings = {
+            acc1: [{ mid: 'u1' }],
+        }
+
+        updateChecker.findTargetGroupsForUser = () => ['1000']
+        updateChecker.processDynamicFeed = async () => ({ ok: true })
+        updateChecker.processLiveFeed = async () => ({ ok: true })
 
         const coverage = { dynamicUids: new Set(), liveUids: new Set() }
 

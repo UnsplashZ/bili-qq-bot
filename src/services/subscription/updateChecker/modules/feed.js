@@ -12,6 +12,28 @@ module.exports = {
         })
     },
 
+    findManualSub(uid) {
+        return (subscriptionManager.userSubs || []).find(sub => String(sub?.uid) === String(uid)) || null
+    },
+
+    filterTargetGroupSourceMap(targetGroupSourceMap, allowedSources = []) {
+        if (!(targetGroupSourceMap instanceof Map)) return new Map()
+
+        const allowed = new Set((allowedSources || []).map(source => String(source)))
+        if (allowed.size === 0) return new Map()
+
+        const filtered = new Map()
+        for (const [gid, sources] of targetGroupSourceMap.entries()) {
+            const sourceList = Array.isArray(sources) ? sources : Array.from(sources || [])
+            const matchedSources = sourceList.filter(source => allowed.has(String(source)))
+            if (matchedSources.length > 0) {
+                filtered.set(gid, new Set(matchedSources))
+            }
+        }
+
+        return filtered
+    },
+
     async checkFeedUpdate(feedCoverage = null, activeGroups = null) {
         const groupsWithSync = Object.keys(config.groupConfigs || {}).filter(gid => {
             // Only check groups that are active (not left)
@@ -38,7 +60,7 @@ module.exports = {
 
         // Loop through accounts
         for (const [uid, groupId] of accountGroups) {
-            const uidsCoveredByFeed = (dynamicCoverage || liveCoverage)
+            const dynamicCoveredCandidates = dynamicCoverage
                 ? this.collectFeedCoveredUids(uid, activeGroups)
                 : []
 
@@ -48,8 +70,8 @@ module.exports = {
                 const dynamicResult = await this.processDynamicFeed(uid, groupId, activeGroups)
                 dynamicSucceeded = dynamicResult?.ok === true
 
-                if (dynamicSucceeded && dynamicCoverage && uidsCoveredByFeed.length > 0) {
-                    for (const fid of uidsCoveredByFeed) {
+                if (dynamicSucceeded && dynamicCoverage && dynamicCoveredCandidates.length > 0) {
+                    for (const fid of dynamicCoveredCandidates) {
                         dynamicCoverage.add(fid)
                     }
                 }
@@ -65,9 +87,12 @@ module.exports = {
                 // Process Live Feed
                 const liveResult = await this.processLiveFeed(uid, groupId, activeGroups)
                 liveSucceeded = liveResult?.ok === true
+                const coveredLiveUids = Array.isArray(liveResult?.coveredUids)
+                    ? liveResult.coveredUids.map(fid => String(fid)).filter(Boolean)
+                    : []
 
-                if (liveSucceeded && liveCoverage && uidsCoveredByFeed.length > 0) {
-                    for (const fid of uidsCoveredByFeed) {
+                if (liveSucceeded && liveCoverage && coveredLiveUids.length > 0) {
+                    for (const fid of coveredLiveUids) {
                         liveCoverage.add(fid)
                     }
                 }
@@ -75,7 +100,7 @@ module.exports = {
                 logger.error(`[UpdateChecker] Live feed update failed for account ${uid}:`, e)
             }
 
-            logger.debug(`[UpdateChecker] Feed coverage commit for ${uid}: dynamic=${dynamicSucceeded}, live=${liveSucceeded}, candidates=${uidsCoveredByFeed.length}`)
+            logger.debug(`[UpdateChecker] Feed coverage commit for ${uid}: dynamic=${dynamicSucceeded}, live=${liveSucceeded}, dynamicCandidates=${dynamicCoveredCandidates.length}`)
         }
     },
 
@@ -244,6 +269,7 @@ module.exports = {
         // 使用 pendingUpdates 追踪变更，避免竞态条件
         const pendingUpdates = new Map() // uid → { lastLiveStatus }
         const onlineUids = new Set()
+        const coveredUids = new Set()
 
         for (const item of liveList) {
             const uid = String(item.uid)
@@ -251,6 +277,7 @@ module.exports = {
             if (!followerMap.has(uid)) continue
 
             const follower = followerMap.get(uid)
+            const manualSub = this.findManualSub(uid)
             const roomId = normalizeRoomId(item.room_id, item.roomid, follower.roomId)
             const liveState = resolveLiveState({
                 liveRoom: {
@@ -265,9 +292,17 @@ module.exports = {
             }
 
             // Check if status changed from 0 to 1
-            let canAdvanceCurrentLive = true
-            if (liveState.status === 'online' && follower.lastLiveStatus !== 1) {
-                const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
+            const cookieNeedsNotify = follower.lastLiveStatus !== 1
+            const manualNeedsNotify = manualSub && manualSub.lastLiveStatus !== 1
+            let canAdvanceCookieLive = cookieNeedsNotify
+            let canAdvanceManualLive = manualNeedsNotify
+
+            if (liveState.status === 'online' && (cookieNeedsNotify || manualNeedsNotify)) {
+                const fullTargetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
+                const allowedSources = []
+                if (cookieNeedsNotify) allowedSources.push('cookieSync')
+                if (manualNeedsNotify) allowedSources.push('manual')
+                const targetGroupSourceMap = this.filterTargetGroupSourceMap(fullTargetGroupSourceMap, allowedSources)
                 const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
 
                 if (targetGroups.length > 0) {
@@ -297,20 +332,26 @@ module.exports = {
                         { actorUid: uid, fallbackSources: ['cookieSync'] }
                     )
                     const decision = decideAdvance(notifyResult)
-                    canAdvanceCurrentLive = decision.action === 'advance'
-                    if (!canAdvanceCurrentLive) {
+                    const canAdvance = decision.action === 'advance'
+                    canAdvanceCookieLive = cookieNeedsNotify && canAdvance
+                    canAdvanceManualLive = manualNeedsNotify && canAdvance
+                    if (!canAdvance) {
                         logger.warn(`[UpdateChecker] Skip feed live state advance for UID ${uid}: notify decision=${decision.action}, reason=${decision.reason}`)
                     }
                 } else {
-                    canAdvanceCurrentLive = false
+                    canAdvanceCookieLive = false
+                    canAdvanceManualLive = false
                 }
             }
 
-            if (liveState.status === 'online' && follower.lastLiveStatus !== 1) {
-                if (!canAdvanceCurrentLive) {
-                    continue
-                }
+            if (liveState.status === 'online' && cookieNeedsNotify && canAdvanceCookieLive) {
                 this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 1 })
+            }
+            if (liveState.status === 'online' && manualNeedsNotify && canAdvanceManualLive) {
+                await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 1 })
+            }
+            if (manualSub && (!manualNeedsNotify || canAdvanceManualLive)) {
+                coveredUids.add(uid)
             }
         }
 
@@ -319,7 +360,10 @@ module.exports = {
         // confirm offline via room info when possible. Treat fetch failures as unknown.
         for (const follower of followers) {
             const uid = subscriptionManager.getFollowerId(follower)
-            if (follower.lastLiveStatus === 1 && !onlineUids.has(uid)) {
+            const manualSub = this.findManualSub(uid)
+            const cookieWasLive = follower.lastLiveStatus === 1
+            const manualWasLive = manualSub?.lastLiveStatus === 1
+            if ((cookieWasLive || manualWasLive) && !onlineUids.has(uid)) {
                 const cachedRoomId = normalizeRoomId(follower.roomId)
                 if (!cachedRoomId) {
                     let userInfo = null
@@ -334,7 +378,13 @@ module.exports = {
                         cachedRoomId: ''
                     })
                     if (liveState.status === 'offline') {
-                        this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                        if (cookieWasLive) {
+                            this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                        }
+                        if (manualWasLive) {
+                            await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                            coveredUids.add(uid)
+                        }
                     } else {
                         logger.debug(`[UpdateChecker] Missing cached roomId for live follower ${uid}; keeping previous live state`)
                     }
@@ -354,7 +404,13 @@ module.exports = {
                 })
 
                 if (liveState.status === 'offline') {
-                    this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                    if (cookieWasLive) {
+                        this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                    }
+                    if (manualWasLive) {
+                        await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                        coveredUids.add(uid)
+                    }
                 } else if (liveState.status === 'unknown') {
                     logger.debug(`[UpdateChecker] Live status unknown for feed follower ${uid}; keeping previous live state`)
                 }
@@ -370,7 +426,7 @@ module.exports = {
             await subscriptionManager.flushPendingFollowerSaves()
         }
 
-        return { ok: true }
+        return { ok: true, coveredUids: Array.from(coveredUids) }
     },
 
     isLiveDynamic(card) {
