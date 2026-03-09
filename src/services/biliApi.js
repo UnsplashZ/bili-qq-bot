@@ -3,19 +3,43 @@ const cacheManager = require('../utils/cacheManager');
 const axios = require('axios');
 
 class BiliApi {
+    _resolveCacheBehavior(cacheOptions) {
+        if (cacheOptions === true) {
+            return { readCache: false, writeCache: true };
+        }
+
+        if (!cacheOptions || cacheOptions === false || cacheOptions === 'cached') {
+            return { readCache: true, writeCache: true };
+        }
+
+        if (cacheOptions === 'fresh') {
+            return { readCache: false, writeCache: true };
+        }
+
+        if (typeof cacheOptions === 'object') {
+            const policy = cacheOptions.policy || cacheOptions.mode || 'cached';
+            const readCache = policy !== 'fresh';
+            const writeCache = cacheOptions.writeCache !== false;
+            return { readCache, writeCache };
+        }
+
+        return { readCache: true, writeCache: true };
+    }
+
     /**
      * Helper to wrap requests with caching
      * @param {string} keyPrefix - Cache key prefix
      * @param {string} id - Resource ID
      * @param {string} groupId - Group ID for context
      * @param {Function} fetchFn - Function to execute on cache miss
-     * @param {boolean} [bypassCache=false] - Whether to bypass reading from cache
+     * @param {boolean|string|object} [cacheOptions=false] - Cache policy
      */
-    async _withCache(keyPrefix, id, groupId, fetchFn, bypassCache = false) {
+    async _withCache(keyPrefix, id, groupId, fetchFn, cacheOptions = false) {
         const cacheKey = `${keyPrefix}:${id}:${groupId || 'public'}`;
+        const cacheBehavior = this._resolveCacheBehavior(cacheOptions);
 
         // Try cache first
-        if (!bypassCache) {
+        if (cacheBehavior.readCache) {
             const cached = await cacheManager.get(cacheKey);
             if (cached) {
                 return cached;
@@ -27,7 +51,7 @@ class BiliApi {
             const result = await fetchFn();
 
             // Only cache successful results
-            if (result && result.status === 'success') {
+            if (cacheBehavior.writeCache && result && result.status === 'success') {
                 await cacheManager.set(cacheKey, result);
             }
 
@@ -82,11 +106,11 @@ class BiliApi {
         return serviceManager.sendCommand('login_check', { key, group_id: groupId });
     }
 
-    async getUserDynamic(uid, groupId, bypassCache = false) {
+    async getUserDynamic(uid, groupId, cacheOptions = false) {
         // Caching user dynamics (reduces load on subscription checks)
         return this._withCache('user_dynamic', uid, groupId, () =>
             serviceManager.sendCommand('user_dynamic', { uid, group_id: groupId }),
-            bypassCache
+            cacheOptions
         );
     }
 
@@ -124,10 +148,10 @@ class BiliApi {
         );
     }
 
-    async getUserInfo(uid, groupId, bypassCache = false, requestOptions = {}) {
+    async getUserInfo(uid, groupId, cacheOptions = false, requestOptions = {}) {
         return this._withCache('user', uid, groupId, () =>
             serviceManager.sendCommand('user_info', { uid, group_id: groupId }, requestOptions),
-            bypassCache
+            cacheOptions
         );
     }
 

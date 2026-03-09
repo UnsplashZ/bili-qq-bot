@@ -88,7 +88,7 @@ module.exports = {
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
         try {
-            const res = await biliApi.getUserDynamic(sub.uid, null, true)
+            const res = await biliApi.getUserDynamic(sub.uid, null, 'fresh')
             if (res.status !== 'success') {
                 logger.warn(`[UpdateChecker] Failed to fetch dynamics for ${sub.name} (${sub.uid}): ${res.message}`)
                 return
@@ -257,7 +257,7 @@ module.exports = {
         // 使用第一个群组的cookie获取用户信息
         const groupId = groupsToNotify[0]
         try {
-            const res = await biliApi.getUserInfo(sub.uid, groupId) // getUserInfo contains live_room
+            const res = await biliApi.getUserInfo(sub.uid, groupId, 'fresh') // getUserInfo contains live_room
             if (res.status !== 'success') return
 
             const liveRoom = res.data.live_room || {}

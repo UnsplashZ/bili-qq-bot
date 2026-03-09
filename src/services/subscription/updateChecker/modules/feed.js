@@ -324,7 +324,7 @@ module.exports = {
                 if (!cachedRoomId) {
                     let userInfo = null
                     try {
-                        userInfo = await biliApi.getUserInfo(uid, groupId, true)
+                        userInfo = await biliApi.getUserInfo(uid, groupId, 'fresh')
                     } catch (error) {
                         logger.warn(`[UpdateChecker] User live fallback failed for ${uid}: ${error?.message || error}`)
                     }

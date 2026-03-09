@@ -340,7 +340,7 @@ class SubscriptionUserMetaCacheService {
             return this._buildResultFromSources(baseSub, existing, uid)
         }
 
-        const info = await biliApi.getUserInfo(uid, groupId, true, {
+        const info = await biliApi.getUserInfo(uid, groupId, 'fresh', {
             timeoutMs: FETCH_TIMEOUT_MS
         })
         this._markComparedInProcess(uid, now)

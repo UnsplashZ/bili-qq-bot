@@ -27,32 +27,19 @@ class CacheManager {
         await this.initPromise;
         try {
             const filePath = path.join(this.cacheDir, `${key}.json`);
-            
-            // Check TTL
             const stats = await fs.stat(filePath);
-            const now = new Date();
-            const ageSeconds = (now - stats.mtime) / 1000;
-            
-            if (config.dataCacheTTL && ageSeconds > config.dataCacheTTL) {
+            const raw = await fs.readFile(filePath, 'utf8');
+            const parsed = JSON.parse(raw);
+            const fetchedAtMs = this._resolveFetchedAtMs(parsed, stats);
+            const ageSeconds = fetchedAtMs ? (Date.now() - fetchedAtMs) / 1000 : 0;
+
+            if (config.dataCacheTTL && fetchedAtMs && ageSeconds > config.dataCacheTTL) {
                 logger.info(`Cache expired for ${key} (age: ${ageSeconds.toFixed(0)}s), deleting...`);
                 await fs.unlink(filePath);
                 return null;
             }
 
-            const data = await fs.readFile(filePath, 'utf8');
-            // Update mtime to indicate recent access (LRU-like behavior)
-            // Use utimes to update access and modification time
-            fs.utimes(filePath, now, now).catch((err) => {
-                // File not existing is normal (may have been cleaned up)
-                if (err.code !== 'ENOENT') {
-                    logger.warn('[CacheManager] Failed to update file access time:', {
-                        file: path.basename(filePath),
-                        error: err.message
-                    });
-                }
-                // Don't block cache operation from continuing
-            });
-            return JSON.parse(data);
+            return this._unwrapEntry(parsed);
         } catch (error) {
             if (error.code !== 'ENOENT') {
                 logger.error(`Error reading cache for ${key}:`, error);
@@ -70,7 +57,13 @@ class CacheManager {
         await this.initPromise;
         try {
             const filePath = path.join(this.cacheDir, `${key}.json`);
-            await fs.writeFile(filePath, JSON.stringify(data));
+            const wrapped = {
+                __cacheMeta: {
+                    fetchedAt: Date.now()
+                },
+                payload: data
+            };
+            await fs.writeFile(filePath, JSON.stringify(wrapped));
             // Trigger cleanup asynchronously
             this.checkSizeAndCleanup().catch(err => logger.error('Cache cleanup failed:', err));
         } catch (error) {
@@ -126,6 +119,32 @@ class CacheManager {
         } catch (error) {
             logger.error('Error during cache cleanup:', error);
         }
+    }
+
+    _isWrappedEntry(value) {
+        return Boolean(
+            value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            value.__cacheMeta &&
+            typeof value.__cacheMeta === 'object' &&
+            typeof value.__cacheMeta.fetchedAt === 'number' &&
+            Object.prototype.hasOwnProperty.call(value, 'payload')
+        );
+    }
+
+    _resolveFetchedAtMs(parsed, stats) {
+        if (this._isWrappedEntry(parsed)) {
+            return parsed.__cacheMeta.fetchedAt;
+        }
+        return stats?.mtimeMs || 0;
+    }
+
+    _unwrapEntry(parsed) {
+        if (this._isWrappedEntry(parsed)) {
+            return parsed.payload;
+        }
+        return parsed;
     }
 }
 
