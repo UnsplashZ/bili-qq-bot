@@ -568,6 +568,7 @@ function generateCSS(colorData, viewport) {
                 height: 180px;
                 width: 180px;
                 object-fit: cover;
+                object-position: top;
                 border-radius: 8px;
             }
 
@@ -1044,6 +1045,7 @@ function generateCSS(colorData, viewport) {
                 width: 100%;
                 height: 100%;
                 object-fit: cover;
+                object-position: top;
                 aspect-ratio: 1/1;
                 cursor: pointer;
                 transition: transform 0.2s;
@@ -1057,13 +1059,13 @@ function generateCSS(colorData, viewport) {
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                min-width: 44px;
-                height: 28px;
-                padding: 0 10px;
+                min-width: 50px;
+                height: 31px;
+                padding: 0 13px;
                 border-radius: var(--radius-sm);
                 background: rgba(0, 0, 0, 0.52);
                 color: rgba(255, 255, 255, 0.98);
-                font-size: 18px;
+                font-size: 21px;
                 font-weight: 600;
                 line-height: 1;
                 letter-spacing: 0.02em;
