@@ -6,6 +6,15 @@ const config = require('../config');
 
 const TEMP_IMAGE_CLEANUP_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 const TEMP_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1h
+const NOTIFICATION_SCOPE = logger.createScope('svc', 'notification');
+
+function normalizeSource(logPrefix = 'NotificationService') {
+    return String(logPrefix || 'NotificationService').trim() || 'NotificationService';
+}
+
+function sendLog(level, message, fields = {}, scope = NOTIFICATION_SCOPE) {
+    logger.logEvent(level, 'SEND', scope, message, fields);
+}
 
 /**
  * NotificationService - 统一的消息发送服务
@@ -59,7 +68,11 @@ class NotificationService {
             try {
                 ws.send(JSON.stringify(payload), sendErr => {
                     if (!sendErr) {
-                        logger.debug(`[${logPrefix}] Action sent: ${action}, echo=${echo}`);
+                        sendLog('debug', 'action-sent', {
+                            source: normalizeSource(logPrefix),
+                            action,
+                            echo
+                        });
                         return;
                     }
 
@@ -176,7 +189,9 @@ class NotificationService {
             try {
                 await this.cleanupExpiredTempImages();
             } catch (e) {
-                logger.error('[NotificationService] Temp image cleanup failed:', e);
+                sendLog('error', 'temp-image-cleanup-failed', {
+                    error: logger.getErrorMessage(e)
+                });
             }
         };
 
@@ -188,7 +203,7 @@ class NotificationService {
         if (typeof this._tempImageCleanupTimer.unref === 'function') {
             this._tempImageCleanupTimer.unref();
         }
-        logger.info('[NotificationService] Temp image cleanup scheduler started');
+        sendLog('info', 'temp-image-cleanup-scheduler-started');
     }
 
     /**
@@ -233,13 +248,18 @@ class NotificationService {
                     }
                 } catch (e) {
                     if (e.code !== 'ENOENT') {
-                        logger.warn(`[NotificationService] Failed to cleanup temp image ${file}:`, e.message);
+                        sendLog('warn', 'temp-image-cleanup-file-failed', {
+                            file,
+                            error: logger.getErrorMessage(e)
+                        });
                     }
                 }
             }
 
             if (deletedCount > 0) {
-                logger.info(`[NotificationService] Cleaned up ${deletedCount} expired temp images`);
+                sendLog('info', 'temp-image-cleanup-complete', {
+                    deletedCount
+                });
             }
         } finally {
             this._tempImageCleanupRunning = false;
@@ -263,7 +283,10 @@ class NotificationService {
             // 确保目录存在
             if (!fs.existsSync(hostTempDir)) {
                 fs.mkdirSync(hostTempDir, { recursive: true });
-                logger.info(`[${logPrefix}] Created temp directory: ${hostTempDir}`);
+                sendLog('info', 'temp-dir-created', {
+                    source: normalizeSource(logPrefix),
+                    path: hostTempDir
+                });
             }
 
             // 生成唯一的文件名
@@ -276,20 +299,33 @@ class NotificationService {
 
             // 检查图片大小（以MB为单位）
             const imageSizeMB = imageBuffer.length / (1024 * 1024);
-            logger.info(`[${logPrefix}] Image size: ${imageSizeMB.toFixed(2)} MB`);
+            sendLog('debug', 'temp-image-size', {
+                source: normalizeSource(logPrefix),
+                imageSizeMB: imageSizeMB.toFixed(2)
+            });
 
             // 如果图片超过10MB，记录警告
             if (imageSizeMB > 10) {
-                logger.warn(`[${logPrefix}] Large image detected (${imageSizeMB.toFixed(2)} MB), may fail to send`);
+                sendLog('warn', 'temp-image-large', {
+                    source: normalizeSource(logPrefix),
+                    imageSizeMB: imageSizeMB.toFixed(2)
+                });
             }
 
             fs.writeFileSync(hostFilePath, imageBuffer);
-            logger.info(`[${logPrefix}] Saved image to: ${hostFilePath} (size: ${imageSizeMB.toFixed(2)} MB)`);
+            sendLog('info', 'temp-image-saved', {
+                source: normalizeSource(logPrefix),
+                path: hostFilePath,
+                imageSizeMB: imageSizeMB.toFixed(2)
+            });
 
             // 返回容器内的路径，这样napcat可以访问
             return containerFilePath;
         } catch (e) {
-            logger.error(`[${logPrefix}] Error saving image file:`, e);
+            sendLog('error', 'temp-image-save-failed', {
+                source: normalizeSource(logPrefix),
+                error: logger.getErrorMessage(e)
+            });
             throw e;
         }
     }
@@ -315,7 +351,9 @@ class NotificationService {
 
             return cleaned;
         } catch (e) {
-            logger.warn('[NotificationService] Text cleaning failed, using original:', e);
+            sendLog('warn', 'text-clean-failed', {
+                error: logger.getErrorMessage(e)
+            });
             return text;
         }
     }
@@ -375,7 +413,11 @@ class NotificationService {
      */
     static sendGroupMessage(ws, groupId, message, logPrefix = 'NotificationService', enableFallback = true) {
         if (!ws) {
-            logger.warn(`[${logPrefix}] WebSocket is not available, cannot send message`);
+            sendLog('warn', 'group-send-skipped', {
+                source: normalizeSource(logPrefix),
+                groupId,
+                reason: 'ws_missing'
+            });
             return;
         }
 
@@ -390,15 +432,28 @@ class NotificationService {
                 }
             };
 
-            logger.info(`[${logPrefix}] Sending message to group ${groupId}, chain length: ${messageChain.length}`);
-            logger.debug(`[${logPrefix}] Sending payload:`, JSON.stringify(payload, null, 2).substring(0, 500));
+            sendLog('info', 'group-send-start', {
+                source: normalizeSource(logPrefix),
+                groupId,
+                chainLength: messageChain.length
+            });
+            sendLog('debug', 'group-send-payload', {
+                source: normalizeSource(logPrefix),
+                payloadPreview: JSON.stringify(payload, null, 2).substring(0, 500)
+            });
 
             ws.send(JSON.stringify(payload));
-            logger.info(`[${logPrefix}] Message sent successfully to group ${groupId}`);
+            sendLog('info', 'group-send-ok', {
+                source: normalizeSource(logPrefix),
+                groupId
+            });
         } catch (e) {
-            logger.error(`[${logPrefix}] Error sending group message:`, e);
-            logger.error(`[${logPrefix}] Error stack:`, e.stack);
-            logger.error(`[${logPrefix}] Failed message:`, JSON.stringify(message, null, 2).substring(0, 500));
+            sendLog('error', 'group-send-failed', {
+                source: normalizeSource(logPrefix),
+                groupId,
+                error: logger.getErrorMessage(e),
+                messagePreview: JSON.stringify(message, null, 2).substring(0, 500)
+            });
 
             // 尝试发送简化的错误通知（仅在启用fallback时）
             if (enableFallback) {
@@ -412,7 +467,11 @@ class NotificationService {
                     };
                     ws.send(JSON.stringify(fallbackPayload));
                 } catch (fallbackError) {
-                    logger.error(`[${logPrefix}] Failed to send fallback error message:`, fallbackError);
+                    sendLog('error', 'group-send-fallback-failed', {
+                        source: normalizeSource(logPrefix),
+                        groupId,
+                        error: logger.getErrorMessage(fallbackError)
+                    });
                 }
             }
         }
@@ -428,7 +487,11 @@ class NotificationService {
      */
     static sendPrivateMessage(ws, userId, message, logPrefix = 'NotificationService', enableFallback = true) {
         if (!ws) {
-            logger.warn(`[${logPrefix}] WebSocket is not available, cannot send message`);
+            sendLog('warn', 'private-send-skipped', {
+                source: normalizeSource(logPrefix),
+                userId,
+                reason: 'ws_missing'
+            });
             return;
         }
 
@@ -443,14 +506,27 @@ class NotificationService {
                 }
             };
 
-            logger.info(`[${logPrefix}] Sending private message to user ${userId}, chain length: ${messageChain.length}`);
-            logger.debug(`[${logPrefix}] Sending payload:`, JSON.stringify(payload, null, 2).substring(0, 500));
+            sendLog('info', 'private-send-start', {
+                source: normalizeSource(logPrefix),
+                userId,
+                chainLength: messageChain.length
+            });
+            sendLog('debug', 'private-send-payload', {
+                source: normalizeSource(logPrefix),
+                payloadPreview: JSON.stringify(payload, null, 2).substring(0, 500)
+            });
 
             ws.send(JSON.stringify(payload));
-            logger.info(`[${logPrefix}] Private message sent successfully to user ${userId}`);
+            sendLog('info', 'private-send-ok', {
+                source: normalizeSource(logPrefix),
+                userId
+            });
         } catch (e) {
-            logger.error(`[${logPrefix}] Error sending private message:`, e);
-            logger.error(`[${logPrefix}] Error stack:`, e.stack);
+            sendLog('error', 'private-send-failed', {
+                source: normalizeSource(logPrefix),
+                userId,
+                error: logger.getErrorMessage(e)
+            });
             
             if (enableFallback) {
                 try {
@@ -463,7 +539,11 @@ class NotificationService {
                     };
                     ws.send(JSON.stringify(fallbackPayload));
                 } catch (fallbackError) {
-                    logger.error(`[${logPrefix}] Failed to send fallback error message:`, fallbackError);
+                    sendLog('error', 'private-send-fallback-failed', {
+                        source: normalizeSource(logPrefix),
+                        userId,
+                        error: logger.getErrorMessage(fallbackError)
+                    });
                 }
             }
         }
@@ -478,12 +558,18 @@ class NotificationService {
      */
     static notifyGroups(ws, groupIds, message, logPrefix = 'NotificationService') {
         if (!ws) {
-            logger.warn(`[${logPrefix}] WebSocket is not available, cannot send messages`);
+            sendLog('warn', 'notify-groups-skipped', {
+                source: normalizeSource(logPrefix),
+                reason: 'ws_missing'
+            });
             return;
         }
 
         if (!Array.isArray(groupIds) || groupIds.length === 0) {
-            logger.warn(`[${logPrefix}] No group IDs provided for notification`);
+            sendLog('warn', 'notify-groups-skipped', {
+                source: normalizeSource(logPrefix),
+                reason: 'no_groups'
+            });
             return;
         }
 

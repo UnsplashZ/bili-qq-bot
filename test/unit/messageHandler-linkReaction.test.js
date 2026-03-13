@@ -213,4 +213,6 @@ async function runTests() {
     if (failed > 0) process.exit(1)
 }
 
-runTests().catch(e => { console.error(e); process.exit(1) })
+runTests()
+    .then(() => process.exit(0))
+    .catch(e => { console.error(e); process.exit(1) })

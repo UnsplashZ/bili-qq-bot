@@ -11,6 +11,10 @@ const SEARCH_USER_BOOST = 0.05        // 当前用户消息的相关性加成
 const SEARCH_TIME_BOOST_MAX = 0.03    // 时间新鲜度最大加成
 const SEARCH_TIME_DECAY_DAYS = 30     // 时间衰减窗口（天）
 
+function vectorLog(level, message, fields = {}, scope = 'svc:vector-memory') {
+    logger.logEvent(level, 'STORE', scope, message, fields);
+}
+
 class VectorMemoryService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'vectors');
@@ -42,11 +46,11 @@ class VectorMemoryService {
         this.embeddingQueue = [];
         this.activeEmbeddingJobs = 0;
 
-        logger.info('[VectorMemory] Service initialized', {
-            maxL1Memory: `${(this.maxL1MemoryBytes / 1024 / 1024).toFixed(0)}MB`,
+        vectorLog('info', 'service-initialized', {
+            maxL1MemoryMb: (this.maxL1MemoryBytes / 1024 / 1024).toFixed(0),
             maxCachedGroups: this.maxCachedGroups,
             maxQueryCacheSize: this.maxQueryCacheSize,
-            maxSingleGroup: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(0)}MB`,
+            maxSingleGroupMb: (this.maxSingleGroupSize / 1024 / 1024).toFixed(0),
             embeddingConcurrency: this.maxEmbeddingConcurrency,
             embeddingQueueSize: this.maxEmbeddingQueueSize
         });
@@ -60,7 +64,9 @@ class VectorMemoryService {
                 fs.mkdirSync(this.dataDir, { recursive: true });
             }
         } catch (e) {
-            logger.error('[VectorMemory] Failed to init directory:', e);
+            vectorLog('error', 'init-directory-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
     }
 
@@ -79,7 +85,9 @@ class VectorMemoryService {
             // Evict LRU group if cache is full (async, fire and forget)
             if (this.groupCache.size > this.maxCachedGroups) {
                 this.evictLRUGroup().catch(err => {
-                    logger.error('[VectorMemory] Failed to evict during cache update:', err);
+                    vectorLog('error', 'evict-during-cache-update-failed', {
+                        error: logger.getErrorMessage(err)
+                    });
                 });
             }
         } else {
@@ -97,7 +105,7 @@ class VectorMemoryService {
     async evictLRUGroup() {
         // Prevent concurrent evictions
         if (this.evictionLock) {
-            logger.debug('[VectorMemory] Eviction already in progress, skipping');
+            vectorLog('debug', 'eviction-in-progress-skipped');
             return;
         }
 
@@ -105,18 +113,19 @@ class VectorMemoryService {
         try {
             const entries = Array.from(this.groupCache.entries());
             if (entries.length === 0) {
-                logger.debug('[VectorMemory] No groups to evict');
+                vectorLog('debug', 'eviction-skipped-no-groups');
                 return;
             }
 
             // Sort by lastAccess time to find oldest
             entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess);
             const [oldestGroupId, cacheEntry] = entries[0];
+            const groupScope = logger.createScope('group', oldestGroupId);
 
-            logger.info(`[VectorMemory] Evicting LRU group: ${oldestGroupId}`, {
+            vectorLog('info', 'eviction-started', {
                 lastAccess: new Date(cacheEntry.lastAccess).toISOString(),
-                memoryUsage: `${(this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)}MB`
-            });
+                memoryUsageMb: (this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)
+            }, groupScope);
 
             // Save pending changes before eviction to prevent data loss
             if (this.saveTimers.has(oldestGroupId)) {
@@ -127,9 +136,11 @@ class VectorMemoryService {
             this.groupCache.delete(oldestGroupId);
             this.memories.delete(oldestGroupId);
 
-            logger.info(`[VectorMemory] Successfully evicted group ${oldestGroupId}`);
+            vectorLog('info', 'eviction-finished', {}, groupScope);
         } catch (error) {
-            logger.error('[VectorMemory] Failed to evict LRU group:', error);
+            vectorLog('error', 'eviction-failed', {
+                error: logger.getErrorMessage(error)
+            });
             throw error;
         } finally {
             this.evictionLock = false;
@@ -151,7 +162,9 @@ class VectorMemoryService {
             // Get memory data
             const memory = this.memories.get(groupId);
             if (!memory) {
-                logger.debug(`[VectorMemory] No data to flush for group ${groupId}`);
+                vectorLog('debug', 'flush-skipped-no-data', {
+                    groupId
+                }, logger.createScope('group', groupId));
                 return;
             }
 
@@ -159,9 +172,15 @@ class VectorMemoryService {
             const filePath = path.join(this.dataDir, `${groupId}.json`);
             await storageUtils.asyncWriteWithBackup(filePath, memory);
 
-            logger.debug(`[VectorMemory] Flushed ${memory.length} memories for group ${groupId}`);
+            vectorLog('debug', 'flush-finished', {
+                groupId,
+                memoryCount: memory.length
+            }, logger.createScope('group', groupId));
         } catch (error) {
-            logger.error(`[VectorMemory] Failed to flush group ${groupId}:`, error);
+            vectorLog('error', 'flush-failed', {
+                groupId,
+                error: logger.getErrorMessage(error)
+            }, logger.createScope('group', groupId));
             throw error;
         }
     }
@@ -180,14 +199,20 @@ class VectorMemoryService {
             return this.memories.get(groupId);
         }
 
-        logger.info(`[VectorMemory] Loading group ${groupId} into memory`);
+        const groupScope = logger.createScope('group', groupId);
+        vectorLog('info', 'load-started', {
+            groupId
+        }, groupScope);
 
         // 🆕 Pre-load memory check: ensure 80% space available
         let currentMemory = this.calculateTotalL1Memory();
         const targetMemory = this.maxL1MemoryBytes * 0.8;
 
         while (currentMemory > targetMemory && this.groupCache.size > 0) {
-            logger.info(`[VectorMemory] Memory usage ${(currentMemory / 1024 / 1024).toFixed(2)}MB exceeds target ${(targetMemory / 1024 / 1024).toFixed(2)}MB, evicting...`);
+            vectorLog('info', 'preload-eviction-needed', {
+                currentMemoryMb: (currentMemory / 1024 / 1024).toFixed(2),
+                targetMemoryMb: (targetMemory / 1024 / 1024).toFixed(2)
+            }, groupScope);
             await this.evictLRUGroup();
             currentMemory = this.calculateTotalL1Memory();
         }
@@ -203,28 +228,32 @@ class VectorMemoryService {
                 // 🆕 Check single file size
                 const fileSize = JSON.stringify(data).length;
                 if (fileSize > this.maxSingleGroupSize) {
-                    logger.warn(`[VectorMemory] Group ${groupId} exceeds max single group size`, {
-                        currentSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
-                        maxSize: `${(this.maxSingleGroupSize / 1024 / 1024).toFixed(2)}MB`,
+                    vectorLog('warn', 'group-size-limit-exceeded', {
+                        currentSizeMb: (fileSize / 1024 / 1024).toFixed(2),
+                        maxSizeMb: (this.maxSingleGroupSize / 1024 / 1024).toFixed(2),
                         memoryCount: data.length
-                    });
+                    }, groupScope);
 
                     // Trim to appropriate size (keep newest 70%)
                     const keepCount = Math.floor(data.length * 0.7);
                     const removed = data.length - keepCount;
                     data = data.slice(-keepCount); // Keep last keepCount items
 
-                    logger.info(`[VectorMemory] Trimmed group ${groupId}: removed ${removed} oldest memories, kept ${keepCount}`);
+                    vectorLog('info', 'group-trimmed', {
+                        removedCount: removed,
+                        keptCount: keepCount
+                    }, groupScope);
 
                     // Immediately save trimmed data
                     await storageUtils.asyncWriteWithBackup(filePath, data);
                 }
 
-                logger.info(`[VectorMemory] Loaded ${data.length} memories for group ${groupId}`, {
-                    size: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
-                    loadTime: `${loadTime}ms`,
-                    totalMemory: `${(this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)}MB`
-                });
+                vectorLog('info', 'load-finished', {
+                    memoryCount: data.length,
+                    sizeMb: (fileSize / 1024 / 1024).toFixed(2),
+                    loadTimeMs: loadTime,
+                    totalMemoryMb: (this.calculateTotalL1Memory() / 1024 / 1024).toFixed(2)
+                }, groupScope);
             }
 
             this.memories.set(groupId, data);
@@ -233,14 +262,20 @@ class VectorMemoryService {
             // 🆕 Post-load memory check
             currentMemory = this.calculateTotalL1Memory();
             while (currentMemory > this.maxL1MemoryBytes && this.groupCache.size > 1) {
-                logger.warn(`[VectorMemory] Memory usage ${(currentMemory / 1024 / 1024).toFixed(2)}MB exceeds limit ${(this.maxL1MemoryBytes / 1024 / 1024).toFixed(2)}MB, evicting...`);
+                vectorLog('warn', 'postload-eviction-needed', {
+                    currentMemoryMb: (currentMemory / 1024 / 1024).toFixed(2),
+                    limitMemoryMb: (this.maxL1MemoryBytes / 1024 / 1024).toFixed(2)
+                }, groupScope);
                 await this.evictLRUGroup();
                 currentMemory = this.calculateTotalL1Memory();
             }
 
             return data;
         } catch (e) {
-            logger.error(`[VectorMemory] Failed to load memory for group ${groupId}:`, e);
+            vectorLog('error', 'load-failed', {
+                groupId,
+                error: logger.getErrorMessage(e)
+            }, groupScope);
             const empty = [];
             this.memories.set(groupId, empty);
             this.initGroupCache(groupId);
@@ -287,7 +322,10 @@ class VectorMemoryService {
     _enqueueEmbeddingJob(run, lowPriority, meta = {}) {
         if (this.embeddingQueue.length >= this.maxEmbeddingQueueSize) {
             if (lowPriority) {
-                logger.debug(`[VectorMemory] Dropping low-priority embedding task (queue full): group=${meta.groupId}, role=${meta.role}`);
+                vectorLog('debug', 'embedding-low-priority-dropped', {
+                    groupId: meta.groupId,
+                    role: meta.role
+                });
                 return Promise.resolve({ dropped: true });
             }
 
@@ -295,9 +333,13 @@ class VectorMemoryService {
             if (removableIndex >= 0) {
                 const [removed] = this.embeddingQueue.splice(removableIndex, 1);
                 removed.resolve({ dropped: true, reason: 'evicted_low_priority' });
-                logger.warn(`[VectorMemory] Queue full, evicted a low-priority embedding task for group=${meta.groupId}`);
+                vectorLog('warn', 'embedding-low-priority-evicted', {
+                    groupId: meta.groupId
+                });
             } else {
-                logger.warn(`[VectorMemory] Queue full, dropping high-priority task for group=${meta.groupId}`);
+                vectorLog('warn', 'embedding-high-priority-dropped', {
+                    groupId: meta.groupId
+                });
                 return Promise.resolve({ dropped: true, reason: 'queue_full' });
             }
         }
@@ -343,14 +385,24 @@ class VectorMemoryService {
 
                 if (canRetry) {
                     const delayMs = baseDelayMs * (2 ** attempt);
-                    logger.warn(`[VectorMemory] Embedding request retry (${attempt + 1}/${maxRetries}) after ${delayMs}ms, status=${status}`);
+                    vectorLog('warn', 'embedding-request-retrying', {
+                        attempt: attempt + 1,
+                        maxRetries,
+                        delayMs,
+                        status
+                    });
                     await new Promise(resolve => setTimeout(resolve, delayMs));
                     continue;
                 }
 
-                logger.error(`[VectorMemory] Failed to get embedding: ${error.message}`);
+                vectorLog('error', 'embedding-request-failed', {
+                    error: logger.getErrorMessage(error),
+                    status
+                });
                 if (error.response) {
-                    logger.error(`[VectorMemory] Response data: ${JSON.stringify(error.response.data)}`);
+                    vectorLog('error', 'embedding-response-data', {
+                        responseData: error.response.data
+                    });
                 }
                 return null;
             }
@@ -386,8 +438,11 @@ class VectorMemoryService {
     async addMemory(groupId, text, role, userId = null, userName = null) {
         // Only index user messages or assistant replies that are meaningful
         const shortThreshold = config.getGroupConfig(groupId, 'aiShortMessageThreshold');
+        const groupScope = logger.createScope('group', groupId);
         if (!text || text.length < shortThreshold) {
-            logger.info(`[VectorMemory] Skipping short message: "${text}"`);
+            vectorLog('info', 'memory-skip-short-message', {
+                textPreview: String(text || '').slice(0, 20)
+            }, groupScope);
             return;
         }
 
@@ -401,20 +456,30 @@ class VectorMemoryService {
             );
 
             if (queued && queued.dropped) {
-                logger.debug(`[VectorMemory] Memory write dropped for group ${groupId}`);
+                vectorLog('debug', 'memory-write-dropped', {
+                    groupId
+                }, groupScope);
             }
         } catch (e) {
-            logger.error('[VectorMemory] Error adding memory:', e);
+            vectorLog('error', 'memory-add-failed', {
+                groupId,
+                error: logger.getErrorMessage(e)
+            }, groupScope);
         }
     }
 
     async _addMemoryCore(groupId, text, role, userId = null, userName = null) {
         try {
             const embeddingText = (role === 'user' && userName) ? `${userName}: ${text}` : text
-            logger.info(`[VectorMemory] Getting embedding for: "${embeddingText.substring(0, 20)}..."`);
+            const groupScope = logger.createScope('group', groupId);
+            vectorLog('info', 'embedding-request-started', {
+                textPreview: embeddingText.substring(0, 20)
+            }, groupScope);
             const vector = await this.getEmbedding(embeddingText);
             if (!vector) {
-                logger.warn('[VectorMemory] Failed to generate vector, skipping save.');
+                vectorLog('warn', 'embedding-missing-skip-save', {
+                    groupId
+                }, groupScope);
                 return;
             }
 
@@ -427,7 +492,9 @@ class VectorMemoryService {
             for (const existing of recentMemories) {
                 const similarity = this.cosineSimilarity(vector, existing.vector);
                 if (similarity > duplicateThreshold) {
-                    logger.info(`[VectorMemory] Duplicate detected (similarity: ${similarity.toFixed(3)}), updating existing memory`);
+                    vectorLog('info', 'memory-duplicate-updated', {
+                        similarity: similarity.toFixed(3)
+                    }, groupScope);
                     // Update timestamp and increment access count
                     existing.timestamp = Date.now();
                     existing.accessCount = (existing.accessCount || 1) + 1;
@@ -457,7 +524,9 @@ class VectorMemoryService {
             if (userName != null) entry.userName = userName
             memory.push(entry);
 
-            logger.info(`[VectorMemory] Added new memory (importance: ${importance.toFixed(1)})`);
+            vectorLog('info', 'memory-added', {
+                importance: importance.toFixed(1)
+            }, groupScope);
 
             // Keep max vectors based on memory limit to prevent in-memory bloat
             // Use batch delete for efficiency
@@ -465,12 +534,18 @@ class VectorMemoryService {
             if (memory.length > memoryLimit) {
                 const toRemove = memory.length - memoryLimit;
                 memory.splice(0, toRemove);
-                logger.debug(`[VectorMemory] Memory limit (${memoryLimit}) reached, removed ${toRemove} oldest entries`);
+                vectorLog('debug', 'memory-limit-trimmed', {
+                    memoryLimit,
+                    removedCount: toRemove
+                }, groupScope);
             }
 
             this.saveGroupMemory(groupId);
         } catch (e) {
-            logger.error('[VectorMemory] Error adding memory:', e);
+            vectorLog('error', 'memory-core-add-failed', {
+                groupId,
+                error: logger.getErrorMessage(e)
+            }, logger.createScope('group', groupId));
         }
     }
 
@@ -486,13 +561,14 @@ class VectorMemoryService {
 
         const maxSize = config.getGroupConfig(groupId, 'aiVectorMaxSize');
         let currentSize = storageUtils.calculateBufferSize(memory);
+        const groupScope = logger.createScope('group', groupId);
 
         if (currentSize <= maxSize) return;
 
-        logger.info(
-            `[VectorMemory] Smart trimming ${(currentSize / 1024 / 1024).toFixed(1)}MB -> ` +
-            `${(maxSize / 1024 / 1024).toFixed(1)}MB for group ${groupId}`
-        );
+        vectorLog('info', 'smart-trim-started', {
+            currentSizeMb: (currentSize / 1024 / 1024).toFixed(1),
+            maxSizeMb: (maxSize / 1024 / 1024).toFixed(1)
+        }, groupScope);
 
         // Update importance scores for all memories
         memory.forEach(m => {
@@ -531,12 +607,12 @@ class VectorMemoryService {
         memory.push(...trimmed);
 
         const newSize = storageUtils.calculateBufferSize(memory);
-        logger.info(
-            `[VectorMemory] Smart trim complete: ${memory.length} memories retained ` +
-            `(${(newSize / 1024 / 1024).toFixed(1)}MB), ` +
-            `bucket distribution: [${bucket1.length}/${bucket2.length}/${bucket3.length}] ` +
-            `kept [${bucket1.length}/${keep2}/${keep3}]`
-        );
+        vectorLog('info', 'smart-trim-finished', {
+            retainedCount: memory.length,
+            newSizeMb: (newSize / 1024 / 1024).toFixed(1),
+            bucketDistribution: [bucket1.length, bucket2.length, bucket3.length],
+            keptDistribution: [bucket1.length, keep2, keep3]
+        }, groupScope);
     }
 
     // Save memories for a group (with debouncing and size check)
@@ -568,7 +644,10 @@ class VectorMemoryService {
 
                 this.saveTimers.delete(groupId);
             } catch (e) {
-                logger.error(`[VectorMemory] Failed to save memory for group ${groupId}:`, e);
+                vectorLog('error', 'memory-save-failed', {
+                    groupId,
+                    error: logger.getErrorMessage(e)
+                }, logger.createScope('group', groupId));
             }
         }, 3000); // Wait 3s after last change before saving
 
@@ -610,12 +689,18 @@ class VectorMemoryService {
                     const cached = cache.queryCache.get(cacheKey);
                     // 检查是否过期
                     if (cached.expires > Date.now()) {
-                        logger.debug(`[VectorMemory] L3 cache hit for query: "${queryText.substring(0, 20)}..."`);
+                        vectorLog('debug', 'query-cache-hit', {
+                            groupId,
+                            queryPreview: queryText.substring(0, 20)
+                        }, logger.createScope('group', groupId));
                         return cached.results.slice(0, limit);
                     } else {
                         // 过期则删除
                         cache.queryCache.delete(cacheKey);
-                        logger.debug(`[VectorMemory] L3 cache expired for query: "${queryText.substring(0, 20)}..."`);
+                        vectorLog('debug', 'query-cache-expired', {
+                            groupId,
+                            queryPreview: queryText.substring(0, 20)
+                        }, logger.createScope('group', groupId));
                     }
                 }
             }
@@ -701,13 +786,19 @@ class VectorMemoryService {
                         results: cleanResults,
                         expires: Date.now() + this.queryTTL
                     });
-                    logger.debug(`[VectorMemory] Cached query result for: "${queryText.substring(0, 20)}..."`);
+                    vectorLog('debug', 'query-cache-stored', {
+                        groupId,
+                        queryPreview: queryText.substring(0, 20)
+                    }, logger.createScope('group', groupId));
                 }
             }
 
             return cleanResults;
         } catch (e) {
-            logger.error('[VectorMemory] Error searching memory:', e);
+            vectorLog('error', 'search-failed', {
+                groupId,
+                error: logger.getErrorMessage(e)
+            }, logger.createScope('group', groupId));
             return [];
         }
     }

@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 
+function storeLog(level, message, fields = {}) {
+    logger.logEvent(level, 'STORE', 'svc:storage', message, fields);
+}
+
 /**
  * Storage Utilities Module
  * Provides common storage operations to eliminate code duplication
@@ -17,7 +21,9 @@ function calculateBufferSize(data) {
     try {
         return Buffer.byteLength(JSON.stringify(data), 'utf8');
     } catch (error) {
-        logger.error('[StorageUtils] Failed to calculate buffer size:', error);
+        storeLog('error', 'buffer-size-failed', {
+            error: logger.getErrorMessage(error)
+        });
         return 0;
     }
 }
@@ -31,7 +37,9 @@ function calculateBufferSize(data) {
  */
 function checkSizeAndTrim(data, maxSize, trimRatio = 0.1) {
     if (!Array.isArray(data)) {
-        logger.warn('[StorageUtils] checkSizeAndTrim requires an array');
+        storeLog('warn', 'trim-skipped', {
+            reason: 'invalid_array'
+        });
         return false;
     }
 
@@ -44,23 +52,25 @@ function checkSizeAndTrim(data, maxSize, trimRatio = 0.1) {
     const itemsToRemove = Math.ceil(data.length * trimRatio);
 
     if (itemsToRemove === 0 || data.length === 0) {
-        logger.warn('[StorageUtils] Cannot trim: insufficient items');
+        storeLog('warn', 'trim-skipped', {
+            reason: 'insufficient_items',
+            itemCount: data.length,
+            trimRatio
+        });
         return false;
     }
-
-    logger.info(
-        `[StorageUtils] Trimming data: ${(currentSize / 1024 / 1024).toFixed(2)}MB > ${(maxSize / 1024 / 1024).toFixed(2)}MB, ` +
-        `removing ${itemsToRemove} items (${(trimRatio * 100).toFixed(0)}%)`
-    );
 
     // Remove oldest items (from the beginning)
     data.splice(0, itemsToRemove);
 
     const newSize = calculateBufferSize(data);
-    logger.info(
-        `[StorageUtils] Trim complete: ${data.length} items remaining, ` +
-        `size: ${(newSize / 1024 / 1024).toFixed(2)}MB`
-    );
+    storeLog('info', 'trim-complete', {
+        beforeBytes: currentSize,
+        afterBytes: newSize,
+        removedCount: itemsToRemove,
+        remainingCount: data.length,
+        trimRatio
+    });
 
     return true;
 }
@@ -89,9 +99,12 @@ async function asyncWriteWithBackup(filePath, data, createBackup = true) {
         if (createBackup && fs.existsSync(filePath)) {
             try {
                 await fs.promises.copyFile(filePath, backupPath);
-                logger.debug(`[StorageUtils] Backup created: ${backupPath}`);
             } catch (backupError) {
-                logger.warn('[StorageUtils] Failed to create backup (non-fatal):', backupError.message);
+                storeLog('warn', 'backup-create-failed', {
+                    filePath,
+                    backupPath,
+                    error: logger.getErrorMessage(backupError)
+                });
             }
         }
 
@@ -114,15 +127,13 @@ async function asyncWriteWithBackup(filePath, data, createBackup = true) {
         // Step 4: Atomic replace via rename
         await fs.promises.rename(tempPath, filePath);
 
-        logger.debug(
-            `[StorageUtils] Write successful: ${filePath} ` +
-            `(${(Buffer.byteLength(jsonString, 'utf8') / 1024).toFixed(1)}KB)`
-        );
-
         return true;
 
     } catch (error) {
-        logger.error('[StorageUtils] Write failed:', error);
+        storeLog('error', 'write-failed', {
+            filePath,
+            error: logger.getErrorMessage(error)
+        });
 
         // Clean up temp file if it exists
         try {
@@ -130,16 +141,26 @@ async function asyncWriteWithBackup(filePath, data, createBackup = true) {
                 await fs.promises.unlink(tempPath);
             }
         } catch (cleanupError) {
-            logger.warn('[StorageUtils] Failed to clean up temp file:', cleanupError.message);
+            storeLog('warn', 'temp-cleanup-failed', {
+                filePath: tempPath,
+                error: logger.getErrorMessage(cleanupError)
+            });
         }
 
         // Attempt to restore from backup if write failed
         if (createBackup && fs.existsSync(backupPath) && !fs.existsSync(filePath)) {
             try {
                 await fs.promises.copyFile(backupPath, filePath);
-                logger.info('[StorageUtils] Restored from backup after write failure');
+                storeLog('info', 'backup-restored', {
+                    filePath,
+                    backupPath
+                });
             } catch (restoreError) {
-                logger.error('[StorageUtils] Failed to restore from backup:', restoreError);
+                storeLog('error', 'backup-restore-failed', {
+                    filePath,
+                    backupPath,
+                    error: logger.getErrorMessage(restoreError)
+                });
             }
         }
 
@@ -158,7 +179,6 @@ async function asyncWriteWithBackup(filePath, data, createBackup = true) {
 async function safeReadJSON(filePath, defaultValue = []) {
     try {
         if (!fs.existsSync(filePath)) {
-            logger.debug(`[StorageUtils] File not found, using default: ${filePath}`);
             return defaultValue;
         }
 
@@ -166,37 +186,40 @@ async function safeReadJSON(filePath, defaultValue = []) {
 
         // Handle empty files
         if (!content || content.trim().length === 0) {
-            logger.debug(`[StorageUtils] Empty file, using default: ${filePath}`);
             return defaultValue;
         }
 
         const data = JSON.parse(content);
 
-        logger.debug(
-            `[StorageUtils] Read successful: ${filePath} ` +
-            `(${(Buffer.byteLength(content, 'utf8') / 1024).toFixed(1)}KB)`
-        );
-
         return data;
 
     } catch (error) {
-        logger.error(`[StorageUtils] Failed to read JSON file: ${filePath}`, error);
+        storeLog('error', 'read-failed', {
+            filePath,
+            error: logger.getErrorMessage(error)
+        });
 
         // Try to restore from backup if available
         const backupPath = `${filePath}.bak`;
         if (fs.existsSync(backupPath)) {
             try {
-                logger.info('[StorageUtils] Attempting to restore from backup...');
                 const backupContent = await fs.promises.readFile(backupPath, 'utf8');
                 const backupData = JSON.parse(backupContent);
 
                 // Restore the main file from backup
                 await fs.promises.copyFile(backupPath, filePath);
-                logger.info('[StorageUtils] Successfully restored from backup');
+                storeLog('info', 'backup-restored', {
+                    filePath,
+                    backupPath
+                });
 
                 return backupData;
             } catch (backupError) {
-                logger.error('[StorageUtils] Failed to restore from backup:', backupError);
+                storeLog('error', 'backup-restore-failed', {
+                    filePath,
+                    backupPath,
+                    error: logger.getErrorMessage(backupError)
+                });
             }
         }
 
@@ -225,7 +248,10 @@ function safeReadJSONSync(filePath, defaultValue = []) {
         return JSON.parse(content);
 
     } catch (error) {
-        logger.error(`[StorageUtils] Failed to read JSON file: ${filePath}`, error);
+        storeLog('error', 'read-sync-failed', {
+            filePath,
+            error: logger.getErrorMessage(error)
+        });
 
         // Try backup
         const backupPath = `${filePath}.bak`;
@@ -234,7 +260,11 @@ function safeReadJSONSync(filePath, defaultValue = []) {
                 const backupContent = fs.readFileSync(backupPath, 'utf8');
                 return JSON.parse(backupContent);
             } catch (backupError) {
-                logger.error('[StorageUtils] Failed to read backup:', backupError);
+                storeLog('error', 'backup-read-failed', {
+                    filePath,
+                    backupPath,
+                    error: logger.getErrorMessage(backupError)
+                });
             }
         }
 
@@ -267,7 +297,11 @@ function writeWithBackup(filePath, data, createBackup = true) {
             try {
                 fs.copyFileSync(filePath, backupPath);
             } catch (backupError) {
-                logger.warn('[StorageUtils] Failed to create backup (non-fatal):', backupError.message);
+                storeLog('warn', 'backup-create-failed', {
+                    filePath,
+                    backupPath,
+                    error: logger.getErrorMessage(backupError)
+                });
             }
         }
 
@@ -285,7 +319,10 @@ function writeWithBackup(filePath, data, createBackup = true) {
         return true;
 
     } catch (error) {
-        logger.error('[StorageUtils] Sync write failed:', error);
+        storeLog('error', 'write-sync-failed', {
+            filePath,
+            error: logger.getErrorMessage(error)
+        });
 
         // Clean up temp file if it exists
         try {
@@ -293,7 +330,10 @@ function writeWithBackup(filePath, data, createBackup = true) {
                 fs.unlinkSync(tempPath);
             }
         } catch (cleanupError) {
-            logger.warn('[StorageUtils] Failed to clean up temp file:', cleanupError.message);
+            storeLog('warn', 'temp-cleanup-failed', {
+                filePath: tempPath,
+                error: logger.getErrorMessage(cleanupError)
+            });
         }
         throw error;
     }

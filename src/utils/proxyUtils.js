@@ -1,4 +1,6 @@
+const logger = require('./logger');
 const { URL } = require('url');
+const PROXY_SCOPE = logger.createScope('svc', 'proxy')
 
 /**
  * Parses a proxy URL string into an Axios proxy configuration object.
@@ -27,7 +29,10 @@ function getAxiosProxyConfig(proxyUrl) {
             } : undefined
         };
     } catch (e) {
-        console.error('[ProxyUtils] Invalid proxy URL:', proxyUrl, e.message);
+        logger.logEvent('warn', 'STORE', PROXY_SCOPE, 'proxy-url-invalid', {
+            proxyUrl,
+            error: e.message
+        });
         return false;
     }
 }

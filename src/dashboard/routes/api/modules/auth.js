@@ -22,9 +22,10 @@ router.post('/login', (req, res) => {
 
     const rateLimit = checkRateLimit(ip)
     if (!rateLimit.allowed) {
-        logger.warn(
-            `[Security] Login attempt from locked IP ${ip} (${rateLimit.remainingSeconds}s remaining)`
-        )
+        logger.logEvent('warn', 'AUTH', req.logScope || '', 'login-locked', {
+            ip,
+            remainingSeconds: rateLimit.remainingSeconds
+        })
         return res.status(429).json({
             error: 'Too many failed attempts',
             retryAfter: rateLimit.remainingSeconds
@@ -40,7 +41,9 @@ router.post('/login', (req, res) => {
             { expiresIn: '24h' }
         )
 
-        logger.info(`[Security] Successful login from ${ip}`)
+        logger.logEvent('info', 'AUTH', req.logScope || '', 'login-succeeded', {
+            ip
+        })
         return res.json({ token })
     }
 
@@ -48,9 +51,10 @@ router.post('/login', (req, res) => {
 
     const remainingAttempts = MAX_LOGIN_ATTEMPTS - getAttemptCount(ip)
 
-    logger.warn(
-        `[Security] Failed login attempt from ${ip} (${remainingAttempts} attempts remaining)`
-    )
+    logger.logEvent('warn', 'AUTH', req.logScope || '', 'login-failed', {
+        ip,
+        remainingAttempts
+    })
     return res.status(401).json({
         error: 'Invalid password',
         remainingAttempts: Math.max(0, remainingAttempts)

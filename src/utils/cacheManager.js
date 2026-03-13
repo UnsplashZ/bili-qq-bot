@@ -3,6 +3,10 @@ const path = require('path');
 const logger = require('./logger');
 const config = require('../config');
 
+function storeLog(level, message, fields = {}) {
+    logger.logEvent(level, 'STORE', 'svc:cache', message, fields);
+}
+
 class CacheManager {
     constructor() {
         this.cacheDir = path.resolve(process.cwd(), 'data', 'cache');
@@ -14,7 +18,9 @@ class CacheManager {
         try {
             await fs.mkdir(this.cacheDir, { recursive: true });
         } catch (error) {
-            logger.error('Failed to create cache directory:', error);
+            storeLog('error', 'cache-init-failed', {
+                error: logger.getErrorMessage(error)
+            });
         }
     }
 
@@ -34,7 +40,10 @@ class CacheManager {
             const ageSeconds = fetchedAtMs ? (Date.now() - fetchedAtMs) / 1000 : 0;
 
             if (config.dataCacheTTL && fetchedAtMs && ageSeconds > config.dataCacheTTL) {
-                logger.info(`Cache expired for ${key} (age: ${ageSeconds.toFixed(0)}s), deleting...`);
+                storeLog('info', 'cache-expired', {
+                    key,
+                    ageSeconds: ageSeconds.toFixed(0)
+                });
                 await fs.unlink(filePath);
                 return null;
             }
@@ -42,7 +51,10 @@ class CacheManager {
             return this._unwrapEntry(parsed);
         } catch (error) {
             if (error.code !== 'ENOENT') {
-                logger.error(`Error reading cache for ${key}:`, error);
+                storeLog('error', 'cache-read-failed', {
+                    key,
+                    error: logger.getErrorMessage(error)
+                });
             }
             return null;
         }
@@ -65,9 +77,16 @@ class CacheManager {
             };
             await fs.writeFile(filePath, JSON.stringify(wrapped));
             // Trigger cleanup asynchronously
-            this.checkSizeAndCleanup().catch(err => logger.error('Cache cleanup failed:', err));
+            this.checkSizeAndCleanup().catch(err => {
+                storeLog('error', 'cache-cleanup-failed', {
+                    error: logger.getErrorMessage(err)
+                });
+            });
         } catch (error) {
-            logger.error(`Error writing cache for ${key}:`, error);
+            storeLog('error', 'cache-write-failed', {
+                key,
+                error: logger.getErrorMessage(error)
+            });
         }
     }
 
@@ -108,16 +127,25 @@ class CacheManager {
                         currentSize -= file.size;
                         deletedCount++;
                     } catch (e) {
-                        logger.error(`Failed to delete cache file ${file.path}:`, e);
+                        storeLog('warn', 'cache-delete-failed', {
+                            filePath: file.path,
+                            error: logger.getErrorMessage(e)
+                        });
                     }
                 }
                 
                 if (deletedCount > 0) {
-                    logger.info(`Cache limit exceeded. Cleaned up ${deletedCount} files.`);
+                    storeLog('info', 'cache-cleanup-complete', {
+                        deletedCount,
+                        totalSizeBytes: totalSize,
+                        remainingSizeBytes: currentSize
+                    });
                 }
             }
         } catch (error) {
-            logger.error('Error during cache cleanup:', error);
+            storeLog('error', 'cache-cleanup-failed', {
+                error: logger.getErrorMessage(error)
+            });
         }
     }
 

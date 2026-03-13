@@ -2,6 +2,10 @@ const imageGenerator = require('../services/imageGenerator');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:help', message, fields);
+}
+
 class HelpCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
@@ -12,7 +16,10 @@ class HelpCommand {
                 const base64Image = await imageGenerator.generateHelpCard('user', groupId);
                 this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
             } catch (e) {
-                logger.error('[HelpCommand] Error generating help card:', e);
+                commandLog('error', 'help-card-generate-failed', {
+                    error: logger.getErrorMessage(e),
+                    groupId
+                });
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: 'Help menu generation failed.' } }]);
             }
             return true;
@@ -33,7 +40,9 @@ class HelpCommand {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'HelpCommand', true);
         } else {
-            logger.warn('[HelpCommand] Cannot send message: no groupId or userId provided');
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 }

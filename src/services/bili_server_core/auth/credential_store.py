@@ -6,6 +6,7 @@ import time
 from bilibili_api import Credential
 
 from ..config import CREDENTIAL_FILE, GROUP_COOKIES_MAP_FILE
+from ..logging_utils import auth_log
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +46,13 @@ def load_credential(group_id=None):
                 buvid3 = data.get("BUVID3")
 
                 if not buvid3:
-                    logger.warning("全局Cookie BUVID3 缺失，可能导致请求被风控")
+                    auth_log(logger, "warn", "credential-buvid3-missing")
 
                 timestamp = data.get("_timestamp", 0)
                 if timestamp:
                     age_days = (time.time() - timestamp) / (24 * 3600)
                     if age_days > 7:
-                        logger.warning(f"全局Cookie 可能已过期 (age: {age_days:.1f} 天)")
+                        auth_log(logger, "warn", "credential-aging", age_days=round(age_days, 1))
 
                 credential = Credential(
                     sessdata=sessdata,
@@ -60,20 +61,18 @@ def load_credential(group_id=None):
                     dedeuserid=data.get("DEDEUSERID"),
                     ac_time_value=data.get("AC_TIME_VALUE"),
                 )
-                logger.debug("使用全局Cookie")
+                auth_log(logger, "debug", "credential-loaded")
                 return credential
         except Exception as e:
-            logger.error(f"加载全局Cookie失败: {e}")
+            auth_log(logger, "error", "credential-load-failed", error=str(e))
 
-    logger.debug("未找到可用的Cookie")
+    auth_log(logger, "debug", "credential-missing")
     return None
 
 
 def save_credential(credential, group_id=None):
     if group_id:
-        logger.warning(
-            f"save_credential(group_id={group_id}) 已废弃，统一保存到全局 cookies.json"
-        )
+        auth_log(logger, "warn", "credential-save-group-ignored", group_id=group_id)
     target_file = CREDENTIAL_FILE
 
     with open(target_file, "w") as f:
@@ -88,4 +87,4 @@ def save_credential(credential, group_id=None):
             },
             f,
         )
-
+    auth_log(logger, "info", "credential-saved")

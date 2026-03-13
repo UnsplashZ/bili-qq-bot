@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const HISTORY_SCOPE = logger.createScope('svc', 'notification-history')
 
 class NotificationHistory {
     constructor() {
@@ -23,7 +24,9 @@ class NotificationHistory {
         const key = `${groupId}:${uniqueId}`;
         const resolvedTtl = Number.isFinite(ttlMs) ? ttlMs : this.ttl;
         this.history.set(key, { timestamp: Date.now(), ttlMs: resolvedTtl });
-        logger.debug(`[NotificationHistory] Added record: ${key}`);
+        logger.logEvent('debug', 'STORE', HISTORY_SCOPE, 'history-record-added', {
+            key
+        });
     }
 
     /**
@@ -60,7 +63,9 @@ class NotificationHistory {
             }
         }
         if (count > 0) {
-            logger.debug(`[NotificationHistory] Cleaned up ${count} expired records`);
+            logger.logEvent('debug', 'STORE', HISTORY_SCOPE, 'history-cleanup-complete', {
+                count
+            });
         }
     }
 
@@ -71,7 +76,7 @@ class NotificationHistory {
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer);
             this.cleanupTimer = null;
-            logger.debug('[NotificationHistory] Cleanup timer cleared');
+            logger.logEvent('debug', 'STORE', HISTORY_SCOPE, 'history-cleanup-timer-cleared');
         }
     }
 }

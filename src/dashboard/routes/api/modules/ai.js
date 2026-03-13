@@ -6,6 +6,7 @@ const {
     AiConfigValidationError,
     normalizeAiConfigUpdates
 } = require('../../../../services/ai/validation')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -23,6 +24,9 @@ router.post('/ai', async (req, res) => {
             snapshot[field] = sysConfig[field]
         }
 
+        dashLog(req, 'info', 'ai-settings-updated', {
+            keys: Object.keys(updates).join(',')
+        })
         res.json({ message: 'AI settings updated', config: snapshot })
     } catch (error) {
         if (error instanceof AiConfigValidationError) {
@@ -31,7 +35,9 @@ router.post('/ai', async (req, res) => {
                 field: error.field
             })
         }
-        logger.error('Failed to update AI settings:', error)
+        dashLog(req, 'error', 'ai-settings-update-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res
             .status(500)
             .json({ error: 'Failed to update AI settings', details: error.message })
@@ -88,9 +94,14 @@ router.post('/ai/reset', async (req, res) => {
 
         sysConfig.deleteKeys(aiKeys)
 
+        dashLog(req, 'info', 'ai-settings-reset', {
+            keyCount: aiKeys.length
+        })
         res.json({ message: 'AI settings reset to defaults', config: sysConfig })
     } catch (error) {
-        logger.error('Error resetting AI settings:', error)
+        dashLog(req, 'error', 'ai-settings-reset-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to reset AI settings' })
     }
 })

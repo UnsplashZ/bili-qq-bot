@@ -12,7 +12,9 @@ function authenticateToken(req, res, next) {
 
     jwt.verify(token, config.jwtSecret, (err, user) => {
         if (err) {
-            logger.warn(`Invalid token attempt from ${req.ip}`);
+            logger.logEvent('warn', 'AUTH', req.logScope || '', 'token-invalid', {
+                ip: req.ip
+            });
             return res.status(401).json({ error: 'Invalid or expired token' });
         }
         req.user = user;
@@ -70,10 +72,13 @@ function csrfProtection(req, res, next) {
                     /^(fe80|fc00|fd00):/.test(hostname);
 
                 if (isPrivateIP) {
-                    logger.debug(`[Security] CSRF: Allowing private IP origin: ${origin}`);
+                    logger.logEvent('debug', 'AUTH', req.logScope || '', 'csrf-private-origin', {
+                        origin
+                    });
                 } else {
-                    logger.warn(`[Security] CSRF: Rejected request from unauthorized origin: ${origin}`);
-                    logger.warn(`[Security] CSRF: If accessing from public network, add to DASHBOARD_ALLOWED_ORIGINS env: ${originUrl.origin}`);
+                    logger.logEvent('warn', 'AUTH', req.logScope || '', 'csrf-rejected', {
+                        origin: originUrl.origin
+                    });
                     return res.status(403).json({
                         error: 'CSRF validation failed: Invalid origin',
                         message: 'Access from public network requires configuration. Set DASHBOARD_ALLOWED_ORIGINS environment variable.',
@@ -83,7 +88,10 @@ function csrfProtection(req, res, next) {
             }
         } catch (e) {
             // URL解析失败（如 Origin: null 或格式错误），拒绝请求
-            logger.warn(`[Security] CSRF: Invalid origin header: ${origin}`, e.message);
+            logger.logEvent('warn', 'AUTH', req.logScope || '', 'csrf-invalid-origin', {
+                origin,
+                error: e.message
+            });
             return res.status(403).json({ error: 'CSRF validation failed: Invalid origin header' });
         }
     }
@@ -92,7 +100,10 @@ function csrfProtection(req, res, next) {
     // 这防止CSRF攻击，因为恶意网站无法读取和设置Authorization头
     if (req.headers.authorization) {
         // Token在Authorization头中，通过CSRF检查
-        logger.debug(`[Security] CSRF check passed for ${req.method} ${req.path}`);
+        logger.logEvent('debug', 'AUTH', req.logScope || '', 'csrf-passed', {
+            method: req.method,
+            path: req.path
+        });
         return next();
     }
 

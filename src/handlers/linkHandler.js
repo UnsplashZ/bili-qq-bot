@@ -7,6 +7,8 @@ const notificationService = require('../services/notificationService');
 const https = require('https');
 const { monitorRegex } = require('../utils/regexMonitor');
 
+const LINK_CACHE_SCOPE = logger.createScope('svc', 'link-cache');
+
 class LinkHandler {
     constructor() {
         // Regex for Bilibili Video (BV/av)
@@ -44,11 +46,24 @@ class LinkHandler {
         return `LH-${Date.now()}-${++this.requestIdCounter}`;
     }
 
+    getScope(traceContext = null) {
+        return traceContext?.scope || '';
+    }
+
+    log(level, scope, message, fields = {}) {
+        logger.logEvent(level, 'LINK', scope, message, fields);
+    }
+
     // 提取消息中的所有链接及其类型
-    extractLinks(rawMessage, groupId) {
+    extractLinks(rawMessage, groupId, traceContext = null) {
+        const scope = this.getScope(traceContext);
         // 🆕 输入验证
         if (!rawMessage || typeof rawMessage !== 'string') {
-            logger.warn('[LinkHandler] Invalid message type:', typeof rawMessage);
+            this.log('warn', scope, 'extract-skipped', {
+                groupId,
+                reason: 'invalid_message_type',
+                valueType: typeof rawMessage
+            });
             return [];
         }
 
@@ -63,14 +78,17 @@ class LinkHandler {
                                  checkStr.includes('bilibili');
 
         if (!hasBilibiliDomain) {
-            logger.debug('[LinkHandler] No bilibili links found in message (quick check)');
+            this.log('debug', scope, 'extract-skipped', {
+                groupId,
+                reason: 'domain_not_found'
+            });
             return [];
         }
 
         // 🆕 长度限制（只在确认有bilibili链接后才执行截断）
         const originalLength = rawMessage.length;
         if (originalLength > MAX_MESSAGE_LENGTH) {
-            logger.warn(`[LinkHandler] Message too long (${originalLength} chars), truncating to ${MAX_MESSAGE_LENGTH}`, {
+            this.log('warn', scope, 'message-truncated', {
                 groupId,
                 originalLength,
                 truncatedLength: MAX_MESSAGE_LENGTH
@@ -125,6 +143,10 @@ class LinkHandler {
             }
         }
 
+        this.log('info', scope, 'extract', {
+            groupId,
+            count: links.length
+        });
         return links;
     }
 
@@ -153,7 +175,9 @@ class LinkHandler {
             const timeout = (timeoutSeconds || 300) * 1000;
 
             if (Date.now() - cachedTime < timeout) {
-                logger.info(`[LinkHandler] 链接 ${cacheKey} 在缓存期内，跳过处理`);
+                this.log('info', LINK_CACHE_SCOPE, 'cache-hit', {
+                    cacheKey
+                });
                 return true;
             } else {
                 // 缓存已过期，删除它
@@ -192,7 +216,9 @@ class LinkHandler {
         let info = await cacheManager.get(cacheKey);
         
         if (info) {
-            logger.info(`[LinkHandler] Data cache hit for ${cacheKey}`);
+            this.log('info', LINK_CACHE_SCOPE, 'data-cache-hit', {
+                cacheKey
+            });
             return info;
         }
 
@@ -204,17 +230,30 @@ class LinkHandler {
     }
 
     // 发送消息带降级处理 - 如果图片发送失败则发送纯文本
-    async sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null) {
+    async sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null, logContext = null) {
+        const scope = logContext?.scope || '';
         try {
             // 先尝试发送图片+文本
             this.sendGroupMessage(ws, groupId, [
                 { type: 'image', data: { file: `base64://${base64Image}` } },
                 { type: 'text', data: { text: `${url}` } }
             ], userId);
-            logger.info(`[LinkHandler] Message with image sent successfully for ${url}`);
+            this.log('info', scope, 'message-sent', {
+                url,
+                requestId: logContext?.requestId || '',
+                linkType: logContext?.linkType || '',
+                linkId: logContext?.linkId || ''
+            });
         } catch (e) {
             // 如果发送失败，降级为纯文本
-            logger.error(`[LinkHandler] Failed to send message with image for ${url}, falling back to text only:`, e);
+            this.log('warn', scope, 'fallback-text', {
+                url,
+                requestId: logContext?.requestId || '',
+                linkType: logContext?.linkType || '',
+                linkId: logContext?.linkId || '',
+                reason: 'message_send_failed',
+                error: logger.getErrorMessage(e)
+            });
             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `图片发送失败，已降级为文本链接：\n${url}` } }], userId);
         }
     }
@@ -231,192 +270,246 @@ class LinkHandler {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true);
         } else {
-            logger.warn('[LinkHandler] Cannot send message: no groupId or userId provided');
+            this.log('warn', '', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 
     // 处理单个链接
-    async processSingleLink(link, ws, groupId, userId = null) {
+    async processSingleLink(link, ws, groupId, userId = null, traceContext = null) {
         const { type, id, cacheKey } = link;
+        const scope = this.getScope(traceContext);
 
         // 🆕 生成唯一请求ID用于错误追踪
         const requestId = this.generateRequestId();
-        logger.debug(`[LinkHandler] [${requestId}] Starting to process ${type} link: ${id}`);
+        this.log('info', scope, 'fetch-start', {
+            requestId,
+            linkType: type,
+            linkId: id,
+            groupId,
+            userId
+        });
+
+        const sendFallbackText = (targetUrl, reason, extraFields = {}, textOverride = null) => {
+            this.log('warn', scope, 'fallback-text', {
+                requestId,
+                linkType: type,
+                linkId: id,
+                reason,
+                ...extraFields
+            });
+            this.sendGroupMessage(ws, groupId, [{
+                type: 'text',
+                data: {
+                    text: textOverride || `获取信息失败，已降级为文本链接：\n${targetUrl}`
+                }
+            }], userId);
+        };
+
+        const sendCard = async (cardInfo, cardType, targetUrl, previewBase64 = null) => {
+            const base64Payload = previewBase64 || await imageGenerator.generatePreviewCard(cardInfo, cardType, groupId);
+            await this.sendGroupMessageWithFallback(ws, groupId, base64Payload, targetUrl, userId, {
+                scope,
+                requestId,
+                linkType: type,
+                linkId: id
+            });
+            this.log('info', scope, 'card-ready', {
+                requestId,
+                linkType: type,
+                linkId: id,
+                url: targetUrl
+            });
+        };
 
         try {
             let info, base64Image, url;
 
             switch (type) {
                 case 'video':
-                    logger.info(`[LinkHandler] Processing Bilibili Video: ${id}`);
                     info = await this.getDataWithCache('video', id, () => biliApi.getVideoInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'video', groupId);
                             url = `https://www.bilibili.com/video/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, 'video', url);
                             // 异步触发视频下载（不阻塞预览卡片发送）
                             const videoDownloadService = require('../services/videoDownloadService')
                             videoDownloadService.downloadAndSend(ws, groupId, id, info).catch(e => {
-                                logger.error(`[LinkHandler] downloadAndSend failed for ${id}:`, e)
+                                this.log('error', scope, 'download-dispatch-failed', {
+                                    requestId,
+                                    linkType: type,
+                                    linkId: id,
+                                    error: logger.getErrorMessage(e)
+                                })
                             })
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for video ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/video/${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get video info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/video/${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/video/${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'bangumi':
-                    logger.info(`[LinkHandler] Processing Bilibili Bangumi: ${id}`);
                     info = await this.getDataWithCache('bangumi', id, () => biliApi.getBangumiInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ss${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, 'bangumi', url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for bangumi ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/bangumi/play/ss${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get bangumi info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ss${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/bangumi/play/ss${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'dynamic':
-                    logger.info(`[LinkHandler] Processing Bilibili Dynamic: ${id}`);
                     info = await this.getDataWithCache('dynamic', id, () => biliApi.getDynamicInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             // Use returned type if available (e.g., 'article' for Opus redirects), fallback to 'dynamic'
                             const cardType = info.type || 'dynamic';
-                            base64Image = await imageGenerator.generatePreviewCard(info, cardType, groupId);
                             url = `https://t.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, cardType, url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for dynamic ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }], userId);
+                            sendFallbackText(`https://t.bilibili.com/${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}`);
                         }
                     } else {
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://t.bilibili.com/${id}` } }], userId);
+                        sendFallbackText(`https://t.bilibili.com/${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'article':
-                    logger.info(`[LinkHandler] Processing Bilibili Article: ${id}`);
                     info = await this.getDataWithCache('article', id, () => biliApi.getArticleInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/read/cv${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, info.type, url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for article ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/read/cv${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get article info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/read/cv${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'live':
-                    logger.info(`[LinkHandler] Processing Bilibili Live: ${id}`);
                     info = await this.getDataWithCache('live', id, () => biliApi.getLiveRoomInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'live', groupId);
                             url = `https://live.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, 'live', url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for live ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }], userId);
+                            sendFallbackText(`https://live.bilibili.com/${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get live room info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://live.bilibili.com/${id}` } }], userId);
+                        sendFallbackText(`https://live.bilibili.com/${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'opus':
-                    logger.info(`[LinkHandler] Processing Bilibili Opus: ${id}`);
                     info = await this.getDataWithCache('opus', id, () => biliApi.getOpusInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, info.type, groupId);
                             url = `https://www.bilibili.com/opus/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, info.type, url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for opus ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/opus/${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}`);
                         }
                     } else {
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/opus/${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/opus/${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'ep':
-                    logger.info(`[LinkHandler] Processing Bilibili EP: ${id}`);
                     info = await this.getDataWithCache('ep', id, () => biliApi.getEpInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/play/ep${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, 'bangumi', url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for ep ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/bangumi/play/ep${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get ep info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/play/ep${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/bangumi/play/ep${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'media':
-                    logger.info(`[LinkHandler] Processing Bilibili Media: ${id}`);
                     info = await this.getDataWithCache('media', id, () => biliApi.getMediaInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'bangumi', groupId);
                             url = `https://www.bilibili.com/bangumi/media/md${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            await sendCard(info, 'bangumi', url);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for media ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }], userId);
+                            sendFallbackText(`https://www.bilibili.com/bangumi/media/md${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}`);
                         }
                     } else {
-                        logger.warn(`[LinkHandler] Failed to get media info for ${id}`);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/bangumi/media/md${id}` } }], userId);
+                        sendFallbackText(`https://www.bilibili.com/bangumi/media/md${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
 
                 case 'user':
-                    logger.info(`[LinkHandler] Processing Bilibili User: ${id}`);
                     info = await this.getDataWithCache('user', id, () => biliApi.getUserInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
                             const showId = config.getGroupConfig(groupId, 'showId');
-                            base64Image = await imageGenerator.generatePreviewCard(info, 'user', groupId, showId);
                             url = `https://space.bilibili.com/${id}`;
-                            await this.sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId);
+                            base64Image = await imageGenerator.generatePreviewCard(info, 'user', groupId, showId);
+                            await sendCard(info, 'user', url, base64Image);
                         } catch (imgError) {
-                            logger.error(`[LinkHandler] Image generation failed for user ${id}, sending text only:`, imgError);
-                            this.sendGroupMessage(ws, groupId, [
-                                { type: 'text', data: { text: `https://space.bilibili.com/${id}` } }
-                            ], userId);
+                            sendFallbackText(`https://space.bilibili.com/${id}`, 'preview_generation_failed', {
+                                error: logger.getErrorMessage(imgError)
+                            }, `https://space.bilibili.com/${id}`);
                         }
                     } else {
                         const errorMsg = info.message || '无法获取用户信息';
-                        logger.warn(`[LinkHandler] Failed to get user info for ${id}: ${errorMsg}`);
-                        this.sendGroupMessage(ws, groupId, [
-                            { type: 'text', data: { text: `获取用户失败: ${errorMsg}\nhttps://space.bilibili.com/${id}` } }
-                        ], userId);
+                        sendFallbackText(`https://space.bilibili.com/${id}`, 'fetch_failed', {
+                            status: info.status,
+                            error: errorMsg
+                        }, `获取用户失败: ${errorMsg}\nhttps://space.bilibili.com/${id}`);
                     }
                     break;
             } // switch end
@@ -436,9 +529,9 @@ class LinkHandler {
                 stack: e.stack
             };
 
-            logger.error(`[LinkHandler] [${requestId}] Error processing ${type} link ${id}:`, {
+            this.log('error', scope, 'item-failed', {
                 ...errorContext,
-                stack: e.stack // 完整堆栈跟踪
+                stack: e.stack
             });
 
             // 🆕 根据错误类型提供更友好的用户消息
@@ -471,7 +564,9 @@ class LinkHandler {
             // Ensure protocol
             if (!shortUrl.startsWith('http')) shortUrl = 'https://' + shortUrl;
 
-            logger.info(`[LinkHandler] Expanding URL: ${shortUrl}`);
+            this.log('info', '', 'short-link-expand-start', {
+                shortUrl
+            });
 
             const options = {
                 method: 'HEAD',
@@ -482,25 +577,35 @@ class LinkHandler {
             };
 
             const req = https.request(shortUrl, options, (res) => {
-                logger.info(`[LinkHandler] Expand response status: ${res.statusCode}`);
-                logger.info(`[LinkHandler] Response headers:`, JSON.stringify(res.headers));
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    logger.info(`[LinkHandler] Redirected to: ${res.headers.location}`);
+                    this.log('info', '', 'short-link-expanded', {
+                        shortUrl,
+                        expandedUrl: res.headers.location,
+                        statusCode: res.statusCode
+                    });
                     resolve(res.headers.location);
                 } else {
-                    logger.info(`[LinkHandler] No redirect, using original URL: ${shortUrl}`);
+                    this.log('info', '', 'short-link-expand-noop', {
+                        shortUrl,
+                        statusCode: res.statusCode
+                    });
                     resolve(shortUrl);
                 }
             });
 
             req.on('timeout', () => {
-                logger.warn(`[LinkHandler] URL expansion timeout for: ${shortUrl}`);
+                this.log('warn', '', 'short-link-expand-timeout', {
+                    shortUrl
+                });
                 req.destroy();
                 resolve(shortUrl);  // 超时时返回原URL
             });
 
             req.on('error', (e) => {
-                logger.error('[LinkHandler] Error expanding URL:', e);
+                this.log('error', '', 'short-link-expand-failed', {
+                    shortUrl,
+                    error: logger.getErrorMessage(e)
+                });
                 resolve(shortUrl);  // 出错时返回原URL
             });
 
@@ -517,14 +622,20 @@ class LinkHandler {
      */
     addUrlToCache(url, groupId) {
         if (!url || !groupId) {
-            logger.warn('[LinkHandler] Invalid url or groupId for cache');
+            this.log('warn', LINK_CACHE_SCOPE, 'cache-add-skipped', {
+                reason: 'missing_url_or_group',
+                groupId
+            });
             return;
         }
 
         // 提取链接信息
         const links = this.extractLinks(url, groupId);
         if (links.length === 0) {
-            logger.debug('[LinkHandler] No valid bili links found in url:', url);
+            this.log('debug', LINK_CACHE_SCOPE, 'cache-add-skipped', {
+                reason: 'no_valid_links',
+                groupId
+            });
             return;
         }
 
@@ -536,7 +647,10 @@ class LinkHandler {
         for (const link of links) {
             const { cacheKey } = link;
             this.linkCache.set(cacheKey, Date.now());
-            logger.debug(`[LinkHandler] Added to cache: ${cacheKey} (timeout: ${timeout}ms)`);
+            this.log('debug', LINK_CACHE_SCOPE, 'cache-added', {
+                cacheKey,
+                timeoutMs: timeout
+            });
         }
     }
 }

@@ -26,7 +26,9 @@ function toNapcatReadablePath(filePath) {
         const relative = path.relative(BOT_WRITE_BASE, absFilePath)
         return path.join(NAPCAT_READ_BASE, relative)
     }
-    logger.warn(`[VideoDownload] File path is outside NapCat shared base: ${filePath}`)
+    sendLog('warn', 'path-outside-shared-base', {
+        filePath
+    })
     return filePath
 }
 
@@ -49,17 +51,30 @@ const RESOLUTION_ORDER = ['360p', '480p', '720p', '1080p', '1080p+']
 // 单次下载兜底超时：330s（高于 axios 300s，确保 _activeDownloads 配额最终释放）
 const DOWNLOAD_TIMEOUT_MS = 330 * 1000
 
+const DOWNLOAD_SCOPE = logger.createScope('svc', 'download')
+
+function sendLog(level, message, fields = {}, scope = DOWNLOAD_SCOPE) {
+    logger.logEvent(level, 'SEND', scope, message, fields)
+}
+
 class VideoDownloadService {
     constructor() {
         this._cleanupTimer = null
         this._activeDownloads = 0
     }
 
+    _taskScope(groupId, bvid, pageIndex = 0) {
+        return logger.createScope('task', 'download', groupId || 'unknown', bvid || 'unknown', pageIndex + 1)
+    }
+
     _notifyTarget(ws, groupId, messageChain, enableFallback = false) {
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
             const realUserId = groupId.replace('private_', '')
             if (!realUserId) {
-                logger.warn(`[VideoDownload] Invalid private groupId for notify: ${groupId}`)
+                sendLog('warn', 'notify-skipped', {
+                    groupId,
+                    reason: 'invalid_private_group'
+                })
                 return
             }
             notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'VideoDownload', enableFallback)
@@ -75,10 +90,12 @@ class VideoDownloadService {
         if (this._cleanupTimer) return
         this._cleanupTimer = setInterval(() => {
             this._cleanupOldFiles().catch(e => {
-                logger.error('[VideoDownload] Error in scheduled cleanup:', e)
+                sendLog('error', 'cleanup-failed', {
+                    error: logger.getErrorMessage(e)
+                })
             })
         }, 60 * 60 * 1000)
-        logger.info('[VideoDownload] Cleanup scheduler started')
+        sendLog('info', 'cleanup-scheduler-started')
     }
 
     /**
@@ -103,14 +120,21 @@ class VideoDownloadService {
                     const stat = await fsPromises.stat(filePath)
                     if (now - stat.mtimeMs > maxAgeMs) {
                         await fsPromises.unlink(filePath)
-                        logger.info(`[VideoDownload] Cleaned up old file: ${file}`)
+                        sendLog('info', 'cleanup-file-removed', {
+                            fileName: file
+                        })
                     }
                 } catch (e) {
-                    logger.warn(`[VideoDownload] Cannot stat/delete file ${file}:`, e.message)
+                    sendLog('warn', 'cleanup-file-skipped', {
+                        fileName: file,
+                        error: logger.getErrorMessage(e)
+                    })
                 }
             }
         } catch (e) {
-            logger.error('[VideoDownload] Error during cleanup:', e)
+            sendLog('error', 'cleanup-failed', {
+                error: logger.getErrorMessage(e)
+            })
         }
     }
 
@@ -121,10 +145,15 @@ class VideoDownloadService {
         try {
             await fsPromises.access(filePath)
             await fsPromises.unlink(filePath)
-            logger.info(`[VideoDownload] Deleted file: ${filePath}`)
+            sendLog('info', 'cleanup-file-deleted', {
+                filePath
+            })
         } catch (e) {
             if (e.code !== 'ENOENT') {
-                logger.error(`[VideoDownload] Failed to delete file ${filePath}:`, e)
+                sendLog('error', 'cleanup-file-delete-failed', {
+                    filePath,
+                    error: logger.getErrorMessage(e)
+                })
             }
         }
     }
@@ -183,17 +212,30 @@ class VideoDownloadService {
      */
     async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
         if (!isVideoDownloadEnabledForGroup(groupId)) return { ok: false, reason: 'disabled', silent: true }
+        const taskScope = this._taskScope(groupId, bvid, pageIndex)
+        const startedAt = Date.now()
 
         // 去重：避免 linkHandler 和 updateChecker 同时触发相同视频的重复下载
         const downloadKey = `${String(groupId)}:${bvid}:${pageIndex}`
         if (_inProgressDownloads.has(downloadKey)) {
-            logger.info(`[VideoDownload] Already downloading ${bvid} P${pageIndex + 1} for group ${groupId}, skipping duplicate`)
+            sendLog('info', 'download-skipped', {
+                groupId,
+                bvid,
+                pageIndex,
+                reason: 'duplicate'
+            }, taskScope)
             return { ok: false, reason: 'duplicate', silent: true }
         }
 
         // 并发限制
         if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
-            logger.warn(`[VideoDownload] Max concurrent downloads (${MAX_CONCURRENT_DOWNLOADS}) reached, skipping ${bvid}`)
+            sendLog('warn', 'download-skipped', {
+                groupId,
+                bvid,
+                pageIndex,
+                reason: 'max_concurrent',
+                maxConcurrent: MAX_CONCURRENT_DOWNLOADS
+            }, taskScope)
             this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
             ], false)
@@ -215,7 +257,12 @@ class VideoDownloadService {
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
         if (!await this._hasDiskSpace()) {
-            logger.warn(`[VideoDownload] Insufficient disk space, skipping download of ${bvid}`)
+            sendLog('warn', 'download-skipped', {
+                groupId,
+                bvid,
+                pageIndex,
+                reason: 'disk_space_full'
+            }, taskScope)
             this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
             ], false)
@@ -224,7 +271,12 @@ class VideoDownloadService {
 
         const resolution = getVideoDownloadResolutionForGroup(groupId)
 
-        logger.info(`[VideoDownload] Starting download: ${bvid} P${pageIndex + 1} @ ${resolution} for group ${groupId}`)
+        logger.logEvent('info', 'SEND', taskScope, 'download-start', {
+            groupId,
+            bvid,
+            pageIndex,
+            resolution
+        })
 
         // 提前写入最近下载记录（供 /下载 P2 使用），避免下载期间竞态
         const gid = String(groupId)
@@ -256,7 +308,12 @@ class VideoDownloadService {
                 )
             ])
         } catch (e) {
-            logger.error(`[VideoDownload] Download failed for ${bvid}:`, e)
+            sendLog('error', 'download-fail', {
+                groupId,
+                bvid,
+                pageIndex,
+                error: logger.getErrorMessage(e)
+            }, taskScope)
             return { ok: false, reason: e.message }
         } finally {
             this._activeDownloads--
@@ -264,11 +321,16 @@ class VideoDownloadService {
         }
 
         if (result.status !== 'success') {
-            logger.warn(`[VideoDownload] Download error for ${bvid}: ${result.message}`)
+            sendLog('warn', 'download-fail', {
+                groupId,
+                bvid,
+                pageIndex,
+                error: result.message
+            }, taskScope)
             return { ok: false, reason: result.message }
         }
 
-        const sent = await this._sendForwardMessage(ws, groupId, result)
+        const sent = await this._sendForwardMessage(ws, groupId, result, taskScope)
 
         // ws.send() 只是将 JSON 指令推入 WebSocket 缓冲区，NapCat 收到后才异步读取文件上传。
         // 必须延迟删除，给 NapCat 足够时间读取本地文件，而不是立即删除。
@@ -281,6 +343,13 @@ class VideoDownloadService {
             ], false)
         }
 
+        sendLog('info', 'download-ok', {
+            groupId,
+            bvid,
+            pageIndex,
+            sent,
+            durationMs: Date.now() - startedAt
+        }, taskScope)
         return { ok: sent }
     }
 
@@ -288,11 +357,15 @@ class VideoDownloadService {
      * 发送视频消息（群聊/私聊均使用普通消息）
      * @returns {boolean} 是否发送成功
      */
-    async _sendForwardMessage(ws, groupId, result) {
+    async _sendForwardMessage(ws, groupId, result, scope = DOWNLOAD_SCOPE) {
         // 优先使用全局当前活跃连接，fallback 到传入参数（防止 stale ws）
         const activeWs = global.bot?.ws || ws
         if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
-            logger.warn(`[VideoDownload] WebSocket not open, cannot send video message for ${result.title}`)
+            sendLog('warn', 'video-send-skipped', {
+                groupId,
+                title: result.title,
+                reason: 'ws_not_open'
+            }, scope)
             return false
         }
 
@@ -302,7 +375,10 @@ class VideoDownloadService {
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
             const realUserId = groupId.replace('private_', '')
             if (!realUserId) {
-                logger.warn(`[VideoDownload] Invalid private groupId: ${groupId}`)
+                sendLog('warn', 'video-send-skipped', {
+                    groupId,
+                    reason: 'invalid_private_group'
+                }, scope)
                 return false
             }
             const payload = {
@@ -317,17 +393,29 @@ class VideoDownloadService {
             }
             try {
                 activeWs.send(JSON.stringify(payload))
-                logger.info(`[VideoDownload] Private video message sent to user ${realUserId}: ${result.title}`)
+                sendLog('info', 'video-sent', {
+                    userId: realUserId,
+                    title: result.title,
+                    targetType: 'private'
+                }, scope)
                 return true
             } catch (e) {
-                logger.error(`[VideoDownload] Failed to send private video message:`, e)
+                sendLog('error', 'video-send-failed', {
+                    userId: realUserId,
+                    title: result.title,
+                    targetType: 'private',
+                    error: logger.getErrorMessage(e)
+                }, scope)
                 return false
             }
         }
 
         const numericGroupId = Number(groupId)
         if (!Number.isFinite(numericGroupId)) {
-            logger.warn(`[VideoDownload] Invalid groupId for video message: ${groupId}`)
+            sendLog('warn', 'video-send-skipped', {
+                groupId,
+                reason: 'invalid_group'
+            }, scope)
             return false
         }
 
@@ -344,10 +432,19 @@ class VideoDownloadService {
 
         try {
             activeWs.send(JSON.stringify(payload))
-            logger.info(`[VideoDownload] Group video message sent to group ${groupId}: ${result.title}`)
+            sendLog('info', 'video-sent', {
+                groupId,
+                title: result.title,
+                targetType: 'group'
+            }, scope)
             return true
         } catch (e) {
-            logger.error(`[VideoDownload] Failed to send group video message:`, e)
+            sendLog('error', 'video-send-failed', {
+                groupId,
+                title: result.title,
+                targetType: 'group',
+                error: logger.getErrorMessage(e)
+            }, scope)
             return false
         }
     }
@@ -418,14 +515,24 @@ class VideoDownloadService {
         if (enabledGroups.length === 0) return
 
         const downloadKey = `subscription:${bvid}:${pageIndex}`
+        const taskScope = logger.createScope('task', 'subscription-download', bvid || 'unknown', pageIndex + 1)
 
         if (_inProgressDownloads.has(downloadKey)) {
-            logger.info(`[VideoDownload] Already downloading ${bvid} P${pageIndex + 1} (subscription), skipping`)
+            sendLog('info', 'download-skipped', {
+                bvid,
+                pageIndex,
+                reason: 'duplicate_subscription'
+            }, taskScope)
             return
         }
 
         if (this._activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
-            logger.warn(`[VideoDownload] Max concurrent downloads reached, skipping subscription download for ${bvid}`)
+            sendLog('warn', 'download-skipped', {
+                bvid,
+                pageIndex,
+                reason: 'max_concurrent',
+                maxConcurrent: MAX_CONCURRENT_DOWNLOADS
+            }, taskScope)
             return
         }
 
@@ -436,12 +543,21 @@ class VideoDownloadService {
             return maxDur === 0 || duration <= maxDur
         })
         if (filteredGroups.length === 0) {
-            logger.info(`[VideoDownload] All groups exceed duration limit for ${bvid} (${Math.round(duration / 60)}min), skipping`)
+            sendLog('info', 'download-skipped', {
+                bvid,
+                pageIndex,
+                reason: 'duration_exceeded_all_groups',
+                durationMinutes: Math.round(duration / 60)
+            }, taskScope)
             return
         }
 
         if (!await this._hasDiskSpace()) {
-            logger.warn(`[VideoDownload] Insufficient disk space, skipping subscription download of ${bvid}`)
+            sendLog('warn', 'download-skipped', {
+                bvid,
+                pageIndex,
+                reason: 'disk_space_full'
+            }, taskScope)
             const rootAdminQQ = config.getRootAdminQQ()
             if (rootAdminQQ && ws && ws.readyState === 1) {
                 notificationService.sendPrivateMessage(ws, rootAdminQQ, [
@@ -457,7 +573,12 @@ class VideoDownloadService {
             return RESOLUTION_ORDER.indexOf(res) > RESOLUTION_ORDER.indexOf(best) ? res : best
         }, '360p')
 
-        logger.info(`[VideoDownload] Subscription download: ${bvid} P${pageIndex + 1} @ ${resolution} for ${filteredGroups.length} groups`)
+        sendLog('info', 'download-start', {
+            bvid,
+            pageIndex,
+            resolution,
+            groupCount: filteredGroups.length
+        }, taskScope)
 
         const meta = videoInfo?.data ? {
             title: videoInfo.data.title,
@@ -477,7 +598,11 @@ class VideoDownloadService {
                 )
             ])
         } catch (e) {
-            logger.error(`[VideoDownload] Subscription download failed for ${bvid}:`, e)
+            sendLog('error', 'download-fail', {
+                bvid,
+                pageIndex,
+                error: logger.getErrorMessage(e)
+            }, taskScope)
             return
         } finally {
             this._activeDownloads--
@@ -485,7 +610,11 @@ class VideoDownloadService {
         }
 
         if (result.status !== 'success') {
-            logger.warn(`[VideoDownload] Subscription download error for ${bvid}: ${result.message}`)
+            sendLog('warn', 'download-fail', {
+                bvid,
+                pageIndex,
+                error: result.message
+            }, taskScope)
             return
         }
 
@@ -493,13 +622,23 @@ class VideoDownloadService {
         let sentCount = 0
         for (const gid of filteredGroups) {
             try {
-                const sent = await this._sendForwardMessage(ws, gid, result)
+                const sent = await this._sendForwardMessage(ws, gid, result, taskScope)
                 if (sent) sentCount++
             } catch (e) {
-                logger.error(`[VideoDownload] Failed to send to group ${gid}:`, e)
+                sendLog('error', 'video-send-failed', {
+                    groupId: gid,
+                    title: result.title,
+                    targetType: 'group',
+                    error: logger.getErrorMessage(e)
+                }, taskScope)
             }
         }
-        logger.info(`[VideoDownload] Subscription video ${bvid} sent to ${sentCount}/${filteredGroups.length} groups`)
+        sendLog('info', 'download-ok', {
+            bvid,
+            pageIndex,
+            sentCount,
+            groupCount: filteredGroups.length
+        }, taskScope)
 
         // 所有群都发完后再清理文件，延迟按群数量系数放大
         this._scheduleCleanup(result.file_path, filteredGroups.length)
@@ -518,7 +657,10 @@ class VideoDownloadService {
         try {
             // 有活跃下载时拒绝清理，防止删除正在使用的文件
             if (this._activeDownloads > 0) {
-                logger.warn(`[VideoDownload] cleanAll skipped: ${this._activeDownloads} downloads in progress`)
+                sendLog('warn', 'cleanup-skipped', {
+                    reason: 'downloads_in_progress',
+                    activeDownloads: this._activeDownloads
+                })
                 return -1
             }
             // 同时清理 .mp4 和中途中断留下的 .tmp 临时文件

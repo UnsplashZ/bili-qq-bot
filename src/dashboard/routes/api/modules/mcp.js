@@ -3,13 +3,13 @@ const logger = require('../../../../utils/logger')
 const mcpManager = require('../../../../services/mcpManager')
 const { readMcpConfig, writeMcpConfig } = require('../shared/config-store')
 const { isMcpConfigContentEqual } = require('../shared/mcp-utils')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
 // GET /api/mcp - Read MCP servers config
 router.get('/mcp', async (req, res) => {
     try {
-        logger.info('[API] Reading MCP configuration...')
         const config = await readMcpConfig()
 
         const version = config._version || 0
@@ -26,10 +26,15 @@ router.get('/mcp', async (req, res) => {
                 enabled: serverConfig.enabled !== false
             }))
 
-        logger.info(`[API] Returning ${mcpServers.length} MCP servers to client`)
+        dashLog(req, 'info', 'mcp-config-read', {
+            serverCount: mcpServers.length,
+            version
+        })
         res.json({ mcpServers, version })
     } catch (error) {
-        logger.error('[API] Failed to read MCP configuration:', error)
+        dashLog(req, 'error', 'mcp-config-read-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res
             .status(500)
             .json({ error: 'Failed to read MCP configuration', details: error.message })
@@ -41,18 +46,22 @@ router.post('/mcp', async (req, res) => {
     try {
         const { mcpServers, version, renameOperation } = req.body
 
-        logger.info(
-            `[API] Updating MCP configuration: ${mcpServers?.length || 0} servers`
-        )
+        dashLog(req, 'info', 'mcp-config-update-start', {
+            serverCount: Array.isArray(mcpServers) ? mcpServers.length : 0,
+            requestedVersion: version
+        })
 
         if (renameOperation) {
-            logger.info(
-                `[API] Rename operation detected: ${renameOperation.from} → ${renameOperation.to}`
-            )
+            dashLog(req, 'info', 'mcp-config-rename', {
+                from: renameOperation.from,
+                to: renameOperation.to
+            })
         }
 
         if (!Array.isArray(mcpServers)) {
-            logger.warn('[API] Invalid mcpServers format:', req.body)
+            dashLog(req, 'warn', 'mcp-config-invalid', {
+                receivedType: typeof req.body.mcpServers
+            })
             return res.status(400).json({
                 error: 'Invalid mcpServers format, expected array',
                 received: typeof req.body.mcpServers,
@@ -64,7 +73,7 @@ router.post('/mcp', async (req, res) => {
         const currentVersion = currentConfig._version || 0
 
         if (version !== undefined && version !== currentVersion) {
-            logger.warn('[API] Concurrent modification detected', {
+            dashLog(req, 'warn', 'mcp-config-conflict', {
                 clientVersion: version,
                 serverVersion: currentVersion
             })
@@ -171,7 +180,9 @@ router.post('/mcp', async (req, res) => {
         })
 
         if (validationErrors.length > 0) {
-            logger.warn('[API] MCP configuration validation failed:', validationErrors)
+            dashLog(req, 'warn', 'mcp-config-validation-failed', {
+                errorCount: validationErrors.length
+            })
             return res.status(400).json({
                 error: 'Validation failed',
                 details: validationErrors
@@ -196,7 +207,9 @@ router.post('/mcp', async (req, res) => {
         }
 
         if (isMcpConfigContentEqual(currentConfig, newConfig)) {
-            logger.info('[API] MCP configuration unchanged, skipping save and reload')
+            dashLog(req, 'info', 'mcp-config-unchanged', {
+                version: currentVersion
+            })
             return res.json({
                 message: 'MCP配置未变化，已跳过重载',
                 config: currentConfig,
@@ -207,11 +220,16 @@ router.post('/mcp', async (req, res) => {
         }
 
         await writeMcpConfig(newConfig)
-        logger.info('[API] MCP configuration saved to file')
+        dashLog(req, 'info', 'mcp-config-saved', {
+            version: newVersion,
+            serverCount: mcpServers.length
+        })
 
         try {
             await mcpManager.reload(newConfig)
-            logger.info('[API] MCP servers reloaded successfully')
+            dashLog(req, 'info', 'mcp-reload-succeeded', {
+                version: newVersion
+            })
 
             res.json({
                 message: 'MCP配置已更新并生效',
@@ -220,10 +238,10 @@ router.post('/mcp', async (req, res) => {
                 reloadSuccess: true
             })
         } catch (reloadError) {
-            logger.error(
-                '[API] Failed to reload MCP servers after config update:',
-                reloadError
-            )
+            dashLog(req, 'error', 'mcp-reload-failed', {
+                version: newVersion,
+                error: logger.getErrorMessage(reloadError)
+            })
 
             res.status(207).json({
                 message: '配置已保存，但服务重载失败',
@@ -235,7 +253,9 @@ router.post('/mcp', async (req, res) => {
             })
         }
     } catch (error) {
-        logger.error('[API] Failed to save MCP configuration:', error)
+        dashLog(req, 'error', 'mcp-config-save-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res
             .status(500)
             .json({ error: 'Failed to save MCP configuration', details: error.message })
@@ -243,4 +263,3 @@ router.post('/mcp', async (req, res) => {
 })
 
 module.exports = router
-

@@ -459,7 +459,9 @@ function renderDynamicContent(data, emojiContext = null) {
                 liveRcmdInfo = contentJson.live_play_info;
             }
         } catch (e) {
-            logger.error('Failed to parse live_rcmd content', e);
+            logger.logEvent('error', 'SERVICE', 'svc:dynamic-renderer', 'live-rcmd-parse-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
     }
 
@@ -470,7 +472,9 @@ function renderDynamicContent(data, emojiContext = null) {
 
     const dynamicId = item.id_str || data.data?.id_str || '';
     if (resolvedText.source !== 'desc' && resolvedText.text) {
-        logger.debug(`[DynamicRenderer] Dynamic ${dynamicId}: text source fallback -> ${resolvedText.source}`);
+        logger.logEvent('debug', 'SERVICE', logger.createScope('dynamic', dynamicId || 'unknown'), 'text-source-fallback', {
+            source: resolvedText.source
+        });
     }
 
     const voteObj = getVoteFromModules(modules);

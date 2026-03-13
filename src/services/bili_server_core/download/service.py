@@ -10,6 +10,7 @@ from bilibili_api.video import VideoCodecs, VideoDownloadURLDataDetecter, VideoQ
 
 from ..auth.credential_store import load_credential
 from ..config import DOWNLOADS_ALLOWED_BASE
+from ..logging_utils import service_log
 from .ffmpeg import ffmpeg_copy_streams
 from .io_utils import download_stream_to_file
 
@@ -37,9 +38,7 @@ async def download_video_file(
     }
     target_quality = quality_map.get(resolution)
     if target_quality is None:
-        logger.warning(
-            f'[download_video_file] Unknown resolution "{resolution}", defaulting to 1080p'
-        )
+        service_log(logger, "warn", "download-resolution-unknown", resolution=resolution)
         target_quality = VideoQuality._1080P
 
     v = video.Video(bvid=bvid, credential=load_credential(group_id))
@@ -67,9 +66,7 @@ async def download_video_file(
     except TypeError as e:
         if "codecs" not in str(e):
             raise
-        logger.warning(
-            "[download_video_file] detect_best_streams does not support codecs, falling back"
-        )
+        service_log(logger, "warn", "download-codecs-fallback")
         streams = detector.detect_best_streams(video_max_quality=target_quality)
 
     if not streams:
@@ -97,9 +94,7 @@ async def download_video_file(
             await ffmpeg_copy_streams([single_tmp], output_path)
             remux_ok = True
         except Exception as e:
-            logger.warning(
-                f"[download_video_file] Single stream remux failed, fallback raw stream: {e}"
-            )
+            service_log(logger, "warn", "download-remux-fallback", error=str(e))
             try:
                 if os.path.exists(output_path):
                     os.remove(output_path)
@@ -139,4 +134,3 @@ async def download_video_file(
         "total_pages": total_pages,
         "page_index": page_index,
     }
-

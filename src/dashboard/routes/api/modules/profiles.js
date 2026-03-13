@@ -6,6 +6,7 @@ const {
     normalizeGroupId,
     isValidProfileGroupId
 } = require('../shared/normalize')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -17,9 +18,16 @@ router.get('/profiles/:groupId', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Invalid groupId' })
         }
         const profiles = await userProfileService.getAllProfiles(groupId)
+        dashLog(req, 'info', 'profiles-fetched', {
+            groupId,
+            count: Array.isArray(profiles) ? profiles.length : 0
+        })
         res.json(profiles)
     } catch (error) {
-        logger.error('[API] Error fetching user profiles:', error)
+        dashLog(req, 'error', 'profiles-fetch-failed', {
+            groupId: req.params.groupId,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch user profiles' })
     }
 })
@@ -33,12 +41,19 @@ router.delete('/profiles/:groupId/:userId', authenticateToken, async (req, res) 
             return res.status(400).json({ error: 'Invalid groupId or userId' })
         }
         await userProfileService.deleteProfile(groupId, userId)
+        dashLog(req, 'info', 'profile-deleted', {
+            groupId,
+            userId
+        })
         res.json({ success: true })
     } catch (error) {
-        logger.error('[API] Error deleting user profile:', error)
+        dashLog(req, 'error', 'profile-delete-failed', {
+            groupId: req.params.groupId,
+            userId: req.params.userId,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to delete user profile' })
     }
 })
 
 module.exports = router
-

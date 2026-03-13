@@ -24,10 +24,14 @@ const originals = {
     addMessageToContext: aiHandler.addMessageToContext,
     getGroupConfig: config.getGroupConfig,
     isRagEnabledForGroup: config.isRagEnabledForGroup,
+    aiChatApiKey: config.aiChatApiKey,
+    aiApiKey: config.aiApiKey,
     axiosPost: axios.post
 }
 
 async function run() {
+    config.aiChatApiKey = 'test-key'
+    config.aiApiKey = 'test-key'
     config.getGroupConfig = (_groupId, key) => {
         const defaults = {
             aiContextLimit: 20,
@@ -108,5 +112,7 @@ run()
         aiHandler.addMessageToContext = originals.addMessageToContext
         config.getGroupConfig = originals.getGroupConfig
         config.isRagEnabledForGroup = originals.isRagEnabledForGroup
+        config.aiChatApiKey = originals.aiChatApiKey
+        config.aiApiKey = originals.aiApiKey
         axios.post = originals.axiosPost
     })

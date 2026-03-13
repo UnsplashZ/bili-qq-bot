@@ -2,6 +2,10 @@ const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
 const { decideAdvance } = require('../helpers/stateAdvance')
 const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
+function subLog(level, message, fields = {}, scope = 'svc:manual-checks') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 module.exports = {
     /**
      * Generate notification text for different content types
@@ -87,10 +91,15 @@ module.exports = {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
+        const userScope = logger.createScope('sub', 'user', sub.uid)
         try {
             const res = await biliApi.getUserDynamic(sub.uid, null, 'fresh')
             if (res.status !== 'success') {
-                logger.warn(`[UpdateChecker] Failed to fetch dynamics for ${sub.name} (${sub.uid}): ${res.message}`)
+                subLog('warn', 'dynamic-fetch-failed', {
+                    uid: sub.uid,
+                    name: sub.name,
+                    error: res.message
+                }, userScope)
                 return
             }
 
@@ -107,7 +116,11 @@ module.exports = {
             const cards = allCards.filter(card => !this.shouldSkipDynamic(card))
 
             if (cards.length < allCards.length) {
-                logger.info(`[UpdateChecker] Filtered ${allCards.length - cards.length} auto-post dynamics for ${sub.name}`)
+                subLog('info', 'dynamic-auto-posts-filtered', {
+                    uid: sub.uid,
+                    name: sub.name,
+                    filteredCount: allCards.length - cards.length
+                }, userScope)
             }
 
             if (cards.length === 0) return
@@ -134,7 +147,10 @@ module.exports = {
             const latestId = latestCard.id_str || (latestCard.desc && latestCard.desc.dynamic_id_str)
 
             if (!latestId) {
-                logger.warn(`[UpdateChecker] Could not find dynamic ID for ${sub.name}`)
+                subLog('warn', 'dynamic-id-missing', {
+                    uid: sub.uid,
+                    name: sub.name
+                }, userScope)
                 return
             }
 
@@ -161,10 +177,17 @@ module.exports = {
                 if (force) {
                     if (latestNonLiveCard) {
                         newCards = [latestNonLiveCard]
-                        logger.info(`[UpdateChecker] Force checking dynamic for ${sub.name} (ID: ${latestNonLiveId})`)
+                        subLog('info', 'dynamic-force-check-selected', {
+                            uid: sub.uid,
+                            name: sub.name,
+                            dynamicId: latestNonLiveId
+                        }, userScope)
                     } else {
                         newCards = []
-                        logger.info(`[UpdateChecker] Force check found only live dynamic for ${sub.name}, skipping`)
+                        subLog('info', 'dynamic-force-check-skipped-live-only', {
+                            uid: sub.uid,
+                            name: sub.name
+                        }, userScope)
                     }
                 } else {
                     for (const card of cards) {
@@ -193,7 +216,11 @@ module.exports = {
                     // These are auto-posted by Bilibili when a user starts streaming
                     // We want to skip these and let checkUserLive handle the notification to avoid duplicates
                     if (this.isLiveDynamic(card)) {
-                        logger.info(`[UpdateChecker] Skipping live dynamic for ${sub.name} (ID: ${cardId}) - expecting checkUserLive to handle it`)
+                        subLog('info', 'dynamic-live-post-skipped', {
+                            uid: sub.uid,
+                            name: sub.name,
+                            dynamicId: cardId
+                        }, userScope)
                         continue
                     }
 
@@ -203,7 +230,10 @@ module.exports = {
                     const info = await biliApi.getDynamicInfo(cardId, groupId)
 
                     if (info.status !== 'success') {
-                        logger.warn(`[UpdateChecker] Failed to get dynamic detail for ${cardId}, skipping`)
+                        subLog('warn', 'dynamic-detail-fetch-failed', {
+                            uid: sub.uid,
+                            dynamicId: cardId
+                        }, userScope)
                         continue
                     }
 
@@ -225,10 +255,20 @@ module.exports = {
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentDynamic = decision.action === 'advance'
                         if (!canAdvanceCurrentDynamic) {
-                            logger.warn(`[UpdateChecker] Skip dynamic state advance for ${sub.name}: notify decision=${decision.action}, reason=${decision.reason}`)
+                            subLog('warn', 'dynamic-state-advance-skipped', {
+                                uid: sub.uid,
+                                name: sub.name,
+                                dynamicId: cardId,
+                                decision: decision.action,
+                                reason: decision.reason
+                            }, userScope)
                         }
                     } catch (e) {
-                        logger.error(`[UpdateChecker] Failed to generate image for dynamic ${cardId}:`, e)
+                        subLog('error', 'dynamic-render-failed', {
+                            uid: sub.uid,
+                            dynamicId: cardId,
+                            error: logger.getErrorMessage(e)
+                        }, userScope)
                         // Fallback text
                         const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`
                         this.notifyGroups(
@@ -245,7 +285,11 @@ module.exports = {
                 }
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Error checking dynamic for ${sub.name}:`, e)
+            subLog('error', 'dynamic-check-failed', {
+                uid: sub.uid,
+                name: sub.name,
+                error: logger.getErrorMessage(e)
+            }, userScope)
         }
     },
 
@@ -256,6 +300,7 @@ module.exports = {
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
         // 使用第一个群组的cookie获取用户信息
         const groupId = groupsToNotify[0]
+        const userScope = logger.createScope('sub', 'user', sub.uid)
         try {
             const res = await biliApi.getUserInfo(sub.uid, groupId, 'fresh') // getUserInfo contains live_room
             if (res.status !== 'success') return
@@ -264,7 +309,11 @@ module.exports = {
 
             const directRoomId = normalizeRoomId(liveRoom.roomid, liveRoom.room_id)
             if (directRoomId && sub.roomId !== directRoomId) {
-                logger.info(`[UpdateChecker] Caching roomId ${directRoomId} for user ${sub.uid} (${sub.name})`)
+                subLog('info', 'live-room-cached', {
+                    uid: sub.uid,
+                    name: sub.name,
+                    roomId: directRoomId
+                }, userScope)
                 await subscriptionManager.updateUserSub(sub.uid, { roomId: directRoomId })
                 sub.roomId = directRoomId
             }
@@ -276,7 +325,11 @@ module.exports = {
             })
 
             if (liveState.status === 'unknown' && liveState.roomId) {
-                logger.debug(`[UpdateChecker] Live status unknown for ${sub.uid} (${sub.name}), confirming via room ${liveState.roomId}`)
+                subLog('debug', 'live-status-unknown-confirming', {
+                    uid: sub.uid,
+                    name: sub.name,
+                    roomId: liveState.roomId
+                }, userScope)
                 roomInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
                 liveState = resolveLiveState({
                     liveRoom,
@@ -293,7 +346,10 @@ module.exports = {
             }
 
             if (!liveState.roomId) {
-                logger.warn(`[UpdateChecker] No room ID available for user ${sub.uid} (${sub.name}), skipping live check. User may not have a live room.`)
+                subLog('warn', 'live-room-missing', {
+                    uid: sub.uid,
+                    name: sub.name
+                }, userScope)
                 return
             }
 
@@ -308,7 +364,11 @@ module.exports = {
                     : await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
 
                 if (liveInfo.status !== 'success') {
-                    logger.warn(`[UpdateChecker] Failed to get live room info for ${liveState.roomId} (${sub.name}), skipping notification`)
+                    subLog('warn', 'live-room-fetch-failed', {
+                        uid: sub.uid,
+                        name: sub.name,
+                        roomId: liveState.roomId
+                    }, userScope)
                 } else {
                     liveInfo.id = liveState.roomId
                     const notifyResult = await this.notifyGroupsWithImageAndCache(
@@ -322,7 +382,13 @@ module.exports = {
                     const decision = decideAdvance(notifyResult)
                     canAdvanceLiveStatus = decision.action === 'advance'
                     if (!canAdvanceLiveStatus) {
-                        logger.warn(`[UpdateChecker] Skip live state advance for ${sub.name}: notify decision=${decision.action}, reason=${decision.reason}`)
+                        subLog('warn', 'live-state-advance-skipped', {
+                            uid: sub.uid,
+                            name: sub.name,
+                            roomId: liveState.roomId,
+                            decision: decision.action,
+                            reason: decision.reason
+                        }, userScope)
                     }
                 }
 
@@ -338,10 +404,18 @@ module.exports = {
             }
 
             if (liveState.status === 'unknown') {
-                logger.debug(`[UpdateChecker] Live status remains unknown for ${sub.uid} (${sub.name}); keeping previous state ${sub.lastLiveStatus}`)
+                subLog('debug', 'live-status-remains-unknown', {
+                    uid: sub.uid,
+                    name: sub.name,
+                    lastLiveStatus: sub.lastLiveStatus
+                }, userScope)
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Error checking live for ${sub.name}:`, e)
+            subLog('error', 'live-check-failed', {
+                uid: sub.uid,
+                name: sub.name,
+                error: logger.getErrorMessage(e)
+            }, userScope)
         }
     },
 
@@ -349,6 +423,7 @@ module.exports = {
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
+        const bangumiScope = logger.createScope('sub', 'bangumi', sub.seasonId)
         try {
             const res = await biliApi.getBangumiInfo(sub.seasonId)
             if (res.status !== 'success') return
@@ -380,10 +455,18 @@ module.exports = {
                     const decision = decideAdvance(notifyResult)
                     canAdvanceBangumi = decision.action === 'advance'
                     if (!canAdvanceBangumi) {
-                        logger.warn(`[UpdateChecker] Skip bangumi state advance for ${sub.title}: notify decision=${decision.action}, reason=${decision.reason}`)
+                        subLog('warn', 'bangumi-state-advance-skipped', {
+                            seasonId: sub.seasonId,
+                            title: sub.title,
+                            decision: decision.action,
+                            reason: decision.reason
+                        }, bangumiScope)
                     }
                 } catch (e) {
-                    logger.error(`[UpdateChecker] Failed to generate image for bangumi ${sub.seasonId}:`, e)
+                    subLog('error', 'bangumi-render-failed', {
+                        seasonId: sub.seasonId,
+                        error: logger.getErrorMessage(e)
+                    }, bangumiScope)
                     this.notifyGroups(
                         targetGroupSourceMap,
                         `${notificationText}\n${url}`,
@@ -397,7 +480,11 @@ module.exports = {
                 }
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Error checking bangumi ${sub.title}:`, e)
+            subLog('error', 'bangumi-check-failed', {
+                seasonId: sub.seasonId,
+                title: sub.title,
+                error: logger.getErrorMessage(e)
+            }, bangumiScope)
         }
     }
 }

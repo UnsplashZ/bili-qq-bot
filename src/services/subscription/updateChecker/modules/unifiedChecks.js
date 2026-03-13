@@ -2,6 +2,10 @@ const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
 const { resolveArticleTitle } = require('../helpers/article')
 const { decideAdvance } = require('../helpers/stateAdvance')
 
+function subLog(level, message, fields = {}, scope = 'svc:unified-checks') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 module.exports = {
     async fetchWithGroupFallback(groupIds, fetcher, contextLabel) {
         const candidates = Array.isArray(groupIds)
@@ -22,10 +26,18 @@ module.exports = {
                     return { groupId, res }
                 }
                 lastRes = res
-                logger.warn(`[UpdateChecker] ${contextLabel} failed on group ${groupId}: ${res?.message || res?.status || 'unknown'}`)
+                subLog('warn', 'fetch-with-group-fallback-failed', {
+                    groupId,
+                    contextLabel,
+                    error: res?.message || res?.status || 'unknown'
+                })
             } catch (error) {
                 lastError = error
-                logger.warn(`[UpdateChecker] ${contextLabel} threw on group ${groupId}: ${error?.message || error}`)
+                subLog('warn', 'fetch-with-group-fallback-threw', {
+                    groupId,
+                    contextLabel,
+                    error: logger.getErrorMessage(error)
+                })
             }
         }
 
@@ -55,6 +67,7 @@ module.exports = {
         const fallbackSource = source === 'cookie' ? 'cookieSync' : 'manual'
         const normalizedTargetGroupSourceMap = this.normalizeGroupSourceMap(targetGroupSourceMap || rawTargetGroups, fallbackSource)
         const targetGroups = this.getGroupIdsFromSourceMap(normalizedTargetGroupSourceMap)
+        const userScope = logger.createScope('sub', 'user', uid)
 
         try {
             if (targetGroups.length === 0) return
@@ -99,7 +112,11 @@ module.exports = {
                 if (persistState) {
                     await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
                 }
-                logger.info(`[UpdateChecker] Initialized lastVideoId for ${name} (${source}): ${latestBvid}`)
+                subLog('info', 'video-anchor-initialized', {
+                    name,
+                    source,
+                    bvid: latestBvid
+                }, userScope)
                 return
             }
 
@@ -111,7 +128,12 @@ module.exports = {
                     if (persistState) {
                         await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
                     }
-                    logger.debug(`[UpdateChecker] Legacy video anchor missing for ${name}, refreshed to ${latestBvid}`)
+                    subLog('debug', 'video-anchor-refreshed', {
+                        name,
+                        source,
+                        bvid: latestBvid,
+                        reason: 'legacy_anchor_missing'
+                    }, userScope)
                     return
                 }
 
@@ -134,15 +156,29 @@ module.exports = {
                         if (persistState) {
                             await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
                         }
-                        logger.debug(`[UpdateChecker] No new videos for ${name}, updated tracking to ${latestBvid}`)
+                        subLog('debug', 'video-state-updated-without-push', {
+                            name,
+                            source,
+                            bvid: latestBvid,
+                            reason: 'no_new_videos'
+                        }, userScope)
                         return
                     } else {
-                        logger.debug(`[UpdateChecker] Force check: pushing latest video for ${name}: ${latestBvid}`)
+                        subLog('debug', 'video-force-push-selected', {
+                            name,
+                            source,
+                            bvid: latestBvid
+                        }, userScope)
                         videoToPush = [latestVideo]
                     }
                 } else {
                     videoToPush = [newVideos[0]]
-                    logger.debug(`[UpdateChecker] Found ${newVideos.length} new video(s) for ${name}, pushing latest: ${newVideos[0].bvid}`)
+                    subLog('debug', 'video-new-items-detected', {
+                        name,
+                        source,
+                        newVideoCount: newVideos.length,
+                        bvid: newVideos[0].bvid
+                    }, userScope)
                 }
 
                 for (const video of videoToPush) {
@@ -158,7 +194,9 @@ module.exports = {
                         const info = detailFetch.res
 
                         if (info.status !== 'success') {
-                            logger.warn(`[UpdateChecker] Failed to get video detail for ${bvid}`)
+                            subLog('warn', 'video-detail-fetch-failed', {
+                                bvid
+                            }, userScope)
                             continue
                         }
 
@@ -184,15 +222,31 @@ module.exports = {
                         if (canAdvanceCurrentVideo) {
                             const videoDownloadService = require('../../../videoDownloadService')
                             videoDownloadService.downloadAndSendToGroups(this.ws, targetGroups, bvid, info).catch(e => {
-                                logger.error(`[UpdateChecker] downloadAndSendToGroups failed for ${bvid}:`, e)
+                                subLog('error', 'video-download-dispatch-failed', {
+                                    bvid,
+                                    error: logger.getErrorMessage(e)
+                                }, userScope)
                             })
                         } else {
-                            logger.warn(`[UpdateChecker] Skip video state advance for ${name} (${source}): notify decision=${decision.action}, reason=${decision.reason}`)
+                            subLog('warn', 'video-state-advance-skipped', {
+                                name,
+                                source,
+                                bvid,
+                                decision: decision.action,
+                                reason: decision.reason
+                            }, userScope)
                         }
 
-                        logger.info(`[UpdateChecker] Pushed new video for ${name} (${source}): ${bvid}`)
+                        subLog('info', 'video-pushed', {
+                            name,
+                            source,
+                            bvid
+                        }, userScope)
                     } catch (e) {
-                        logger.error(`[UpdateChecker] Failed to push video ${video.bvid}:`, e)
+                        subLog('error', 'video-push-failed', {
+                            bvid: video.bvid,
+                            error: logger.getErrorMessage(e)
+                        }, userScope)
                     }
 
                     if (persistState && canAdvanceCurrentVideo) {
@@ -201,7 +255,11 @@ module.exports = {
                 }
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Error checking videos for ${name} (${source}):`, e)
+            subLog('error', 'video-check-failed', {
+                name,
+                source,
+                error: logger.getErrorMessage(e)
+            }, userScope)
         }
     },
 
@@ -227,6 +285,7 @@ module.exports = {
         const fallbackSource = source === 'cookie' ? 'cookieSync' : 'manual'
         const normalizedTargetGroupSourceMap = this.normalizeGroupSourceMap(targetGroupSourceMap || rawTargetGroups, fallbackSource)
         const targetGroups = this.getGroupIdsFromSourceMap(normalizedTargetGroupSourceMap)
+        const userScope = logger.createScope('sub', 'user', uid)
 
         try {
             if (targetGroups.length === 0) return
@@ -271,7 +330,11 @@ module.exports = {
                 if (persistState) {
                     await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
                 }
-                logger.info(`[UpdateChecker] Initialized lastArticleId for ${name} (${source}): ${latestCvid}`)
+                subLog('info', 'article-anchor-initialized', {
+                    name,
+                    source,
+                    cvid: latestCvid
+                }, userScope)
                 return
             }
 
@@ -283,7 +346,12 @@ module.exports = {
                     if (persistState) {
                         await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
                     }
-                    logger.debug(`[UpdateChecker] Legacy article anchor missing for ${name}, refreshed to ${latestCvid}`)
+                    subLog('debug', 'article-anchor-refreshed', {
+                        name,
+                        source,
+                        cvid: latestCvid,
+                        reason: 'legacy_anchor_missing'
+                    }, userScope)
                     return
                 }
 
@@ -307,15 +375,29 @@ module.exports = {
                         if (persistState) {
                             await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
                         }
-                        logger.debug(`[UpdateChecker] No new articles for ${name}, updated tracking to ${latestCvid}`)
+                        subLog('debug', 'article-state-updated-without-push', {
+                            name,
+                            source,
+                            cvid: latestCvid,
+                            reason: 'no_new_articles'
+                        }, userScope)
                         return
                     } else {
-                        logger.debug(`[UpdateChecker] Force check: pushing latest article for ${name}: ${latestCvid}`)
+                        subLog('debug', 'article-force-push-selected', {
+                            name,
+                            source,
+                            cvid: latestCvid
+                        }, userScope)
                         articleToPush = [latestArticle]
                     }
                 } else {
                     articleToPush = [newArticles[0]]
-                    logger.debug(`[UpdateChecker] Found ${newArticles.length} new article(s) for ${name}, pushing latest: cv${newArticles[0].id}`)
+                    subLog('debug', 'article-new-items-detected', {
+                        name,
+                        source,
+                        newArticleCount: newArticles.length,
+                        cvid: `cv${newArticles[0].id}`
+                    }, userScope)
                 }
 
                 for (const article of articleToPush) {
@@ -331,7 +413,9 @@ module.exports = {
                         const info = detailFetch.res
 
                         if (info.status !== 'success') {
-                            logger.warn(`[UpdateChecker] Failed to get article detail for ${cvid}`)
+                            subLog('warn', 'article-detail-fetch-failed', {
+                                cvid
+                            }, userScope)
                             continue
                         }
 
@@ -349,12 +433,25 @@ module.exports = {
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentArticle = decision.action === 'advance'
                         if (!canAdvanceCurrentArticle) {
-                            logger.warn(`[UpdateChecker] Skip article state advance for ${name} (${source}): notify decision=${decision.action}, reason=${decision.reason}`)
+                            subLog('warn', 'article-state-advance-skipped', {
+                                name,
+                                source,
+                                cvid,
+                                decision: decision.action,
+                                reason: decision.reason
+                            }, userScope)
                         }
 
-                        logger.info(`[UpdateChecker] Pushed new article for ${name} (${source}): ${cvid}`)
+                        subLog('info', 'article-pushed', {
+                            name,
+                            source,
+                            cvid
+                        }, userScope)
                     } catch (e) {
-                        logger.error(`[UpdateChecker] Failed to push article cv${article.id}:`, e)
+                        subLog('error', 'article-push-failed', {
+                            cvid: `cv${article.id}`,
+                            error: logger.getErrorMessage(e)
+                        }, userScope)
                     }
 
                     if (persistState && canAdvanceCurrentArticle) {
@@ -363,7 +460,11 @@ module.exports = {
                 }
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Error checking articles for ${name} (${source}):`, e)
+            subLog('error', 'article-check-failed', {
+                name,
+                source,
+                error: logger.getErrorMessage(e)
+            }, userScope)
         }
     },
 
@@ -400,7 +501,11 @@ module.exports = {
                 await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates)
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Failed to update video state for ${uid} (${source}):`, e)
+            subLog('error', 'video-state-update-failed', {
+                uid,
+                source,
+                error: logger.getErrorMessage(e)
+            }, logger.createScope('sub', 'user', uid))
         }
     },
 
@@ -437,7 +542,11 @@ module.exports = {
                 await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates)
             }
         } catch (e) {
-            logger.error(`[UpdateChecker] Failed to update article state for ${uid} (${source}):`, e)
+            subLog('error', 'article-state-update-failed', {
+                uid,
+                source,
+                error: logger.getErrorMessage(e)
+            }, logger.createScope('sub', 'user', uid))
         }
     }
 }

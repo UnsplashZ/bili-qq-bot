@@ -3,6 +3,10 @@ const { normalizeSourceList } = require('../helpers/sourceMap')
 const { resolveDedupKey } = require('../helpers/dedupKey')
 const { canReceiveSubscriptionNotification } = require('../helpers/groupReachability')
 
+function subLog(level, message, fields = {}, scope = 'svc:notify') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 function createNotifyResult(dedupKey = null) {
     return {
         successGroups: [],
@@ -32,7 +36,10 @@ module.exports = {
             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
             if (!disableDedup && dedupKey && notificationHistory.has(gid, dedupKey, ttlMs)) {
-                logger.info(`[UpdateChecker] Skipping duplicate text notification for group ${gid} (key: ${dedupKey})`)
+                subLog('info', 'text-notification-dedup-skipped', {
+                    groupId: gid,
+                    dedupKey
+                })
                 return
             }
 
@@ -41,7 +48,10 @@ module.exports = {
             const messageChain = [{ type: 'text', data: { text } }]
             const resolvedMeta = this.buildAtAllMetaForGroup(gid, groupSourceMap, atAllMeta)
             this.sendSubscriptionMessage(gid, messageChain, resolvedMeta).catch(e => {
-                logger.error(`[UpdateChecker] Error in text notification task for group ${gid}:`, e)
+                subLog('error', 'text-notification-send-failed', {
+                    groupId: gid,
+                    error: logger.getErrorMessage(e)
+                })
             })
 
             // Record notification history if key provided
@@ -70,7 +80,10 @@ module.exports = {
                 const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                 const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
                 if (notificationHistory.has(gid, dedupId, ttlMs)) {
-                    logger.info(`[UpdateChecker] Skipping duplicate notification for group ${gid} (ID: ${dedupId})`)
+                    subLog('info', 'image-notification-dedup-skipped', {
+                        groupId: gid,
+                        dedupKey: dedupId
+                    })
                 } else {
                     pendingGroupIds.push(gid)
                 }
@@ -148,12 +161,19 @@ module.exports = {
                             notificationHistory.add(gid, dedupId, ttlMs)
                         }
                     } catch (sendError) {
-                        logger.error(`[UpdateChecker] Error in image notification task for group ${gid}:`, sendError)
+                        subLog('error', 'image-notification-send-failed', {
+                            groupId: gid,
+                            dedupKey: dedupId,
+                            error: logger.getErrorMessage(sendError)
+                        })
                         pushUniqueGroup(result.failedGroups, gid)
                     }
                 }))
             } catch (e) {
-                logger.error(`[UpdateChecker] Error generating image for config group [${key}]:`, e)
+                subLog('error', 'image-notification-render-failed', {
+                    configKey: key,
+                    error: logger.getErrorMessage(e)
+                })
                 // Fallback to text for these groups
                 const textMsg = descriptionText ? `${descriptionText}\n${textUrl}` : textUrl
                 const fallbackText = `预览生成失败，已降级为文本链接：\n${textMsg}`
@@ -182,7 +202,11 @@ module.exports = {
                             notificationHistory.add(gid, dedupId, ttlMs)
                         }
                     } catch (fallbackError) {
-                        logger.error(`[UpdateChecker] Error in fallback text notification task for group ${gid}:`, fallbackError)
+                        subLog('error', 'fallback-text-notification-send-failed', {
+                            groupId: gid,
+                            dedupKey: dedupId,
+                            error: logger.getErrorMessage(fallbackError)
+                        })
                         pushUniqueGroup(result.failedGroups, gid)
                     }
                 }

@@ -1,8 +1,23 @@
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const path = require('path');
+const { performance } = require('perf_hooks');
 const axios = require('axios');
 const config = require('../config');
 const logger = require('../utils/logger');
+
+const PY_LOG_BRIDGE_PREFIX = '__PYLOG__';
+const PYTHON_LOG_PATTERN = /^(\d{4}-\d{2}-\d{2} [\d:,]+) - ([\w.]+) - ([A-Z]+) - (.*)$/;
+const LEVEL_MAP = {
+    TRACE: 'trace',
+    DEBUG: 'debug',
+    INFO: 'info',
+    WARNING: 'warn',
+    WARN: 'warn',
+    ERROR: 'error',
+    CRITICAL: 'fatal',
+    FATAL: 'fatal'
+};
 
 class ServiceManager {
     constructor() {
@@ -21,6 +36,8 @@ class ServiceManager {
         this.baseUrl = `http://127.0.0.1:${this.port}`;
         this.lastRequestTime = Date.now();
         this.isRestarting = false;
+        this.stdoutBuffer = '';
+        this.stderrBuffer = '';
 
         // 崩溃计数（5分钟滑动窗口）
         this.crashCount = 0;
@@ -31,6 +48,9 @@ class ServiceManager {
 
         // Idle check interval (every hour)
         this.idleCheckInterval = setInterval(() => this.checkIdle(), 60 * 60 * 1000);
+        if (typeof this.idleCheckInterval.unref === 'function') {
+            this.idleCheckInterval.unref();
+        }
     }
 
     // 🆕 验证端口号是否有效
@@ -43,60 +63,57 @@ class ServiceManager {
 
         if (isNaN(portNum) || !Number.isInteger(portNum)) {
             const errorMsg = `Invalid port type: ${port} (type: ${typeof port}). Port must be an integer.`;
-            logger.error(`[ServiceManager] ${errorMsg}`);
+            logger.logEvent('error', 'PY', 'svc:lifecycle', 'port-invalid', { error: errorMsg });
             throw new Error(errorMsg);
         }
 
         // 范围检查
         if (portNum < MIN_PORT || portNum > MAX_PORT) {
             const errorMsg = `Invalid port ${portNum}. Port must be between ${MIN_PORT} and ${MAX_PORT}.`;
-            logger.error(`[ServiceManager] ${errorMsg}`);
+            logger.logEvent('error', 'PY', 'svc:lifecycle', 'port-invalid', { error: errorMsg });
             throw new Error(errorMsg);
         }
 
-        logger.info(`[ServiceManager] Port ${portNum} validated successfully`);
+        logger.logEvent('info', 'PY', 'svc:lifecycle', 'port-validated', { port: portNum });
         return portNum;
     }
 
     async start() {
         if (this.process) {
-            logger.warn('[ServiceManager] Service already running');
+            logger.logEvent('warn', 'PY', 'svc:lifecycle', 'already-running', { port: this.port });
             return;
         }
 
-        logger.info(`[ServiceManager] Starting Python server on port ${this.port}...`);
+        if (await this.isServiceHealthy(300)) {
+            logger.logEvent('info', 'PY', 'svc:lifecycle', 'reuse-existing', { port: this.port });
+            return;
+        }
+
+        logger.logEvent('info', 'PY', 'svc:lifecycle', 'start', { port: this.port });
 
         try {
             this.process = spawn(config.pythonPath, [
                 this.scriptPath,
                 '--port',
                 this.port.toString()
-            ]);
+            ], {
+                env: {
+                    ...process.env,
+                    BILI_PY_LOG_BRIDGE: '1',
+                    PYTHONUNBUFFERED: '1'
+                }
+            });
 
             this.process.stdout.on('data', (data) => {
-                const lines = data.toString().trim().split('\n');
-                lines.forEach(line => {
-                    if (line) logger.info(`[PyServer] ${line}`);
-                });
+                this.handlePythonStream('stdout', data);
             });
 
             this.process.stderr.on('data', (data) => {
-                const lines = data.toString().trim().split('\n');
-                lines.forEach(line => {
-                    if (!line) return;
-                    
-                    // Simple heuristic to detect non-error logs on stderr
-                    // Python logging format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                    if (line.includes(' - INFO - ') || line.includes(' - WARNING - ')) {
-                        logger.info(`[PyServer] ${line}`);
-                    } else {
-                        logger.error(`[PyServer] ${line}`);
-                    }
-                });
+                this.handlePythonStream('stderr', data);
             });
 
             this.process.on('exit', (code, signal) => {
-                logger.warn(`[ServiceManager] Python server exited with code ${code}, signal ${signal}`);
+                logger.logEvent('warn', 'PY', 'svc:lifecycle', 'exit', { code, signal: signal || 'null' });
                 this.process = null;
 
                 // 仅在非主动重启时计入崩溃计数
@@ -114,33 +131,43 @@ class ServiceManager {
                         this.onCriticalError(`⚠️ Python服务在5分钟内已崩溃 ${this.crashCount} 次，可能存在严重问题，请检查日志。`);
                     }
 
-                    logger.info('[ServiceManager] Attempting to restart server in 1s...');
+                    logger.logEvent('warn', 'PY', 'svc:lifecycle', 'restart-scheduled', {
+                        delay: '1s',
+                        crashCount: this.crashCount
+                    });
                     setTimeout(() => this.start(), 1000);
                 }
             });
 
             await this.waitForHealth();
-            logger.info('[ServiceManager] Python server is ready');
+            logger.logEvent('info', 'PY', 'svc:lifecycle', 'ready', { port: this.port });
 
         } catch (error) {
-            logger.error('[ServiceManager] Failed to start server:', error);
+            logger.logEvent('error', 'PY', 'svc:lifecycle', 'start-failed', {
+                port: this.port,
+                error: error.message
+            });
             throw error;
         }
     }
 
     async waitForHealth(maxRetries = 20, interval = 500) {
         for (let i = 0; i < maxRetries; i++) {
-            try {
-                const response = await axios.get(`${this.baseUrl}/health`);
-                if (response.status === 200) {
-                    return true;
-                }
-            } catch (e) {
-                // Ignore errors while waiting
+            if (await this.isServiceHealthy(interval)) {
+                return true;
             }
             await new Promise(resolve => setTimeout(resolve, interval));
         }
         throw new Error('Timeout waiting for Python server health check');
+    }
+
+    async isServiceHealthy(timeout = 500) {
+        try {
+            const response = await axios.get(`${this.baseUrl}/health`, { timeout });
+            return response.status === 200;
+        } catch (e) {
+            return false;
+        }
     }
 
     async sendCommand(endpoint, data, options = {}) {
@@ -155,16 +182,39 @@ class ServiceManager {
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
         const url = `${this.baseUrl}/${cleanEndpoint}`;
         const timeoutMs = Number(options.timeoutMs);
-        const requestOptions =
-            Number.isFinite(timeoutMs) && timeoutMs > 0
-                ? { timeout: timeoutMs }
-                : {};
+        const reqId = options.reqId || this.createReqId(cleanEndpoint);
+        const logFields = {
+            endpoint: cleanEndpoint,
+            ...this.extractResourceFields(data)
+        };
+        const requestOptions = {
+            ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeout: timeoutMs } : {}),
+            headers: {
+                'x-request-id': reqId,
+                'x-rpc-endpoint': cleanEndpoint,
+                ...(options.headers || {})
+            }
+        };
+        const startedAt = performance.now();
+
+        logger.logEvent('info', 'RPC', `req:${reqId}`, 'start', logFields);
 
         try {
             const response = await axios.post(url, data, requestOptions);
+            const status = response?.data?.status || response?.status || 'unknown';
+            const level = status === 'success' ? 'info' : 'warn';
+            logger.logEvent(level, 'RPC', `req:${reqId}`, 'done', {
+                ...logFields,
+                status,
+                duration: `${Math.round(performance.now() - startedAt)}ms`
+            });
             return response.data;
         } catch (error) {
-            logger.error(`[ServiceManager] Error sending command to ${endpoint}:`, error.message);
+            logger.logEvent('error', 'RPC', `req:${reqId}`, 'fail', {
+                ...logFields,
+                duration: `${Math.round(performance.now() - startedAt)}ms`,
+                error: error.message
+            });
             throw error;
         }
     }
@@ -172,7 +222,7 @@ class ServiceManager {
     async checkIdle() {
         const IDLE_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
         if (Date.now() - this.lastRequestTime > IDLE_TIMEOUT) {
-            logger.info('[ServiceManager] Server idle for 24h, restarting to clear memory...');
+            logger.logEvent('info', 'PY', 'svc:lifecycle', 'restart-idle', { idle: '24h' });
             await this.restart();
         }
     }
@@ -182,7 +232,7 @@ class ServiceManager {
 
         try {
             if (this.process) {
-                logger.info('[ServiceManager] Sending SIGTERM to Python server...');
+                logger.logEvent('info', 'PY', 'svc:lifecycle', 'stop', { signal: 'SIGTERM' });
                 this.process.kill('SIGTERM');
 
                 // 🆕 添加10秒超时机制
@@ -196,7 +246,10 @@ class ServiceManager {
 
                     const elapsed = Date.now() - startTime;
                     if (elapsed > RESTART_TIMEOUT) {
-                        logger.warn(`[ServiceManager] Process did not exit after ${RESTART_TIMEOUT}ms, sending SIGKILL...`);
+                        logger.logEvent('warn', 'PY', 'svc:lifecycle', 'force-kill', {
+                            timeout: `${RESTART_TIMEOUT}ms`,
+                            signal: 'SIGKILL'
+                        });
                         this.process.kill('SIGKILL');
                         forcedKill = true;
 
@@ -207,7 +260,7 @@ class ServiceManager {
                         }
 
                         if (this.process) {
-                            logger.error('[ServiceManager] Process still alive after SIGKILL, giving up');
+                            logger.logEvent('error', 'PY', 'svc:lifecycle', 'force-kill-failed');
                             // Force clear the reference to prevent infinite restart loop
                             this.process = null;
                         }
@@ -216,13 +269,13 @@ class ServiceManager {
                 }
 
                 if (forcedKill) {
-                    logger.warn('[ServiceManager] Process forcefully terminated');
+                    logger.logEvent('warn', 'PY', 'svc:lifecycle', 'terminated', { mode: 'force' });
                 } else {
-                    logger.info('[ServiceManager] Process exited gracefully');
+                    logger.logEvent('info', 'PY', 'svc:lifecycle', 'terminated', { mode: 'graceful' });
                 }
             }
         } catch (error) {
-            logger.error('[ServiceManager] Error during restart:', error);
+            logger.logEvent('error', 'PY', 'svc:lifecycle', 'restart-failed', { error: error.message });
             // Ensure process reference is cleared even on error
             this.process = null;
         } finally {
@@ -232,6 +285,116 @@ class ServiceManager {
 
         // Start the service again
         await this.start();
+    }
+
+    createReqId(endpoint) {
+        const aliasMap = {
+            dynamic_detail: 'dy',
+            user_dynamic: 'ud',
+            video: 'vd',
+            bangumi: 'bg',
+            article: 'ar',
+            live_room: 'lv',
+            user_info: 'ui',
+            user_card: 'uc',
+            opus: 'op',
+            media: 'md',
+            ep: 'ep'
+        };
+        const prefix = aliasMap[endpoint] || endpoint.slice(0, 2) || 'py';
+        return `${prefix}_${crypto.randomBytes(3).toString('hex')}`;
+    }
+
+    extractResourceFields(data = {}) {
+        const fieldMap = {
+            bvid: 'bvid',
+            uid: 'uid',
+            cvid: 'cvid',
+            season_id: 'seasonId',
+            room_id: 'roomId',
+            dynamic_id: 'dynamicId',
+            opus_id: 'opusId',
+            media_id: 'mediaId',
+            ep_id: 'epId',
+            group_id: 'groupId'
+        };
+        return Object.entries(fieldMap).reduce((acc, [key, label]) => {
+            const value = data?.[key];
+            if (value !== undefined && value !== null && value !== '') {
+                acc[label] = value;
+            }
+            return acc;
+        }, {});
+    }
+
+    handlePythonStream(streamName, data) {
+        const bufferKey = streamName === 'stdout' ? 'stdoutBuffer' : 'stderrBuffer';
+        this[bufferKey] += data.toString();
+        const lines = this[bufferKey].split('\n');
+        this[bufferKey] = lines.pop();
+        lines.forEach((line) => this.handlePythonLine(streamName, line.trimEnd()));
+    }
+
+    handlePythonLine(streamName, line) {
+        if (!line) return;
+
+        if (line.startsWith(PY_LOG_BRIDGE_PREFIX)) {
+            try {
+                const payload = JSON.parse(line.slice(PY_LOG_BRIDGE_PREFIX.length));
+                logger.logEvent(
+                    payload.level || 'info',
+                    payload.channel || 'PY',
+                    payload.scope || `py:${streamName}`,
+                    payload.message || '',
+                    payload.fields || {}
+                );
+                return;
+            } catch (error) {
+                logger.logEvent('warn', 'PY', 'svc:lifecycle', 'bridge-parse-failed', {
+                    source: streamName,
+                    error: error.message
+                });
+            }
+        }
+
+        const parsed = this.parsePythonLine(line);
+        if (parsed) {
+            logger.logEvent(parsed.level, parsed.channel, parsed.scope, parsed.message, parsed.fields);
+            return;
+        }
+
+        logger.logEvent(streamName === 'stderr' ? 'error' : 'info', 'PY', `py:${streamName}`, line);
+    }
+
+    parsePythonLine(line) {
+        const match = line.match(PYTHON_LOG_PATTERN);
+        if (!match) return null;
+
+        const [, timestamp, loggerName, levelName, message] = match;
+        const level = LEVEL_MAP[levelName] || 'info';
+        const scope = this.resolvePythonScope(loggerName);
+        return {
+            level,
+            channel: this.resolvePythonChannel(loggerName),
+            scope,
+            message,
+            fields: { ts: timestamp }
+        };
+    }
+
+    resolvePythonChannel(loggerName) {
+        if (loggerName === 'aiohttp.access') return 'HTTP';
+        if (loggerName.includes('.services.')) return 'SERVICE';
+        if (loggerName.includes('.web.handlers')) return 'RPC';
+        return 'PY';
+    }
+
+    resolvePythonScope(loggerName) {
+        if (loggerName.endsWith('.main') || loggerName.endsWith('.app')) {
+            return 'svc:lifecycle';
+        }
+        const segments = String(loggerName || '').split('.');
+        return `py:${segments[segments.length - 1] || 'service'}`;
     }
 }
 

@@ -36,7 +36,10 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
             }
         })
     } catch (error) {
-        logger.error(`Error fetching AI config for group ${req.params.groupId}:`, error)
+        logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-fetch-failed', {
+            groupId: req.params.groupId,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch AI configuration' })
     }
 })
@@ -103,7 +106,9 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
 
         sysConfig.save()
 
-        logger.info(`[API] Updated AI config for group ${groupId}`)
+        logger.logEvent('info', 'DASH', req.logScope || '', 'ai-config-updated', {
+            groupId
+        })
 
         res.json({
             message: 'AI configuration updated successfully',
@@ -124,7 +129,10 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
             }
         })
     } catch (error) {
-        logger.error(`Error updating AI config for group ${req.params.groupId}:`, error)
+        logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-update-failed', {
+            groupId: req.params.groupId,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to update AI configuration' })
     }
 })
@@ -148,7 +156,9 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
 
         sysConfig.save()
 
-        logger.info(`[API] Reset AI config for group ${groupId} to global defaults`)
+        logger.logEvent('info', 'DASH', req.logScope || '', 'ai-config-reset', {
+            groupId
+        })
 
         res.json({
             message: 'AI configuration reset to global defaults',
@@ -159,7 +169,10 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
             }
         })
     } catch (error) {
-        logger.error(`Error resetting AI config for group ${req.params.groupId}:`, error)
+        logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-reset-failed', {
+            groupId: req.params.groupId,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to reset AI configuration' })
     }
 })

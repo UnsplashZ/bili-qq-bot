@@ -6,6 +6,7 @@ const LOCKOUT_DURATION = 5 * 60 * 1000 // 5 minutes
 const CLEANUP_INTERVAL = 10 * 60 * 1000
 
 let cleanupStarted = false
+const RATE_LIMIT_SCOPE = logger.createScope('svc', 'login-rate-limit')
 
 function checkRateLimit(ip) {
     const now = Date.now()
@@ -35,9 +36,11 @@ function recordFailedAttempt(ip) {
 
     if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
         attempt.lockUntil = now + LOCKOUT_DURATION
-        logger.warn(
-            `[Security] IP ${ip} locked out after ${MAX_LOGIN_ATTEMPTS} failed attempts`
-        )
+        logger.logEvent('warn', 'AUTH', RATE_LIMIT_SCOPE, 'lockout-activated', {
+            ip,
+            maxAttempts: MAX_LOGIN_ATTEMPTS,
+            lockoutSeconds: Math.ceil(LOCKOUT_DURATION / 1000)
+        })
     }
 
     loginAttempts.set(ip, attempt)

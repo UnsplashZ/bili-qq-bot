@@ -95,7 +95,10 @@ class MessageHandler {
      */
     sendPrivateMessage(ws, userId, message) {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-            logger.warn(`[MessageHandler] Cannot send private message: WebSocket not open`);
+            logger.logEvent('warn', 'BOT', '', 'send-private-skipped', {
+                userId,
+                reason: 'ws_not_open'
+            });
             return;
         }
 
@@ -110,11 +113,18 @@ class MessageHandler {
 
     sendEmojiReaction(ws, messageId, emojiId, set = true) {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-            logger.warn('[MessageHandler] Cannot send emoji reaction: WebSocket not open')
+            logger.logEvent('warn', 'BOT', '', 'emoji-reaction-skipped', {
+                messageId,
+                emojiId,
+                reason: 'ws_not_open'
+            })
             return
         }
         if (!messageId) {
-            logger.debug(`[MessageHandler] Cannot send emoji reaction: no messageId (emojiId=${emojiId})`)
+            logger.logEvent('debug', 'BOT', '', 'emoji-reaction-skipped', {
+                emojiId,
+                reason: 'missing_message_id'
+            })
             return
         }
         try {
@@ -127,7 +137,11 @@ class MessageHandler {
                 }
             }))
         } catch (e) {
-            logger.warn(`[MessageHandler] Failed to send emoji reaction: ${e.message}`)
+            logger.logEvent('warn', 'BOT', '', 'emoji-reaction-failed', {
+                messageId,
+                emojiId,
+                error: logger.getErrorMessage(e)
+            })
         }
     }
 
@@ -137,6 +151,7 @@ class MessageHandler {
         let rawMessage = messageData.raw_message;
         const userId = messageData.user_id ? String(messageData.user_id) : null;
         let groupId = messageData.group_id ? String(messageData.group_id) : null;
+        const messageId = messageData.message_id != null ? String(messageData.message_id) : '';
 
         // Prevent self-trigger
         if (userId === String(messageData.self_id)) {
@@ -150,13 +165,19 @@ class MessageHandler {
             if (!isRootAdmin) {
                 // Non-root admin: reject with message
                 this.sendPrivateMessage(ws, userId, '此功能仅限管理员使用');
-                logger.info(`[MessageHandler] Rejected private message from non-admin user ${userId}`);
+                logger.logEvent('info', 'BOT', logger.createMessageScope(`private_${userId || 'unknown'}`, userId || 'unknown', messageId || Date.now()), 'private-rejected', {
+                    userId,
+                    reason: 'non_root_admin'
+                });
                 return;
             }
 
             // Root admin: allow and use virtual groupId
             groupId = `private_${userId}`;
-            logger.info(`[MessageHandler] Processing private message from Root Admin ${userId} as virtual group ${groupId}`);
+            logger.logEvent('info', 'BOT', logger.createMessageScope(groupId, userId || 'unknown', messageId || Date.now()), 'private-routed', {
+                userId,
+                virtualGroupId: groupId
+            });
 
             // 审批拦截：Root Admin 私聊回复“是/否”优先处理好友/群申请
             const consumedByApproval = await requestApprovalService.tryHandleAdminDecision(ws, messageData);
@@ -165,18 +186,29 @@ class MessageHandler {
             }
         }
 
-        const messageId = messageData.message_id != null ? String(messageData.message_id) : '';
-        const traceId = `${groupId || 'unknown'}:${userId || 'unknown'}:${messageId || Date.now()}`;
+        const traceContext = {
+            scope: messageData.traceContext?.scope || logger.createMessageScope(groupId || 'unknown', userId || 'unknown', messageId || Date.now()),
+            receivedLogged: Boolean(messageData.traceContext?.receivedLogged)
+        };
         if (messageId) {
             const scopeId = groupId || `private_${userId || 'unknown'}`;
             const dedupKey = `${scopeId}:${userId || 'unknown'}:${messageId}`;
             if (!aiIdempotency.markIfNew(dedupKey)) {
-                logger.info(`[MessageHandler] Duplicate message ignored: ${dedupKey}, trace=${traceId}`);
+                logger.logEvent('info', 'BOT', traceContext.scope, 'duplicate-ignored', {
+                    dedupKey
+                });
                 return;
             }
         }
 
-        logger.info(`[MessageHandler] Received message from User ${userId} in Group ${groupId}, trace=${traceId}: ${rawMessage.substring(0, 100)}...`);
+        if (!traceContext.receivedLogged) {
+            logger.logEvent('info', 'BOT', traceContext.scope, 'recv', {
+                groupId,
+                userId,
+                messageType: messageData.message_type,
+                preview: rawMessage.substring(0, 100)
+            });
+        }
 
         // Auto-create group configuration if not exists (skip for private messages)
         const isPrivateMsg = typeof groupId === 'string' && groupId.startsWith('private_');
@@ -189,7 +221,10 @@ class MessageHandler {
         const userIdStr = String(userId);
         const globalBlacklist = Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [];
         if (globalBlacklist.some(qq => String(qq) === userIdStr)) {
-            logger.info(`[MessageHandler] User ${userId} is globally blacklisted, ignoring message`);
+            logger.logEvent('info', 'BOT', traceContext.scope, 'ignored', {
+                userId,
+                reason: 'global_blacklist'
+            });
             return;
         }
         // 2. Check Group Blacklist (Group Ban)
@@ -197,7 +232,11 @@ class MessageHandler {
              const groupConfig = config.groupConfigs[groupId];
              const groupBlacklist = Array.isArray(groupConfig?.blacklistedQQs) ? groupConfig.blacklistedQQs : [];
              if (groupBlacklist.some(qq => String(qq) === userIdStr)) {
-                 logger.info(`[MessageHandler] User ${userId} is blacklisted in group ${groupId}, ignoring message`);
+                 logger.logEvent('info', 'BOT', traceContext.scope, 'ignored', {
+                    groupId,
+                    userId,
+                    reason: 'group_blacklist'
+                 });
                  return;
              }
         }
@@ -210,10 +249,17 @@ class MessageHandler {
             const isEnableCmd = rawMessage.trim().replace(/\s+/g, ' ').startsWith('/设置 功能 开');
             
             if (isEnableCmd && (config.isGroupAdmin(groupId, userId) || config.isRootAdmin(userId))) {
-                logger.info(`[MessageHandler] Admin ${userId} attempting to re-enable group ${groupId}`);
+                logger.logEvent('info', 'BOT', traceContext.scope, 'enable-request', {
+                    groupId,
+                    userId
+                });
                 // Continue to process the message
             } else {
-                logger.info(`[MessageHandler] Group ${groupId} is not enabled, ignoring message from ${userId}`);
+                logger.logEvent('info', 'BOT', traceContext.scope, 'ignored', {
+                    groupId,
+                    userId,
+                    reason: 'group_disabled'
+                });
                 return;
             }
         }
@@ -234,9 +280,11 @@ class MessageHandler {
         const jsonMsg = messageSegments.find(m => m.type === 'json');
         if (jsonMsg) {
             try {
-                logger.info(`[MessageHandler] Found JSON message, attempting to extract URL...`);
+                logger.logEvent('info', 'LINK', traceContext.scope, 'json-extract-start');
                 const jsonData = JSON.parse(jsonMsg.data.data);
-                logger.info(`[MessageHandler] JSON data keys: ${Object.keys(jsonData).join(', ')}`);
+                logger.logEvent('debug', 'LINK', traceContext.scope, 'json-keys', {
+                    keys: Object.keys(jsonData).join(',')
+                });
 
                 // Common paths for URL in Bilibili Mini Program
                 // Including paths for standard app, HD app, and other variations
@@ -250,22 +298,19 @@ class MessageHandler {
                     || jsonData.url;
 
                 if (url) {
-                    logger.info(`[MessageHandler] Extracted URL from JSON: ${url}`);
+                    logger.logEvent('info', 'LINK', traceContext.scope, 'json-url-found', {
+                        url
+                    });
                     rawMessage += " " + url; // Append to rawMessage for regex matching
                 } else {
-                    // Log the full JSON structure to help debug HD app format
-                    logger.info(`[MessageHandler] Could not extract URL. JSON structure: ${JSON.stringify(jsonData, null, 2).substring(0, 500)}`);
+                    logger.logEvent('warn', 'LINK', traceContext.scope, 'json-url-missing', {
+                        preview: JSON.stringify(jsonData, null, 2).substring(0, 500)
+                    });
                 }
             } catch (e) {
-                logger.warn('[MessageHandler] Failed to parse JSON message:', e);
-                // Safely log raw data with error handling
-                try {
-                    if (jsonMsg && jsonMsg.data && jsonMsg.data.data) {
-                        logger.warn('[MessageHandler] JSON raw data:', jsonMsg.data.data.substring(0, 500));
-                    }
-                } catch (logErr) {
-                    logger.warn('[MessageHandler] Could not log JSON raw data:', logErr.message);
-                }
+                logger.logEvent('warn', 'LINK', traceContext.scope, 'json-parse-failed', {
+                    error: logger.getErrorMessage(e)
+                });
             }
         }
 
@@ -275,14 +320,21 @@ class MessageHandler {
             const match = rawMessage.match(linkHandler.shortLinkRegex);
             if (match) {
                 const shortUrl = match[0];
-                logger.info(`[MessageHandler] Found short link: ${shortUrl}, expanding...`);
+                logger.logEvent('info', 'LINK', traceContext.scope, 'short-link-found', {
+                    shortUrl
+                });
                 try {
                     const expanded = await linkHandler.expandUrl(shortUrl);
-                    logger.info(`[MessageHandler] Expanded ${shortUrl} to ${expanded}`);
+                    logger.logEvent('info', 'LINK', traceContext.scope, 'short-link-expanded', {
+                        shortUrl,
+                        expandedUrl: expanded
+                    });
                     rawMessage += " " + expanded;
-                    logger.info(`[MessageHandler] Updated rawMessage with expanded URL`);
                 } catch (e) {
-                    logger.error(`[MessageHandler] Failed to expand short link ${shortUrl}:`, e);
+                    logger.logEvent('error', 'LINK', traceContext.scope, 'short-link-expand-failed', {
+                        shortUrl,
+                        error: logger.getErrorMessage(e)
+                    });
                 }
             }
         }
@@ -293,11 +345,19 @@ class MessageHandler {
              const cleanMsg = this.normalizeMessageForStorage(rawMessage);
              if (cleanMsg) {
                  vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
-                     logger.error('[MessageHandler] Failed to save vector memory:', e);
+                     logger.logEvent('error', 'BOT', traceContext.scope, 'vector-memory-save-failed', {
+                        groupId,
+                        userId,
+                        error: logger.getErrorMessage(e)
+                     });
                  });
                  // Record message for user profile metadata (no LLM call, always fast)
                  userProfileService.recordMessage(groupId, userId, userName).catch(e => {
-                     logger.error('[MessageHandler] Failed to record message for user profile:', e);
+                     logger.logEvent('error', 'BOT', traceContext.scope, 'profile-record-failed', {
+                        groupId,
+                        userId,
+                        error: logger.getErrorMessage(e)
+                     });
                  });
              }
         }
@@ -308,7 +368,8 @@ class MessageHandler {
             groupId,
             userId,
             rawMessage,
-            messageData
+            messageData,
+            traceContext
         };
 
         if (await commandManager.dispatch(commandContext)) {
@@ -317,10 +378,9 @@ class MessageHandler {
 
         // ========== Link Processing ==========
         const safeRawMessage = rawMessage.replace(/\[CQ:[^\]]+\]/g, '');
-        const links = linkHandler.extractLinks(safeRawMessage, groupId);
+        const links = linkHandler.extractLinks(safeRawMessage, groupId, traceContext);
 
         if (links.length > 0) {
-            const messageId = messageData.message_id;
             const seenKeys = new Set();
             const uncachedLinks = links.filter(l => {
                 if (linkHandler.isLinkCached(l.cacheKey) || seenKeys.has(l.cacheKey)) return false;
@@ -344,13 +404,15 @@ class MessageHandler {
                 let processSuccess = false;
 
                 try {
-                    await linkHandler.processSingleLink(link, ws, groupId, userId);
+                    await linkHandler.processSingleLink(link, ws, groupId, userId, traceContext);
                     processSuccess = true;
-                    logger.debug(`[MessageHandler] Successfully processed link: ${link.match}`);
+                    logger.logEvent('debug', 'LINK', traceContext.scope, 'item-processed', {
+                        linkType: link.type,
+                        linkId: link.id
+                    });
                 } catch (error) {
-                    logger.error(`[MessageHandler] Failed to process link ${link.match}:`, {
-                        error: error.message,
-                        stack: error.stack,
+                    logger.logEvent('error', 'LINK', traceContext.scope, 'item-failed', {
+                        error: logger.getErrorMessage(error),
                         groupId,
                         userId,
                         linkType: link.type,
@@ -370,19 +432,25 @@ class MessageHandler {
                             }
                         ], userId);
                     } catch (sendError) {
-                        logger.error('[MessageHandler] Failed to send error message:', sendError);
+                        logger.logEvent('error', 'LINK', traceContext.scope, 'error-message-send-failed', {
+                            error: logger.getErrorMessage(sendError)
+                        });
                     }
                 }
 
                 // 只在成功处理后添加到缓存
                 if (processSuccess) {
                     linkHandler.addLinkToCache(link.cacheKey);
-                    logger.debug(`[MessageHandler] Added link to cache: ${link.cacheKey}`);
+                    logger.logEvent('debug', 'LINK', traceContext.scope, 'cache-added', {
+                        cacheKey: link.cacheKey
+                    });
                 }
 
                 // 处理完成后延迟，避免并发冲突
                 if (i < uncachedLinks.length - 1) {
-                    logger.debug(`[MessageHandler] Waiting 1000ms before processing next link to avoid conflicts...`);
+                    logger.logEvent('debug', 'LINK', traceContext.scope, 'next-item-delay', {
+                        delayMs: 1000
+                    });
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
@@ -413,7 +481,7 @@ class MessageHandler {
                 rawMessage,
                 messageMeta
             })
-            logger.info(`[MessageHandler] AI gate decision trace=${traceId}`, {
+            logger.logEvent('info', 'AI', traceContext.scope, 'AI gate decision', {
                 shouldReply: gateDecision.shouldReply,
                 score: gateDecision.score,
                 busyMode: gateDecision.busyMode,
@@ -433,7 +501,7 @@ class MessageHandler {
                         messageMeta
                     })
                     : { currentTurn, threadMessages: [], backgroundSummary: '', stats: {} }
-                logger.info(`[MessageHandler] AI context selected trace=${traceId}`, {
+                logger.logEvent('info', 'AI', traceContext.scope, 'AI context selected', {
                     selectedCount: selectedContext.threadMessages.length,
                     hasSummary: !!selectedContext.backgroundSummary,
                     stats: selectedContext.stats
@@ -445,7 +513,7 @@ class MessageHandler {
                         triggerLevel: gateDecision.triggerLevel
                     })
                     : { mode: 'answer_only', reasons: ['feature_disabled'] }
-                logger.info(`[MessageHandler] AI response mode trace=${traceId}`, responseMode)
+                logger.logEvent('info', 'AI', traceContext.scope, 'AI response mode', responseMode)
 
                 aiPipelineInput = {
                     gateDecision,
@@ -458,7 +526,7 @@ class MessageHandler {
         }
 
         if (shouldReply) {
-            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceId, aiPipelineInput);
+            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceContext.scope, aiPipelineInput);
             if (reply) {
                 this.sendGroupMessage(ws, groupId, [
                     { type: 'text', data: { text: reply } }
@@ -468,7 +536,11 @@ class MessageHandler {
                 }
                 // Async profile update check (fire-and-forget, only triggers if conditions met)
                 userProfileService.maybeUpdateProfile(groupId, userId, userName, aiContextService, vectorMemoryService).catch(e => {
-                    logger.error('[MessageHandler] Failed to maybe update user profile:', e);
+                    logger.logEvent('error', 'AI', traceContext.scope, 'profile-update-failed', {
+                        groupId,
+                        userId,
+                        error: logger.getErrorMessage(e)
+                    });
                 });
             }
         }
@@ -496,7 +568,9 @@ class MessageHandler {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'MessageHandler', true);
         } else {
-            logger.warn('[MessageHandler] Cannot send message: no groupId or userId provided');
+            logger.logEvent('warn', 'BOT', '', 'send-message-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 
@@ -505,7 +579,9 @@ class MessageHandler {
         
         // Only respond if the bot itself joined
         if (user_id === self_id) {
-            logger.info(`[MessageHandler] Bot joined new group ${group_id}, sending greeting...`);
+            logger.logEvent('info', 'BOT', logger.createScope('svc', 'lifecycle'), 'group-greeting-start', {
+                groupId: group_id
+            });
             
             // 1. Send text greeting
             const greeting = "大家好！我是 Bilibili 助手 Bot。发送 B 站链接即可自动解析预览，发送 /菜单 查看更多功能。";
@@ -518,7 +594,10 @@ class MessageHandler {
                     { type: 'image', data: { file: `base64://${base64Image}` } }
                 ]);
             } catch (e) {
-                logger.error(`[MessageHandler] Failed to generate help card for greeting in group ${group_id}:`, e);
+                logger.logEvent('error', 'BOT', logger.createScope('svc', 'lifecycle'), 'group-greeting-card-failed', {
+                    groupId: group_id,
+                    error: logger.getErrorMessage(e)
+                });
             }
         }
     }

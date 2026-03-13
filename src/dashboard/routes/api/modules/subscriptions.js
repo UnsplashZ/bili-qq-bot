@@ -9,6 +9,7 @@ const {
     resolveFollowerName
 } = require('../shared/normalize')
 const { assertWebuiManageableGroup } = require('../shared/group-guard')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -63,9 +64,16 @@ router.get('/groups/:id/subscriptions', async (req, res) => {
                 value: b.seasonId
             }))
         ]
+        dashLog(req, 'info', 'subscriptions-fetched', {
+            groupId,
+            count: mergedSubs.length
+        })
         res.json(mergedSubs)
     } catch (error) {
-        logger.error(`Error fetching subscriptions for group ${req.params.id}:`, error)
+        dashLog(req, 'error', 'subscriptions-fetch-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch subscriptions' })
     }
 })
@@ -147,13 +155,22 @@ router.get('/groups/:id/atall-targets', async (req, res) => {
             (a, b) => Number(a.uid) - Number(b.uid)
         )
 
+        dashLog(req, 'info', 'subscription-atall-targets-fetched', {
+            groupId,
+            manualCount: manualUsers.length,
+            cookieCount: cookieUsers.length,
+            syncGroupCount: syncGroupNames.length
+        })
         return res.json({
             manualUsers,
             cookieUsers,
             syncGroupNames
         })
     } catch (error) {
-        logger.error(`Error fetching @all targets for group ${req.params.id}:`, error)
+        dashLog(req, 'error', 'subscription-atall-targets-fetch-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         return res.status(500).json({ error: 'Failed to fetch @all target lists' })
     }
 })
@@ -177,10 +194,11 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
             subscriptionUserMetaCacheService
                 .preheat(normalized.value, groupId)
                 .catch(error => {
-                    logger.warn(
-                        `[Subscriptions API] Failed to preheat user meta cache for uid=${normalized.value}:`,
-                        error
-                    )
+                    dashLog(req, 'warn', 'subscription-preheat-failed', {
+                        groupId,
+                        uid: normalized.value,
+                        error: logger.getErrorMessage(error)
+                    })
                 })
         } else if (normalized.type === 'bangumi') {
             resultName = await subscriptionService.addBangumiSubscription(
@@ -189,9 +207,19 @@ router.post('/groups/:id/subscriptions', async (req, res) => {
             )
         }
 
+        dashLog(req, 'info', 'subscription-added', {
+            groupId,
+            subscriptionType: normalized.type,
+            targetId: normalized.value
+        })
         res.json({ message: 'Subscription added', name: resultName })
     } catch (error) {
-        logger.error(`Error adding subscription for group ${req.params.id}:`, error)
+        dashLog(req, 'error', 'subscription-add-failed', {
+            groupId: req.params.id,
+            subscriptionType: req.body && req.body.type,
+            targetId: req.body && req.body.value,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: error.message || 'Failed to add subscription' })
     }
 })
@@ -221,12 +249,27 @@ router.delete('/groups/:id/subscriptions', async (req, res) => {
         }
 
         if (success) {
+            dashLog(req, 'info', 'subscription-removed', {
+                groupId,
+                subscriptionType: normalized.type,
+                targetId: normalized.value
+            })
             res.json({ message: 'Subscription removed' })
         } else {
+            dashLog(req, 'warn', 'subscription-remove-miss', {
+                groupId,
+                subscriptionType: normalized.type,
+                targetId: normalized.value
+            })
             res.status(404).json({ error: 'Subscription not found' })
         }
     } catch (error) {
-        logger.error(`Error removing subscription for group ${req.params.id}:`, error)
+        dashLog(req, 'error', 'subscription-remove-failed', {
+            groupId: req.params.id,
+            subscriptionType: req.body && req.body.type,
+            targetId: req.body && req.body.value,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to remove subscription' })
     }
 })

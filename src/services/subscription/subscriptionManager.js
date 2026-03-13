@@ -4,6 +4,10 @@ const logger = require('../../utils/logger');
 const biliApi = require('../../services/biliApi');
 const storageUtils = require('../../utils/storageUtils');
 
+function subLog(level, message, fields = {}, scope = 'svc:sub-manager') {
+    logger.logEvent(level, 'SUB', scope, message, fields);
+}
+
 class SubscriptionManager {
     constructor() {
         this.userSubs = []; // [{ uid, name, groupIds: [], lastDynamicId, lastLiveStatus, type: 'user' }]
@@ -253,7 +257,9 @@ class SubscriptionManager {
             } catch (error) {
                 // Reset loading state on failure to allow retry
                 this._loadingPromise = null;
-                logger.error('[SubscriptionManager] Failed to load subscriptions, state reset for retry:', error);
+                subLog('error', 'subscriptions-load-retryable-failed', {
+                    error: logger.getErrorMessage(error)
+                });
                 throw error;
             }
         })();
@@ -276,7 +282,9 @@ class SubscriptionManager {
             } catch (error) {
                 // Reset loading state on failure to allow retry
                 this._followersLoadingPromise = null;
-                logger.error('[SubscriptionManager] Failed to load followers, state reset for retry:', error);
+                subLog('error', 'followers-load-retryable-failed', {
+                    error: logger.getErrorMessage(error)
+                });
                 throw error;
             }
         })();
@@ -294,9 +302,11 @@ class SubscriptionManager {
             if (await this._fileExists(bakFile)) {
                 try {
                     await fs.copyFile(bakFile, this.subFile);
-                    logger.info('[SubscriptionManager] Restored subscriptions from backup.');
+                    subLog('info', 'subscriptions-restored-from-backup');
                 } catch (e) {
-                    logger.error('[SubscriptionManager] Failed to restore backup:', e);
+                    subLog('error', 'subscriptions-backup-restore-failed', {
+                        error: logger.getErrorMessage(e)
+                    });
                 }
             }
         }
@@ -338,15 +348,22 @@ class SubscriptionManager {
                 const normalized = this._normalizeLoadedSubscriptions();
                 if (normalized || needsMigration) {
                     if (needsMigration) {
-                        logger.info(`[SubscriptionManager] Migrated subscriptions schema to v${this.schemaVersion}.`);
+                        subLog('info', 'subscriptions-schema-migrated', {
+                            schemaVersion: this.schemaVersion
+                        });
                     } else {
-                        logger.info('[SubscriptionManager] Normalized subscription data on load.');
+                        subLog('info', 'subscriptions-normalized-on-load');
                     }
                     await this._saveSubscriptions();
                 }
-                logger.info(`[SubscriptionManager] Loaded ${this.userSubs.length} users and ${this.bangumiSubs.length} bangumis.`);
+                subLog('info', 'subscriptions-loaded', {
+                    userCount: this.userSubs.length,
+                    bangumiCount: this.bangumiSubs.length
+                });
             } catch (e) {
-                logger.error('[SubscriptionManager] Failed to load subscriptions:', e);
+                subLog('error', 'subscriptions-load-failed', {
+                    error: logger.getErrorMessage(e)
+                });
                 this.userSubs = [];
                 this.bangumiSubs = [];
             }
@@ -376,9 +393,11 @@ class SubscriptionManager {
                 bangumis: this.bangumiSubs
             };
             await storageUtils.asyncWriteWithBackup(this.subFile, data);
-            logger.debug('[SubscriptionManager] Subscriptions saved successfully.');
+            subLog('debug', 'subscriptions-saved');
         } catch (error) {
-            logger.error('[SubscriptionManager] Failed to save subscriptions:', error);
+            subLog('error', 'subscriptions-save-failed', {
+                error: logger.getErrorMessage(error)
+            });
             throw error; // Re-throw to let caller handle
         }
     }
@@ -419,7 +438,7 @@ class SubscriptionManager {
 
                 // Compatibility check: if it's an array (old format), migrate it or discard
                 if (Array.isArray(data)) {
-                    logger.warn('[SubscriptionManager] Old array format detected in subfollowers.json. Data will be reset on next sync.');
+                    subLog('warn', 'followers-legacy-array-detected');
                     this.cookieFollowings = {};
                     this.groupToAccountMap = {};
                     needsMigration = true;
@@ -439,12 +458,18 @@ class SubscriptionManager {
                     }
                 }
                 if (needsMigration) {
-                    logger.info(`[SubscriptionManager] Migrated followers schema to v${this.schemaVersion}.`);
+                    subLog('info', 'followers-schema-migrated', {
+                        schemaVersion: this.schemaVersion
+                    });
                     await this._saveFollowers();
                 }
-                logger.info(`[SubscriptionManager] Loaded followers for ${Object.keys(this.cookieFollowings).length} accounts.`);
+                subLog('info', 'followers-loaded', {
+                    accountCount: Object.keys(this.cookieFollowings).length
+                });
             } catch (e) {
-                logger.error('[SubscriptionManager] Failed to load followers:', e);
+                subLog('error', 'followers-load-failed', {
+                    error: logger.getErrorMessage(e)
+                });
                 this.cookieFollowings = {};
                 this.groupToAccountMap = {};
             }
@@ -462,9 +487,11 @@ class SubscriptionManager {
                 groupMap: this.groupToAccountMap
             };
             await storageUtils.asyncWriteWithBackup(this.followersFile, data);
-            logger.debug('[SubscriptionManager] Followers saved successfully.');
+            subLog('debug', 'followers-saved');
         } catch (error) {
-            logger.error('[SubscriptionManager] Failed to save followers:', error);
+            subLog('error', 'followers-save-failed', {
+                error: logger.getErrorMessage(error)
+            });
             throw error; // Re-throw to let caller handle
         }
     }
@@ -479,7 +506,9 @@ class SubscriptionManager {
         this._followerSaveTimer = setTimeout(() => {
             this._followerSaveTimer = null;
             this._flushFollowerSaveOnce().catch((error) => {
-                logger.error('[SubscriptionManager] Batched follower save failed:', error);
+                subLog('error', 'followers-batched-save-failed', {
+                    error: logger.getErrorMessage(error)
+                });
             });
         }, this.followerSaveDebounceMs);
     }
@@ -745,7 +774,11 @@ class SubscriptionManager {
 
         this.userSubs.push(newSub);
         await this._saveSubscriptions();
-        logger.info(`[SubscriptionManager] Added user sub: ${newSub.name} (${normalizedUid}) for group ${groupId}`);
+        subLog('info', 'user-sub-added', {
+            uid: normalizedUid,
+            name: newSub.name,
+            groupId
+        });
         return newSub.name;
     }
 
@@ -821,7 +854,11 @@ class SubscriptionManager {
 
         this.bangumiSubs.push(newSub);
         await this._saveSubscriptions();
-        logger.info(`[SubscriptionManager] Added bangumi sub: ${newSub.title} (${normalizedSeasonId}) for group ${groupId}`);
+        subLog('info', 'bangumi-sub-added', {
+            seasonId: normalizedSeasonId,
+            title: newSub.title,
+            groupId
+        });
         return newSub.title;
     }
 
@@ -868,7 +905,10 @@ class SubscriptionManager {
                 // Remove subscription entirely if no groups left
                 if (sub.groupIds.length === 0) {
                     this.userSubs.splice(i, 1);
-                    logger.debug(`[SubscriptionManager] Removed user sub ${sub.uid} (${sub.name}) - no groups remaining`);
+                    subLog('debug', 'user-sub-removed-empty', {
+                        uid: sub.uid,
+                        name: sub.name
+                    });
                 }
             }
         }
@@ -884,14 +924,19 @@ class SubscriptionManager {
                 // Remove subscription entirely if no groups left
                 if (sub.groupIds.length === 0) {
                     this.bangumiSubs.splice(i, 1);
-                    logger.debug(`[SubscriptionManager] Removed bangumi sub ${sub.seasonId} (${sub.title}) - no groups remaining`);
+                    subLog('debug', 'bangumi-sub-removed-empty', {
+                        seasonId: sub.seasonId,
+                        title: sub.title
+                    });
                 }
             }
         }
 
         if (modified) {
             await this._saveSubscriptions();
-            logger.info(`[SubscriptionManager] Removed group ${groupId} from all subscriptions`);
+            subLog('info', 'group-removed-from-all-subscriptions', {
+                groupId
+            });
         }
 
         return modified;

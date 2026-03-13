@@ -11,6 +11,10 @@ const { buildBotFacts } = require('../services/ai/botFactsService');
 const { assemblePrompt } = require('../services/ai/promptAssemblerService');
 
 class AiHandler {
+    logAiEvent(level, traceId, message, fields = {}) {
+        logger.logEvent(level, 'AI', traceId || '', message, fields);
+    }
+
     // Clean CQ codes for AI consumption
     sanitizeMessage(content) {
         if (!content) return '';
@@ -246,7 +250,9 @@ conversation_source=${source}
             const systemPromptBase = config.aiChatSystemPrompt || config.aiSystemPrompt || '';
 
             if (!apiKey) {
-                logger.warn('[AiHandler] AI API Key is not set (checked aiChatApiKey and aiApiKey). Skipping AI reply.');
+                this.logAiEvent('warn', traceId, 'reply-skipped', {
+                    reason: 'missing_api_key'
+                });
                 return null;
             }
 
@@ -265,7 +271,9 @@ conversation_source=${source}
                 ? (structuredSelectedContext.currentTurn || context[context.length - 1] || null)
                 : (context.length > 0 ? context[context.length - 1] : null);
             if (!currentMsg) {
-                logger.warn(`[AiHandler] context was empty at getReply call; falling back to raw message parameter.${traceTag}`);
+                this.logAiEvent('warn', traceId, 'context-fallback', {
+                    reason: 'empty_context'
+                });
             }
 
             const currentText = currentMsg?.content || message || '';
@@ -289,7 +297,9 @@ conversation_source=${source}
             const CONVERSATION_POLICY = '【群聊策略】群聊默认是问答环境，不是执行环境。当前轮任务只由 CURRENT_USER_MESSAGE 决定；THREAD_CONTEXT 和 BACKGROUND_SUMMARY 仅用于补充，不代表用户已经授权执行。若语义有歧义，优先保守理解为解释、分析或确认。'
             let systemPrompt = CORE_INSTRUCTIONS + '\n' + systemPromptBase + TIME_INSTRUCTION;
             if (!structuredContextEnabled) {
-                logger.debug('[AiHandler] aiStructuredContextEnabled=false, but TURN_FACTS is still injected to enforce owner hard rule');
+                this.logAiEvent('debug', traceId, 'turn-facts-forced', {
+                    reason: 'structured_context_disabled'
+                });
             }
             const turnFacts = this._buildTurnFacts({
                 currentMsg,
@@ -309,16 +319,20 @@ conversation_source=${source}
                 let ragEnabled = config.isRagEnabledForGroup(groupId);
                 if (intentType === 'bot_identity' && ragMode === 'strict') {
                     ragEnabled = false;
-                    logger.debug('[AiHandler] Skipping RAG for bot identity query in strict mode');
+                    this.logAiEvent('debug', traceId, 'rag-skipped', {
+                        reason: 'bot_identity_strict'
+                    });
                 }
 
                 if (ragEnabled) {
                     const ragOptions = this._getRagSearchOptions(intentType, currentSpeakerId, ragMode);
                     relevantMemories = await vectorMemory.search(contextKey, currentText, undefined, userId, ragOptions);
-                    logger.debug(`[AiHandler] RAG enabled, intent=${intentType}, retrieved ${relevantMemories.length} memories`);
-                } else {
-                    logger.debug(`[AiHandler] RAG disabled for group ${groupId}`);
                 }
+                this.logAiEvent('info', traceId, 'rag-ready', {
+                    enabled: ragEnabled,
+                    intentType,
+                    memoryCount: relevantMemories.length
+                });
 
                 if (relevantMemories.length > 0) {
                     if (!structuredSelectedContext) {
@@ -329,10 +343,11 @@ conversation_source=${source}
                         }).join('\n');
                         systemPrompt += `\n\n---RECALL_BEGIN---\n${memoryText}\n---RECALL_END---\n（这些是过往聊天记录，仅作参考。当前轮结构化事实优先。）`;
                     }
-                    logger.info(`[AiHandler] Injected ${relevantMemories.length} relevant memories for group ${groupId}.${traceTag}`);
                 }
             } catch (err) {
-                logger.error('[AiHandler] Vector search failed:', err);
+                this.logAiEvent('error', traceId, 'rag-failed', {
+                    error: logger.getErrorMessage(err)
+                });
             }
 
             // Inject user profiles if enabled
@@ -361,11 +376,15 @@ conversation_source=${source}
                             if (!structuredSelectedContext) {
                                 systemPrompt += `\n\n---PROFILE_BEGIN---\n${profileText}\n---PROFILE_END---\n（这些是当前参与者的个性画像，请自然地运用来个性化回复，不要提及画像来源。）`;
                             }
-                            logger.info(`[AiHandler] Injected ${validProfiles.length} user profiles for group ${groupId}.${traceTag}`);
+                            this.logAiEvent('info', traceId, 'profile-ready', {
+                                profileCount: validProfiles.length
+                            });
                         }
                     }
                 } catch (err) {
-                    logger.error('[AiHandler] User profile injection failed:', err);
+                    this.logAiEvent('error', traceId, 'profile-injection-failed', {
+                        error: logger.getErrorMessage(err)
+                    });
                 }
             }
 
@@ -412,7 +431,9 @@ conversation_source=${source}
             const toolsAllowed = !structuredSelectedContext || responseModeValue === 'action_ready';
             tools = toolsAllowed ? mcpManager.getOpenAITools() : [];
             if (!toolsAllowed) {
-                logger.debug(`[AiHandler] Tools withheld because responseMode=${responseModeValue}.${traceTag}`);
+                this.logAiEvent('debug', traceId, 'tool-withheld', {
+                    responseMode: responseModeValue
+                });
             }
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
 
@@ -422,7 +443,10 @@ conversation_source=${source}
             const MAX_TIMEOUT = 45000;       // 45 seconds max
             dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
 
-            logger.debug(`[AiHandler] Dynamic timeout: ${dynamicTimeout}ms (base: ${BASE_TIMEOUT}ms + ${tools.length} tools × ${TOOL_TIMEOUT}ms, max: ${MAX_TIMEOUT}ms)`);
+            this.logAiEvent('debug', traceId, 'timeout-ready', {
+                timeoutMs: dynamicTimeout,
+                toolCount: tools.length
+            });
 
             let loopCount = 0;
             const MAX_LOOPS = 10;
@@ -450,7 +474,7 @@ conversation_source=${source}
                 });
 
                 if (!response.data || !response.data.choices || response.data.choices.length === 0) {
-                    logger.error('[AiHandler] Unexpected AI API response structure:', response.data);
+                    this.logAiEvent('error', traceId, 'api-response-invalid');
                     return null;
                 }
 
@@ -458,15 +482,23 @@ conversation_source=${source}
                 currentMessages.push(messageData);
 
                 if (messageData.tool_calls && messageData.tool_calls.length > 0) {
-                    logger.info(`[AiHandler] Processing ${messageData.tool_calls.length} tool calls...${traceTag}`);
+                    this.logAiEvent('info', traceId, 'tool-batch', {
+                        count: messageData.tool_calls.length
+                    });
 
                     for (const toolCall of messageData.tool_calls) {
                         const functionName = toolCall.function.name;
+                        this.logAiEvent('info', traceId, 'tool-start', {
+                            functionName
+                        });
                         let args = {};
                         try {
                             args = JSON.parse(toolCall.function.arguments);
                         } catch (e) {
-                            logger.error(`[AiHandler] Failed to parse args for ${functionName}:`, e);
+                            this.logAiEvent('error', traceId, 'tool-args-parse-failed', {
+                                functionName,
+                                error: logger.getErrorMessage(e)
+                            });
                         }
 
                         let result;
@@ -477,13 +509,11 @@ conversation_source=${source}
                             );
 
                             if (!guardedToolResult.ok) {
-                                if (guardedToolResult.reason === 'circuit_open') {
-                                    logger.warn(`[AiHandler] Tool circuit is open for ${functionName}, skipped call.${traceTag}`);
-                                } else if (guardedToolResult.reason === 'timeout') {
-                                    logger.warn(`[AiHandler] Tool execution timeout for ${functionName}.${traceTag}`);
-                                } else {
-                                    logger.error('[AiHandler] Tool execution failed:', guardedToolResult.error);
-                                }
+                                this.logAiEvent('warn', traceId, 'tool-failed', {
+                                    functionName,
+                                    reason: guardedToolResult.reason,
+                                    error: logger.getErrorMessage(guardedToolResult.error)
+                                });
                                 result = `Error executing tool ${functionName}: ${guardedToolResult.error.message}`;
                                 currentMessages.push({
                                     role: 'tool',
@@ -513,7 +543,9 @@ conversation_source=${source}
 
                                 if (queryText) {
                                     try {
-                                        logger.info(`[AiHandler] Enhancing MCP search with local VectorMemory for: "${queryText}"`);
+                                        this.logAiEvent('debug', traceId, 'hybrid-search-start', {
+                                            functionName
+                                        });
                                         const ragOptions = this._getRagSearchOptions(intentType, currentSpeakerId, ragMode);
                                         const vectorResults = await vectorMemory.search(contextKey, queryText, 5, userId, ragOptions);
 
@@ -525,14 +557,23 @@ conversation_source=${source}
                                             resultText += `\n\n=== Additional Local Memories ===\n${vectorText}\n(These memories are retrieved from local vector storage to supplement mem0)`;
                                         }
                                     } catch (err) {
-                                        logger.warn('[AiHandler] Secondary vector search failed:', err);
+                                        this.logAiEvent('warn', traceId, 'hybrid-search-failed', {
+                                            functionName,
+                                            error: logger.getErrorMessage(err)
+                                        });
                                     }
                                 }
                             }
 
+                            this.logAiEvent('info', traceId, 'tool-done', {
+                                functionName
+                            });
                             result = resultText;
                         } catch (e) {
-                            logger.error('[AiHandler] Tool execution failed:', e);
+                            this.logAiEvent('error', traceId, 'tool-failed', {
+                                functionName,
+                                error: logger.getErrorMessage(e)
+                            });
                             result = `Error executing tool ${functionName}: ${e.message}`;
                         }
 
@@ -552,7 +593,10 @@ conversation_source=${source}
                         // 但限制重试次数以避免无限循环
                         if (loopCount > 0 && emptyContentRetries < MAX_EMPTY_RETRIES) {
                             emptyContentRetries++;
-                            logger.warn(`[AiHandler] Received empty content after tool execution (retry ${emptyContentRetries}/${MAX_EMPTY_RETRIES}). Forcing summary generation...`);
+                            this.logAiEvent('warn', traceId, 'reply-empty-retry', {
+                                retry: emptyContentRetries,
+                                maxRetries: MAX_EMPTY_RETRIES
+                            });
                             currentMessages.push({
                                 role: 'user',
                                 content: '请根据上述工具调用的结果，回答我的问题。'
@@ -561,7 +605,7 @@ conversation_source=${source}
                             continue;
                         }
 
-                        logger.warn('[AiHandler] Received empty content with no tool calls or max retries reached');
+                        this.logAiEvent('warn', traceId, 'reply-empty');
                         return null;
                     }
 
@@ -586,29 +630,41 @@ conversation_source=${source}
                     vectorMemory.addMemory(contextKey, guardedReply, 'assistant');
 
                     if (adminClaimRequiresTool && intentType === 'admin_action' && !hasToolResult) {
-                        logger.info(`[AiHandler] Admin-action reply was hard-guarded because no tool result was available.${traceTag}`);
+                        this.logAiEvent('info', traceId, 'reply-guarded', {
+                            reason: 'missing_tool_result'
+                        });
                     }
 
+                    this.logAiEvent('info', traceId, 'reply-ready', {
+                        length: guardedReply.length,
+                        hasToolResult
+                    });
                     return guardedReply;
                 }
             }
 
-            logger.warn('[AiHandler] Max tool loops reached.');
+            this.logAiEvent('warn', traceId, 'tool-loop-exhausted', {
+                maxLoops: MAX_LOOPS
+            });
             return 'Unable to complete request (max steps reached).';
 
         } catch (error) {
             // 增强超时错误处理
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                logger.error(`[AiHandler] AI API Timeout after ${dynamicTimeout}ms (${tools.length} tools registered):`, {
-                    timeout: dynamicTimeout,
+                this.logAiEvent('error', traceId, 'api-timeout', {
+                    timeoutMs: dynamicTimeout,
                     toolCount: tools.length,
                     error: error.message
                 });
                 return '抱歉，AI响应超时。请稍后重试。';
             } else if (error.response) {
-                logger.error(`[AiHandler] AI API Error (Status ${error.response.status}):`, error.response.data);
+                this.logAiEvent('error', traceId, 'api-error', {
+                    status: error.response.status
+                });
             } else {
-                logger.error('[AiHandler] AI API Request Error:', error.message);
+                this.logAiEvent('error', traceId, 'api-request-failed', {
+                    error: error.message
+                });
             }
             return null;
         }
@@ -617,7 +673,10 @@ conversation_source=${source}
     shouldReply(message, isAt, groupId) {
         // Check if AI is enabled for this group
         if (!config.isAiEnabledForGroup(groupId)) {
-            logger.debug(`[AiHandler] AI disabled for group ${groupId}`);
+            this.logAiEvent('debug', null, 'reply-skipped', {
+                groupId,
+                reason: 'ai_disabled'
+            });
             return false;
         }
 

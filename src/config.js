@@ -10,6 +10,16 @@ dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
 // 正在初始化的群组ID集合（防止并发创建）
 const initializingGroups = new Set();
+let jwtSecretLoadedLogged = false
+let jwtSecretGeneratedLogged = false
+
+function configLog(level, message, fields = {}) {
+    logger.logEvent(level, 'STORE', 'svc:config', message, fields);
+}
+
+function authConfigLog(level, message, fields = {}) {
+    logger.logEvent(level, 'AUTH', 'svc:config', message, fields);
+}
 
 // ============================================================================
 // LAYERED CONFIG ARCHITECTURE
@@ -26,7 +36,10 @@ if (fs.existsSync(CONFIG_PATH)) {
     try {
         _overrides = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     } catch (e) {
-        logger.error('[Config] Failed to load config.json', e);
+        configLog('error', 'config-load-failed', {
+            path: CONFIG_PATH,
+            error: logger.getErrorMessage(e)
+        });
     }
 }
 
@@ -347,12 +360,20 @@ const META = {
                 if (fs.existsSync(secretPath)) {
                     const saved = fs.readFileSync(secretPath, 'utf8').trim();
                     if (saved && saved.length === 64) { // Validate format (32 bytes hex = 64 chars)
-                        logger.info('[Config] Loaded JWT_SECRET from .jwtSecret file');
+                        if (!jwtSecretLoadedLogged) {
+                            authConfigLog('info', 'jwt-secret-loaded', {
+                                path: secretPath
+                            });
+                            jwtSecretLoadedLogged = true;
+                        }
                         return saved;
                     }
                 }
             } catch (err) {
-                logger.warn('[Config] Failed to read .jwtSecret:', err.message);
+                authConfigLog('warn', 'jwt-secret-read-failed', {
+                    path: secretPath,
+                    error: logger.getErrorMessage(err)
+                });
             }
 
             // Generate new secret and persist it
@@ -365,10 +386,18 @@ const META = {
                 }
                 // Write file with restricted permissions (owner read/write only)
                 fs.writeFileSync(secretPath, secret, { mode: 0o600 });
-                logger.warn('[Config] JWT_SECRET generated and saved to config/.jwtSecret');
-                logger.warn('[Config] Consider moving this to .env file for better security');
+                if (!jwtSecretGeneratedLogged) {
+                    authConfigLog('warn', 'jwt-secret-generated', {
+                        path: secretPath,
+                        recommendedAction: 'move_to_env'
+                    });
+                    jwtSecretGeneratedLogged = true;
+                }
             } catch (err) {
-                logger.error('[Config] Failed to save JWT_SECRET:', err);
+                authConfigLog('error', 'jwt-secret-save-failed', {
+                    path: secretPath,
+                    error: logger.getErrorMessage(err)
+                });
             }
 
             return secret;
@@ -564,7 +593,9 @@ const config = {
             // 标记为正在初始化
             initializingGroups.add(key);
 
-            logger.info(`[Config] 自动创建群组 ${groupId} 的配置`);
+            configLog('info', 'group-config-auto-created', {
+                groupId
+            });
 
             this.groupConfigs[key] = {
                 linkCacheTimeout: 5,
@@ -594,7 +625,9 @@ const config = {
                 const strId = groupId.toString();
                 if (!enabledGroups.includes(strId)) {
                     enabledGroups.push(strId);
-                    logger.info(`[Config] 新群 ${groupId} 已自动加入功能白名单`);
+                    configLog('info', 'group-whitelist-auto-enabled', {
+                        groupId
+                    });
                 }
             }
 
@@ -619,13 +652,13 @@ const config = {
 
         // Save changes (async, errors handled internally)
         this._performSave().catch((err) => {
-            logger.error('[Config] Failed to save configuration after reset:', {
-                error: err.message,
-                stack: err.stack,
-                timestamp: new Date().toISOString()
+            configLog('error', 'config-reset-save-failed', {
+                error: logger.getErrorMessage(err)
             });
         });
-        logger.info(`[Config] Reset keys to default: ${keys.join(', ')}`);
+        configLog('info', 'config-reset', {
+            keys: keys.join(',')
+        });
     },
 
     // Save configuration to file (Only overrides)
@@ -635,20 +668,22 @@ const config = {
             clearTimeout(this._saveTimer);
         }
 
+        logger.logEvent('info', 'STORE', 'svc:config', 'config-save-queued');
+
         // Debounce: wait 100ms before actually saving (shortened from 500ms)
         // 100ms is sufficient to merge multiple setter calls from Object.assign
         this._saveTimer = setTimeout(() => {
             this._performSave().catch((err) => {
-                logger.error('[Config] Failed to save configuration:', {
-                    error: err.message,
-                    stack: err.stack,
-                    timestamp: new Date().toISOString()
+                configLog('error', 'config-save-failed', {
+                    error: logger.getErrorMessage(err)
                 });
 
                 // Track repeated failures
                 this._saveErrorCount = (this._saveErrorCount || 0) + 1;
                 if (this._saveErrorCount >= 5) {
-                    logger.error('[Config] CRITICAL: Configuration save has failed 5 times in a row!');
+                    configLog('error', 'config-save-failure-threshold', {
+                        consecutiveFailures: this._saveErrorCount
+                    });
                     this._saveErrorCount = 0; // Reset counter
                 }
             });
@@ -663,12 +698,19 @@ const config = {
             await asyncWriteWithBackup(CONFIG_PATH, _overrides, false);
             this._saveCount = saveCount;
             const duration = Date.now() - startTime;
-            logger.info(`[Config] Configuration saved (${duration}ms, total: ${this._saveCount})`);
+            logger.logEvent('info', 'STORE', 'svc:config', 'config-saved', {
+                durationMs: duration,
+                total: this._saveCount
+            });
             if (duration > 100) {
-                logger.warn(`[Config] Slow save detected (${duration}ms)`);
+                configLog('warn', 'config-save-slow', {
+                    durationMs: duration
+                });
             }
         } catch (e) {
-            logger.error('[Config] Failed to save configuration:', e);
+            configLog('error', 'config-save-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
     }
 };

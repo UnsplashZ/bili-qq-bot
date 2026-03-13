@@ -1,3 +1,4 @@
+import logging
 import re
 
 import aiohttp
@@ -5,11 +6,15 @@ from bs4 import BeautifulSoup
 from bilibili_api import article, opus, user
 
 from ..auth.credential_store import load_credential
+from ..logging_utils import service_log
 from ..media.image_focus import get_image_focus_color
+
+logger = logging.getLogger(__name__)
 
 
 async def get_opus_detail(opus_id, group_id=None):
     try:
+        service_log(logger, "info", "fetch-opus-detail", opusId=opus_id, groupId=group_id)
         o = opus.Opus(int(opus_id), credential=load_credential(group_id))
         if await o.is_article():
             result = await get_article_info(opus_id, group_id)
@@ -20,6 +25,7 @@ async def get_opus_detail(opus_id, group_id=None):
 
         return await get_dynamic_detail(opus_id, group_id)
     except Exception as e:
+        service_log(logger, "error", "fetch-opus-detail-failed", opusId=opus_id, error=str(e))
         import traceback
 
         traceback.print_exc()
@@ -28,6 +34,7 @@ async def get_opus_detail(opus_id, group_id=None):
 
 async def get_article_info(cvid, group_id=None):
     try:
+        service_log(logger, "info", "fetch-article-info", cvid=cvid, groupId=group_id)
         base_id = cvid.split("?")[0].split("#")[0]
         base_id = re.sub(r"cv", "", base_id, flags=re.IGNORECASE)
         match = re.search(r"(\d+)", base_id)
@@ -123,7 +130,8 @@ async def get_article_info(cvid, group_id=None):
         if "publish_time" not in info:
             info["publish_time"] = info.get("ctime", info.get("ptime", 0))
 
+        service_log(logger, "info", "article-info-ready", cvid=cvid_int, authorMid=author_mid)
         return {"status": "success", "type": "article", "data": info}
     except Exception as e:
+        service_log(logger, "error", "fetch-article-info-failed", cvid=cvid, error=str(e))
         return {"status": "error", "message": str(e)}
-

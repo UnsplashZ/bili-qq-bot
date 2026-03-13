@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const REGEX_SCOPE = logger.createScope('svc', 'regex')
 
 /**
  * 监控正则表达式执行时间
@@ -18,8 +19,9 @@ function monitorRegex(patternName, regex, input, callback) {
 
         // 如果执行时间超过100ms，记录警告
         if (durationMs > 100) {
-            logger.warn(`[RegexMonitor] Slow regex execution: ${patternName}`, {
-                duration: `${durationMs.toFixed(2)}ms`,
+            logger.logEvent('warn', 'STORE', REGEX_SCOPE, 'regex-slow', {
+                patternName,
+                durationMs: durationMs.toFixed(2),
                 inputLength: input.length,
                 pattern: regex.source.substring(0, 100) // 只记录前100字符
             });
@@ -30,8 +32,9 @@ function monitorRegex(patternName, regex, input, callback) {
         const endTime = process.hrtime.bigint();
         const durationMs = Number(endTime - startTime) / 1000000;
 
-        logger.error(`[RegexMonitor] Regex execution failed: ${patternName}`, {
-            duration: `${durationMs.toFixed(2)}ms`,
+        logger.logEvent('error', 'STORE', REGEX_SCOPE, 'regex-execution-failed', {
+            patternName,
+            durationMs: durationMs.toFixed(2),
             inputLength: input.length,
             error: error.message
         });

@@ -5,6 +5,10 @@ const config = require('../config')
 const { isVideoDownloadEnabledForGroup } = config
 const logger = require('../utils/logger')
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:download', message, fields)
+}
+
 class DownloadCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context
@@ -51,7 +55,12 @@ class DownloadCommand {
                     }
                 })
                 .catch(e => {
-                    logger.error(`[DownloadCommand] downloadAndSend failed:`, e)
+                    commandLog('error', 'download-dispatch-failed', {
+                        error: logger.getErrorMessage(e),
+                        groupId,
+                        bvid: lastInfo.bvid,
+                        pageIndex: pageIndex + 1
+                    })
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '❌ 下载失败，请稍后重试' } }])
                 })
             return true
@@ -104,7 +113,9 @@ class DownloadCommand {
         if (groupId) {
             notificationService.sendGroupMessage(ws, groupId, messageChain, 'DownloadCommand', true)
         } else {
-            logger.warn('[DownloadCommand] Cannot send message: no groupId provided')
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_group'
+            })
         }
     }
 }

@@ -6,6 +6,10 @@ const config = require('../config');
 const notificationService = require('../services/notificationService');
 const subscriptionUserMetaCacheService = require('../services/subscriptionUserMetaCacheService');
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:subscription', message, fields);
+}
+
 class SubscriptionCommand {
     constructor() {
         this.groupListCmdCd = new Map();
@@ -38,7 +42,10 @@ class SubscriptionCommand {
         
         // Command: /订阅列表
         if (trimmedMessage === '/订阅列表' || trimmedMessage === '/listsub') {
-            logger.info(`[SubscriptionCommand] Processing /订阅列表 for group: ${groupId} (type: ${typeof groupId})`);
+            commandLog('info', 'subscription-list-start', {
+                groupId,
+                groupIdType: typeof groupId
+            });
 
             const now = Date.now();
             const lastTime = this.groupListCmdCd.get(groupId) || 0;
@@ -60,19 +67,32 @@ class SubscriptionCommand {
 
                     // 2. Fetch Subscriptions & Followings
                     let { users: groupUserSubs, bangumis: groupBangumiSubs } = await subscriptionService.getSubscriptionsByGroup(groupId);
-                    logger.info(`[SubscriptionCommand] Found ${groupUserSubs.length} users and ${groupBangumiSubs.length} bangumis for group ${groupId}`);
+                    commandLog('debug', 'subscription-list-loaded', {
+                        groupId,
+                        userCount: groupUserSubs.length,
+                        bangumiCount: groupBangumiSubs.length
+                    });
 
                     if (groupUserSubs.length === 0 && groupBangumiSubs.length === 0) {
                         // Attempt to reload from disk in case memory is stale
-                        logger.info('[SubscriptionCommand] No subscriptions found, attempting to reload from disk...');
+                        commandLog('info', 'subscription-list-reload-start', {
+                            groupId
+                        });
                         try {
                             await subscriptionService.reloadSubscriptions();
                             const res = await subscriptionService.getSubscriptionsByGroup(groupId);
                             groupUserSubs = res.users;
                             groupBangumiSubs = res.bangumis;
-                            logger.info(`[SubscriptionCommand] After reload: Found ${groupUserSubs.length} users and ${groupBangumiSubs.length} bangumis`);
+                            commandLog('debug', 'subscription-list-reload-finished', {
+                                groupId,
+                                userCount: groupUserSubs.length,
+                                bangumiCount: groupBangumiSubs.length
+                            });
                         } catch (e) {
-                            logger.error('[SubscriptionCommand] Failed to reload subscriptions:', e);
+                            commandLog('error', 'subscription-list-reload-failed', {
+                                groupId,
+                                error: logger.getErrorMessage(e)
+                            });
                         }
                     }
 
@@ -81,21 +101,38 @@ class SubscriptionCommand {
                         try {
                             const allUserSubs = subscriptionService.userSubs || [];
                             const allBangumiSubs = subscriptionService.bangumiSubs || [];
-                            logger.info(`[SubscriptionCommand] DEBUG: Total global subs - Users: ${allUserSubs.length}, Bangumis: ${allBangumiSubs.length}`);
+                            commandLog('debug', 'subscription-list-debug-summary', {
+                                groupId,
+                                totalUserSubs: allUserSubs.length,
+                                totalBangumiSubs: allBangumiSubs.length
+                            });
                             
                             // Check if any sub has this group ID (loose check)
                             const gidStr = String(groupId);
                             const userMatch = allUserSubs.find(s => s.groupIds && s.groupIds.some(id => String(id) === gidStr));
                             if (userMatch) {
-                                logger.info(`[SubscriptionCommand] DEBUG: Found potential match in user subs: ${userMatch.name} with groups [${userMatch.groupIds.join(', ')}]`);
+                                commandLog('debug', 'subscription-list-debug-user-match', {
+                                    groupId,
+                                    name: userMatch.name,
+                                    groupIds: userMatch.groupIds
+                                });
                             } else {
-                                logger.info(`[SubscriptionCommand] DEBUG: No user sub matches group ${groupId} even with string check`);
+                                commandLog('debug', 'subscription-list-debug-no-match', {
+                                    groupId
+                                });
                                 if (allUserSubs.length > 0) {
-                                    logger.info(`[SubscriptionCommand] DEBUG: First user sub groups: [${allUserSubs[0].groupIds.join(', ')}] (types: ${allUserSubs[0].groupIds.map(id => typeof id).join(', ')})`);
+                                    commandLog('debug', 'subscription-list-debug-first-user-groups', {
+                                        groupId,
+                                        firstGroupIds: allUserSubs[0].groupIds,
+                                        firstGroupIdTypes: allUserSubs[0].groupIds.map(id => typeof id)
+                                    });
                                 }
                             }
                         } catch (e) {
-                            logger.error('[SubscriptionCommand] Debug logging failed:', e);
+                            commandLog('error', 'subscription-list-debug-failed', {
+                                groupId,
+                                error: logger.getErrorMessage(e)
+                            });
                         }
                     }
 
@@ -105,7 +142,10 @@ class SubscriptionCommand {
                          // New method to get followings specific to this group (via mapping)
                          followings = await subscriptionService.getFollowingsForGroup(groupId) || [];
                     } catch (e) {
-                         logger.error('[SubscriptionCommand] Error fetching followings for merge view:', e);
+                         commandLog('error', 'subscription-followings-fetch-failed', {
+                             groupId,
+                             error: logger.getErrorMessage(e)
+                         });
                     }
 
                     if (groupUserSubs.length === 0 && groupBangumiSubs.length === 0 && followings.length === 0) {
@@ -145,7 +185,10 @@ class SubscriptionCommand {
                     } else if (syncGroups.length > 0) {
                         // Ensure accountFollows is an array
                         if (!Array.isArray(data.accountFollows)) {
-                            logger.warn(`[SubscriptionCommand] data.accountFollows is not an array: ${typeof data.accountFollows}`);
+                            commandLog('warn', 'subscription-followings-invalid', {
+                                groupId,
+                                valueType: typeof data.accountFollows
+                            });
                             data.accountFollows = [];
                         }
                         
@@ -155,7 +198,10 @@ class SubscriptionCommand {
                         data.accountFollowsTitle = `关注列表 - ${syncGroups.join(' & ')}`;
                     } else {
                         if (!Array.isArray(data.accountFollows)) {
-                            logger.warn(`[SubscriptionCommand] data.accountFollows is not an array: ${typeof data.accountFollows}`);
+                            commandLog('warn', 'subscription-followings-invalid', {
+                                groupId,
+                                valueType: typeof data.accountFollows
+                            });
                             data.accountFollows = [];
                         }
                         // 空同步分组语义统一为“不按分组过滤”
@@ -175,7 +221,10 @@ class SubscriptionCommand {
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
 
                 } catch (e) {
-                    logger.error('[SubscriptionCommand] Error generating subscription list image:', e);
+                    commandLog('error', 'subscription-list-render-failed', {
+                        groupId,
+                        error: logger.getErrorMessage(e)
+                    });
                     // Fallback to text
                     let message = '生成图片失败，显示文本列表：\n';
                     if (userSubs.length) {
@@ -193,7 +242,10 @@ class SubscriptionCommand {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: message } }]);
                 }
             })().catch(e => {
-                logger.error('[SubscriptionCommand] Unhandled error in /订阅列表 async handler:', e);
+                commandLog('error', 'subscription-list-handler-failed', {
+                    groupId,
+                    error: logger.getErrorMessage(e)
+                });
             });
             return true;
         }
@@ -253,11 +305,19 @@ class SubscriptionCommand {
                         const name = await subscriptionService.addUserSubscription(uid, groupId);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `成功订阅用户 ${name}（动态+直播）。` } }]);
                     } catch (e) {
-                         logger.error('[SubscriptionCommand] Error adding user subscription:', e);
+                         commandLog('error', 'user-subscribe-failed', {
+                             groupId,
+                             uid,
+                             error: logger.getErrorMessage(e)
+                         });
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `订阅失败，请稍后重试。` } }]);
                     }
                 })().catch(e => {
-                    logger.error('[SubscriptionCommand] Unhandled error in /订阅用户 async handler:', e);
+                    commandLog('error', 'user-subscribe-handler-failed', {
+                        groupId,
+                        uid,
+                        error: logger.getErrorMessage(e)
+                    });
                 });
             } else {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅用户 <uid>' } }]);
@@ -307,11 +367,19 @@ class SubscriptionCommand {
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
                         }
                     } catch (e) {
-                        logger.error('[SubscriptionCommand] 订阅番剧解析失败:', e);
+                        commandLog('error', 'bangumi-subscribe-parse-failed', {
+                            groupId,
+                            argument: arg,
+                            error: logger.getErrorMessage(e)
+                        });
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '订阅失败：无法解析参数，请使用 season_id、md 或 ep 链接。' } }]);
                     }
                 })().catch(e => {
-                    logger.error('[SubscriptionCommand] Unhandled error in /订阅番剧 async handler:', e);
+                    commandLog('error', 'bangumi-subscribe-handler-failed', {
+                        groupId,
+                        argument: arg,
+                        error: logger.getErrorMessage(e)
+                    });
                 });
             } else {
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '使用方法: /订阅番剧 <season_id | md链接 | ep链接 | md123 | ep123>' } }]);
@@ -385,7 +453,9 @@ class SubscriptionCommand {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'SubscriptionCommand', true);
         } else {
-            logger.warn('[SubscriptionCommand] Cannot send message: no groupId or userId provided');
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 }

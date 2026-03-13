@@ -3,6 +3,10 @@ const { VALID_AT_ALL_CATEGORIES } = require('../constants')
 const { normalizeSourceList } = require('../helpers/sourceMap')
 const { toUidString } = require('../helpers/ids')
 
+function subLog(level, message, fields = {}, scope = 'svc:at-all') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 module.exports = {
     isSubscriptionAtAllEnabled(groupId) {
         return config.getGroupConfig(groupId, 'subscriptionAtAll') === true
@@ -112,7 +116,10 @@ module.exports = {
         const groupIds = this.getSubscriptionAtAllWarmupGroups()
         if (groupIds.length === 0) return
 
-        logger.info(`[UpdateChecker] Pre-checking @all capability for ${groupIds.length} groups at startup`)
+        subLog('info', 'at-all-warmup-start', {
+            groupCount: groupIds.length,
+            forceRefresh
+        })
         const batchSize = this.AT_ALL_CAPABILITY_WARMUP_BATCH_SIZE
 
         for (let i = 0; i < groupIds.length; i += batchSize) {
@@ -319,7 +326,11 @@ module.exports = {
             this.groupAtAllCapabilityCache.set(cacheKey, result)
 
             if (!result.canAtAll) {
-                logger.info(`[UpdateChecker] Group ${groupId} @all unavailable, fallback to plain message (reason: ${result.reason}, retcode: ${result.retcode ?? 'N/A'})`)
+                subLog('info', 'at-all-unavailable', {
+                    groupId,
+                    reason: result.reason,
+                    retcode: result.retcode ?? 'N/A'
+                }, logger.createScope('group', groupId))
             }
 
             return result
@@ -394,14 +405,17 @@ module.exports = {
 
             if (this.hasAtAllSegment(messageChain)) {
                 this.markGroupAtAllUnavailable(groupId, firstSendResult.reason, firstSendResult.retcode)
-                logger.warn(
-                    `[UpdateChecker] send_group_msg with @all failed for group ${groupId}, retrying without @all ` +
-                    `(reason: ${firstSendResult.reason}, retcode: ${firstSendResult.retcode ?? 'N/A'})`
-                )
+                subLog('warn', 'at-all-send-failed-retrying-plain', {
+                    groupId,
+                    reason: firstSendResult.reason,
+                    retcode: firstSendResult.retcode ?? 'N/A'
+                }, logger.createScope('group', groupId))
 
                 const retryResult = await this.sendGroupMessageByAction(groupId, processedBaseMessageChain)
                 if (retryResult.ok) {
-                    logger.info(`[UpdateChecker] Fallback to plain message succeeded for group ${groupId}`)
+                    subLog('info', 'plain-send-fallback-succeeded', {
+                        groupId
+                    }, logger.createScope('group', groupId))
                     return
                 }
 
@@ -413,7 +427,10 @@ module.exports = {
 
             throw new Error(`send_group_msg failed: ${firstSendResult.reason}`)
         } catch (e) {
-            logger.error(`[UpdateChecker] Failed to send subscription message to group ${groupId}:`, e)
+            subLog('error', 'subscription-message-send-failed', {
+                groupId,
+                error: logger.getErrorMessage(e)
+            }, logger.createScope('group', groupId))
             notificationService.sendGroupMessage(this.ws, groupId, baseMessageChain)
         }
     }

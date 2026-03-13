@@ -4,6 +4,7 @@ import aiohttp
 import bilibili_api
 
 from .credential_store import load_credential, save_credential
+from ..logging_utils import auth_log
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def _fetch_buvid3():
                         if kv.lower().startswith("buvid3="):
                             return kv.split("=", 1)[1]
     except Exception as e:
-        logger.warning(f"获取BUVID3失败: {e}")
+        auth_log(logger, "warn", "buvid3-fetch-failed", error=str(e))
     return None
 
 
@@ -62,7 +63,7 @@ async def refresh_credential_if_needed():
                 "message": "Cookie已失效，请在Dashboard重新扫码登录",
             }
     except Exception as e:
-        logger.warning(f"[Cookie] check_valid 异常: {e}")
+        auth_log(logger, "warn", "cookie-check-failed", error=str(e))
         return {
             "status": "error",
             "reason": "check_failed",
@@ -84,13 +85,12 @@ async def refresh_credential_if_needed():
         await credential.refresh()
         await ensure_buvid3(credential)
         save_credential(credential)
-        logger.info("[Cookie] Cookie已自动刷新成功")
+        auth_log(logger, "info", "cookie-refresh-succeeded")
         return {"status": "ok", "refreshed": True, "message": "Cookie已自动刷新成功"}
     except Exception as e:
-        logger.error(f"[Cookie] Cookie刷新失败: {e}")
+        auth_log(logger, "error", "cookie-refresh-failed", error=str(e))
         return {
             "status": "error",
             "reason": "refresh_failed",
             "message": f"Cookie刷新失败: {e}",
         }
-

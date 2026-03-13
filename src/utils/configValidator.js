@@ -1,5 +1,6 @@
 // 🆕 P2-4: AI配置验证工具
 const logger = require('./logger');
+const VALIDATOR_SCOPE = logger.createScope('svc', 'config-validator')
 
 /**
  * 验证URL格式
@@ -27,7 +28,9 @@ function validateAiApiUrl(url) {
 
     // 常见endpoint检查（可选警告）
     if (!url.includes('/chat/completions') && !url.includes('/completions')) {
-        logger.warn('[Config] AI API URL may not be a valid OpenAI-compatible endpoint:', url);
+        logger.logEvent('warn', 'STORE', VALIDATOR_SCOPE, 'ai-api-url-nonstandard', {
+            url
+        });
     }
 
     return { valid: true };
@@ -78,7 +81,9 @@ function validateAiConfig(config) {
 
     // 验证API Key（可选，但如果提供则检查）
     if (config.aiApiKey && config.aiApiKey.length > 0 && config.aiApiKey.length < 10) {
-        logger.warn('[Config] AI API Key seems too short, may be invalid');
+        logger.logEvent('warn', 'STORE', VALIDATOR_SCOPE, 'ai-api-key-short', {
+            length: config.aiApiKey.length
+        });
     }
 
     if (errors.length > 0) {

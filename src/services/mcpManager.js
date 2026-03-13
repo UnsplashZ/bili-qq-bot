@@ -6,6 +6,10 @@ const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js'
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const logger = require('../utils/logger');
 
+function mcpLog(level, message, fields = {}, scope = 'svc:mcp') {
+    logger.logEvent(level, 'MCP', scope, message, fields);
+}
+
 class McpManager {
     constructor() {
         this.clients = new Map(); // serverName -> Client
@@ -95,7 +99,10 @@ class McpManager {
             if (serverInConfig.enabled === false) return null;
             return serverInConfig;
         } catch (e) {
-            logger.error('[McpManager] Failed to read config for reconnect decision:', e);
+            mcpLog('error', 'reconnect-config-read-failed', {
+                serverName,
+                error: logger.getErrorMessage(e)
+            });
             if (!fallbackConfig || fallbackConfig.enabled === false) return null;
             return fallbackConfig;
         }
@@ -142,7 +149,9 @@ class McpManager {
     async init() {
         this._startupStartedAt = Date.now();
         if (!fs.existsSync(this.configPath)) {
-            logger.info('[McpManager] No config file found, skipping initialization.');
+            mcpLog('info', 'init-skipped', {
+                reason: 'config_missing'
+            });
             return;
         }
 
@@ -154,11 +163,16 @@ class McpManager {
                 if (serverName === '_version') continue;  // Skip version field
                 if (serverConfig.enabled === false) continue;
                 this.connectToServer(serverName, serverConfig).catch(error => {
-                    logger.error(`[McpManager] Unexpected connect error for ${serverName}:`, error);
+                    mcpLog('error', 'connect-crashed', {
+                        serverName,
+                        error: logger.getErrorMessage(error)
+                    });
                 });
             }
         } catch (e) {
-            logger.error('[McpManager] Failed to load config:', e);
+            mcpLog('error', 'init-load-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
     }
 
@@ -167,7 +181,10 @@ class McpManager {
         let client = null;
 
         if (state.connecting) {
-            logger.info(`[McpManager] Connection already in progress for ${serverName}, skipping duplicate attempt`);
+            mcpLog('debug', 'connect-skipped', {
+                serverName,
+                reason: 'already_connecting'
+            });
             return;
         }
 
@@ -178,26 +195,40 @@ class McpManager {
         const attempt = state.retryCount + 1;
 
         try {
-            logger.info(`[McpManager] Connecting to ${serverName}... (Attempt ${attempt})`);
+            mcpLog('info', 'connect-start', {
+                serverName,
+                attempt
+            });
             const transport = this._createTransport(serverConfig);
 
             transport.onerror = (error) => {
-                logger.error(`[McpManager] Transport error for ${serverName}:`, error);
+                mcpLog('error', 'transport-error', {
+                    serverName,
+                    error: logger.getErrorMessage(error)
+                });
                 this.handleDisconnect(serverName, serverConfig, {
                     source: 'transport_error',
                     generation: currentGeneration
                 }).catch(handleError => {
-                    logger.error(`[McpManager] Failed to handle transport error for ${serverName}:`, handleError);
+                    mcpLog('error', 'transport-error-handle-failed', {
+                        serverName,
+                        error: logger.getErrorMessage(handleError)
+                    });
                 });
             };
 
             transport.onclose = () => {
-                logger.warn(`[McpManager] Transport closed for ${serverName}`);
+                mcpLog('warn', 'transport-closed', {
+                    serverName
+                });
                 this.handleDisconnect(serverName, serverConfig, {
                     source: 'transport_close',
                     generation: currentGeneration
                 }).catch(handleError => {
-                    logger.error(`[McpManager] Failed to handle transport close for ${serverName}:`, handleError);
+                    mcpLog('error', 'transport-close-handle-failed', {
+                        serverName,
+                        error: logger.getErrorMessage(handleError)
+                    });
                 });
             };
 
@@ -218,7 +249,9 @@ class McpManager {
                     // no-op
                 }
                 state.connecting = false;
-                logger.info(`[McpManager] Discarded stale connection for ${serverName}`);
+                mcpLog('debug', 'stale-connection-discarded', {
+                    serverName
+                });
                 return;
             }
 
@@ -234,7 +267,9 @@ class McpManager {
                 }
                 this._cleanupServerArtifacts(serverName);
                 state.connecting = false;
-                logger.info(`[McpManager] Discarded stale tool cache for ${serverName}`);
+                mcpLog('debug', 'stale-tool-cache-discarded', {
+                    serverName
+                });
                 return;
             }
 
@@ -243,16 +278,26 @@ class McpManager {
             state.connecting = false;
             state.lastDisconnectAt = 0;
             this._clearRetryTimer(serverName);
-            logger.info(`[McpManager] Connected to ${serverName}, loaded ${result.tools.length} tools.`);
+            mcpLog('info', 'connect-ok', {
+                serverName,
+                toolCount: result.tools.length
+            });
 
         } catch (e) {
             state.connecting = false;
-            logger.error(`[McpManager] Failed to connect to ${serverName}:`, e);
+            mcpLog('error', 'connect-failed', {
+                serverName,
+                attempt,
+                error: logger.getErrorMessage(e)
+            });
             if (client) {
                 try {
                     await client.close();
                 } catch (closeError) {
-                    logger.warn(`[McpManager] Failed to close failed client for ${serverName}:`, closeError);
+                    mcpLog('warn', 'failed-client-close-failed', {
+                        serverName,
+                        error: logger.getErrorMessage(closeError)
+                    });
                 }
             }
             await this.handleDisconnect(serverName, serverConfig, {
@@ -267,27 +312,41 @@ class McpManager {
         const state = this._getServerState(serverName);
 
         if (typeof generation === 'number' && generation !== state.generation) {
-            logger.debug(`[McpManager] Ignoring stale disconnect event for ${serverName} (generation ${generation} != ${state.generation})`);
+            mcpLog('debug', 'disconnect-ignored', {
+                serverName,
+                reason: 'stale_generation',
+                generation,
+                currentGeneration: state.generation
+            });
             return;
         }
 
         const now = Date.now();
         if (state.lastDisconnectAt > 0 && now - state.lastDisconnectAt < this._disconnectDedupMs) {
-            logger.debug(`[McpManager] Deduplicated disconnect event for ${serverName}`);
+            mcpLog('debug', 'disconnect-ignored', {
+                serverName,
+                reason: 'deduplicated'
+            });
             return;
         }
         state.lastDisconnectAt = now;
         state.connecting = false;
 
         if (this._isReloading) {
-            logger.info(`[McpManager] Skipping reconnect for ${serverName} during reload`);
+            mcpLog('info', 'reconnect-skipped', {
+                serverName,
+                reason: 'reload_in_progress'
+            });
             return;
         }
 
         this._cleanupServerArtifacts(serverName);
         const reconnectConfig = this._getReconnectConfig(serverName, serverConfig);
         if (!reconnectConfig) {
-            logger.info(`[McpManager] ${serverName} not in config or disabled, skipping reconnect`);
+            mcpLog('info', 'reconnect-skipped', {
+                serverName,
+                reason: 'disabled_or_missing'
+            });
             state.retryCount = 0;
             this._clearRetryTimer(serverName);
             return;
@@ -301,16 +360,25 @@ class McpManager {
         if (this._isReloading) return;
 
         if (state.retryTimer) {
-            logger.debug(`[McpManager] Reconnect already scheduled for ${serverName}, skipping duplicate schedule`);
+            mcpLog('debug', 'reconnect-skipped', {
+                serverName,
+                reason: 'already_scheduled'
+            });
             return;
         }
         if (state.connecting) {
-            logger.debug(`[McpManager] ${serverName} is connecting, skipping reconnect schedule`);
+            mcpLog('debug', 'reconnect-skipped', {
+                serverName,
+                reason: 'already_connecting'
+            });
             return;
         }
 
         if (state.retryCount >= this._maxRetries) {
-            logger.error(`[McpManager] Max retries reached for ${serverName}. Connection failed.`);
+            mcpLog('error', 'reconnect-exhausted', {
+                serverName,
+                retryCount: state.retryCount
+            });
             return;
         }
 
@@ -319,12 +387,19 @@ class McpManager {
             this._baseRetryDelayMs * (2 ** Math.max(state.retryCount - 1, 0)),
             this._maxRetryDelayMs
         );
-        logger.info(`[McpManager] Retrying connection to ${serverName} in ${Math.ceil(delay / 1000)}s...`);
+        mcpLog('info', 'reconnect-scheduled', {
+            serverName,
+            delayMs: delay,
+            retryCount: state.retryCount
+        });
 
         state.retryTimer = setTimeout(() => {
             state.retryTimer = null;
             this.connectToServer(serverName, serverConfig).catch(error => {
-                logger.error(`[McpManager] Reconnect attempt crashed for ${serverName}:`, error);
+                mcpLog('error', 'reconnect-crashed', {
+                    serverName,
+                    error: logger.getErrorMessage(error)
+                });
             });
         }, delay);
     }
@@ -347,11 +422,18 @@ class McpManager {
     async executeTool(name, args, requestOptions = {}) {
         const toolInfo = this.toolsMap.get(name);
         if (!toolInfo) {
+            mcpLog('warn', 'tool-missing', {
+                toolName: name
+            });
             throw new Error(`Tool ${name} not found`);
         }
 
         const client = this.clients.get(toolInfo.serverName);
         if (!client) {
+            mcpLog('warn', 'tool-client-missing', {
+                toolName: name,
+                serverName: toolInfo.serverName
+            });
             throw new Error(`Client for ${toolInfo.serverName} not found`);
         }
 
@@ -395,7 +477,11 @@ class McpManager {
                 
             return textContent;
         } catch (e) {
-            logger.error(`[McpManager] Tool execution failed: ${name}`, e);
+            mcpLog('error', 'tool-failed', {
+                toolName: name,
+                serverName: toolInfo.serverName,
+                error: logger.getErrorMessage(e)
+            });
             throw e;
         }
     }
@@ -412,7 +498,7 @@ class McpManager {
         const rollbackReconnectCandidates = [];
 
         try {
-            logger.info('[McpManager] Attempting to reload MCP servers...');
+            mcpLog('info', 'reload-start');
 
             // 1. Read config if not provided
             const configToLoad = newConfig || this._loadConfigFromDisk();
@@ -437,21 +523,32 @@ class McpManager {
                 try {
                     const transport = this._createTransport(serverConfig);
                     transport.onerror = (error) => {
-                        logger.error(`[McpManager] Transport error for ${serverName}:`, error);
+                        mcpLog('error', 'transport-error', {
+                            serverName,
+                            error: logger.getErrorMessage(error)
+                        });
                         this.handleDisconnect(serverName, serverConfig, {
                             source: 'transport_error',
                             generation: currentGeneration
                         }).catch(handleError => {
-                            logger.error(`[McpManager] Failed to handle transport error for ${serverName}:`, handleError);
+                            mcpLog('error', 'transport-error-handle-failed', {
+                                serverName,
+                                error: logger.getErrorMessage(handleError)
+                            });
                         });
                     };
                     transport.onclose = () => {
-                        logger.warn(`[McpManager] Transport closed for ${serverName}`);
+                        mcpLog('warn', 'transport-closed', {
+                            serverName
+                        });
                         this.handleDisconnect(serverName, serverConfig, {
                             source: 'transport_close',
                             generation: currentGeneration
                         }).catch(handleError => {
-                            logger.error(`[McpManager] Failed to handle transport close for ${serverName}:`, handleError);
+                            mcpLog('error', 'transport-close-handle-failed', {
+                                serverName,
+                                error: logger.getErrorMessage(handleError)
+                            });
                         });
                     };
 
@@ -484,7 +581,10 @@ class McpManager {
                     state.connecting = false;
                     state.retryCount = 0;
                     state.lastDisconnectAt = 0;
-                    logger.info(`[McpManager] Connected to ${serverName}, loaded ${result.tools.length} tools.`);
+                    mcpLog('info', 'reload-connect-ok', {
+                        serverName,
+                        toolCount: result.tools.length
+                    });
 
                 } catch (error) {
                     state.connecting = false;
@@ -492,10 +592,16 @@ class McpManager {
                         try {
                             await client.close();
                         } catch (closeError) {
-                            logger.warn(`[McpManager] Failed to close failed reload client ${serverName}:`, closeError);
+                            mcpLog('warn', 'reload-client-close-failed', {
+                                serverName,
+                                error: logger.getErrorMessage(closeError)
+                            });
                         }
                     }
-                    logger.error(`[McpManager] Failed to connect to ${serverName} during reload:`, error);
+                    mcpLog('error', 'reload-connect-failed', {
+                        serverName,
+                        error: logger.getErrorMessage(error)
+                    });
                     throw new Error(`Failed to connect to server "${serverName}": ${error.message}`);
                 }
             }
@@ -519,13 +625,17 @@ class McpManager {
             for (const [name, client] of oldClients) {
                 try {
                     await client.close();
-                    logger.info(`[McpManager] Closed old connection: ${name}`);
                 } catch (e) {
-                    logger.warn(`[McpManager] Failed to close old connection ${name}:`, e);
+                    mcpLog('warn', 'reload-old-client-close-failed', {
+                        serverName: name,
+                        error: logger.getErrorMessage(e)
+                    });
                 }
             }
 
-            logger.info(`[McpManager] Successfully reloaded ${connectedServers.length} servers.`);
+            mcpLog('info', 'reload-complete', {
+                connectedCount: connectedServers.length
+            });
 
             return {
                 success: true,
@@ -534,17 +644,22 @@ class McpManager {
             };
 
         } catch (error) {
-            logger.error('[McpManager] Failed to reload MCP servers:', error);
+            mcpLog('error', 'reload-failed', {
+                error: logger.getErrorMessage(error)
+            });
 
             // Rollback: Clean up failed new connections, restore old connections
-            logger.warn('[McpManager] Rolling back to previous connections...');
+            mcpLog('warn', 'rollback-start');
 
             // Close any newly created clients from this reload attempt
             for (const [name, client] of newClients) {
                 try {
                     await client.close();
                 } catch (e) {
-                    logger.warn(`[McpManager] Failed to close failed connection ${name}:`, e);
+                    mcpLog('warn', 'rollback-client-close-failed', {
+                        serverName: name,
+                        error: logger.getErrorMessage(e)
+                    });
                 }
             }
 
@@ -571,7 +686,9 @@ class McpManager {
         } finally {
             this._isReloading = false;
             for (const { name, config } of rollbackReconnectCandidates) {
-                logger.info(`[McpManager] Restoring reconnect schedule for ${name} after reload rollback`);
+                mcpLog('info', 'rollback-reconnect-restored', {
+                    serverName: name
+                });
                 this._scheduleReconnect(name, config);
             }
         }
@@ -582,9 +699,14 @@ class McpManager {
         for (const [name, client] of this.clients.entries()) {
             try {
                 await client.close();
-                logger.info(`[McpManager] Closed connection to ${name}`);
+                mcpLog('info', 'cleanup-client-closed', {
+                    serverName: name
+                });
             } catch (e) {
-                logger.error(`[McpManager] Error closing ${name}:`, e);
+                mcpLog('error', 'cleanup-client-close-failed', {
+                    serverName: name,
+                    error: logger.getErrorMessage(e)
+                });
             }
         }
         this.clients.clear();

@@ -2,6 +2,10 @@ const { subscriptionManager, biliApi, config, logger } = require('../adapters/de
 const { decideAdvance } = require('../helpers/stateAdvance')
 const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
+function subLog(level, message, fields = {}, scope = 'svc:feed') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 module.exports = {
     mergePendingLiveUpdate(pendingUpdates, uid, updates) {
         if (!uid || !updates || typeof updates !== 'object') return
@@ -76,7 +80,10 @@ module.exports = {
                     }
                 }
             } catch (e) {
-                logger.error(`[UpdateChecker] Dynamic feed update failed for account ${uid}:`, e)
+                subLog('error', 'dynamic-feed-update-failed', {
+                    accountUid: uid,
+                    error: logger.getErrorMessage(e)
+                })
             }
 
             // Wait 2s between dynamic and live feed
@@ -97,10 +104,18 @@ module.exports = {
                     }
                 }
             } catch (e) {
-                logger.error(`[UpdateChecker] Live feed update failed for account ${uid}:`, e)
+                subLog('error', 'live-feed-update-failed', {
+                    accountUid: uid,
+                    error: logger.getErrorMessage(e)
+                })
             }
 
-            logger.debug(`[UpdateChecker] Feed coverage commit for ${uid}: dynamic=${dynamicSucceeded}, live=${liveSucceeded}, dynamicCandidates=${dynamicCoveredCandidates.length}`)
+            subLog('debug', 'feed-coverage-commit', {
+                accountUid: uid,
+                dynamicSucceeded,
+                liveSucceeded,
+                dynamicCandidateCount: dynamicCoveredCandidates.length
+            })
         }
     },
 
@@ -123,7 +138,10 @@ module.exports = {
         while (hasMore && page < 5) {
             const res = await biliApi.getDynamicFeed(offset, groupId)
             if (res.status !== 'success' || !res.data) {
-                logger.warn(`[UpdateChecker] Failed to get dynamic feed for account ${accountUid} (Group: ${groupId})`)
+                subLog('warn', 'dynamic-feed-fetch-failed', {
+                    accountUid,
+                    groupId
+                })
                 return { ok: false, reason: 'dynamic_feed_fetch_failed' }
             }
 
@@ -131,7 +149,10 @@ module.exports = {
             const items = allItems.filter(item => !this.shouldSkipDynamic(item))
 
             if (items.length < allItems.length) {
-                logger.info(`[UpdateChecker] Feed: Filtered ${allItems.length - items.length} auto-post dynamics`)
+                subLog('info', 'dynamic-feed-filtered', {
+                    accountUid,
+                    filteredCount: allItems.length - items.length
+                })
             }
 
             hasMore = res.data.has_more
@@ -141,7 +162,10 @@ module.exports = {
             page++
 
             if (items.length === 0) {
-                logger.debug(`[UpdateChecker] Page ${page} all filtered, continuing to next page`)
+                subLog('debug', 'dynamic-feed-page-filtered', {
+                    accountUid,
+                    page
+                })
                 continue
             }
 
@@ -151,6 +175,7 @@ module.exports = {
 
                 const follower = followerMap.get(authorUid)
                 const dynamicId = item.id_str
+                const userScope = logger.createScope('sub', 'user', authorUid)
 
                 // Check if new (ID > lastDynamicId)
                 let isNew = false
@@ -190,7 +215,10 @@ module.exports = {
                         const info = await biliApi.getDynamicInfo(dynamicId, groupId)
 
                         if (info.status !== 'success') {
-                            logger.warn(`[UpdateChecker] Failed to get dynamic detail for ${dynamicId} in feed, skipping`)
+                            subLog('warn', 'feed-dynamic-detail-fetch-failed', {
+                                dynamicId,
+                                groupId
+                            }, userScope)
                             continue
                         }
 
@@ -213,7 +241,11 @@ module.exports = {
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentDynamic = decision.action === 'advance'
                         if (!canAdvanceCurrentDynamic) {
-                            logger.warn(`[UpdateChecker] Skip feed dynamic state advance for UID ${authorUid}: notify decision=${decision.action}, reason=${decision.reason}`)
+                            subLog('warn', 'feed-dynamic-state-advance-skipped', {
+                                uid: authorUid,
+                                decision: decision.action,
+                                reason: decision.reason
+                            }, userScope)
                         }
                     }
 
@@ -278,6 +310,7 @@ module.exports = {
 
             const follower = followerMap.get(uid)
             const manualSub = this.findManualSub(uid)
+            const userScope = logger.createScope('sub', 'user', uid)
             const roomId = normalizeRoomId(item.room_id, item.roomid, follower.roomId)
             const liveState = resolveLiveState({
                 liveRoom: {
@@ -309,14 +342,21 @@ module.exports = {
                     const name = item.uname
 
                     if (!liveState.roomId) {
-                        logger.warn(`[UpdateChecker] No room ID for user ${uid} (${name}), skipping live notification`)
+                        subLog('warn', 'feed-live-room-missing', {
+                            uid,
+                            name
+                        }, userScope)
                         continue
                     }
 
                     // Fetch live room detail using standard API (unified with linkHandler)
                     const liveInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
                     if (liveInfo.status !== 'success') {
-                        logger.warn(`[UpdateChecker] Failed to get live room info for ${liveState.roomId} (${name}), skipping`)
+                        subLog('warn', 'feed-live-room-fetch-failed', {
+                            uid,
+                            name,
+                            roomId: liveState.roomId
+                        }, userScope)
                         continue
                     }
 
@@ -336,7 +376,11 @@ module.exports = {
                     canAdvanceCookieLive = cookieNeedsNotify && canAdvance
                     canAdvanceManualLive = manualNeedsNotify && canAdvance
                     if (!canAdvance) {
-                        logger.warn(`[UpdateChecker] Skip feed live state advance for UID ${uid}: notify decision=${decision.action}, reason=${decision.reason}`)
+                        subLog('warn', 'feed-live-state-advance-skipped', {
+                            uid,
+                            decision: decision.action,
+                            reason: decision.reason
+                        }, userScope)
                     }
                 } else {
                     canAdvanceCookieLive = false
@@ -365,12 +409,16 @@ module.exports = {
             const manualWasLive = manualSub?.lastLiveStatus === 1
             if ((cookieWasLive || manualWasLive) && !onlineUids.has(uid)) {
                 const cachedRoomId = normalizeRoomId(follower.roomId)
+                const userScope = logger.createScope('sub', 'user', uid)
                 if (!cachedRoomId) {
                     let userInfo = null
                     try {
                         userInfo = await biliApi.getUserInfo(uid, groupId, 'fresh')
                     } catch (error) {
-                        logger.warn(`[UpdateChecker] User live fallback failed for ${uid}: ${error?.message || error}`)
+                        subLog('warn', 'feed-user-live-fallback-failed', {
+                            uid,
+                            error: logger.getErrorMessage(error)
+                        }, userScope)
                     }
 
                     const liveState = resolveLiveState({
@@ -386,7 +434,9 @@ module.exports = {
                             coveredUids.add(uid)
                         }
                     } else {
-                        logger.debug(`[UpdateChecker] Missing cached roomId for live follower ${uid}; keeping previous live state`)
+                        subLog('debug', 'feed-live-room-cache-missing', {
+                            uid
+                        }, userScope)
                     }
                     continue
                 }
@@ -395,7 +445,11 @@ module.exports = {
                 try {
                     roomInfo = await biliApi.getLiveRoomInfo(cachedRoomId, groupId)
                 } catch (error) {
-                    logger.warn(`[UpdateChecker] Live room confirm failed for ${cachedRoomId} (${uid}): ${error?.message || error}`)
+                    subLog('warn', 'feed-live-room-confirm-failed', {
+                        uid,
+                        roomId: cachedRoomId,
+                        error: logger.getErrorMessage(error)
+                    }, userScope)
                 }
 
                 const liveState = resolveLiveState({
@@ -412,7 +466,9 @@ module.exports = {
                         coveredUids.add(uid)
                     }
                 } else if (liveState.status === 'unknown') {
-                    logger.debug(`[UpdateChecker] Live status unknown for feed follower ${uid}; keeping previous live state`)
+                    subLog('debug', 'feed-live-state-unknown', {
+                        uid
+                    }, userScope)
                 }
             }
         }
@@ -448,7 +504,9 @@ module.exports = {
 
         // Skip video post auto-dynamic
         if (major?.type === 'MAJOR_TYPE_ARCHIVE' || item.type === 'DYNAMIC_TYPE_AV') {
-            logger.debug(`[UpdateChecker] Skipping video dynamic: ${item.id_str}`)
+            subLog('debug', 'feed-video-dynamic-skipped', {
+                dynamicId: item.id_str
+            })
             return true
         }
 
@@ -456,7 +514,9 @@ module.exports = {
         if (major?.type === 'MAJOR_TYPE_OPUS') {
             const jumpUrl = major.opus?.jump_url || ''
             if (/\/read\/cv\d+/i.test(jumpUrl)) {
-                logger.debug(`[UpdateChecker] Skipping article dynamic: ${item.id_str}`)
+                subLog('debug', 'feed-article-dynamic-skipped', {
+                    dynamicId: item.id_str
+                })
                 return true
             }
         }

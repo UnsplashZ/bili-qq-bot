@@ -3,6 +3,7 @@ const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const subscriptionService = require('../../../../services/subscriptionService')
 const { readConfig } = require('../shared/config-store')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -25,8 +26,14 @@ router.get('/config', async (req, res) => {
     try {
         const config = await readConfig()
         config.rootAdminQQ = sysConfig.getRootAdminQQ()
+        dashLog(req, 'info', 'config-fetched', {
+            hasRootAdminQQ: Boolean(config.rootAdminQQ)
+        })
         res.json(config)
     } catch (error) {
+        dashLog(req, 'error', 'config-fetch-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to read configuration' })
     }
 })
@@ -90,17 +97,25 @@ router.post('/config', async (req, res) => {
 
         Object.assign(sysConfig, filtered)
         sysConfig.save()
+        dashLog(req, 'info', 'config-updated', {
+            keys: Object.keys(filtered).join(',')
+        })
 
         if (filtered.subscriptionCheckInterval !== undefined) {
             const interval = parseInt(filtered.subscriptionCheckInterval, 10)
             if (!isNaN(interval) && interval > 0) {
                 subscriptionService.updateCheckInterval(interval)
-                logger.info(`[API] Subscription check interval updated to ${interval}s`)
+                dashLog(req, 'info', 'subscription-interval-updated', {
+                    intervalSeconds: interval
+                })
             }
         }
 
         res.json({ message: 'Configuration updated successfully', config: filtered })
     } catch (error) {
+        dashLog(req, 'error', 'config-update-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to save configuration' })
     }
 })

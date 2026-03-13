@@ -4,6 +4,7 @@ const path = require('path')
 const logger = require('../../../../utils/logger')
 const biliApi = require('../../../../services/biliApi')
 const authenticateToken = require('../../../middleware/auth')
+const { dashLog, authLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -12,12 +13,23 @@ router.get('/groups/:id/bili-groups', async (req, res) => {
     try {
         const result = await biliApi.getFollowGroups(null)
         if (result && result.status === 'success') {
+            dashLog(req, 'info', 'bili-groups-fetched', {
+                groupId: req.params.id,
+                count: Array.isArray(result.data) ? result.data.length : 0
+            })
             res.json(result.data)
         } else {
+            dashLog(req, 'info', 'bili-groups-fetched', {
+                groupId: req.params.id,
+                count: 0
+            })
             res.json([])
         }
     } catch (error) {
-        logger.error('Error fetching Bilibili groups (global cookie):', error)
+        dashLog(req, 'error', 'bili-groups-fetch-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch Bilibili groups' })
     }
 })
@@ -26,9 +38,12 @@ router.get('/groups/:id/bili-groups', async (req, res) => {
 router.get('/bili/login-url', async (req, res) => {
     try {
         const result = await biliApi.getLoginUrl()
+        dashLog(req, 'info', 'bili-login-url-ready')
         res.json(result)
     } catch (error) {
-        logger.error('Error getting login URL:', error)
+        dashLog(req, 'error', 'bili-login-url-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to get login URL' })
     }
 })
@@ -42,9 +57,14 @@ router.post('/bili/check-login', async (req, res) => {
         }
 
         const result = await biliApi.checkLogin(key, null)
+        dashLog(req, 'info', 'bili-login-status-ready', {
+            status: result && result.status
+        })
         res.json(result)
     } catch (error) {
-        logger.error('Error checking login:', error)
+        dashLog(req, 'error', 'bili-login-status-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to check login' })
     }
 })
@@ -57,9 +77,14 @@ router.get('/bili/my-info', async (req, res) => {
             return res.status(400).json({ error: 'Invalid groupId' })
         }
         const result = await biliApi.getMyInfo(groupId)
+        dashLog(req, 'info', 'bili-my-info-ready', {
+            groupId: groupId === null ? 'global' : groupId
+        })
         res.json(result)
     } catch (error) {
-        logger.error('Error getting my info:', error)
+        dashLog(req, 'error', 'bili-my-info-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to get user info' })
     }
 })
@@ -69,6 +94,10 @@ router.get('/bili/global-status', authenticateToken, async (req, res) => {
     try {
         const refresh = req.query.refresh === '1' || req.query.refresh === 'true'
         const result = await biliApi.getGlobalCredentialInfo(refresh)
+        dashLog(req, 'info', 'bili-global-status-ready', {
+            refresh,
+            status: result && result.status
+        })
 
         if (result.status === 'success') {
             res.json({
@@ -84,7 +113,9 @@ router.get('/bili/global-status', authenticateToken, async (req, res) => {
             })
         }
     } catch (error) {
-        logger.error('Error fetching global Bilibili status:', error)
+        dashLog(req, 'error', 'bili-global-status-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({
             isLoggedIn: false,
             error: 'Failed to check login status'
@@ -112,7 +143,9 @@ router.post('/bili/logout', async (req, res) => {
 
         const cookieFilePattern = /^cookies(_\d+)?\.json$/
         if (!cookieFilePattern.test(fileName)) {
-            logger.warn(`[Security] Attempted to delete non-cookie file: ${fileName}`)
+            authLog(req, 'warn', 'bili-logout-non-cookie-denied', {
+                fileName
+            })
             return res.status(400).json({ error: 'Invalid cookie file name' })
         }
 
@@ -122,16 +155,24 @@ router.post('/bili/logout', async (req, res) => {
             !resolvedPath.startsWith(dataDir + path.sep) &&
             resolvedPath !== dataDir
         ) {
-            logger.warn(`[Security] Attempted path traversal: ${resolvedPath}`)
+            authLog(req, 'warn', 'bili-logout-path-traversal', {
+                resolvedPath
+            })
             return res.status(400).json({ error: 'Path traversal detected' })
         }
 
         try {
             await fs.unlink(cookieFile)
-            logger.info(`[Security] Cookie file deleted: ${fileName}`)
+            authLog(req, 'info', 'bili-cookie-deleted', {
+                fileName,
+                groupId: groupId || 'global'
+            })
         } catch (err) {
             if (err.code !== 'ENOENT') {
-                logger.warn('Error deleting cookie file:', err)
+                authLog(req, 'warn', 'bili-cookie-delete-failed', {
+                    fileName,
+                    error: logger.getErrorMessage(err)
+                })
             }
         }
 
@@ -143,17 +184,24 @@ router.post('/bili/logout', async (req, res) => {
                 await fs.writeFile(mapFile, JSON.stringify(mapData, null, 4))
             } catch (err) {
                 if (err.code !== 'ENOENT') {
-                    logger.warn('Error updating cookie map:', err)
+                    authLog(req, 'warn', 'bili-cookie-map-update-failed', {
+                        groupId,
+                        error: logger.getErrorMessage(err)
+                    })
                 }
             }
         }
 
+        dashLog(req, 'info', 'bili-logout-complete', {
+            groupId: groupId || 'global'
+        })
         res.json({ success: true })
     } catch (error) {
-        logger.error('Error logging out:', error)
+        dashLog(req, 'error', 'bili-logout-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to logout' })
     }
 })
 
 module.exports = router
-

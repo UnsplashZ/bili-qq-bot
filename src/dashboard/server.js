@@ -53,7 +53,9 @@ function start(port = 3000) {
 
             // Start server
             server = app.listen(port, () => {
-                logger.info(`Dashboard server listening on port ${port}`);
+                logger.logEvent('info', 'DASH', 'svc:lifecycle', 'server-started', {
+                    port
+                });
 
                 // Initialize WebSocket Server
                 wss = new WebSocket.Server({ server, path: '/ws/logs' });
@@ -64,7 +66,7 @@ function start(port = 3000) {
                     const token = url.searchParams.get('token');
 
                     if (!token) {
-                        logger.warn('WebSocket connection rejected: No token provided');
+                        logger.logEvent('warn', 'AUTH', 'svc:lifecycle', 'ws-token-missing', {});
                         ws.close(1008, 'Token required');
                         return;
                     }
@@ -72,7 +74,9 @@ function start(port = 3000) {
                     try {
                         jwt.verify(token, sysConfig.jwtSecret);
                     } catch (err) {
-                        logger.warn('WebSocket connection rejected: Invalid token');
+                        logger.logEvent('warn', 'AUTH', 'svc:lifecycle', 'ws-token-invalid', {
+                            error: logger.getErrorMessage(err)
+                        });
                         ws.close(1008, 'Authentication failed');
                         return;
                     }
@@ -97,12 +101,16 @@ function start(port = 3000) {
             });
 
             server.on('error', (err) => {
-                logger.error('Dashboard server error:', err);
+                logger.logEvent('error', 'DASH', 'svc:lifecycle', 'server-error', {
+                    error: logger.getErrorMessage(err)
+                });
                 reject(err);
             });
 
         } catch (error) {
-            logger.error('Failed to start dashboard server:', error);
+            logger.logEvent('error', 'DASH', 'svc:lifecycle', 'server-start-failed', {
+                error: logger.getErrorMessage(error)
+            });
             reject(error);
         }
     });
@@ -124,7 +132,7 @@ function stop() {
 
     if (server) {
         server.close(() => {
-            logger.info('Dashboard server stopped');
+            logger.logEvent('info', 'DASH', 'svc:lifecycle', 'server-stopped');
         });
         server = null;
     }

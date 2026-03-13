@@ -172,7 +172,10 @@ function getCustomFonts() {
                     }
                 });
             } catch (e) {
-                logger.error(`Failed to load custom fonts from ${fontDir}:`, e);
+                logger.logEvent('error', 'SERVICE', 'svc:image-formatters', 'custom-font-load-failed', {
+                    fontDir,
+                    error: logger.getErrorMessage(e)
+                });
             }
         }
     });

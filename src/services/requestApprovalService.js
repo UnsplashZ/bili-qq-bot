@@ -8,6 +8,10 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const RECENTLY_HANDLED_EXPIRE_MS = 24 * 60 * 60 * 1000
 const SUPPORTED_GROUP_SUB_TYPES = new Set(['add', 'invite'])
 
+function storeLog(level, message, fields = {}) {
+    logger.logEvent(level, 'STORE', 'svc:approval', message, fields)
+}
+
 class RequestApprovalService {
     constructor() {
         this.pendingByKey = new Map()
@@ -21,7 +25,9 @@ class RequestApprovalService {
             try {
                 this.cleanupExpired()
             } catch (e) {
-                logger.error('[RequestApproval] Cleanup failed:', e)
+                storeLog('error', 'cleanup-failed', {
+                    error: logger.getErrorMessage(e)
+                })
             }
         }, CLEANUP_INTERVAL_MS)
 
@@ -294,7 +300,11 @@ class RequestApprovalService {
 
             if (!statusOk) {
                 const wording = response?.wording || response?.message || 'send_private_msg failed'
-                logger.warn(`[RequestApproval] Failed to send pending notify for ${item.key}: ${wording}`)
+                storeLog('warn', 'notify-failed', {
+                    key: item.key,
+                    shortId: item.shortId,
+                    error: wording
+                })
                 this._sendAdminText(ws, adminId, text)
                 return
             }
@@ -303,14 +313,25 @@ class RequestApprovalService {
                 const mid = String(messageId)
                 item.notifyMessageId = mid
                 this.keyByNotifyMessageId.set(mid, item.key)
-                logger.info(`[RequestApproval] Pending notify sent for ${item.key}, messageId=${mid}`)
+                storeLog('info', 'notify-sent', {
+                    key: item.key,
+                    shortId: item.shortId,
+                    messageId: mid
+                })
                 return
             }
 
-            logger.warn(`[RequestApproval] Pending notify sent for ${item.key} but no message_id in response`)
+            storeLog('warn', 'notify-sent-missing-message-id', {
+                key: item.key,
+                shortId: item.shortId
+            })
             this._sendAdminText(ws, adminId, text)
         } catch (e) {
-            logger.error(`[RequestApproval] Failed to send pending notify for ${item.key}:`, e)
+            storeLog('error', 'notify-failed', {
+                key: item.key,
+                shortId: item.shortId,
+                error: logger.getErrorMessage(e)
+            })
             this._sendAdminText(ws, adminId, text)
         }
     }
@@ -467,7 +488,9 @@ class RequestApprovalService {
         try {
             const adminId = config.getRootAdminQQ()
             if (!adminId) {
-                logger.warn('[RequestApproval] ADMIN_QQ not set, request event ignored')
+                storeLog('warn', 'request-ignored', {
+                    reason: 'admin_missing'
+                })
                 return
             }
 
@@ -478,7 +501,10 @@ class RequestApprovalService {
             const key = this._buildKey(normalized.requestType, normalized.subType, normalized.flag)
 
             if (this._isRecentlyHandled(key, now)) {
-                logger.info(`[RequestApproval] Ignored recently handled request: ${key}`)
+                storeLog('info', 'request-ignored', {
+                    key,
+                    reason: 'recently_handled'
+                })
                 return
             }
 
@@ -493,7 +519,12 @@ class RequestApprovalService {
                 } else {
                     this.keyByShortId.set(existing.shortId, existing.key)
                 }
-                logger.info(`[RequestApproval] Duplicate request event ignored: ${key}`)
+                storeLog('info', 'request-duplicate', {
+                    key,
+                    shortId: existing.shortId,
+                    requestType: existing.requestType,
+                    subType: existing.subType || ''
+                })
                 return
             }
 
@@ -501,10 +532,19 @@ class RequestApprovalService {
             const item = this._createPendingItem(normalized, now)
             this.pendingByKey.set(item.key, item)
             this.queue.push(item.key)
-            logger.info(`[RequestApproval] New request queued: ${item.key}`)
+            storeLog('info', 'request-queued', {
+                key: item.key,
+                shortId: item.shortId,
+                requestType: item.requestType,
+                subType: item.subType || '',
+                groupId: item.groupId,
+                userId: item.userId
+            })
             await this._sendPendingNotify(ws, adminId, item)
         } catch (e) {
-            logger.error('[RequestApproval] Failed to handle request event:', e)
+            storeLog('error', 'request-handle-failed', {
+                error: logger.getErrorMessage(e)
+            })
         }
     }
 
@@ -609,7 +649,9 @@ class RequestApprovalService {
         }
 
         if (expiredCount > 0) {
-            logger.info(`[RequestApproval] Cleaned up expired requests: ${expiredCount}`)
+            storeLog('info', 'cleanup-complete', {
+                expiredCount
+            })
         }
     }
 }

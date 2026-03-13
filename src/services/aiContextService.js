@@ -4,6 +4,10 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const storageUtils = require('../utils/storageUtils');
 
+function aiLog(level, scope, message, fields = {}) {
+    logger.logEvent(level, 'AI', scope, message, fields);
+}
+
 class AiContextService {
     constructor() {
         this.contexts = new Map(); // groupId -> [{role, content}, ...]
@@ -53,7 +57,7 @@ class AiContextService {
 
             // Check for legacy file and migrate
             if (fs.existsSync(this.legacyFile)) {
-                logger.info('[AiContextService] Found legacy chat history. Migrating...');
+                aiLog('info', 'svc:ai-context', 'legacy-history-migration-started');
                 const data = fs.readFileSync(this.legacyFile, 'utf8');
                 try {
                     const entries = JSON.parse(data);
@@ -63,18 +67,26 @@ class AiContextService {
                             const { resolvedPath } = this._resolveContextFilePath(key);
                             fs.writeFileSync(resolvedPath, JSON.stringify(value, null, 2), 'utf8');
                         } catch (e) {
-                            logger.warn(`[AiContextService] Skip invalid legacy context key: ${key}`);
+                            aiLog('warn', 'svc:ai-context', 'legacy-context-key-skipped', {
+                                groupId: key
+                            });
                         }
                     }
                     // Rename legacy file to .bak
                     fs.renameSync(this.legacyFile, this.legacyFile + '.bak');
-                    logger.info(`[AiContextService] Migrated ${entries.length} group histories to separate files.`);
+                    aiLog('info', 'svc:ai-context', 'legacy-history-migration-finished', {
+                        groupCount: entries.length
+                    });
                 } catch (parseError) {
-                    logger.error('[AiContextService] Failed to parse legacy history during migration:', parseError);
+                    aiLog('error', 'svc:ai-context', 'legacy-history-migration-parse-failed', {
+                        error: logger.getErrorMessage(parseError)
+                    });
                 }
             }
         } catch (e) {
-            logger.error('[AiContextService] Failed to initialize storage:', e);
+            aiLog('error', 'svc:ai-context', 'storage-init-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
     }
 
@@ -102,11 +114,15 @@ class AiContextService {
                 }
                 const context = JSON.parse(data);
                 this.contexts.set(safeGroupId, context);
-                logger.debug(`[AiContext] Loaded context for group ${safeGroupId} (${context.length} messages)`);
+                aiLog('debug', logger.createScope('ctx', safeGroupId), 'context-loaded', {
+                    messageCount: context.length
+                });
                 return context;
             }
         } catch (e) {
-            logger.error(`[AiContextService] Failed to load history for group ${safeGroupId}:`, e);
+            aiLog('error', logger.createScope('ctx', safeGroupId), 'context-load-failed', {
+                error: logger.getErrorMessage(e)
+            });
         }
 
         // Return empty context if file doesn't exist or error
@@ -144,7 +160,9 @@ class AiContextService {
 
                 this.saveTimers.delete(safeGroupId);
             } catch (e) {
-                logger.error(`[AiContextService] Error saving history for group ${safeGroupId}:`, e);
+                aiLog('error', logger.createScope('ctx', safeGroupId), 'context-save-failed', {
+                    error: logger.getErrorMessage(e)
+                });
             }
         }, 1000); // Wait 1s after last change before saving
 
@@ -234,7 +252,7 @@ class AiContextService {
         const safeGroupId = this.validateContextId(groupId);
         this.contexts.set(safeGroupId, []);
         this.saveContext(safeGroupId);
-        logger.info(`[AiContextService] Reset context for group ${safeGroupId}`);
+        aiLog('info', logger.createScope('ctx', safeGroupId), 'context-reset');
     }
 
     // 清理超过 TTL 的上下文（基于时间）
@@ -250,7 +268,10 @@ class AiContextService {
         }
 
         if (cleaned > 0) {
-            logger.info(`[AiContext] Cleaned up ${cleaned} stale contexts (TTL: ${this.contextTTL/1000/60} min)`);
+            aiLog('info', 'svc:ai-context', 'stale-contexts-cleaned', {
+                cleanedCount: cleaned,
+                ttlMinutes: this.contextTTL / 1000 / 60
+            });
         }
     }
 
@@ -267,7 +288,10 @@ class AiContextService {
         }
 
         if (oldestGroupId) {
-            logger.info(`[AiContext] Cache full (${this.contexts.size}/${this.maxCachedGroups}), evicting LRU group ${oldestGroupId}`);
+            aiLog('info', logger.createScope('ctx', oldestGroupId), 'context-evicted-lru', {
+                cachedGroups: this.contexts.size,
+                maxCachedGroups: this.maxCachedGroups
+            });
             this.unloadContext(oldestGroupId);
         }
     }
@@ -295,9 +319,13 @@ class AiContextService {
 
                 const { resolvedPath } = this._resolveContextFilePath(safeGroupId);
                 fs.writeFileSync(resolvedPath, JSON.stringify(context, null, 2), 'utf8');
-                logger.debug(`[AiContext] Saved and unloaded context for group ${safeGroupId} (${context.length} messages)`);
+                aiLog('debug', logger.createScope('ctx', safeGroupId), 'context-saved-and-unloaded', {
+                    messageCount: context.length
+                });
             } catch (e) {
-                logger.error(`[AiContext] Failed to save before unload for group ${safeGroupId}:`, e);
+                aiLog('error', logger.createScope('ctx', safeGroupId), 'context-save-before-unload-failed', {
+                    error: logger.getErrorMessage(e)
+                });
             }
         }
 
@@ -312,7 +340,7 @@ class AiContextService {
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer);
             this.cleanupTimer = null;
-            logger.debug('[AiContext] Cleanup timer stopped');
+            aiLog('debug', 'svc:ai-context', 'cleanup-timer-stopped');
         }
 
         // 保存所有待保存的上下文
@@ -328,13 +356,15 @@ class AiContextService {
                     const filePath = path.join(this.contextsDir, `${groupId}.json`);
                     fs.writeFileSync(filePath, JSON.stringify(context, null, 2), 'utf8');
                 } catch (e) {
-                    logger.error(`[AiContext] Failed to save on dispose for group ${groupId}:`, e);
+                    aiLog('error', logger.createScope('ctx', groupId), 'context-save-on-dispose-failed', {
+                        error: logger.getErrorMessage(e)
+                    });
                 }
             }
         }
         this.saveTimers.clear();
 
-        logger.info('[AiContext] Service disposed, all contexts saved');
+        aiLog('info', 'svc:ai-context', 'service-disposed');
     }
 
     // 获取缓存统计信息（用于监控）

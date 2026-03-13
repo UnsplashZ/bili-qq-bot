@@ -11,6 +11,7 @@ const {
     AiConfigValidationError,
     normalizeAiConfigField
 } = require('../../../../services/ai/validation')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
@@ -58,9 +59,14 @@ router.get('/groups', async (req, res) => {
             }
         })
 
+        dashLog(req, 'info', 'groups-fetched', {
+            count: groupsData.length
+        })
         res.json(groupsData)
     } catch (error) {
-        logger.error('Error fetching groups:', error)
+        dashLog(req, 'error', 'groups-fetch-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch groups' })
     }
 })
@@ -109,8 +115,16 @@ router.post('/groups/:id/toggle', async (req, res) => {
 
         sysConfig.enabledGroups = Array.from(new Set(enabledGroups))
         sysConfig.save()
+        dashLog(req, 'info', 'group-toggled', {
+            groupId,
+            isEnabled
+        })
         res.json({ message: `Group ${groupId} toggled`, isEnabled })
     } catch (error) {
+        dashLog(req, 'error', 'group-toggle-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to toggle group status' })
     }
 })
@@ -295,11 +309,19 @@ router.post('/groups/:id/config', async (req, res) => {
         )
         sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules = normalizedRules
 
+        dashLog(req, 'info', 'group-config-updated', {
+            groupId,
+            keys: Object.keys(cleanedUpdates).join(',')
+        })
         res.json({
             message: `Group ${groupId} configuration updated`,
             config: sysConfig.groupConfigs[groupIdStr]
         })
     } catch (error) {
+        dashLog(req, 'error', 'group-config-update-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to update group configuration' })
     }
 })
@@ -347,10 +369,15 @@ router.delete('/groups/:id', async (req, res) => {
 
         sysConfig.save()
 
-        logger.info(`[API] Deleted config for left group ${groupId}`)
+        dashLog(req, 'info', 'group-config-deleted', {
+            groupId
+        })
         res.json({ success: true, message: `Config for group ${groupId} deleted` })
     } catch (error) {
-        logger.error('Error deleting group config:', error)
+        dashLog(req, 'error', 'group-config-delete-failed', {
+            groupId: req.params.id,
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to delete group config' })
     }
 })

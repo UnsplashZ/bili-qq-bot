@@ -10,6 +10,7 @@ const vectorMemory = require(path.join(__dirname, '../../src/services/vectorMemo
 const mcpManager = require(path.join(__dirname, '../../src/services/mcpManager'))
 const userProfileService = require(path.join(__dirname, '../../src/services/userProfileService'))
 const config = require(path.join(__dirname, '../../src/config'))
+const logger = require(path.join(__dirname, '../../src/utils/logger'))
 const axios = require('axios')
 
 // aiContextService 内部有常驻清理定时器，单测中 unref 以避免进程被挂住
@@ -71,6 +72,10 @@ function makeGroupConfig(overrides = {}) {
 }
 
 async function run() {
+    const logs = []
+    const off = logger.onLog((entry) => logs.push(entry.message))
+
+    try {
     overrideConfigValue('aiChatApiKey', 'test-key')
     overrideConfigValue('aiChatApiUrl', 'http://test.local/v1/chat/completions')
     overrideConfigValue('aiChatModel', 'test-model')
@@ -295,9 +300,13 @@ async function run() {
     )
     assert.strictEqual(confirmReply, '先确认一下你的具体意思。')
     assert.ok(!capturedConfirmPayload.tools)
+    assert.ok(!logs.some(line => line.includes('[AiHandler]')))
     console.log('✓ Case 7: confirm_needed 时不会暴露工具给模型')
 
     console.log('\n所有测试通过 ✓')
+    } finally {
+        off()
+    }
 }
 
 run()

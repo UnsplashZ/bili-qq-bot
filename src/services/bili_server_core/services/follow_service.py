@@ -6,6 +6,7 @@ from bilibili_api import user
 from bilibili_api.utils.network import Api
 
 from ..auth.credential_store import load_credential
+from ..logging_utils import service_log
 
 logger = logging.getLogger(__name__)
 
@@ -167,12 +168,7 @@ async def get_my_followings(group_name=None, group_id=None):
                     )
                     res = await group_users_api.result
                 except Exception as e:
-                    logger.warning(
-                        "Error fetching group users (tagid=%s, page=%s): %s",
-                        tagid,
-                        page,
-                        e,
-                    )
+                    service_log(logger, "warn", "group-users-fetch-failed", tagid=tagid, page=page, error=str(e))
                     break
 
                 if not res:
@@ -240,12 +236,7 @@ async def get_my_followings(group_name=None, group_id=None):
                                         uid_tags_map[guid] = []
                                     uid_tags_map[guid].append(tag_name)
                         except Exception as e:
-                            logger.warning(
-                                "Error fetching users for tag (name=%s, tag_id=%s): %s",
-                                tag_name,
-                                tag_id,
-                                e,
-                            )
+                            service_log(logger, "warn", "tag-users-fetch-failed", tag_name=tag_name, tag_id=tag_id, error=str(e))
 
                     for f in all_followings:
                         f_uid = f.get("mid")
@@ -253,7 +244,7 @@ async def get_my_followings(group_name=None, group_id=None):
                             f["biliGroups"] = uid_tags_map[f_uid]
 
             except Exception as e:
-                logger.warning("Error fetching groups info: %s", e)
+                service_log(logger, "warn", "groups-info-fetch-failed", error=str(e))
 
         result = []
         for f in all_followings:
@@ -282,9 +273,7 @@ async def get_my_followings(group_name=None, group_id=None):
             "my_uid": my_uid,
         }
     except Exception as e:
-        import traceback
-
-        traceback.print_exc()
+        service_log(logger, "error", "followings-fetch-failed", error=str(e))
         return {"status": "error", "message": str(e)}
 
 

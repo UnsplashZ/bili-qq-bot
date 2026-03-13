@@ -23,9 +23,20 @@ from ..services.feed_service import (
 from ..services.follow_service import get_follow_groups, get_my_followings
 from ..services.user_service import get_my_info, get_user_card, get_user_info
 from ..services.video_service import get_video_info
+from ..logging_utils import rpc_log
 from .responses import json_error, json_result
 
 logger = logging.getLogger(__name__)
+
+
+def _handler_error(handler_name, error, status=500):
+    rpc_log(logger, "error", "handler-failed", handler=handler_name, error=str(error))
+    return json_error(str(error), status=status)
+
+
+def _handler_invalid(handler_name, reason):
+    rpc_log(logger, "warn", "handler-invalid", handler=handler_name, error=reason)
+    return json_error(reason, status=400)
 
 
 async def handle_video(request):
@@ -36,8 +47,7 @@ async def handle_video(request):
         result = await get_video_info(bvid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in video handler: {e}")
-        return json_error(str(e))
+        return _handler_error("video", e)
 
 
 async def handle_video_download(request):
@@ -49,17 +59,17 @@ async def handle_video_download(request):
             if page_index < 0:
                 raise ValueError()
         except (ValueError, TypeError):
-            return json_error("invalid page_index", status=400)
+            return _handler_invalid("video_download", "invalid page_index")
         resolution = data.get("resolution", "1080p")
         group_id = data.get("group_id")
         video_meta = data.get("video_meta")
 
         if not bvid:
-            return json_error("bvid is required", status=400)
+            return _handler_invalid("video_download", "bvid is required")
 
         valid_resolutions = {"360p", "480p", "720p", "1080p", "1080p+"}
         if resolution not in valid_resolutions:
-            return json_error("invalid resolution", status=400)
+            return _handler_invalid("video_download", "invalid resolution")
 
         try:
             result = await asyncio.wait_for(
@@ -74,15 +84,12 @@ async def handle_video_download(request):
                 timeout=DOWNLOAD_HANDLER_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            logger.error(f"[handle_video_download] Timeout after 270s for {bvid}")
+            rpc_log(logger, "error", "handler-timeout", handler="video_download", bvid=bvid)
             return json_error("download_timeout")
 
         return json_result(result)
     except Exception as e:
-        import traceback
-
-        logger.error(f"[handle_video_download] Error: {e}\n{traceback.format_exc()}")
-        return json_error(str(e), status=500)
+        return _handler_error("video_download", e)
 
 
 async def handle_bangumi(request):
@@ -93,8 +100,7 @@ async def handle_bangumi(request):
         result = await get_bangumi_info(season_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in bangumi handler: {e}")
-        return json_error(str(e))
+        return _handler_error("bangumi", e)
 
 
 async def handle_article(request):
@@ -105,8 +111,7 @@ async def handle_article(request):
         result = await get_article_info(cvid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in article handler: {e}")
-        return json_error(str(e))
+        return _handler_error("article", e)
 
 
 async def handle_live_room(request):
@@ -117,8 +122,7 @@ async def handle_live_room(request):
         result = await get_live_room_info(room_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in live_room handler: {e}")
-        return json_error(str(e))
+        return _handler_error("live_room", e)
 
 
 async def handle_login_url(request):
@@ -127,8 +131,7 @@ async def handle_login_url(request):
         result = await get_login_url()
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in login_url handler: {e}")
-        return json_error(str(e))
+        return _handler_error("login_url", e)
 
 
 async def handle_login_check(request):
@@ -139,8 +142,7 @@ async def handle_login_check(request):
         result = await poll_login(key, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in login_check handler: {e}")
-        return json_error(str(e))
+        return _handler_error("login_check", e)
 
 
 async def handle_user_dynamic(request):
@@ -151,8 +153,7 @@ async def handle_user_dynamic(request):
         result = await get_user_dynamic(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_dynamic handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_dynamic", e)
 
 
 async def handle_user_live(request):
@@ -163,8 +164,7 @@ async def handle_user_live(request):
         result = await get_user_live(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_live handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_live", e)
 
 
 async def handle_user_videos(request):
@@ -179,8 +179,7 @@ async def handle_user_videos(request):
         result = await get_user_videos(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_videos handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_videos", e)
 
 
 async def handle_user_articles(request):
@@ -195,8 +194,7 @@ async def handle_user_articles(request):
         result = await get_user_articles(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_articles handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_articles", e)
 
 
 async def handle_dynamic_detail(request):
@@ -207,8 +205,7 @@ async def handle_dynamic_detail(request):
         result = await get_dynamic_detail(dynamic_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in dynamic_detail handler: {e}")
-        return json_error(str(e))
+        return _handler_error("dynamic_detail", e)
 
 
 async def handle_opus(request):
@@ -219,8 +216,7 @@ async def handle_opus(request):
         result = await get_opus_detail(opus_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in opus handler: {e}")
-        return json_error(str(e))
+        return _handler_error("opus", e)
 
 
 async def handle_ep(request):
@@ -231,8 +227,7 @@ async def handle_ep(request):
         result = await get_ep_info(ep_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in ep handler: {e}")
-        return json_error(str(e))
+        return _handler_error("ep", e)
 
 
 async def handle_media(request):
@@ -243,8 +238,7 @@ async def handle_media(request):
         result = await get_media_info(media_id, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in media handler: {e}")
-        return json_error(str(e))
+        return _handler_error("media", e)
 
 
 async def handle_user_info(request):
@@ -255,8 +249,7 @@ async def handle_user_info(request):
         result = await get_user_info(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_info handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_info", e)
 
 
 async def handle_user_card(request):
@@ -267,8 +260,7 @@ async def handle_user_card(request):
         result = await get_user_card(uid, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in user_card handler: {e}")
-        return json_error(str(e))
+        return _handler_error("user_card", e)
 
 
 async def handle_my_followings(request):
@@ -281,8 +273,7 @@ async def handle_my_followings(request):
         result = await get_my_followings(group_name, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in my_followings handler: {e}")
-        return json_error(str(e))
+        return _handler_error("my_followings", e)
 
 
 async def handle_my_info(request):
@@ -292,8 +283,7 @@ async def handle_my_info(request):
         result = await get_my_info(group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in my_info handler: {e}")
-        return json_error(str(e))
+        return _handler_error("my_info", e)
 
 
 async def handle_get_follow_groups(request):
@@ -303,8 +293,7 @@ async def handle_get_follow_groups(request):
         result = await get_follow_groups(group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in get_follow_groups handler: {e}")
-        return json_error(str(e))
+        return _handler_error("get_follow_groups", e)
 
 
 async def handle_dynamic_feed(request):
@@ -315,8 +304,7 @@ async def handle_dynamic_feed(request):
         result = await get_dynamic_feed(offset, group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in dynamic_feed handler: {e}")
-        return json_error(str(e))
+        return _handler_error("dynamic_feed", e)
 
 
 async def handle_live_feed(request):
@@ -326,8 +314,7 @@ async def handle_live_feed(request):
         result = await get_live_feed(group_id)
         return json_result(result)
     except Exception as e:
-        logger.error(f"Error in live_feed handler: {e}")
-        return json_error(str(e))
+        return _handler_error("live_feed", e)
 
 
 async def health_check(request):
@@ -359,10 +346,7 @@ async def handle_credential_info(request):
             }
         )
     except Exception as e:
-        logger.error(f"获取凭证信息失败: {e}")
-        import traceback
-
-        traceback.print_exc()
+        rpc_log(logger, "error", "handler-failed", handler="credential_info", error=str(e))
         return json_result({"status": "error", "message": str(e)})
 
 
@@ -370,4 +354,3 @@ async def handle_refresh_credential(request):
     del request
     result = await refresh_credential_if_needed()
     return json_result(result)
-

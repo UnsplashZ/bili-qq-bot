@@ -7,6 +7,10 @@ const subscriptionService = require('../services/subscriptionService');
 const imageGenerator = require('../services/imageGenerator');
 const { normalizeAiContextLimit, normalizeAiConfigField, AiConfigValidationError } = require('../services/ai/validation');
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:settings', message, fields);
+}
+
 class SettingsCommand {
     constructor() {
         // Login pending map: key -> true
@@ -47,7 +51,11 @@ class SettingsCommand {
                 }
                 // Other statuses (waiting for scan/confirm) -> continue polling
             } catch (e) {
-                logger.error('[SettingsCommand] Polling error:', e);
+                commandLog('error', 'login-poll-failed', {
+                    error: logger.getErrorMessage(e),
+                    key,
+                    groupId
+                });
             }
         }, POLL_INTERVAL);
     }
@@ -85,7 +93,10 @@ class SettingsCommand {
                     const base64Image = await imageGenerator.generateHelpCard('admin', groupId);
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
                 } catch (e) {
-                    logger.error('[SettingsCommand] Error generating admin help card:', e);
+                    commandLog('error', 'admin-help-card-generate-failed', {
+                        error: logger.getErrorMessage(e),
+                        groupId
+                    });
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: 'Admin menu generation failed.' } }]);
                 }
                 return true;
@@ -146,7 +157,10 @@ class SettingsCommand {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '获取登录URL失败。' } }]);
                     }
                 } catch (e) {
-                    logger.error('[SettingsCommand] 登录错误:', e);
+                    commandLog('error', 'login-start-failed', {
+                        error: logger.getErrorMessage(e),
+                        groupId
+                    });
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '登录错误，请检查日志。' } }]);
                 }
                 return true;
@@ -603,7 +617,9 @@ class SettingsCommand {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'SettingsCommand', true);
         } else {
-            logger.warn('[SettingsCommand] Cannot send message: no groupId or userId provided');
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 }

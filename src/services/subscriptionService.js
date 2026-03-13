@@ -1,6 +1,7 @@
 const subscriptionManager = require('./subscription/subscriptionManager');
 const updateChecker = require('./subscription/updateChecker');
 const logger = require('../utils/logger');
+const SUBSCRIPTION_SCOPE = logger.createScope('svc', 'subscription')
 
 class SubscriptionService {
     constructor() {
@@ -15,11 +16,15 @@ class SubscriptionService {
     set cookieFollowings(val) {
         if (val && typeof val === 'object' && !Array.isArray(val)) {
             subscriptionManager.replaceCookieFollowingsMap(val).catch(error => {
-                logger.error('[SubscriptionService] Failed to replace cookieFollowings via compatibility setter:', error);
+                logger.logEvent('error', 'SUB', SUBSCRIPTION_SCOPE, 'cookie-followings-setter-failed', {
+                    error: logger.getErrorMessage(error)
+                });
             });
             return;
         }
-        logger.warn('[SubscriptionService] cookieFollowings setter ignored: expected map object.');
+        logger.logEvent('warn', 'SUB', SUBSCRIPTION_SCOPE, 'cookie-followings-setter-ignored', {
+            reason: 'expected_map_object'
+        });
     }
 
     // Ensure subscriptions are loaded (for direct access to userSubs/bangumiSubs)

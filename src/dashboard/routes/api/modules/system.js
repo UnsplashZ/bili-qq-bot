@@ -1,15 +1,17 @@
 const express = require('express')
 const si = require('systeminformation')
 const logger = require('../../../../utils/logger')
+const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
 // POST /api/restart - Trigger graceful restart
 router.post('/restart', async (req, res) => {
+    dashLog(req, 'info', 'restart-requested')
     res.json({ message: 'Restarting application...' })
 
     setTimeout(() => {
-        logger.info('Restart triggered via API')
+        dashLog(req, 'info', 'restart-executing')
         process.exit(0)
     }, 1000)
 })
@@ -54,12 +56,18 @@ router.get('/monitor', async (req, res) => {
             uptime: processUptime
         }
 
+        dashLog(req, 'info', 'system-monitor-fetched', {
+            cpuPct: Number(cpu.currentLoad).toFixed(1),
+            memoryUsed: mem.active,
+            memoryTotal: mem.total
+        })
         res.json(stats)
     } catch (error) {
-        logger.error('Error fetching system stats:', error)
+        dashLog(req, 'error', 'system-monitor-failed', {
+            error: logger.getErrorMessage(error)
+        })
         res.status(500).json({ error: 'Failed to fetch system stats' })
     }
 })
 
 module.exports = router
-

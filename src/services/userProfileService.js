@@ -7,6 +7,10 @@ const config = require('../config')
 const { asyncWriteWithBackup } = require('../utils/storageUtils')
 const { getAxiosProxyConfig } = require('../utils/proxyUtils')
 
+function storeLog(level, message, fields = {}) {
+    logger.logEvent(level, 'STORE', 'svc:profile', message, fields)
+}
+
 class UserProfileService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'profiles')
@@ -21,7 +25,9 @@ class UserProfileService {
         try {
             await fs.mkdir(this.dataDir, { recursive: true })
         } catch (e) {
-            logger.error('[UserProfile] Failed to create profiles dir:', e)
+            storeLog('error', 'profile-dir-create-failed', {
+                error: logger.getErrorMessage(e)
+            })
         }
     }
 
@@ -60,14 +66,24 @@ class UserProfileService {
     _saveGroupProfilesDebounced(groupId) {
         const { safeGroupId, resolvedPath } = this._profilePath(groupId)
         if (this.saveTimers.has(safeGroupId)) clearTimeout(this.saveTimers.get(safeGroupId))
+        storeLog('info', 'profile-save-queued', {
+            groupId: safeGroupId
+        })
         this.saveTimers.set(safeGroupId, setTimeout(async () => {
             this.saveTimers.delete(safeGroupId)
             const data = this.profiles.get(safeGroupId)
             if (!data) return
             try {
                 await asyncWriteWithBackup(resolvedPath, data)
+                storeLog('info', 'profile-saved', {
+                    groupId: safeGroupId,
+                    userCount: Object.keys(data).length
+                })
             } catch (e) {
-                logger.error(`[UserProfile] Failed to save profiles for ${safeGroupId}:`, e)
+                storeLog('error', 'profile-save-failed', {
+                    groupId: safeGroupId,
+                    error: logger.getErrorMessage(e)
+                })
             }
         }, 500))
     }
@@ -121,12 +137,19 @@ class UserProfileService {
         // 并发控制：防止同一用户短时间多次触发 LLM 重复生成
         const pendingKey = `${safeGroupId}:${String(userId)}`
         if (this._pendingUpdates.has(pendingKey)) {
-            logger.debug(`[UserProfile] Profile generation already in progress for user ${userId} in group ${safeGroupId}, skipping`)
+            storeLog('debug', 'profile-generate-skipped', {
+                groupId: safeGroupId,
+                userId: String(userId),
+                reason: 'already_in_progress'
+            })
             return
         }
         this._pendingUpdates.add(pendingKey)
         try {
-            logger.info(`[UserProfile] Generating profile for user ${userId} in group ${safeGroupId}`)
+            storeLog('info', 'profile-generate-start', {
+                groupId: safeGroupId,
+                userId: String(userId)
+            })
             await this._generateProfile(safeGroupId, userId, userName, entry, contextService, vectorMemoryService)
         } finally {
             this._pendingUpdates.delete(pendingKey)
@@ -150,7 +173,11 @@ class UserProfileService {
                     }
                 }
             } catch (e) {
-                logger.warn('[UserProfile] Failed to fetch vector memories for profile:', e)
+                storeLog('warn', 'profile-memory-fetch-failed', {
+                    groupId,
+                    userId: String(userId),
+                    error: logger.getErrorMessage(e)
+                })
             }
         }
 
@@ -158,7 +185,11 @@ class UserProfileService {
         const recent = messages.slice(-100)
 
         if (recent.length === 0) {
-            logger.warn(`[UserProfile] No messages found for user ${userId} in group ${groupId}, skipping profile generation`)
+            storeLog('warn', 'profile-generate-skipped', {
+                groupId,
+                userId: String(userId),
+                reason: 'no_messages'
+            })
             return
         }
 
@@ -211,7 +242,10 @@ class UserProfileService {
 
             const newProfile = response.data?.choices?.[0]?.message?.content?.trim()
             if (!newProfile) {
-                logger.warn('[UserProfile] LLM returned empty profile content')
+                storeLog('warn', 'profile-generate-empty', {
+                    groupId,
+                    userId: String(userId)
+                })
                 return
             }
 
@@ -222,10 +256,17 @@ class UserProfileService {
                 profiles[userId].lastUpdated = Date.now()
                 profiles[userId].messagesSinceUpdate = 0
                 this._saveGroupProfilesDebounced(groupId)
-                logger.info(`[UserProfile] Profile updated for user ${userId} in group ${groupId}`)
+                storeLog('info', 'profile-updated', {
+                    groupId,
+                    userId: String(userId)
+                })
             }
         } catch (e) {
-            logger.error('[UserProfile] LLM call failed during profile generation:', e)
+            storeLog('error', 'profile-generate-failed', {
+                groupId,
+                userId: String(userId),
+                error: logger.getErrorMessage(e)
+            })
         }
     }
 

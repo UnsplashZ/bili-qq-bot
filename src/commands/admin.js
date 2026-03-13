@@ -3,6 +3,10 @@ const logger = require('../utils/logger');
 const subscriptionService = require('../services/subscriptionService');
 const notificationService = require('../services/notificationService');
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:admin', message, fields);
+}
+
 class AdminCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
@@ -106,7 +110,9 @@ class AdminCommand {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'AdminCommand', true);
         } else {
-            logger.warn('[AdminCommand] Cannot send message: no groupId or userId provided');
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 }

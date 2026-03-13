@@ -1,6 +1,8 @@
 const serviceManager = require('./ServiceManager');
 const cacheManager = require('../utils/cacheManager');
 const axios = require('axios');
+const logger = require('../utils/logger');
+const BILI_API_SCOPE = logger.createScope('svc', 'bili-api')
 
 class BiliApi {
     _resolveCacheBehavior(cacheOptions) {
@@ -90,8 +92,13 @@ class BiliApi {
             const response = await axios.post(url, payload, { timeout: 5 * 60 * 1000 })
             return response.data
         } catch (error) {
-            const logger = require('../utils/logger')
-            logger.error(`[BiliApi] downloadVideo failed for ${bvid}:`, error.message)
+            logger.logEvent('error', 'RPC', BILI_API_SCOPE, 'video-download-failed', {
+                bvid,
+                pageIndex,
+                resolution,
+                groupId,
+                error: logger.getErrorMessage(error)
+            })
             return { status: 'error', message: error.message }
         }
     }

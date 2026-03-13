@@ -4,6 +4,7 @@ import time
 from bilibili_api import user, video
 
 from ..auth.credential_store import load_credential
+from ..logging_utils import service_log
 from ..media.image_focus import get_image_focus_color
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,13 @@ async def _fetch_owner_official_verify(owner_mid, group_id):
         up_info = await up.get_user_info()
         official_verify = _normalize_official_verify(up_info)
     except Exception as e:
-        logger.warning(
-            "Failed to fetch owner official verify for mid=%s: %s", owner_mid, e
+        service_log(
+            logger,
+            "warn",
+            "owner-official-verify-fetch-failed",
+            ownerMid=str(owner_mid),
+            groupId=group_id,
+            error=str(e),
         )
 
     _set_cached_official_verify(owner_mid, official_verify)
@@ -82,6 +88,7 @@ async def _fetch_owner_official_verify(owner_mid, group_id):
 
 async def get_video_info(bvid, group_id=None):
     try:
+        service_log(logger, "info", "fetch-video-info", bvid=bvid, groupId=group_id)
         if str(bvid).lower().startswith("av"):
             aid = int(str(bvid)[2:])
             v = video.Video(aid=aid, credential=load_credential(group_id))
@@ -102,8 +109,10 @@ async def get_video_info(bvid, group_id=None):
         cover_focus = await get_image_focus_color(cover_url)
         avatar_focus = await get_image_focus_color(avatar_url)
         info["focus"] = {"cover": cover_focus, "avatar": avatar_focus}
+        service_log(logger, "info", "video-info-ready", bvid=bvid, ownerMid=owner_mid)
         return {"status": "success", "type": "video", "data": info}
     except Exception as e:
+        service_log(logger, "error", "fetch-video-info-failed", bvid=bvid, error=str(e))
         if str(e) != "'data'":
             import traceback
 

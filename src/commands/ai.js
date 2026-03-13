@@ -4,6 +4,10 @@ const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const { normalizeAiContextLimit, normalizeAiConfigField, AiConfigValidationError } = require('../services/ai/validation');
 
+function commandLog(level, message, fields = {}) {
+    logger.logEvent(level, 'BOT', 'cmd:ai', message, fields);
+}
+
 class AiCommand {
     async handle(context) {
         const { ws, groupId, userId, rawMessage } = context;
@@ -23,7 +27,10 @@ class AiCommand {
                     const base64Image = await imageGenerator.generateAIHelpCard(groupId);
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
                 } catch (error) {
-                    logger.error('[AiCommand] AI help card generation failed:', error);
+                    commandLog('error', 'ai-help-card-generate-failed', {
+                        error: logger.getErrorMessage(error),
+                        groupId
+                    });
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '帮助卡片生成失败，请稍后重试。' } }]);
                 }
                 return true;
@@ -221,7 +228,9 @@ class AiCommand {
         } else if (userId) {
             notificationService.sendPrivateMessage(ws, userId, messageChain, 'AiCommand', true);
         } else {
-            logger.warn('[AiCommand] Cannot send message: no groupId or userId provided');
+            commandLog('warn', 'send-skipped', {
+                reason: 'missing_target'
+            });
         }
     }
 }

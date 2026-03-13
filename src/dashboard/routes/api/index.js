@@ -1,5 +1,6 @@
 const express = require('express')
 const authenticateToken = require('../../middleware/auth')
+const logger = require('../../../utils/logger')
 
 const authRoutes = require('./modules/auth')
 const configRoutes = require('./modules/config')
@@ -15,6 +16,22 @@ const systemRoutes = require('./modules/system')
 const profilesRoutes = require('./modules/profiles')
 
 const router = express.Router()
+
+router.use((req, res, next) => {
+    req.logScope = req.logScope || logger.createScope('req', Date.now(), Math.random().toString(36).slice(2, 8))
+    logger.logEvent('info', 'HTTP', req.logScope, 'recv', {
+        method: req.method,
+        path: req.path
+    })
+    res.on('finish', () => {
+        logger.logEvent(res.statusCode >= 400 ? 'warn' : 'info', 'HTTP', req.logScope, 'done', {
+            method: req.method,
+            path: req.path,
+            status: res.statusCode
+        })
+    })
+    next()
+})
 
 // Public routes
 router.use(authRoutes)
@@ -34,4 +51,3 @@ router.use(systemRoutes)
 router.use(profilesRoutes)
 
 module.exports = router
-

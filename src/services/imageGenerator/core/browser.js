@@ -2,6 +2,10 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const logger = require('../../../utils/logger');
 
+function browserLog(level, message, fields = {}, scope = 'svc:browser') {
+    logger.logEvent(level, 'SERVICE', scope, message, fields);
+}
+
 function resolveBrowserExecutablePath() {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
         return process.env.PUPPETEER_EXECUTABLE_PATH
@@ -66,7 +70,7 @@ class BrowserManager {
                 // 清理未被追踪的页面（可能是泄漏的页面）
                 for (const page of browserPages) {
                     if (!trackedPages.includes(page) && !page.isClosed()) {
-                        logger.warn('Detected untracked page, closing...');
+                        browserLog('warn', 'untracked-page-detected');
                         await this.closePage(page);
                     }
                 }
@@ -74,10 +78,14 @@ class BrowserManager {
                 // 清理状态
                 const poolSize = this.pagePool.size;
                 if (poolSize > 0) {
-                    logger.debug(`Page pool status: ${poolSize} active pages`);
+                    browserLog('debug', 'page-pool-status', {
+                        activePages: poolSize
+                    });
                 }
             } catch (error) {
-                logger.error('Error during cleanup monitor:', error);
+                browserLog('error', 'cleanup-monitor-failed', {
+                    error: logger.getErrorMessage(error)
+                });
             }
         }, 60000); // 每分钟执行一次
     }
@@ -93,7 +101,9 @@ class BrowserManager {
 
         this.idleMonitorInterval = setInterval(() => {
             this.checkAndCloseIdleBrowser().catch((error) => {
-                logger.error('Error during idle browser check:', error);
+                browserLog('error', 'idle-browser-check-failed', {
+                    error: logger.getErrorMessage(error)
+                });
             });
         }, this.idleCheckIntervalMs);
     }
@@ -104,7 +114,9 @@ class BrowserManager {
     markRequestStart() {
         this.lastRequestAt = Date.now();
         this.activeRenderCount += 1;
-        logger.debug(`[Browser] Render request started, active=${this.activeRenderCount}`);
+        browserLog('debug', 'render-request-started', {
+            activeRenderCount: this.activeRenderCount
+        });
     }
 
     /**
@@ -112,7 +124,9 @@ class BrowserManager {
      */
     markRequestEnd() {
         this.activeRenderCount = Math.max(0, this.activeRenderCount - 1);
-        logger.debug(`[Browser] Render request finished, active=${this.activeRenderCount}`);
+        browserLog('debug', 'render-request-finished', {
+            activeRenderCount: this.activeRenderCount
+        });
     }
 
     /**
@@ -144,7 +158,9 @@ class BrowserManager {
                 return;
             }
 
-            logger.info(`[Browser] Idle for ${Math.floor(idleMs / 1000)}s, closing Chromium process to release memory`);
+            browserLog('info', 'idle-browser-closing', {
+                idleSeconds: Math.floor(idleMs / 1000)
+            });
             await this.browser.close();
             this.browser = null;
             this.clearTrackedPageState();
@@ -179,11 +195,13 @@ class BrowserManager {
                 headless: "new",
                 protocolTimeout: 60000 // 增加协议超时时间到 60s
             });
-            logger.info(`Puppeteer browser initialized${executablePath ? ` (executable: ${executablePath})` : ''}`);
+            browserLog('info', 'browser-initialized', {
+                executablePath
+            });
             
             // 监听浏览器断开连接事件
             this.browser.on('disconnected', () => {
-                logger.warn('Puppeteer browser disconnected! Resetting instance...');
+                browserLog('warn', 'browser-disconnected');
                 this.browser = null;
                 this.clearTrackedPageState();
             });
@@ -205,7 +223,9 @@ class BrowserManager {
                 try {
                     // 如果是重试，且浏览器已断开，重新初始化
                     if (attempt > 0 && !this.browser) {
-                        logger.info(`[Browser] Re-initializing browser for retry attempt ${attempt}...`);
+                        browserLog('info', 'browser-reinitializing-for-retry', {
+                            attempt
+                        });
                         await this.init();
                     }
 
@@ -219,7 +239,10 @@ class BrowserManager {
                     );
 
                     if (isProtocolError && attempt < maxRetries) {
-                        logger.warn(`[Browser] Operation failed with protocol error (attempt ${attempt + 1}/${maxRetries + 1}). Retrying...`);
+                        browserLog('warn', 'protocol-error-retrying', {
+                            attempt: attempt + 1,
+                            maxAttempts: maxRetries + 1
+                        });
                         // 如果是协议错误，强制重置浏览器
                         if (this.browser) {
                             try {
@@ -248,7 +271,10 @@ class BrowserManager {
      */
     async waitForAvailableSlot() {
         while (this.pagePool.size >= this.maxPages) {
-            logger.warn(`Page pool full (${this.pagePool.size}/${this.maxPages}), waiting for slot...`);
+            browserLog('warn', 'page-pool-full-waiting', {
+                activePages: this.pagePool.size,
+                maxPages: this.maxPages
+            });
             await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
@@ -260,7 +286,7 @@ class BrowserManager {
     setupPageTimeout(page) {
         const timeoutId = setTimeout(async () => {
             if (!page.isClosed()) {
-                logger.warn('Page timeout reached, auto-closing...');
+                browserLog('warn', 'page-timeout-auto-closing');
                 await this.closePage(page);
             }
         }, this.pageTimeout);
@@ -310,7 +336,10 @@ class BrowserManager {
         this.pagePool.add(page);
         this.setupPageTimeout(page);
 
-        logger.debug(`Page created (${this.pagePool.size}/${this.maxPages} active)`);
+        browserLog('debug', 'page-created', {
+            activePages: this.pagePool.size,
+            maxPages: this.maxPages
+        });
 
         return page;
     }
@@ -334,9 +363,14 @@ class BrowserManager {
                 await page.close();
             }
 
-            logger.debug(`Page closed (${this.pagePool.size}/${this.maxPages} active)`);
+            browserLog('debug', 'page-closed', {
+                activePages: this.pagePool.size,
+                maxPages: this.maxPages
+            });
         } catch (error) {
-            logger.error('Error closing page:', error);
+            browserLog('error', 'page-close-failed', {
+                error: logger.getErrorMessage(error)
+            });
             // 即使出错也要从池中移除
             this.pagePool.delete(page);
         }
@@ -364,7 +398,7 @@ class BrowserManager {
      * 清理所有资源（用于程序退出时）
      */
     async cleanup() {
-        logger.info('Cleaning up browser resources...');
+        browserLog('info', 'browser-cleanup-started');
 
         // 停止清理监控
         if (this.cleanupInterval) {
@@ -391,7 +425,7 @@ class BrowserManager {
         this.activeRenderCount = 0;
         this.idleCloseInProgress = false;
 
-        logger.info('Browser resources cleaned up');
+        browserLog('info', 'browser-cleanup-finished');
     }
 }
 

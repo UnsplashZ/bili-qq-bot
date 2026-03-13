@@ -3,6 +3,8 @@ import os
 
 import bilibili_api
 
+from .logging_utils import lifecycle_log
+
 logger = logging.getLogger(__name__)
 
 CREDENTIAL_FILE = "data/cookies.json"
@@ -40,10 +42,9 @@ def configure_bilibili_api() -> None:
 
     try:
         bilibili_api.request_settings.set_enable_bili_ticket(False)
-        logger.info("bili_ticket 已禁用（避免启动时获取ticket失败）")
+        lifecycle_log(logger, "info", "bili-ticket-disabled")
     except Exception as e:
-        logger.warning(f"无法配置 bili_ticket: {e}")
+        lifecycle_log(logger, "warn", "bili-ticket-config-failed", error=str(e))
 
 
 configure_bilibili_api()
-

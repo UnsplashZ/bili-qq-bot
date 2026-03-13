@@ -16,6 +16,10 @@ const CACHE_FILE = path.join(
     'subscription_user_meta_cache.json'
 )
 
+function storeLog(level, message, fields = {}, scope = 'svc:subscription-meta-cache') {
+    logger.logEvent(level, 'STORE', scope, message, fields)
+}
+
 function normalizeUid(uid) {
     const value = String(uid || '').trim()
     return /^\d+$/.test(value) ? value : ''
@@ -194,7 +198,9 @@ class SubscriptionUserMetaCacheService {
                 try {
                     await this._saveNow()
                 } catch (error) {
-                    logger.error('[SubscriptionUserMetaCache] Failed to save cache:', error)
+                    storeLog('error', 'cache-save-failed', {
+                        error: logger.getErrorMessage(error)
+                    })
                 } finally {
                     resolve()
                 }

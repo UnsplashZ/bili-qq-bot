@@ -4,6 +4,7 @@ import re
 from bilibili_api import dynamic, opus, user
 
 from ..auth.credential_store import load_credential
+from ..logging_utils import service_log
 from ..media.image_focus import get_image_focus_color
 from ..media.opus_enricher import (
     count_image_placeholders,
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def get_user_dynamic(uid, group_id=None):
     try:
+        service_log(logger, "info", "fetch-user-dynamic", uid=uid, groupId=group_id)
         u = user.User(uid=int(uid), credential=load_credential(group_id))
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and "items" in dynamics and len(dynamics["items"]) > 0:
@@ -115,8 +117,11 @@ async def get_user_dynamic(uid, group_id=None):
                                     "rich_text_nodes", []
                                 ),
                             }
-                            logger.debug(
-                                f"[get_user_dynamic] Dynamic {item.get('id_str')}: Extracted desc from opus.summary"
+                            service_log(
+                                logger,
+                                "debug",
+                                "dynamic-desc-extracted-from-opus-summary",
+                                dynamicId=item.get("id_str"),
                             )
 
                     topic_added = False
@@ -154,11 +159,21 @@ async def get_user_dynamic(uid, group_id=None):
                                     desc["rich_text_nodes"].insert(0, topic_node)
 
                                 topic_added = True
-                                logger.debug(
-                                    f"[get_user_dynamic] Dynamic {item.get('id_str')}: Added topic '{topic_name}' from topic field"
+                                service_log(
+                                    logger,
+                                    "debug",
+                                    "dynamic-topic-added-from-topic-field",
+                                    dynamicId=item.get("id_str"),
+                                    topic=topic_name,
                                 )
                     except Exception as e:
-                        logger.warning(f"[get_user_dynamic] Failed to process topic: {e}")
+                        service_log(
+                            logger,
+                            "warn",
+                            "dynamic-topic-process-failed",
+                            dynamicId=item.get("id_str"),
+                            error=str(e),
+                        )
 
                     if not topic_added:
                         desc_text = (module_dynamic.get("desc") or {}).get("text", "")
@@ -171,8 +186,11 @@ async def get_user_dynamic(uid, group_id=None):
                                         "rich_text_nodes": [],
                                     }
                                 module_dynamic["desc"]["text"] = fixed_text
-                                logger.debug(
-                                    f"[get_user_dynamic] Dynamic {item.get('id_str')}: Fixed topic formatting"
+                                service_log(
+                                    logger,
+                                    "debug",
+                                    "dynamic-topic-format-fixed",
+                                    dynamicId=item.get("id_str"),
                                 )
 
                 desc = {
@@ -204,9 +222,12 @@ async def get_user_dynamic(uid, group_id=None):
                     }
                 )
 
+            service_log(logger, "info", "user-dynamic-ready", uid=uid, count=len(result_items))
             return {"status": "success", "data": {"cards": result_items}}
+        service_log(logger, "warn", "user-dynamic-ready", uid=uid, count=0)
         return {"status": "success", "data": {"cards": []}}
     except Exception as e:
+        service_log(logger, "error", "fetch-user-dynamic-failed", uid=uid, error=str(e))
         import traceback
 
         traceback.print_exc()
@@ -215,6 +236,7 @@ async def get_user_dynamic(uid, group_id=None):
 
 async def get_dynamic_detail(dynamic_id, group_id=None):
     try:
+        service_log(logger, "info", "fetch-dynamic-detail", dynamicId=dynamic_id, groupId=group_id)
         d = dynamic.Dynamic(int(dynamic_id), credential=load_credential(group_id))
         info = await d.get_info()
 
@@ -509,8 +531,13 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                         md["desc"]["rich_text_nodes"] = []
                     elif not isinstance(existing_nodes, list):
                         md["desc"]["rich_text_nodes"] = []
-                    logger.debug(
-                        f"[get_dynamic_detail] Dynamic {dynamic_id}: desc enriched from {candidate_source}, len={len(candidate_text)}"
+                    service_log(
+                        logger,
+                        "debug",
+                        "dynamic-desc-enriched",
+                        dynamicId=dynamic_id,
+                        source=candidate_source,
+                        length=len(candidate_text),
                     )
 
                 if "opus" in major:
@@ -531,14 +558,19 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             item["modules"] = item_modules
             info["item"] = item
         except Exception as e:
-            logger.warning(
-                f"[get_dynamic_detail] Failed to enrich opus/article content for dynamic {dynamic_id}: {e}"
+            service_log(
+                logger,
+                "warn",
+                "dynamic-opus-article-enrich-failed",
+                dynamicId=dynamic_id,
+                error=str(e),
             )
 
+        service_log(logger, "info", "dynamic-detail-ready", dynamicId=dynamic_id)
         return {"status": "success", "type": "dynamic", "data": info}
     except Exception as e:
+        service_log(logger, "error", "fetch-dynamic-detail-failed", dynamicId=dynamic_id, error=str(e))
         import traceback
 
         error_detail = traceback.format_exc()
         return {"status": "error", "message": str(e), "detail": error_detail}
-

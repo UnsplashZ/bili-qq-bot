@@ -1,5 +1,9 @@
 const { subscriptionManager, config, logger } = require('../adapters/deps')
 
+function subLog(level, message, fields = {}, scope = 'svc:lifecycle') {
+    logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
 module.exports = {
     setWs(ws) {
         this.ws = ws
@@ -17,7 +21,7 @@ module.exports = {
         // 🆕 先停止现有定时器，防止泄漏
         this.stop()
 
-        logger.info('[UpdateChecker] Starting subscription checker', {
+        subLog('info', 'checker-started', {
             checkInterval: `${this.checkInterval / 1000}s`,
             syncInterval: `${this.syncInterval / 1000}s`,
             skipInitialDelay
@@ -47,22 +51,28 @@ module.exports = {
 
         // 5. Cookie 自动刷新：Bot 启动时立即检查，之后每24小时一次
         this.checkAndRefreshCredential().catch(e => {
-            logger.error('[UpdateChecker] Unexpected error in credential refresh:', e)
+            subLog('error', 'credential-refresh-failed', {
+                error: logger.getErrorMessage(e)
+            })
         })
         this.credentialRefreshTimer = setInterval(
             () => {
                 this.checkAndRefreshCredential().catch(e => {
-                    logger.error('[UpdateChecker] Unexpected error in credential refresh:', e)
+                    subLog('error', 'credential-refresh-failed', {
+                        error: logger.getErrorMessage(e)
+                    })
                 })
             },
             this.CREDENTIAL_REFRESH_INTERVAL
         )
 
         this.warmupGroupAtAllCapabilities(true).catch(e => {
-            logger.error('[UpdateChecker] Failed to warmup @all capabilities:', e)
+            subLog('error', 'at-all-warmup-failed', {
+                error: logger.getErrorMessage(e)
+            })
         })
 
-        logger.info('[UpdateChecker] All timers started successfully')
+        subLog('info', 'checker-ready')
     },
 
     /**
@@ -102,7 +112,9 @@ module.exports = {
         }
 
         if (clearedCount > 0) {
-            logger.info(`[UpdateChecker] Stopped subscription checker, cleared ${clearedCount} timers`)
+            subLog('info', 'checker-stopped', {
+                clearedCount
+            })
         }
     },
 
@@ -110,7 +122,7 @@ module.exports = {
      * 🆕 重启订阅检查器（先停止再启动）
      */
     restart() {
-        logger.info('[UpdateChecker] Restarting subscription checker...')
+        subLog('info', 'checker-restarting')
         this.stop()
         this.start(true) // Skip initial delay on restart
     },
@@ -144,11 +156,14 @@ module.exports = {
 
     async checkAll() {
         if (this._checkAllInFlight) {
-            logger.warn('[UpdateChecker] Scheduled check skipped: previous check is still running')
+            subLog('warn', 'cycle-skipped', {
+                reason: 'already_running'
+            })
             return
         }
         this._checkAllInFlight = true
-        logger.info('[UpdateChecker] Starting scheduled check...')
+        const pollScope = logger.createScope('poll', Date.now(), Math.random().toString(36).slice(2, 8))
+        logger.logEvent('info', 'SUB', pollScope, 'cycle-start', {})
         try {
             // Ensure subscriptions are loaded before checking
             await subscriptionManager._ensureSubscriptionsLoaded()
@@ -192,7 +207,10 @@ module.exports = {
                 tryAddActiveGroup(gid)
             }
 
-            logger.debug(`[UpdateChecker] Active groups: ${activeGroups.size} of ${Object.keys(groupConfigs).length} total`)
+            subLog('debug', 'active-groups-ready', {
+                activeGroupCount: activeGroups.size,
+                totalGroupCount: Object.keys(groupConfigs).length
+            }, pollScope)
 
             // Prepare split coverage sets for feed checks (dynamic/live are independent)
             const feedCoverage = {
@@ -203,7 +221,10 @@ module.exports = {
             // 1. Check Feed Updates (Cookie Sync)
             // This will populate feedCoverage with UIDs covered by feed checks
             await this.checkFeedUpdate(feedCoverage, activeGroups)
-            logger.debug(`[UpdateChecker] Feed coverage: dynamic=${feedCoverage.dynamicUids.size}, live=${feedCoverage.liveUids.size}`)
+            subLog('debug', 'feed-coverage-ready', {
+                dynamicCount: feedCoverage.dynamicUids.size,
+                liveCount: feedCoverage.liveUids.size
+            }, pollScope)
 
             // 2. Check User Dynamics (Manual Subs)
             for (const sub of subscriptionManager.userSubs) {
@@ -215,10 +236,17 @@ module.exports = {
                 // Filter out inactive groups
                 const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid))
                 if (targetGroups.length === 0) {
-                    logger.debug(`[UpdateChecker] Skipped dynamic check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`)
+                    subLog('debug', 'dynamic-check-skipped', {
+                        uid: sub.uid,
+                        reason: 'no_active_groups'
+                    }, logger.createScope('sub', 'user', sub.uid))
                     continue
                 }
 
+                logger.logEvent('info', 'SUB', logger.createScope('sub', 'user', sub.uid), 'dynamic-check', {
+                    pollScope,
+                    groupCount: targetGroups.length
+                })
                 await this.checkUserDynamic(sub, targetGroups)
                 // Small delay to be nice to API
                 await new Promise(r => setTimeout(r, 1000))
@@ -226,19 +254,28 @@ module.exports = {
 
             // 3. Build unified user check list (Manual Subs + Cookie Sync)
             const userCheckList = this.buildUserCheckList(activeGroups)
-            logger.info(`[UpdateChecker] Built unified user check list: ${userCheckList.length} users (manual: ${subscriptionManager.userSubs.length}, after merge)`)
+            logger.logEvent('info', 'SUB', pollScope, 'user-check-list-ready', {
+                totalUsers: userCheckList.length,
+                manualUsers: subscriptionManager.userSubs.length
+            })
 
             // 4. Check User Videos (Manual Subs + Cookie Sync)
-            logger.info('[UpdateChecker] Checking user videos (unified)...')
             for (const userItem of userCheckList) {
+                logger.logEvent('info', 'SUB', logger.createScope('sub', 'user', userItem.uid), 'video-check', {
+                    pollScope,
+                    groupCount: Array.isArray(userItem.targetGroups) ? userItem.targetGroups.length : 0
+                })
                 await this.checkUserVideoUnified(userItem)
                 // Slightly longer delay for video API
                 await new Promise(r => setTimeout(r, 1500))
             }
 
             // 5. Check User Articles (Manual Subs + Cookie Sync)
-            logger.info('[UpdateChecker] Checking user articles (unified)...')
             for (const userItem of userCheckList) {
+                logger.logEvent('info', 'SUB', logger.createScope('sub', 'user', userItem.uid), 'article-check', {
+                    pollScope,
+                    groupCount: Array.isArray(userItem.targetGroups) ? userItem.targetGroups.length : 0
+                })
                 await this.checkUserArticleUnified(userItem)
                 // Slightly longer delay for article API
                 await new Promise(r => setTimeout(r, 1500))
@@ -254,10 +291,17 @@ module.exports = {
                 // Filter out inactive groups
                 const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid))
                 if (targetGroups.length === 0) {
-                    logger.debug(`[UpdateChecker] Skipped live check for UID ${sub.uid} (${sub.name}): all subscribed groups have left`)
+                    subLog('debug', 'live-check-skipped', {
+                        uid: sub.uid,
+                        reason: 'no_active_groups'
+                    }, logger.createScope('sub', 'user', sub.uid))
                     continue
                 }
 
+                logger.logEvent('info', 'SUB', logger.createScope('sub', 'user', sub.uid), 'live-check', {
+                    pollScope,
+                    groupCount: targetGroups.length
+                })
                 await this.checkUserLive(sub, targetGroups)
                 await new Promise(r => setTimeout(r, 1000))
             }
@@ -267,10 +311,17 @@ module.exports = {
                 // Filter out inactive groups
                 const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid))
                 if (targetGroups.length === 0) {
-                    logger.debug(`[UpdateChecker] Skipped bangumi check for ${sub.seasonId} (${sub.title}): all subscribed groups have left`)
+                    subLog('debug', 'bangumi-check-skipped', {
+                        seasonId: sub.seasonId,
+                        reason: 'no_active_groups'
+                    }, logger.createScope('sub', 'bangumi', sub.seasonId))
                     continue
                 }
 
+                logger.logEvent('info', 'SUB', logger.createScope('sub', 'bangumi', sub.seasonId), 'bangumi-check', {
+                    pollScope,
+                    groupCount: targetGroups.length
+                })
                 await this.checkBangumi(sub, targetGroups)
                 await new Promise(r => setTimeout(r, 1000))
             }
@@ -278,15 +329,20 @@ module.exports = {
             // 8. Refresh missing names (maintenance)
             await this.refreshMissingNames()
         } catch (error) {
-            logger.error('[UpdateChecker] Scheduled check failed:', error)
+            subLog('error', 'cycle-failed', {
+                error: logger.getErrorMessage(error)
+            }, pollScope)
         } finally {
             try {
                 if (typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
                     await subscriptionManager.flushPendingFollowerSaves()
                 }
             } catch (flushError) {
-                logger.error('[UpdateChecker] Failed to flush pending follower saves after scheduled check:', flushError)
+                subLog('error', 'pending-save-flush-failed', {
+                    error: logger.getErrorMessage(flushError)
+                }, pollScope)
             }
+            logger.logEvent('info', 'SUB', pollScope, 'cycle-done', {})
             this._checkAllInFlight = false
         }
     }
