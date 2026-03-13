@@ -14,6 +14,8 @@
 - [💬 指令列表](#指令列表)
 - [🛠️ 其他部署方式](#其他部署方式)
 - [📂 项目结构](#项目结构)
+- [📝 日志标签说明](#日志标签说明)
+- [🎛️ 日志显示控制](#日志显示控制)
 - [❓ 常见问题](#常见问题-faq)
 - [🙏 致谢](#致谢-acknowledgments)
 - [⚠️ 免责声明](#免责声明)
@@ -508,6 +510,137 @@ npm run build   # 生产构建，输出至 dashboard/dist
         *   `web/`: 路由与 HTTP handlers
         *   `services/`: 按业务域拆分的 B 站能力实现
         *   `auth/` / `media/` / `download/`: 凭证、媒体工具、下载子系统
+
+</details>
+
+## 日志标签说明
+
+<details>
+<summary><b>展开查看日志等级、Channel、Scope 与常见动作说明</b></summary>
+
+### 1. 等级标签
+
+| 标签 | 含义 |
+| :--- | :--- |
+| `TRC` | 超细调试 |
+| `DBG` | 调试信息 |
+| `INF` | 正常关键流程 |
+| `WRN` | 可恢复异常、降级、跳过 |
+| `ERR` | 明确失败 |
+| `FTL` | 致命错误 |
+
+### 2. Channel 标签
+
+| 标签 | 含义 |
+| :--- | :--- |
+| `BOT` | 机器人主进程、NapCat WebSocket、消息入口、命令入口 |
+| `LINK` | B 站链接识别、取数、卡片生成、降级 |
+| `AI` | AI 主链路、上下文、RAG、工具调用、回复生成 |
+| `SUB` | 订阅轮询、订阅项检查、状态推进 |
+| `SEND` | 消息发送、图片/视频发送、下载投递 |
+| `DASH` | Dashboard 后端业务操作 |
+| `AUTH` | 登录、JWT、CSRF、Cookie/凭证刷新 |
+| `STORE` | 配置、缓存、持久化、画像、审批等存储相关 |
+| `MCP` | MCP 服务初始化、工具调用、清理 |
+| `RPC` | Node 和 Python 之间的一次请求调用 |
+| `PY` | Python 服务生命周期和桥接日志 |
+| `HTTP` | Dashboard 或 Python 服务的 HTTP 请求摘要 |
+| `SERVICE` | Python 内部业务步骤，或少量 Node 基础服务步骤 |
+
+### 3. Scope 标签
+
+方括号中的内容表示这条日志属于哪条链路。
+
+| 标签示例 | 含义 |
+| :--- | :--- |
+| `[svc:lifecycle]` | 服务生命周期，如启动、停止、重连 |
+| `[msg:群号:用户号:消息ID]` | 一条 QQ 消息主链路 |
+| `[req:xxxxxx]` | 一次 HTTP / RPC 请求链路 |
+| `[sub:...]` | 某个订阅对象 |
+| `[poll:...]` | 某次订阅轮询周期 |
+| `[py:stdout]` / `[py:stderr]` | 未被结构化桥接的 Python 原始输出 |
+
+### 4. 常见动作名
+
+| 动作 | 含义 |
+| :--- | :--- |
+| `recv` | 收到请求 / 消息 |
+| `start` / `done` / `fail` | 开始 / 完成 / 失败 |
+| `card-ready` | 预览卡片已生成 |
+| `fallback-text` | 降级为纯文本 |
+| `login-succeeded` | 登录成功 |
+| `tool-start` / `tool-done` | AI 工具调用开始 / 结束 |
+
+### 5. 字段说明
+
+动作名后的 `key=value` 是关键摘要字段，常见如：
+
+- `groupId=...`
+- `userId=...`
+- `bvid=...`
+- `dynamicId=...`
+- `duration=842ms`
+- `status=success`
+- `error=timeout`
+
+日志示例：
+
+```text
+INF LINK     [msg:1000:2:555] card-ready requestId=LH-... linkType=video linkId=BV... url=https://...
+```
+
+含义：
+- `INF`：正常流程
+- `LINK`：链接处理链路
+- `[msg:1000:2:555]`：来自群 `1000` 用户 `2` 的消息 `555`
+- `card-ready`：卡片已准备好
+- 后面的字段是这次动作的关键参数
+
+</details>
+
+## 日志显示控制
+
+<details>
+<summary><b>展开查看 docker logs / WebUI 日志显示相关配置</b></summary>
+
+### 1. 环境变量
+
+| 变量 | 默认值 | 作用 |
+| :--- | :--- | :--- |
+| `LOG_LEVEL` | `info` | 终端最低显示等级，支持 `trace/debug/info/warn/error/fatal` |
+| `LOG_CHANNELS` | 空 | 仅显示指定 Channel，多个值用逗号分隔 |
+| `LOG_EXCLUDE_CHANNELS` | 空 | 排除指定 Channel，多个值用逗号分隔 |
+| `LOG_COLOR` | `true` | 是否启用终端 ANSI 颜色 |
+| `LOG_TIMESTAMP` | `true` | 是否显示完整时间戳，格式固定为 `yyyy/mm/dd hh:mm:ss` |
+| `LOG_PRETTY` | `true` | 是否使用人眼可读的单行摘要格式 |
+| `LOG_STACKS` | `error` | 控制堆栈输出，支持 `off/error/all` |
+| `LOG_BUFFER_SIZE` | `2000` | WebUI 日志页内存缓存条数上限 |
+
+### 2. 常见 docker logs 调试组合
+
+只看警告和错误，并排除 HTTP 请求摘要：
+
+```env
+LOG_LEVEL=warn
+LOG_EXCLUDE_CHANNELS=HTTP
+LOG_COLOR=true
+LOG_TIMESTAMP=true
+```
+
+排查 Node 与 Python 之间的调用链，只保留 `RPC/PY/AUTH`：
+
+```env
+LOG_LEVEL=debug
+LOG_CHANNELS=RPC,PY,AUTH
+LOG_COLOR=true
+LOG_TIMESTAMP=true
+```
+
+### 3. 设计说明
+
+- 终端 / `docker logs` 的等级与 Channel 过滤在 `src/utils/logger.js` 生效。
+- WebUI 日志页会先读取后端 ring buffer 的最近日志，再接入实时 WebSocket，因此刷新页面不会丢失全部日志。
+- `LOG_STACKS=error` 时，仅错误级别日志会展开多行堆栈；普通摘要日志仍保持单行。
 
 </details>
 

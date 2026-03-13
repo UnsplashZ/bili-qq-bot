@@ -18,6 +18,11 @@ const LEVEL_MAP = {
     CRITICAL: 'fatal',
     FATAL: 'fatal'
 };
+const SUCCESS_STATUSES = new Set(['success', 'ok']);
+const PYTHON_STDOUT_IGNORE_PATTERNS = [
+    /^=+\s+Running on http:\/\/.+\s+=+$/,
+    /^\(Press CTRL\+C to quit\)$/
+];
 
 class ServiceManager {
     constructor() {
@@ -202,7 +207,8 @@ class ServiceManager {
         try {
             const response = await axios.post(url, data, requestOptions);
             const status = response?.data?.status || response?.status || 'unknown';
-            const level = status === 'success' ? 'info' : 'warn';
+            const normalizedStatus = String(status).toLowerCase();
+            const level = SUCCESS_STATUSES.has(normalizedStatus) ? 'info' : 'warn';
             logger.logEvent(level, 'RPC', `req:${reqId}`, 'done', {
                 ...logFields,
                 status,
@@ -338,6 +344,10 @@ class ServiceManager {
     handlePythonLine(streamName, line) {
         if (!line) return;
 
+        if (streamName === 'stdout' && this.shouldIgnorePythonStdout(line)) {
+            return;
+        }
+
         if (line.startsWith(PY_LOG_BRIDGE_PREFIX)) {
             try {
                 const payload = JSON.parse(line.slice(PY_LOG_BRIDGE_PREFIX.length));
@@ -364,6 +374,10 @@ class ServiceManager {
         }
 
         logger.logEvent(streamName === 'stderr' ? 'error' : 'info', 'PY', `py:${streamName}`, line);
+    }
+
+    shouldIgnorePythonStdout(line) {
+        return PYTHON_STDOUT_IGNORE_PATTERNS.some((pattern) => pattern.test(String(line || '').trim()));
     }
 
     parsePythonLine(line) {

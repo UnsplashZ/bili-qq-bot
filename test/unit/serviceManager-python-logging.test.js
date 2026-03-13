@@ -100,6 +100,42 @@ async function testSendCommandEmitsUnifiedRpcFailLogs() {
     }
 }
 
+async function testSendCommandTreatsOkStatusAsInfo() {
+    const { logs, off } = collectLogs()
+    try {
+        serviceManager.process = { pid: 1 }
+        serviceManager.start = async () => {
+            throw new Error('start should not be called when process already exists')
+        }
+
+        axios.post = async () => ({
+            data: { status: 'ok', refreshed: true }
+        })
+
+        await serviceManager.sendCommand('refresh_credential', {})
+
+        const doneLine = logs.find((line) => line.includes('RPC') && line.includes('done') && line.includes('refresh_credential'))
+        assert.ok(doneLine, 'refresh_credential 应输出 RPC done 日志')
+        assert.ok(doneLine.includes('INF') && doneLine.includes('RPC'), 'status=ok 应被视为成功而不是 warn')
+        assert.ok(doneLine.includes('status=ok'), 'RPC done 日志应保留原始 status 字段')
+    } finally {
+        off()
+        restore()
+    }
+}
+
+function testHandlePythonLineFiltersStartupBanner() {
+    const { logs, off } = collectLogs()
+    try {
+        serviceManager.handlePythonLine('stdout', '======== Running on http://127.0.0.1:10001 ========')
+        serviceManager.handlePythonLine('stdout', '(Press CTRL+C to quit)')
+
+        assert.strictEqual(logs.length, 0, 'Python 启动 banner 不应再透传到统一日志流')
+    } finally {
+        off()
+    }
+}
+
 function testIdleCheckIntervalDoesNotHoldEventLoop() {
     assert.ok(serviceManager.idleCheckInterval, '应创建空闲巡检定时器')
     assert.strictEqual(
@@ -116,7 +152,9 @@ function testIdleCheckIntervalDoesNotHoldEventLoop() {
 
 async function run() {
     testIdleCheckIntervalDoesNotHoldEventLoop()
+    testHandlePythonLineFiltersStartupBanner()
     await testSendCommandEmitsUnifiedRpcStartAndDoneLogs()
+    await testSendCommandTreatsOkStatusAsInfo()
     await testSendCommandEmitsUnifiedRpcFailLogs()
     console.log('PASS serviceManager-python-logging')
 }

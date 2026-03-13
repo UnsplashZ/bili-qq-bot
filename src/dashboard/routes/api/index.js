@@ -14,6 +14,7 @@ const mcpRoutes = require('./modules/mcp')
 const aiRoutes = require('./modules/ai')
 const systemRoutes = require('./modules/system')
 const profilesRoutes = require('./modules/profiles')
+const logsRoutes = require('./modules/logs')
 
 const router = express.Router()
 
@@ -49,5 +50,6 @@ router.use(mcpRoutes)
 router.use(aiRoutes)
 router.use(systemRoutes)
 router.use(profilesRoutes)
+router.use(logsRoutes)
 
 module.exports = router

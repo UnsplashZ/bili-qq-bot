@@ -4,6 +4,7 @@ const path = require('path');
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
+const { logBuffer, matchesFilters } = require('./logBuffer');
 const apiRoutes = require('./routes/api');
 const sysConfig = require('../config');
 const { csrfProtection } = require('./middleware/auth'); // 🆕 P2-2
@@ -64,6 +65,13 @@ function start(port = 3000) {
                     // Extract token from query string
                     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
                     const token = url.searchParams.get('token');
+                    ws.logFilters = {
+                        level: url.searchParams.get('level') || undefined,
+                        channels: url.searchParams.get('channels')
+                            ? url.searchParams.get('channels').split(',').map((item) => item.trim()).filter(Boolean)
+                            : undefined,
+                        keyword: url.searchParams.get('keyword') || undefined
+                    };
 
                     if (!token) {
                         logger.logEvent('warn', 'AUTH', 'svc:lifecycle', 'ws-token-missing', {});
@@ -87,9 +95,13 @@ function start(port = 3000) {
                 // Subscribe to logger if not already subscribed
                 if (!logUnsubscribe) {
                     logUnsubscribe = logger.onLog((logEvent) => {
+                        logBuffer.push(logEvent);
                         if (wss) {
                             wss.clients.forEach(client => {
                                 if (client.readyState === WebSocket.OPEN) {
+                                    if (!matchesFilters(logEvent, client.logFilters || {})) {
+                                        return;
+                                    }
                                     client.send(JSON.stringify(logEvent));
                                 }
                             });
