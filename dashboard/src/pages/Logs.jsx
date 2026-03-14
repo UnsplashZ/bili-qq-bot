@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import GlassCard from '../components/GlassCard';
-import { Terminal, Pause, Play, Trash2, ArrowDown } from 'lucide-react';
+import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
 import { useLogsStream } from './logs/useLogsStream';
-import { isNearBottom } from './logs/scrollBehavior';
+import { getBottomThreshold, getFloatingButtonMode, getScrollTargetMode, isNearBottom } from './logs/scrollBehavior';
 
 const CHANNEL_OPTIONS = ['BOT', 'LINK', 'AI', 'SUB', 'SEND', 'DASH', 'AUTH', 'STORE', 'MCP', 'RPC', 'PY', 'HTTP', 'SERVICE'];
 const LEVEL_OPTIONS = [
@@ -57,28 +57,153 @@ function getConnectionLabel(connectionState) {
 
 const Logs = () => {
   const [isPaused, setIsPaused] = useState(false);
-  const [autoFollow, setAutoFollow] = useState(true);
+  const [autoFollow, setAutoFollow] = useState(false);
+  const [hasScrollableOverflow, setHasScrollableOverflow] = useState(false);
+  const [isNearBottomPosition, setIsNearBottomPosition] = useState(false);
+  const [scrollTargetMode, setScrollTargetMode] = useState(null);
   const [filters, setFilters] = useState({
     level: 'info',
     channels: [],
     keyword: '',
   });
-  const logsEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  const autoFollowRef = useRef(autoFollow);
+  const scrollTargetModeRef = useRef(scrollTargetMode);
+  const hasMeasuredInitialLogsRef = useRef(false);
   const { logs, connectionState, clearLogs } = useLogsStream(filters, isPaused);
 
   useEffect(() => {
-    if (!isPaused && autoFollow && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    autoFollowRef.current = autoFollow;
+  }, [autoFollow]);
+
+  useEffect(() => {
+    scrollTargetModeRef.current = scrollTargetMode;
+  }, [scrollTargetMode]);
+
+  const resolveLogRowHeight = (container) => {
+    const row = container?.querySelector('[data-log-row]');
+    if (!row) return undefined;
+    const rect = row.getBoundingClientRect();
+    return rect.height || row.offsetHeight || undefined;
+  };
+
+  const getPageScrollMetrics = () => {
+    const doc = document.documentElement;
+    const scrollTop = window.scrollY || doc.scrollTop || 0;
+    const clientHeight = window.innerHeight || doc.clientHeight || 0;
+    const scrollHeight = Math.max(doc.scrollHeight, doc.offsetHeight, doc.clientHeight);
+    return {
+      scrollTop,
+      clientHeight,
+      scrollHeight,
+    };
+  };
+
+  const updateScrollState = (container, syncAutoFollow = false) => {
+    if (!container) return;
+
+    const threshold = getBottomThreshold(resolveLogRowHeight(container));
+    const hasOverflow = container.scrollHeight > container.clientHeight + 1;
+    const pageMetrics = getPageScrollMetrics();
+    const pageHasOverflow = pageMetrics.scrollHeight > pageMetrics.clientHeight + 1;
+    const targetMode = getScrollTargetMode({
+      containerHasOverflow: hasOverflow,
+      pageHasOverflow,
+    });
+    const nearBottom = targetMode === 'page'
+      ? isNearBottom(pageMetrics, threshold)
+      : isNearBottom(container, threshold);
+
+    setHasScrollableOverflow(Boolean(targetMode));
+    setIsNearBottomPosition(nearBottom);
+    setScrollTargetMode(targetMode);
+
+    if (syncAutoFollow) {
+      setAutoFollow(nearBottom);
     }
-  }, [logs, isPaused, autoFollow]);
+  };
+
+  const scrollToActiveTarget = (target, behavior = 'smooth') => {
+    const container = scrollContainerRef.current;
+    const targetMode = scrollTargetModeRef.current;
+    if (targetMode === 'page') {
+      const pageMetrics = getPageScrollMetrics();
+      window.scrollTo({
+        top: target === 'top' ? 0 : pageMetrics.scrollHeight,
+        behavior,
+      });
+      return;
+    }
+    if (!container) return;
+    container.scrollTo({
+      top: target === 'top' ? 0 : container.scrollHeight,
+      behavior,
+    });
+  };
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (logs.length === 0) {
+      setHasScrollableOverflow(false);
+      setIsNearBottomPosition(true);
+      setAutoFollow(true);
+      return;
+    }
+
+    if (!hasMeasuredInitialLogsRef.current) {
+      hasMeasuredInitialLogsRef.current = true;
+      updateScrollState(container, true);
+      return;
+    }
+
+    if (!isPaused && autoFollowRef.current) {
+      scrollToActiveTarget('bottom', 'auto');
+      requestAnimationFrame(() => updateScrollState(container, true));
+      return;
+    }
+
+    updateScrollState(container);
+  }, [logs, isPaused]);
+
+  useEffect(() => {
+    const handleWindowScroll = () => {
+      if (scrollTargetModeRef.current !== 'page') return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      updateScrollState(container, true);
+    };
+
+    const handleResize = () => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      updateScrollState(container);
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowScroll);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const handleScroll = (event) => {
-    setAutoFollow(isNearBottom(event.currentTarget));
+    updateScrollState(event.currentTarget, true);
   };
 
   const jumpToBottom = () => {
     setAutoFollow(true);
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setIsNearBottomPosition(true);
+    scrollToActiveTarget('bottom');
+  };
+
+  const jumpToTop = () => {
+    setAutoFollow(false);
+    setIsNearBottomPosition(false);
+    scrollToActiveTarget('top');
   };
 
   const toggleChannel = (channel) => {
@@ -90,12 +215,17 @@ const Logs = () => {
     });
   };
 
+  const floatingButtonMode = getFloatingButtonMode({
+    hasLogs: logs.length > 0,
+    hasOverflow: hasScrollableOverflow,
+    isNearBottomPosition,
+  });
+
   return (
     <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 flex flex-col space-y-3 md:space-y-4 pb-5 md:pb-6 min-h-[calc(100vh-7rem)] md:min-h-[calc(100vh-8rem)]">
       <header className="flex justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">系统日志</h1>
-          <p className="text-sm md:text-base text-gray-400">优先展示 docker logs 风格的摘要，并保留最近一段历史。</p>
         </div>
         <div className="flex w-full sm:w-auto justify-end gap-2">
           <button
@@ -112,15 +242,6 @@ const Logs = () => {
             {isPaused ? <Play className="w-4 h-4 md:w-[18px] md:h-[18px]" /> : <Pause className="w-4 h-4 md:w-[18px] md:h-[18px]" />}
             {isPaused ? '继续' : '暂停'}
           </button>
-          {!autoFollow && (
-            <button
-              onClick={jumpToBottom}
-              className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm md:text-base font-medium bg-sky-500/15 text-sky-200 hover:bg-sky-500/25 transition-colors"
-            >
-              <ArrowDown className="w-4 h-4 md:w-[18px] md:h-[18px]" />
-              回到底部
-            </button>
-          )}
         </div>
       </header>
 
@@ -196,6 +317,7 @@ const Logs = () => {
         </div>
 
         <div
+          ref={scrollContainerRef}
           onScroll={handleScroll}
           className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-1 custom-scrollbar"
         >
@@ -203,7 +325,11 @@ const Logs = () => {
             <div className="text-gray-600 italic text-center mt-10">等待日志数据...</div>
           )}
           {logs.map((log, index) => (
-            <div key={`${log.timestamp}-${log.channel}-${log.action}-${index}`} className="grid grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] gap-3 px-2 py-1.5 rounded hover:bg-white/5 items-start">
+            <div
+              key={`${log.timestamp}-${log.channel}-${log.action}-${index}`}
+              data-log-row
+              className="grid grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] gap-3 px-2 py-1.5 rounded hover:bg-white/5 items-start"
+            >
               <span className="text-gray-500 whitespace-nowrap">{log.timestampText}</span>
               <span className={`inline-flex w-fit rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>
                 {log.level}
@@ -215,9 +341,22 @@ const Logs = () => {
               </span>
             </div>
           ))}
-          <div ref={logsEndRef} />
         </div>
+
       </GlassCard>
+
+      {floatingButtonMode && (
+        <button
+          type="button"
+          onClick={floatingButtonMode === 'top' ? jumpToTop : jumpToBottom}
+          className="fixed bottom-5 right-4 md:bottom-7 md:right-8 z-40 inline-flex items-center gap-2 rounded-full border border-sky-300/20 bg-slate-950/88 px-3 py-2 text-xs font-semibold text-sky-100 shadow-[0_10px_28px_rgba(2,6,23,0.5)] backdrop-blur-sm transition-colors hover:bg-slate-900"
+          title={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
+          aria-label={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
+        >
+          {floatingButtonMode === 'top' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+          <span>{floatingButtonMode === 'top' ? '回顶部' : '去底部'}</span>
+        </button>
+      )}
     </div>
   );
 };
