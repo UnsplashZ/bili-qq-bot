@@ -1,5 +1,6 @@
 import { Tab } from '@headlessui/react';
 import { clsx } from 'clsx';
+import { LABEL_CONFIG_ITEMS } from '../../constants/labelConfig';
 
 const GeneralTab = ({ formData, setFormData }) => {
   return (
@@ -108,29 +109,19 @@ const GeneralTab = ({ formData, setFormData }) => {
         <div>
           <span className="text-gray-300 text-sm font-medium mb-2 block">预览卡片标签开关</span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {Object.keys(formData.labelConfig).map((key) => (
-              <label key={key} className="flex items-start gap-2 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+            {LABEL_CONFIG_ITEMS.map((item) => (
+              <label key={item.key} className="flex items-start gap-2 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
                 <input
                   type="checkbox"
-                  checked={formData.labelConfig[key]}
+                  checked={!!formData.labelConfig[item.key]}
                   onChange={(e) => setFormData({
                     ...formData,
-                    labelConfig: { ...formData.labelConfig, [key]: e.target.checked }
+                    labelConfig: { ...formData.labelConfig, [item.key]: e.target.checked }
                   })}
                   className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900"
                 />
                 <span className="capitalize">
-                  {key === 'video' ? '视频'
-                    : key === 'live' ? '直播'
-                      : key === 'dynamic' ? '动态'
-                        : key === 'article' ? '专栏'
-                          : key === 'bangumi' ? '番剧'
-                            : key === 'movie' ? '电影'
-                              : key === 'tv' ? '电视剧'
-                                : key === 'guocha' ? '国创'
-                                  : key === 'doc' ? '纪录片'
-                                    : key === 'variety' ? '综艺'
-                                      : key}
+                  {item.label}
                 </span>
               </label>
             ))}

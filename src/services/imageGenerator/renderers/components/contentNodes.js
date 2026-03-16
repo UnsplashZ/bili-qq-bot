@@ -22,6 +22,15 @@ function normalizeContentNodes(nodes, fallbackText = '') {
     }]
 }
 
+function resolvePlainTextContent(text) {
+    const normalizedText = normalizePlainText(text)
+    return {
+        text: normalizedText,
+        richTextNodes: normalizeContentNodes(null, normalizedText),
+        source: normalizedText ? 'plain_text' : 'empty'
+    }
+}
+
 function stripImagePlaceholders(text, hasImages) {
     const normalized = normalizePlainText(text)
     if (!normalized) return ''
@@ -61,6 +70,13 @@ function canBorrowSummaryNodes(descText, summaryText) {
     return normalizedDesc === normalizedSummary
 }
 
+function normalizeForAddressCompare(text) {
+    return normalizePlainText(text)
+        .replace(/https?:\/\/\S+/gi, '')
+        .replace(/www\.\S+/gi, '')
+        .replace(/\s+/g, '')
+}
+
 function hasRichLinkNodes(nodes) {
     if (!Array.isArray(nodes) || nodes.length === 0) return false
     const richTypes = new Set([
@@ -71,6 +87,183 @@ function hasRichLinkNodes(nodes) {
         'RICH_TEXT_NODE_TYPE_LOTTERY'
     ])
     return nodes.some(node => richTypes.has(node?.type))
+}
+
+function cloneRichTextNodes(nodes) {
+    if (!Array.isArray(nodes)) return []
+    return nodes.map(node => {
+        if (!node || typeof node !== 'object') return node
+        return { ...node }
+    })
+}
+
+function isTextNode(node) {
+    return !node || !node.type || node.type === 'RICH_TEXT_NODE_TYPE_TEXT'
+}
+
+function isWhitespaceTextNode(node) {
+    return isTextNode(node) && /^\s*$/.test(String(node?.text || ''))
+}
+
+function collectBorrowedNodeTypes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return []
+    return [...new Set(nodes
+        .map(node => node?.type)
+        .filter(type => type && type !== 'RICH_TEXT_NODE_TYPE_TEXT'))]
+}
+
+function semanticNodeKey(node) {
+    if (!node?.type || node.type === 'RICH_TEXT_NODE_TYPE_TEXT') return ''
+    const text = typeof node.text === 'string' ? node.text : ''
+    const jumpUrl = typeof node.jump_url === 'string' ? node.jump_url : ''
+    return `${node.type}::${text}::${jumpUrl}`
+}
+
+function collectSemanticNodeCounts(nodes) {
+    const counts = new Map()
+    if (!Array.isArray(nodes)) return counts
+
+    for (const node of nodes) {
+        const key = semanticNodeKey(node)
+        if (!key) continue
+        counts.set(key, (counts.get(key) || 0) + 1)
+    }
+
+    return counts
+}
+
+function collectAddedSemanticNodeTypes(beforeNodes, afterNodes) {
+    const beforeCounts = collectSemanticNodeCounts(beforeNodes)
+    const addedTypes = []
+
+    if (!Array.isArray(afterNodes)) return addedTypes
+
+    for (const node of afterNodes) {
+        const key = semanticNodeKey(node)
+        if (!key) continue
+        const remaining = beforeCounts.get(key) || 0
+        if (remaining > 0) {
+            beforeCounts.set(key, remaining - 1)
+            continue
+        }
+        addedTypes.push(node.type)
+    }
+
+    return [...new Set(addedTypes)]
+}
+
+function isStrictSemanticSuperset(candidateNodes, currentNodes) {
+    const candidateCounts = collectSemanticNodeCounts(candidateNodes)
+    const currentCounts = collectSemanticNodeCounts(currentNodes)
+    let hasMore = false
+
+    for (const [key, currentCount] of currentCounts.entries()) {
+        const candidateCount = candidateCounts.get(key) || 0
+        if (candidateCount < currentCount) return false
+        if (candidateCount > currentCount) hasMore = true
+    }
+
+    for (const [key, candidateCount] of candidateCounts.entries()) {
+        if ((currentCounts.get(key) || 0) < candidateCount) hasMore = true
+    }
+
+    return hasMore
+}
+
+function nodesToPlainText(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return ''
+    return nodes
+        .map(node => (node && typeof node.text === 'string') ? node.text : '')
+        .join('')
+}
+
+function splitLeadingTopicPrefix(nodes) {
+    const cloned = cloneRichTextNodes(nodes)
+    if (cloned.length === 0) return { prefixNodes: [], remainingNodes: [] }
+
+    const prefixNodes = []
+    let index = 0
+    let sawTopic = false
+
+    while (index < cloned.length) {
+        const node = cloned[index]
+        if (node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC') {
+            prefixNodes.push(node)
+            sawTopic = true
+            index += 1
+            continue
+        }
+        if (isWhitespaceTextNode(node) && (sawTopic || prefixNodes.length > 0)) {
+            prefixNodes.push(node)
+            index += 1
+            continue
+        }
+        break
+    }
+
+    if (!sawTopic) {
+        return {
+            prefixNodes: [],
+            remainingNodes: cloned
+        }
+    }
+
+    return {
+        prefixNodes,
+        remainingNodes: cloned.slice(index)
+    }
+}
+
+function splitTrailingEmojiSuffix(nodes) {
+    const cloned = cloneRichTextNodes(nodes)
+    if (cloned.length === 0) return { remainingNodes: [], suffixNodes: [] }
+
+    const suffixNodes = []
+    let index = cloned.length - 1
+    let sawEmoji = false
+
+    while (index >= 0) {
+        const node = cloned[index]
+        if (node?.type === 'RICH_TEXT_NODE_TYPE_EMOJI') {
+            suffixNodes.unshift(node)
+            sawEmoji = true
+            index -= 1
+            continue
+        }
+        if (isWhitespaceTextNode(node) && (sawEmoji || suffixNodes.length > 0)) {
+            suffixNodes.unshift(node)
+            index -= 1
+            continue
+        }
+        break
+    }
+
+    if (!sawEmoji) {
+        return {
+            remainingNodes: cloned,
+            suffixNodes: []
+        }
+    }
+
+    return {
+        remainingNodes: cloned.slice(0, index + 1),
+        suffixNodes
+    }
+}
+
+function textSkeletonWithoutRichLinks(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return ''
+    return nodes
+        .map(node => {
+            if (!node || typeof node !== 'object') return ''
+            if (hasRichLinkNodes([node])) return ''
+            return typeof node.text === 'string' ? node.text : ''
+        })
+        .join('')
+}
+
+function hasPrimarySemanticNodes(nodes) {
+    return Array.isArray(nodes) && nodes.some(node => node?.type && node.type !== 'RICH_TEXT_NODE_TYPE_TEXT')
 }
 
 function looksLikeAddressLabelButMissingValue(text) {
@@ -106,15 +299,151 @@ function buildNodesFromSummary(descText, summaryNodes) {
     return copied
 }
 
+function createTextNode(text) {
+    return {
+        type: 'RICH_TEXT_NODE_TYPE_TEXT',
+        text,
+        orig_text: text
+    }
+}
+
+function projectNodesOntoPrimaryText(primaryText, secondaryNodes) {
+    if (!Array.isArray(secondaryNodes)) return null
+
+    const safeText = typeof primaryText === 'string' ? primaryText : ''
+    const semanticNodes = cloneRichTextNodes(secondaryNodes).filter(node => !isTextNode(node))
+
+    if (semanticNodes.length === 0) {
+        return normalizeContentNodes(null, safeText)
+    }
+
+    const projectedNodes = []
+    let cursor = 0
+
+    for (const node of semanticNodes) {
+        const needle = typeof node?.text === 'string' ? node.text : ''
+        if (!needle) return null
+
+        const index = safeText.indexOf(needle, cursor)
+        if (index < 0) return null
+
+        const textBefore = safeText.slice(cursor, index)
+        if (textBefore) projectedNodes.push(createTextNode(textBefore))
+
+        projectedNodes.push(node)
+        cursor = index + needle.length
+    }
+
+    const textAfter = safeText.slice(cursor)
+    if (textAfter) projectedNodes.push(createTextNode(textAfter))
+
+    return normalizeContentNodes(projectedNodes, safeText)
+}
+
+function dedupeDecorativeNodes(segmentNodes, existingNodes) {
+    if (!Array.isArray(segmentNodes) || segmentNodes.length === 0) return []
+
+    const existingCounts = collectSemanticNodeCounts(existingNodes)
+    const nextSegment = []
+    let hasInsertedSemanticNode = false
+    let pendingText = ''
+
+    for (const node of segmentNodes) {
+        if (isTextNode(node)) {
+            pendingText += typeof node?.text === 'string' ? node.text : ''
+            continue
+        }
+
+        const key = semanticNodeKey(node)
+        const existingCount = existingCounts.get(key) || 0
+        if (existingCount > 0) {
+            existingCounts.set(key, existingCount - 1)
+            pendingText = ''
+            continue
+        }
+
+        if (pendingText && hasInsertedSemanticNode) {
+            nextSegment.push(createTextNode(pendingText))
+            pendingText = ''
+        }
+
+        if (pendingText && !hasInsertedSemanticNode) {
+            nextSegment.push(createTextNode(pendingText))
+            pendingText = ''
+        }
+
+        nextSegment.push({ ...node })
+        hasInsertedSemanticNode = true
+    }
+
+    if (pendingText && hasInsertedSemanticNode) {
+        nextSegment.push(createTextNode(pendingText))
+    }
+
+    return nextSegment
+}
+
+function prependDecorativeNodes(baseNodes, prefixNodes) {
+    const dedupedPrefix = dedupeDecorativeNodes(prefixNodes, baseNodes)
+    if (dedupedPrefix.length === 0) return cloneRichTextNodes(baseNodes)
+    return [
+        ...dedupedPrefix,
+        ...cloneRichTextNodes(baseNodes)
+    ]
+}
+
+function appendDecorativeNodes(baseNodes, suffixNodes) {
+    const dedupedSuffix = dedupeDecorativeNodes(suffixNodes, baseNodes)
+    if (dedupedSuffix.length === 0) return cloneRichTextNodes(baseNodes)
+    return [
+        ...cloneRichTextNodes(baseNodes),
+        ...dedupedSuffix
+    ]
+}
+
+function chooseRicherProjectedNodes(currentNodes, projectedNodes) {
+    if (!Array.isArray(projectedNodes) || projectedNodes.length === 0) return null
+    if (!Array.isArray(currentNodes) || currentNodes.length === 0) return projectedNodes
+    if (!hasPrimarySemanticNodes(currentNodes)) return projectedNodes
+    return isStrictSemanticSuperset(projectedNodes, currentNodes) ? projectedNodes : null
+}
+
+function createMergeState(text, nodes, source) {
+    return {
+        text,
+        workingNodes: normalizeContentNodes(cloneRichTextNodes(nodes), text),
+        source,
+        mergeModes: [],
+        borrowedNodeTypes: []
+    }
+}
+
+function recordMerge(state, mode, nextNodes, nextSource = state.source) {
+    const normalizedNodes = normalizeContentNodes(cloneRichTextNodes(nextNodes), state.text)
+    const addedTypes = collectAddedSemanticNodeTypes(state.workingNodes, normalizedNodes)
+    state.workingNodes = normalizedNodes
+    state.source = nextSource
+    state.mergeModes.push(mode)
+    state.borrowedNodeTypes = [...new Set([
+        ...state.borrowedNodeTypes,
+        ...addedTypes
+    ])]
+}
+
 function injectTopicNodeIfNeeded(nodes, topic, plainText) {
     if (!Array.isArray(nodes) || nodes.length === 0) return nodes
     if (!topic || !topic.name) return nodes
-    if (nodes.some(node => node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC')) return nodes
 
     const topicBase = `#${topic.name}`
     const topicFull = `${topicBase}#`
     const jumpUrl = topic.jump_url ||
         (topic.id ? `https://www.bilibili.com/v/topic/detail/?topic_id=${topic.id}` : '')
+
+    if (nodes.some(node => {
+        if (node?.type !== 'RICH_TEXT_NODE_TYPE_TOPIC') return false
+        const nodeText = typeof node.text === 'string' ? node.text : ''
+        return nodeText === topicFull || nodeText === topicBase || nodeText === topic.name
+    })) return nodes
 
     const nextNodes = []
     let inserted = false
@@ -230,6 +559,9 @@ function resolveDynamicContent(dynamicModule, hasImages) {
     let text = ''
     let richTextNodes = null
     let source = 'empty'
+    let mergeMode = 'none'
+    let mergeModes = []
+    let borrowedNodeTypes = []
     const summary = dynamicModule.major?.opus?.summary || {}
     const summaryText = summary.text || ''
     const summaryNodes = summary.rich_text_nodes
@@ -240,45 +572,77 @@ function resolveDynamicContent(dynamicModule, hasImages) {
         source = 'desc'
     }
 
-    const shouldPreferSummary =
-        source === 'desc' &&
-        normalizePlainText(summaryText) &&
-        hasRichLinkNodes(summaryNodes) &&
-        (
-            looksLikeAddressLabelButMissingValue(text) ||
-            ((!Array.isArray(richTextNodes) || richTextNodes.length === 0) && normalizePlainText(text))
-        )
-
-    if (shouldPreferSummary) {
-        text = summaryText
-        richTextNodes = summaryNodes
-        source = 'opus_summary_preferred'
-    }
-
-    if (
-        source === 'desc' &&
-        normalizePlainText(text) &&
-        (!Array.isArray(richTextNodes) || richTextNodes.length === 0) &&
-        dynamicModule.major?.opus?.summary
-    ) {
-        if (
-            Array.isArray(summaryNodes) &&
-            summaryNodes.length > 0 &&
-            summaryNodes.some(node => node?.type && node.type !== 'RICH_TEXT_NODE_TYPE_TEXT') &&
-            canBorrowSummaryNodes(text, summaryText)
-        ) {
-            const borrowedNodes = buildNodesFromSummary(text, summaryNodes)
-            if (Array.isArray(borrowedNodes) && borrowedNodes.length > 0) {
-                richTextNodes = borrowedNodes
-                source = 'desc_with_summary_nodes'
-            }
-        }
-    }
-
     if (!normalizePlainText(text) && dynamicModule.major?.opus?.summary) {
         text = summaryText
         richTextNodes = summaryNodes
         source = 'opus_summary'
+        mergeMode = 'replace_full'
+    }
+
+    const canInspectSummary =
+        source === 'desc' &&
+        normalizePlainText(text) &&
+        Array.isArray(summaryNodes) &&
+        summaryNodes.length > 0
+
+    if (canInspectSummary) {
+        const baseNodes = normalizeContentNodes(cloneRichTextNodes(richTextNodes), text)
+        const state = createMergeState(text, baseNodes, source)
+        const { prefixNodes, remainingNodes: summaryWithoutPrefix } = splitLeadingTopicPrefix(summaryNodes)
+        const { remainingNodes: summaryCoreNodes, suffixNodes } = splitTrailingEmojiSuffix(summaryWithoutPrefix)
+
+        if (
+            looksLikeAddressLabelButMissingValue(text) &&
+            hasRichLinkNodes(summaryNodes)
+        ) {
+            const descSkeleton = normalizeForAddressCompare(text)
+            const summarySkeleton = normalizeForAddressCompare(textSkeletonWithoutRichLinks(summaryWithoutPrefix))
+
+            if (descSkeleton && summarySkeleton && descSkeleton === summarySkeleton) {
+                state.text = summaryText
+                recordMerge(state, 'summary_link_recovery', summaryNodes, 'opus_summary_preferred')
+            }
+        }
+
+        if (state.mergeModes.length === 0 && canBorrowSummaryNodes(text, summaryText)) {
+            const projectedNodes =
+                projectNodesOntoPrimaryText(text, summaryNodes) ||
+                buildNodesFromSummary(text, summaryNodes)
+
+            const richerNodes = chooseRicherProjectedNodes(state.workingNodes, projectedNodes)
+            if (richerNodes) {
+                recordMerge(state, 'equivalent_borrow', richerNodes, 'desc_with_summary_nodes')
+            }
+        }
+
+        if (state.mergeModes.length === 0 || state.mergeModes[state.mergeModes.length - 1] !== 'summary_link_recovery') {
+            const projectedCoreNodes = projectNodesOntoPrimaryText(text, summaryCoreNodes)
+
+            if (prefixNodes.length > 0 && projectedCoreNodes) {
+                const richerCoreNodes = chooseRicherProjectedNodes(state.workingNodes, projectedCoreNodes) || state.workingNodes
+                const prefixedNodes = prependDecorativeNodes(richerCoreNodes, prefixNodes)
+                if (collectAddedSemanticNodeTypes(state.workingNodes, prefixedNodes).length > 0) {
+                    recordMerge(state, 'summary_topic_prefix', prefixedNodes, state.source)
+                }
+            }
+
+            if (suffixNodes.length > 0 && projectedCoreNodes) {
+                const richerCoreNodes = chooseRicherProjectedNodes(state.workingNodes, projectedCoreNodes) || state.workingNodes
+                const suffixedNodes = appendDecorativeNodes(richerCoreNodes, suffixNodes)
+                if (collectAddedSemanticNodeTypes(state.workingNodes, suffixedNodes).length > 0) {
+                    recordMerge(state, 'summary_suffix_borrow', suffixedNodes, state.source)
+                }
+            }
+        }
+
+        text = state.text
+        richTextNodes = state.workingNodes
+        source = state.source
+        mergeModes = state.mergeModes
+        mergeMode = state.mergeModes[state.mergeModes.length - 1] || 'none'
+        borrowedNodeTypes = state.borrowedNodeTypes
+    } else if (mergeMode !== 'none') {
+        mergeModes = [mergeMode]
     }
 
     richTextNodes = injectTopicNodeIfNeeded(richTextNodes, dynamicModule.topic, text)
@@ -288,7 +652,10 @@ function resolveDynamicContent(dynamicModule, hasImages) {
         text: finalText,
         richTextNodes: normalizeContentNodes(normalizeRichTextNodes(richTextNodes, hasImages), finalText),
         title: dynamicModule.major?.opus?.title || '',
-        source
+        source,
+        mergeMode,
+        mergeModes,
+        borrowedNodeTypes
     }
 }
 
@@ -296,5 +663,6 @@ module.exports = {
     collectDynamicImages,
     normalizeContentNodes,
     normalizePlainText,
+    resolvePlainTextContent,
     resolveDynamicContent
 }

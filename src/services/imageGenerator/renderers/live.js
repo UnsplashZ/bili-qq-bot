@@ -1,5 +1,6 @@
 const { escapeHtml } = require('../core/formatters');
 const { parseRichText } = require('./components/richtext');
+const { resolvePlainTextContent } = require('./components/contentNodes');
 const ICONS = require('./icons');
 
 /**
@@ -13,6 +14,9 @@ function renderLiveContent(data, emojiContext = null) {
     const roomInfo = info.room_info || {};
     const anchorInfo = info.anchor_info || {};
     const watched = info.watched_show || {};
+    const resolvedTitle = resolvePlainTextContent(roomInfo.title)
+    const resolvedParentArea = resolvePlainTextContent(roomInfo.parent_area_name)
+    const resolvedArea = resolvePlainTextContent(roomInfo.area_name)
 
     const isLive = roomInfo.live_status === 1;
     const liveBadge = isLive
@@ -38,10 +42,10 @@ function renderLiveContent(data, emojiContext = null) {
                     </div>
                 </div>
             </div>
-            <div class="title">${parseRichText(null, roomInfo.title, emojiContext)}</div>
+            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
             <div class="stats">
                 <span class="stat-item">${ICONS.fire} ${watched.text_large || watched.num || 0}</span>
-                <span class="stat-item">${ICONS.star} ${parseRichText(null, roomInfo.parent_area_name || '', emojiContext)} · ${parseRichText(null, roomInfo.area_name || '', emojiContext)}</span>
+                <span class="stat-item">${ICONS.star} ${parseRichText(resolvedParentArea.richTextNodes, resolvedParentArea.text, emojiContext)} · ${parseRichText(resolvedArea.richTextNodes, resolvedArea.text, emojiContext)}</span>
             </div>
         </div>
     `;

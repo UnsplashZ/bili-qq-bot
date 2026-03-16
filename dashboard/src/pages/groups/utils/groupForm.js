@@ -1,17 +1,5 @@
 import { createDefaultAtAllRules, normalizeAtAllRules } from './atAllRules';
-
-const createDefaultLabelConfig = () => ({
-  video: true,
-  dynamic: true,
-  live: true,
-  article: true,
-  bangumi: true,
-  movie: true,
-  tv: true,
-  guocha: true,
-  doc: true,
-  variety: true
-});
+import { createDefaultLabelConfig, mergeLabelConfig } from '../constants/labelConfig';
 
 const createDefaultNightMode = () => ({
   mode: 'off',
@@ -50,18 +38,7 @@ export const mapGroupConfigToFormData = (config, globalShowId) => {
   return {
     linkCacheTimeout: safeConfig.linkCacheTimeout ?? 5,
     showId: safeConfig.showId ?? globalShowId ?? true,
-    labelConfig: {
-      video: labels.video ?? true,
-      dynamic: labels.dynamic ?? true,
-      live: labels.live ?? true,
-      article: labels.article ?? true,
-      bangumi: labels.bangumi ?? true,
-      movie: labels.movie ?? true,
-      tv: labels.tv ?? true,
-      guocha: labels.guocha ?? true,
-      doc: labels.doc ?? true,
-      variety: labels.variety ?? true
-    },
+    labelConfig: mergeLabelConfig(labels),
     enableCookieSync: safeConfig.enableCookieSync ?? false,
     subscriptionAtAll: safeConfig.subscriptionAtAll ?? false,
     subscriptionAtAllRules: normalizeAtAllRules(safeConfig.subscriptionAtAllRules),

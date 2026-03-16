@@ -1,4 +1,5 @@
-const { formatNumber } = require('../../core/formatters');
+const { formatNumber, escapeHtml } = require('../../core/formatters');
+const { parseRichText } = require('./richtext');
 const ICONS = require('../icons');
 
 function toSafeNumber(value) {
@@ -31,6 +32,96 @@ function resolveImageTypeTag(imageItem) {
     const { width, height } = imageItem
     if (width > 0 && height > 0 && height / width >= 1.8) return '长图'
     return ''
+}
+
+function normalizeEmbeddedStatValue(value) {
+    if (value === null || value === undefined || value === '') return ''
+    if (typeof value === 'number' && Number.isFinite(value)) return formatNumber(value)
+
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && String(value).trim() !== '') {
+        return formatNumber(numeric)
+    }
+
+    return escapeHtml(String(value))
+}
+
+function renderEmbeddedResourceStats(stats = []) {
+    if (!Array.isArray(stats) || stats.length === 0) return ''
+
+    return `
+        <div class="embedded-resource-stats">
+            ${stats.slice(0, 3).map((item) => {
+                const label = item?.label ? `${escapeHtml(String(item.label))} ` : ''
+                const value = normalizeEmbeddedStatValue(item?.value)
+                if (!value) return ''
+                return `<span class="embedded-resource-stat">${label}${value}</span>`
+            }).join('')}
+        </div>
+    `
+}
+
+function renderEmbeddedResourceCard(resource, options = {}) {
+    if (!resource || typeof resource !== 'object') return ''
+
+    const {
+        title = '',
+        subtitle = '',
+        desc = '',
+        cover = '',
+        badgeText = '',
+        badgeColor = '',
+        stats = []
+    } = resource
+    const emojiContext = options.emojiContext || null
+    const classNames = ['embedded-resource-card']
+    if (options.isOrig) classNames.push('is-orig')
+    if (!cover) classNames.push('no-cover')
+    const isCompact = resource.variant === 'compact'
+    if (isCompact) classNames.push('embedded-resource-card--compact')
+
+    const titleHtml = title ? parseRichText(null, title, emojiContext) : ''
+    const subtitleHtml = subtitle ? parseRichText(null, subtitle, emojiContext) : ''
+    const descHtml = desc ? parseRichText(null, desc, emojiContext) : ''
+    const safeCover = cover ? escapeHtml(String(cover)) : ''
+    const safeBadgeText = badgeText ? escapeHtml(String(badgeText)) : ''
+    const safeBadgeColor = badgeColor ? escapeHtml(String(badgeColor)) : ''
+
+    if (!titleHtml && !subtitleHtml && !descHtml && !safeCover) return ''
+
+    return `
+        <div class="${classNames.join(' ')}">
+            ${safeCover ? `
+                <div class="embedded-resource-cover">
+                    <img class="embedded-resource-cover-img" src="${safeCover}">
+                    ${safeBadgeText && !isCompact ? `
+                        <span class="embedded-resource-badge"${safeBadgeColor ? ` style="--embedded-resource-badge:${safeBadgeColor};"` : ''}>${safeBadgeText}</span>
+                    ` : ''}
+                </div>
+            ` : ''}
+            <div class="embedded-resource-body">
+                ${safeBadgeText && (isCompact || !safeCover) ? `
+                    <div class="embedded-resource-meta-row">
+                        <span class="embedded-resource-badge embedded-resource-badge--inline"${safeBadgeColor ? ` style="--embedded-resource-badge:${safeBadgeColor};"` : ''}>${safeBadgeText}</span>
+                    </div>
+                ` : ''}
+                <div class="embedded-resource-main">
+                    ${isCompact
+                        ? `
+                            ${titleHtml ? `<div class="embedded-resource-title">${titleHtml}</div>` : ''}
+                            ${subtitleHtml ? `<div class="embedded-resource-subtitle">${subtitleHtml}</div>` : ''}
+                        `
+                        : `
+                            ${subtitleHtml ? `<div class="embedded-resource-subtitle">${subtitleHtml}</div>` : ''}
+                            ${titleHtml ? `<div class="embedded-resource-title">${titleHtml}</div>` : ''}
+                        `
+                    }
+                    ${renderEmbeddedResourceStats(stats)}
+                    ${descHtml ? `<div class="embedded-resource-desc">${descHtml}</div>` : ''}
+                </div>
+            </div>
+        </div>
+    `
 }
 
 /**
@@ -115,5 +206,6 @@ function renderMediaHtml(images, videoCard, isOrig) {
 }
 
 module.exports = {
+    renderEmbeddedResourceCard,
     renderMediaHtml
 };

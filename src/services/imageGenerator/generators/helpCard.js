@@ -318,6 +318,9 @@ async function generateHelpCard(type = 'user', groupId) {
                     <div class="link-item"><span class="icon">📡</span> 直播间 (live)</div>
                     <div class="link-item"><span class="icon">📱</span> 动态 (dynamic)</div>
                     <div class="link-item"><span class="icon">🖼️</span> Opus图文</div>
+                    <div class="link-item"><span class="icon">⭐</span> 收藏夹 / 文集 / 合集</div>
+                    <div class="link-item"><span class="icon">🎵</span> 音频 / 歌单 / 话题</div>
+                    <div class="link-item"><span class="icon">📝</span> 笔记 / 课程 / 互动视频</div>
                     <div class="link-item"><span class="icon">🔗</span> 短链 (b23.tv)</div>
                     <div class="link-item"><span class="icon">📦</span> 小程序分享</div>
                 </div>

@@ -109,8 +109,13 @@ async def get_video_info(bvid, group_id=None):
         cover_focus = await get_image_focus_color(cover_url)
         avatar_focus = await get_image_focus_color(avatar_url)
         info["focus"] = {"cover": cover_focus, "avatar": avatar_focus}
+        info_type = (
+            "interactive_video"
+            if (info.get("rights") or {}).get("is_stein_gate") == 1
+            else "video"
+        )
         service_log(logger, "info", "video-info-ready", bvid=bvid, ownerMid=owner_mid)
-        return {"status": "success", "type": "video", "data": info}
+        return {"status": "success", "type": info_type, "data": info}
     except Exception as e:
         service_log(logger, "error", "fetch-video-info-failed", bvid=bvid, error=str(e))
         if str(e) != "'data'":

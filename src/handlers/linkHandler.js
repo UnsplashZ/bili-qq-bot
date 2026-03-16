@@ -30,6 +30,10 @@ class LinkHandler {
         this.mediaRegex = /bangumi\/media\/md([0-9]+)/;
         // Regex for User (space.bilibili.com/xxxx)
         this.userRegex = /(?:space\.bilibili\.com\/|(?:https?:\/\/)?[^/]*bilibili\.com\/space\/)([0-9]+)/;
+        this.favoriteListRegex = /(?:medialist\/detail\/[mM][lL]|(?:^|\b)[mM][lL])([0-9]+)/;
+        this.audioRegex = /(?:audio\/[aA][uU]|(?:^|\b)[aA][uU])([0-9]+)/;
+        this.audioListRegex = /(?:audio\/[aA][mM]|(?:^|\b)[aA][mM])([0-9]+)/;
+        this.articleListRegex = /(?:read\/readlist\/[rR][lL]|(?:^|\b)[rR][lL])([0-9]+)/;
 
         // Regex for Short Links (b23.tv/xxxx)
         this.shortLinkRegex = /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/;
@@ -54,6 +58,264 @@ class LinkHandler {
         logger.logEvent(level, 'LINK', scope, message, fields);
     }
 
+    createLink(type, id, groupId, match, meta = {}, sourceToken = '') {
+        const normalizedSourceToken = this.normalizeUrlToken(sourceToken || match);
+        const uniqueId = meta.uniqueId || id || normalizedSourceToken || type;
+        const cacheKey = groupId ? `${type}|${uniqueId}|${groupId}` : `${type}|${uniqueId}`;
+        return {
+            type,
+            id,
+            cacheKey,
+            match,
+            meta,
+            sourceToken: normalizedSourceToken
+        };
+    }
+
+    normalizeUrlToken(token) {
+        return String(token || '')
+            .trim()
+            .replace(/^[("'“‘（【《「『<]+/g, '')
+            .replace(/[)"'”’）】》」』>。,，！!？?；;:：]+$/g, '');
+    }
+
+    buildTokenInfo(token) {
+        const rawToken = String(token || '').trim();
+        const normalizedToken = this.normalizeUrlToken(rawToken);
+        if (!normalizedToken) {
+            return null;
+        }
+
+        let urlCandidate = normalizedToken;
+        if (!/^https?:\/\//i.test(urlCandidate) && (urlCandidate.includes('bilibili.com') || urlCandidate.includes('b23.tv'))) {
+            urlCandidate = `https://${urlCandidate.replace(/^\/+/, '')}`;
+        }
+
+        return {
+            rawToken,
+            normalizedToken,
+            urlCandidate
+        };
+    }
+
+    getSpaceTokenInfo(tokenInfo) {
+        if (!tokenInfo?.urlCandidate) {
+            return null;
+        }
+
+        let parsed;
+        try {
+            parsed = new URL(tokenInfo.urlCandidate);
+        } catch (_error) {
+            return null;
+        }
+
+        const host = parsed.hostname.toLowerCase();
+        const segments = parsed.pathname.split('/').filter(Boolean);
+
+        if (host === 'space.bilibili.com' && /^\d+$/.test(segments[0] || '')) {
+            return {
+                uid: segments[0],
+                resourceSegments: segments.slice(1),
+                parsed,
+                url: tokenInfo.urlCandidate,
+                normalizedToken: tokenInfo.normalizedToken
+            };
+        }
+
+        if ((host === 'www.bilibili.com' || host.endsWith('.bilibili.com')) && segments[0] === 'space' && /^\d+$/.test(segments[1] || '')) {
+            return {
+                uid: segments[1],
+                resourceSegments: segments.slice(2),
+                parsed,
+                url: tokenInfo.urlCandidate,
+                normalizedToken: tokenInfo.normalizedToken
+            };
+        }
+
+        return null;
+    }
+
+    parseStructuredLinkToken(tokenInfo, groupId) {
+        if (!tokenInfo?.normalizedToken || (!tokenInfo.normalizedToken.includes('bilibili.com') && !tokenInfo.normalizedToken.includes('b23.tv'))) {
+            return { handled: false, link: null };
+        }
+
+        let parsed;
+        try {
+            parsed = new URL(tokenInfo.urlCandidate);
+        } catch (_error) {
+            return { handled: false, link: null };
+        }
+
+        const host = parsed.hostname.toLowerCase();
+        const path = parsed.pathname;
+        const segments = path.split('/').filter(Boolean);
+        const spaceInfo = this.getSpaceTokenInfo(tokenInfo);
+
+        if (spaceInfo) {
+            const { uid, resourceSegments, url, normalizedToken } = spaceInfo;
+            if (resourceSegments.length === 0) {
+                return {
+                    handled: true,
+                    link: this.createLink('user', uid, groupId, normalizedToken, {}, normalizedToken)
+                };
+            }
+
+            if (resourceSegments[0] === 'favlist') {
+                const fid = spaceInfo.parsed.searchParams.get('fid');
+                const ctype = spaceInfo.parsed.searchParams.get('ctype');
+                if (fid && /^\d+$/.test(fid)) {
+                    if (ctype === '21') {
+                        return {
+                            handled: true,
+                            link: this.createLink('channel_series', fid, groupId, normalizedToken, {
+                                url,
+                                uid,
+                                seriesId: fid,
+                                seriesType: 'season',
+                                uniqueId: `season:${uid}:${fid}`
+                            }, normalizedToken)
+                        };
+                    }
+                    return {
+                        handled: true,
+                        link: this.createLink('favorite_list', fid, groupId, normalizedToken, {
+                            url,
+                            mediaId: fid,
+                            favoriteType: 'video',
+                            uniqueId: `video:${fid}`
+                        }, normalizedToken)
+                    };
+                }
+                return { handled: true, link: null };
+            }
+
+            if (
+                resourceSegments[0] === 'channel'
+                && spaceInfo.parsed.searchParams.get('sid')
+                && (resourceSegments[1] === 'collectiondetail' || resourceSegments[1] === 'seriesdetail')
+            ) {
+                const seriesId = spaceInfo.parsed.searchParams.get('sid');
+                const seriesType = resourceSegments[1] === 'collectiondetail' ? 'season' : 'series';
+                return {
+                    handled: true,
+                    link: this.createLink('channel_series', seriesId, groupId, normalizedToken, {
+                        url,
+                        uid,
+                        seriesId,
+                        seriesType,
+                        uniqueId: `${seriesType}:${uid}:${seriesId}`
+                    }, normalizedToken)
+                };
+            }
+
+            return { handled: true, link: null };
+        }
+
+        if (host === 'www.bilibili.com' && path === '/h5/note-app/view' && parsed.searchParams.get('cvid')) {
+            const cvid = parsed.searchParams.get('cvid');
+            return {
+                handled: true,
+                link: this.createLink('note', cvid, groupId, tokenInfo.normalizedToken, {
+                    url: tokenInfo.urlCandidate,
+                    uniqueId: cvid
+                }, tokenInfo.normalizedToken)
+            };
+        }
+
+        if (
+            (
+                (host === 'www.bilibili.com' && segments[0] === 'v' && segments[1] === 'topic' && segments[2] === 'detail')
+                || (host === 'm.bilibili.com' && segments[0] === 'topic-detail')
+            )
+            && parsed.searchParams.get('topic_id')
+        ) {
+            const topicId = parsed.searchParams.get('topic_id');
+            return {
+                handled: true,
+                link: this.createLink('topic', topicId, groupId, tokenInfo.normalizedToken, {
+                    url: tokenInfo.urlCandidate,
+                    uniqueId: topicId
+                }, tokenInfo.normalizedToken)
+            };
+        }
+
+        if (host === 'www.bilibili.com' && segments[0] === 'list' && segments[1] && parsed.searchParams.get('sid')) {
+            const uid = segments[1];
+            const seriesId = parsed.searchParams.get('sid');
+            return {
+                handled: true,
+                link: this.createLink('channel_series', seriesId, groupId, tokenInfo.normalizedToken, {
+                    url: tokenInfo.urlCandidate,
+                    uid,
+                    seriesId,
+                    seriesType: 'series',
+                    uniqueId: `series:${uid}:${seriesId}`
+                }, tokenInfo.normalizedToken)
+            };
+        }
+
+        if (host === 'www.bilibili.com' && segments[0] === 'medialist' && segments[1] === 'play' && segments[2] && parsed.searchParams.get('business_id')) {
+            const uid = segments[2];
+            const seriesId = parsed.searchParams.get('business_id');
+            return {
+                handled: true,
+                link: this.createLink('channel_series', seriesId, groupId, tokenInfo.normalizedToken, {
+                    url: tokenInfo.urlCandidate,
+                    uid,
+                    seriesId,
+                    seriesType: 'series',
+                    uniqueId: `series:${uid}:${seriesId}`
+                }, tokenInfo.normalizedToken)
+            };
+        }
+
+        if (host === 'www.bilibili.com' && segments[0] === 'cheese' && segments[1] === 'play' && segments[2]) {
+            const target = segments[2];
+            if (/^[eE][pP]\d+$/.test(target)) {
+                const epId = target.slice(2);
+                return {
+                    handled: true,
+                    link: this.createLink('cheese_video', epId, groupId, tokenInfo.normalizedToken, {
+                        url: tokenInfo.urlCandidate,
+                        epId,
+                        uniqueId: `ep:${epId}`
+                    }, tokenInfo.normalizedToken)
+                };
+            }
+            if (/^[sS][sS]\d+$/.test(target)) {
+                const seasonId = target.slice(2);
+                return {
+                    handled: true,
+                    link: this.createLink('cheese_video', seasonId, groupId, tokenInfo.normalizedToken, {
+                        url: tokenInfo.urlCandidate,
+                        seasonId,
+                        uniqueId: `season:${seasonId}`
+                    }, tokenInfo.normalizedToken)
+                };
+            }
+        }
+
+        return { handled: false, link: null };
+    }
+
+    appendUniqueLink(links, link) {
+        if (!link) {
+            return;
+        }
+
+        const duplicateLink = links.some((existingLink) =>
+            existingLink.type === link.type
+            && existingLink.cacheKey === link.cacheKey
+            && existingLink.sourceToken === link.sourceToken
+        );
+
+        if (!duplicateLink) {
+            links.push(link);
+        }
+    }
+
     // 提取消息中的所有链接及其类型
     extractLinks(rawMessage, groupId, traceContext = null) {
         const scope = this.getScope(traceContext);
@@ -75,7 +337,8 @@ class LinkHandler {
         const checkStr = rawMessage.substring(0, checkLength);
         const hasBilibiliDomain = checkStr.includes('bilibili.com') ||
                                  checkStr.includes('b23.tv') ||
-                                 checkStr.includes('bilibili');
+                                 checkStr.includes('bilibili') ||
+                                 /\b(?:[mM][lL]|[aA][uU]|[aA][mM]|[rR][lL])\d+\b/.test(checkStr);
 
         if (!hasBilibiliDomain) {
             this.log('debug', scope, 'extract-skipped', {
@@ -97,14 +360,10 @@ class LinkHandler {
         }
 
         const links = [];
-
-        // Split URLs by '?' to extract only the path part and avoid matching IDs in query parameters
-        // This prevents false matches like 'av0' from 'mid=xzzRgOEjRaNav0HoyyGo3A%3D%3D'
-        const urlParts = rawMessage.split(/\s+/).map(part => {
-            const questionMarkIndex = part.indexOf('?');
-            return questionMarkIndex !== -1 ? part.substring(0, questionMarkIndex) : part;
-        });
-        const cleanedMessage = urlParts.join(' ');
+        const tokenInfos = rawMessage
+            .split(/\s+/)
+            .map((token) => this.buildTokenInfo(token))
+            .filter(Boolean);
 
         // 检查各种类型的链接
         const linkTypes = [
@@ -116,30 +375,41 @@ class LinkHandler {
             { regex: this.opusRegex, type: 'opus', extractId: (match) => match[1] },
             { regex: this.epRegex, type: 'ep', extractId: (match) => match[1] },
             { regex: this.mediaRegex, type: 'media', extractId: (match) => match[1] },
-            { regex: this.userRegex, type: 'user', extractId: (match) => match[1] }
+            { regex: this.userRegex, type: 'user', extractId: (match) => match[1] },
+            { regex: this.favoriteListRegex, type: 'favorite_list', extractId: (match) => match[1] },
+            { regex: this.audioRegex, type: 'audio', extractId: (match) => match[1] },
+            { regex: this.audioListRegex, type: 'audio_list', extractId: (match) => match[1] },
+            { regex: this.articleListRegex, type: 'article_list', extractId: (match) => match[1] }
         ];
 
-        for (const linkType of linkTypes) {
-            // 🆕 使用正则监控包装 matchAll 调用
-            const globalRegex = new RegExp(linkType.regex, 'g');
-            const matches = monitorRegex(
-                `${linkType.type}Regex`,
-                globalRegex,
-                cleanedMessage,
-                (regex, input) => Array.from(input.matchAll(regex))
-            );
+        for (const tokenInfo of tokenInfos) {
+            const structuredResult = this.parseStructuredLinkToken(tokenInfo, groupId);
+            if (structuredResult.handled) {
+                this.appendUniqueLink(links, structuredResult.link);
+                continue;
+            }
 
-            for (const match of matches) {
-                const id = linkType.extractId(match);
-                // Cache key includes groupId to allow same link in different groups
-                // Use | as separator to avoid conflict with underscores in IDs or GroupIDs (e.g. private_xxxx)
-                const cacheKey = groupId ? `${linkType.type}|${id}|${groupId}` : `${linkType.type}|${id}`;
-                links.push({
-                    type: linkType.type,
-                    id: id,
-                    cacheKey: cacheKey,
-                    match: match[0]
-                });
+            const questionMarkIndex = tokenInfo.normalizedToken.indexOf('?');
+            const regexInput = questionMarkIndex !== -1
+                ? tokenInfo.normalizedToken.substring(0, questionMarkIndex)
+                : tokenInfo.normalizedToken;
+
+            for (const linkType of linkTypes) {
+                const globalRegex = new RegExp(linkType.regex, 'g');
+                const matches = monitorRegex(
+                    `${linkType.type}Regex`,
+                    globalRegex,
+                    regexInput,
+                    (regex, input) => Array.from(input.matchAll(regex))
+                );
+
+                for (const match of matches) {
+                    const id = linkType.extractId(match);
+                    this.appendUniqueLink(
+                        links,
+                        this.createLink(linkType.type, id, groupId, match[0], {}, tokenInfo.normalizedToken)
+                    );
+                }
             }
         }
 
@@ -279,6 +549,7 @@ class LinkHandler {
     // 处理单个链接
     async processSingleLink(link, ws, groupId, userId = null, traceContext = null) {
         const { type, id, cacheKey } = link;
+        const meta = link.meta || {};
         const scope = this.getScope(traceContext);
 
         // 🆕 生成唯一请求ID用于错误追踪
@@ -332,17 +603,19 @@ class LinkHandler {
                     if (info.status === 'success') {
                         try {
                             url = `https://www.bilibili.com/video/${id}`;
-                            await sendCard(info, 'video', url);
+                            await sendCard(info, info.type || 'video', url);
                             // 异步触发视频下载（不阻塞预览卡片发送）
                             const videoDownloadService = require('../services/videoDownloadService')
-                            videoDownloadService.downloadAndSend(ws, groupId, id, info).catch(e => {
-                                this.log('error', scope, 'download-dispatch-failed', {
-                                    requestId,
-                                    linkType: type,
-                                    linkId: id,
-                                    error: logger.getErrorMessage(e)
+                            if ((info.type || 'video') === 'video') {
+                                videoDownloadService.downloadAndSend(ws, groupId, id, info).catch(e => {
+                                    this.log('error', scope, 'download-dispatch-failed', {
+                                        requestId,
+                                        linkType: type,
+                                        linkId: id,
+                                        error: logger.getErrorMessage(e)
+                                    })
                                 })
-                            })
+                            }
                         } catch (imgError) {
                             sendFallbackText(`https://www.bilibili.com/video/${id}`, 'preview_generation_failed', {
                                 error: logger.getErrorMessage(imgError)
@@ -510,6 +783,123 @@ class LinkHandler {
                             status: info.status,
                             error: errorMsg
                         }, `获取用户失败: ${errorMsg}\nhttps://space.bilibili.com/${id}`);
+                    }
+                    break;
+
+                case 'favorite_list': {
+                    const favoriteType = meta.favoriteType || 'video';
+                    const mediaId = favoriteType === 'video' ? (meta.mediaId ?? id) : null;
+                    info = await this.getDataWithCache('favorite_list', meta.uniqueId || id, () =>
+                        biliApi.getFavoriteListInfo(mediaId, groupId, favoriteType)
+                    );
+                    url = meta.url || (mediaId ? `https://www.bilibili.com/medialist/detail/ml${mediaId}` : link.match);
+                    if (info.status === 'success') {
+                        await sendCard(info, 'favorite_list', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+                }
+
+                case 'audio':
+                    info = await this.getDataWithCache('audio', id, () => biliApi.getAudioInfo(id, groupId));
+                    url = meta.url || `https://www.bilibili.com/audio/au${id}`;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'audio', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'audio_list':
+                    info = await this.getDataWithCache('audio_list', id, () => biliApi.getAudioListInfo(id, groupId));
+                    url = meta.url || `https://www.bilibili.com/audio/am${id}`;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'audio_list', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'topic':
+                    info = await this.getDataWithCache('topic', id, () => biliApi.getTopicInfo(id, groupId));
+                    url = meta.url || `https://www.bilibili.com/v/topic/detail/?topic_id=${id}`;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'topic', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'channel_series':
+                    info = await this.getDataWithCache('channel_series', meta.uniqueId || id, () =>
+                        biliApi.getChannelSeriesInfo(meta.uid, meta.seriesId || id, meta.seriesType || 'series', groupId)
+                    );
+                    url = meta.url || link.match;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'channel_series', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'article_list':
+                    info = await this.getDataWithCache('article_list', id, () => biliApi.getArticleListInfo(id, groupId));
+                    url = meta.url || `https://www.bilibili.com/read/readlist/rl${id}`;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'article_list', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'note':
+                    info = await this.getDataWithCache('note', id, () => biliApi.getNoteInfo(id, groupId));
+                    url = meta.url || `https://www.bilibili.com/h5/note-app/view?cvid=${id}`;
+                    if (info.status === 'success') {
+                        await sendCard(info, 'note', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
+                    }
+                    break;
+
+                case 'cheese_video':
+                    info = await this.getDataWithCache('cheese_video', meta.uniqueId || id, () =>
+                        biliApi.getCheeseVideoInfo(meta.epId || null, meta.seasonId || null, groupId)
+                    );
+                    url = meta.url || (
+                        meta.epId
+                            ? `https://www.bilibili.com/cheese/play/ep${meta.epId}`
+                            : `https://www.bilibili.com/cheese/play/ss${meta.seasonId || id}`
+                    );
+                    if (info.status === 'success') {
+                        await sendCard(info, 'cheese_video', url);
+                    } else {
+                        sendFallbackText(url, 'fetch_failed', {
+                            status: info.status,
+                            error: info.message || ''
+                        });
                     }
                     break;
             } // switch end

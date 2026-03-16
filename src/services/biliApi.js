@@ -180,6 +180,75 @@ class BiliApi {
         );
     }
 
+    async getFavoriteListInfo(mediaId, groupId, favoriteType = 'video') {
+        const resourceId = mediaId || favoriteType || 'default';
+        return this._withCache('favorite_list', `${favoriteType}:${resourceId}`, groupId, () =>
+            serviceManager.sendCommand('favorite_list', {
+                media_id: mediaId,
+                favorite_type: favoriteType,
+                group_id: groupId
+            })
+        );
+    }
+
+    async getAudioInfo(auid, groupId) {
+        return this._withCache('audio', auid, groupId, () =>
+            serviceManager.sendCommand('audio', { auid, group_id: groupId })
+        );
+    }
+
+    async getAudioListInfo(amid, groupId) {
+        return this._withCache('audio_list', amid, groupId, () =>
+            serviceManager.sendCommand('audio_list', { amid, group_id: groupId })
+        );
+    }
+
+    async getTopicInfo(topicId, groupId) {
+        return this._withCache('topic', topicId, groupId, () =>
+            serviceManager.sendCommand('topic', { topic_id: topicId, group_id: groupId })
+        );
+    }
+
+    async getChannelSeriesInfo(uid, seriesId, seriesType, groupId) {
+        return this._withCache('channel_series', `${seriesType}:${uid}:${seriesId}`, groupId, () =>
+            serviceManager.sendCommand('channel_series', {
+                uid,
+                series_id: seriesId,
+                series_type: seriesType,
+                group_id: groupId
+            })
+        );
+    }
+
+    async getArticleListInfo(rlid, groupId) {
+        return this._withCache('article_list', rlid, groupId, () =>
+            serviceManager.sendCommand('article_list', { rlid, group_id: groupId })
+        );
+    }
+
+    async getNoteInfo(cvid, groupId) {
+        return this._withCache('note', cvid, groupId, () =>
+            serviceManager.sendCommand('note', { cvid, group_id: groupId })
+        );
+    }
+
+    async getCheeseVideoInfo(epId, seasonId, groupId) {
+        const key = epId ? `ep:${epId}` : `season:${seasonId}`;
+        return this._withCache('cheese_video', key, groupId, () =>
+            serviceManager.sendCommand('cheese_video', {
+                ep_id: epId,
+                season_id: seasonId,
+                group_id: groupId
+            })
+        );
+    }
+
+    async getInteractiveVideoInfo(bvid, groupId) {
+        return this._withCache('interactive_video', bvid, groupId, () =>
+            serviceManager.sendCommand('interactive_video', { bvid, group_id: groupId })
+        );
+    }
+
     async getMyInfo(groupId) {
         // Personal info usually doesn't change often, but let's keep it fresh for now
         // or execute without cache

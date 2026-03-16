@@ -1,6 +1,7 @@
 const { escapeHtml, formatNumber } = require('../core/formatters');
 const ICONS = require('./icons');
 const { parseRichText } = require('./components/richtext');
+const { resolvePlainTextContent } = require('./components/contentNodes');
 
 /**
  * 渲染番剧内容
@@ -18,6 +19,8 @@ function renderBangumiContent(data, emojiContext = null) {
     const isMovieOrDoc = (seasonType === 2 || seasonType === 3)
         || stylesArr.includes('电影') || stylesArr.includes('纪录片')
         || /电影|纪录/.test(typeDesc);
+    const resolvedTitle = resolvePlainTextContent(info.title)
+    const resolvedDesc = resolvePlainTextContent(info.desc)
 
     let statusText = '';
     const styles = info.styles || [];
@@ -64,7 +67,7 @@ function renderBangumiContent(data, emojiContext = null) {
             <img class="cover bangumi" src="${info.cover}" />
         </div>
         <div class="content">
-            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
+            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
             <div class="status-line">
                 <span class="status-prefix">${statusText}</span>
                 ${metaSuffix ? `<span class="status-meta">${metaSuffix}</span>` : ''}
@@ -75,7 +78,7 @@ function renderBangumiContent(data, emojiContext = null) {
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.stat?.danmakus)}</span>
                 <span class="stat-item">${ICONS.star} ${info.rating?.score || 'N/A'}分</span>
             </div>
-            <div class="text-content">${parseRichText(null, info.desc || '', emojiContext)}</div>
+            <div class="text-content">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>
         </div>
     `;
 }

@@ -108,6 +108,53 @@ const SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = [
     'doc',
     'variety'
 ];
+const DEFAULT_LABEL_CONFIG = {
+    video: true,
+    bangumi: true,
+    article: true,
+    live: true,
+    dynamic: true,
+    user: true,
+    interactive_video: true,
+    favorite_list: true,
+    audio: true,
+    audio_list: true,
+    topic: true,
+    channel_series: true,
+    article_list: true,
+    note: true,
+    cheese_video: true,
+    movie: true,
+    tv: true,
+    guocha: true,
+    doc: true,
+    variety: true
+};
+
+function normalizeLabelConfig(input) {
+    const raw = input && typeof input === 'object' ? input : {};
+    const normalized = {};
+
+    Object.keys(DEFAULT_LABEL_CONFIG).forEach((key) => {
+        normalized[key] = typeof raw[key] === 'boolean' ? raw[key] : DEFAULT_LABEL_CONFIG[key];
+    });
+
+    return normalized;
+}
+
+function ensureNormalizedLabelConfigObject(input) {
+    const target = input && typeof input === 'object' && !Array.isArray(input)
+        ? input
+        : {};
+
+    Object.keys(DEFAULT_LABEL_CONFIG).forEach((key) => {
+        if (typeof target[key] !== 'boolean') {
+            target[key] = DEFAULT_LABEL_CONFIG[key];
+        }
+    });
+
+    return target;
+}
 
 function createDefaultSubscriptionAtAllRules() {
     const sources = {};
@@ -433,9 +480,14 @@ const META = {
     },
     labelConfig: {
         env: null,
-        def: {
-            video: true, bangumi: true, article: true, live: true, dynamic: true, user: true,
-            movie: true, tv: true, guocha: true, doc: true, variety: true
+        def: DEFAULT_LABEL_CONFIG,
+        get: function() {
+            if (!('labelConfig' in _overrides) || typeof _overrides.labelConfig !== 'object' || _overrides.labelConfig === null || Array.isArray(_overrides.labelConfig)) {
+                _overrides.labelConfig = { ...DEFAULT_LABEL_CONFIG };
+            } else {
+                ensureNormalizedLabelConfigObject(_overrides.labelConfig);
+            }
+            return _overrides.labelConfig;
         },
         type: 'object',
         lazyInit: true
@@ -453,6 +505,15 @@ const config = {
     getGroupConfig: function(groupId, key) {
         // use != null to check for both null and undefined
         if (groupId && this.groupConfigs[groupId] && this.groupConfigs[groupId][key] != null) {
+            if (key === 'labelConfig') {
+                const currentLabelConfig = this.groupConfigs[groupId][key];
+                if (typeof currentLabelConfig !== 'object' || currentLabelConfig === null || Array.isArray(currentLabelConfig)) {
+                    this.groupConfigs[groupId][key] = { ...DEFAULT_LABEL_CONFIG };
+                } else {
+                    ensureNormalizedLabelConfigObject(currentLabelConfig);
+                }
+                return this.groupConfigs[groupId][key];
+            }
             return this.groupConfigs[groupId][key];
         }
         return this[key];
@@ -464,7 +525,14 @@ const config = {
         if (!this.groupConfigs[groupId]) {
             this.groupConfigs[groupId] = {};
         }
-        this.groupConfigs[groupId][key] = value;
+        if (key === 'labelConfig') {
+            const nextValue = value && typeof value === 'object' && !Array.isArray(value)
+                ? { ...value }
+                : {};
+            this.groupConfigs[groupId][key] = ensureNormalizedLabelConfigObject(nextValue);
+        } else {
+            this.groupConfigs[groupId][key] = value;
+        }
         this.save();
     },
 
@@ -599,13 +667,7 @@ const config = {
 
             this.groupConfigs[key] = {
                 linkCacheTimeout: 5,
-                labelConfig: {
-                    video: true,
-                    dynamic: true,
-                    live: true,
-                    article: true,
-                    bangumi: true
-                },
+                labelConfig: { ...DEFAULT_LABEL_CONFIG },
                 enableCookieSync: false,
                 subscriptionAtAll: false,
                 subscriptionAtAllRules: createDefaultSubscriptionAtAllRules(),
@@ -850,3 +912,5 @@ module.exports.createDefaultSubscriptionAtAllRules = createDefaultSubscriptionAt
 module.exports.normalizeSubscriptionAtAllRules = normalizeSubscriptionAtAllRules;
 module.exports.SUBSCRIPTION_AT_ALL_SOURCE_KEYS = SUBSCRIPTION_AT_ALL_SOURCE_KEYS;
 module.exports.SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = SUBSCRIPTION_AT_ALL_CATEGORY_KEYS;
+module.exports.DEFAULT_LABEL_CONFIG = DEFAULT_LABEL_CONFIG;
+module.exports.normalizeLabelConfig = normalizeLabelConfig;

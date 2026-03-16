@@ -27,7 +27,16 @@
     "article": true,
     "live": true,
     "dynamic": true,
-    "user": true
+    "user": true,
+    "interactive_video": true,
+    "favorite_list": true,
+    "audio": true,
+    "audio_list": true,
+    "topic": true,
+    "channel_series": true,
+    "article_list": true,
+    "note": true,
+    "cheese_video": true
   },
   "showId": true,
   "groupConfigs": {

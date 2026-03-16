@@ -6,6 +6,7 @@ const { renderArticleContent } = require('../renderers/article');
 const { renderLiveContent } = require('../renderers/live');
 const { renderDynamicContent } = require('../renderers/dynamic');
 const { renderUserContent } = require('../renderers/user');
+const { renderGenericContent } = require('../renderers/generic');
 const { createRenderEmojiContext } = require('../renderers/components/renderEmojiContext');
 const config = require('../../../config');
 
@@ -71,7 +72,7 @@ function renderTypeBadge(type, data, groupId, currentType) {
 /**
  * 生成预览卡片图片
  * @param {Object} data - 内容数据
- * @param {String} type - 内容类型 (video, bangumi, dynamic, article, live, user)
+ * @param {String} type - 内容类型
  * @param {String} groupId - 群组ID
  * @param {Boolean} show_id - 是否显示UID (仅用于user类型)
  * @returns {Promise<String>} Base64编码的图片
@@ -108,8 +109,12 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
                 contentHtml = renderLiveContent(data, emojiContext);
             } else if (type === 'dynamic') {
                 contentHtml = renderDynamicContent(data, emojiContext);
+            } else if (type === 'interactive_video') {
+                contentHtml = renderVideoContent(data, emojiContext);
             } else if (type === 'user') {
                 contentHtml = renderUserContent(data, show_id, emojiContext);
+            } else {
+                contentHtml = renderGenericContent(data, emojiContext);
             }
 
             // Generate Type Badge HTML

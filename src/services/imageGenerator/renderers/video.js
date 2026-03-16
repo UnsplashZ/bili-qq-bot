@@ -1,6 +1,7 @@
 const { escapeHtml, formatDuration, formatPubTime, formatNumber } = require('../core/formatters');
 const ICONS = require('./icons');
 const { parseRichText } = require('./components/richtext');
+const { resolvePlainTextContent } = require('./components/contentNodes');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
@@ -17,6 +18,8 @@ function renderVideoContent(data, emojiContext = null) {
     const verifyType = Number(owner.official_verify?.type);
     const verifyBadgeHtml = renderVerifyBadge(verifyType, 'author-verify-badge--video');
     const durationStr = info.duration ? ` • 时长: ${formatDuration(info.duration)}` : '';
+    const resolvedTitle = resolvePlainTextContent(info.title)
+    const resolvedDesc = resolvePlainTextContent(info.desc)
     return `
         <div class="cover-container">
             <img class="cover video" src="${info.pic}" />
@@ -34,13 +37,13 @@ function renderVideoContent(data, emojiContext = null) {
                     </div>
                 </div>
             </div>
-            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
+            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
             <div class="stats video-stats">
                 <span class="stat-item">${ICONS.view} ${formatNumber(info.view?.count || info.stat?.view)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.like || info.stat?.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.reply || info.stat?.reply)}</span>
             </div>
-            ${info.desc ? `<div class="text-content">${parseRichText(null, info.desc, emojiContext)}</div>` : ''}
+            ${resolvedDesc.text ? `<div class="text-content">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>` : ''}
         </div>
     `;
 }

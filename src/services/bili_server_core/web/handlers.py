@@ -21,6 +21,17 @@ from ..services.feed_service import (
     get_user_videos,
 )
 from ..services.follow_service import get_follow_groups, get_my_followings
+from ..services.resource_service import (
+    get_article_list_info,
+    get_audio_info,
+    get_audio_list_info,
+    get_channel_series_info,
+    get_cheese_video_info,
+    get_favorite_list_info,
+    get_interactive_video_info,
+    get_note_info,
+    get_topic_info,
+)
 from ..services.user_service import get_my_info, get_user_card, get_user_info
 from ..services.video_service import get_video_info
 from ..logging_utils import rpc_log
@@ -239,6 +250,109 @@ async def handle_media(request):
         return json_result(result)
     except Exception as e:
         return _handler_error("media", e)
+
+
+async def handle_favorite_list(request):
+    try:
+        data = await request.json()
+        media_id = data.get("media_id")
+        favorite_type = data.get("favorite_type", "video")
+        group_id = data.get("group_id")
+        result = await get_favorite_list_info(media_id, favorite_type, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("favorite_list", e)
+
+
+async def handle_audio(request):
+    try:
+        data = await request.json()
+        auid = data.get("auid")
+        group_id = data.get("group_id")
+        result = await get_audio_info(auid, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("audio", e)
+
+
+async def handle_audio_list(request):
+    try:
+        data = await request.json()
+        amid = data.get("amid")
+        group_id = data.get("group_id")
+        result = await get_audio_list_info(amid, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("audio_list", e)
+
+
+async def handle_topic(request):
+    try:
+        data = await request.json()
+        topic_id = data.get("topic_id")
+        group_id = data.get("group_id")
+        result = await get_topic_info(topic_id, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("topic", e)
+
+
+async def handle_channel_series(request):
+    try:
+        data = await request.json()
+        uid = data.get("uid")
+        series_id = data.get("series_id")
+        series_type = data.get("series_type", "series")
+        group_id = data.get("group_id")
+        result = await get_channel_series_info(uid, series_id, series_type, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("channel_series", e)
+
+
+async def handle_article_list(request):
+    try:
+        data = await request.json()
+        rlid = data.get("rlid")
+        group_id = data.get("group_id")
+        result = await get_article_list_info(rlid, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("article_list", e)
+
+
+async def handle_note(request):
+    try:
+        data = await request.json()
+        cvid = data.get("cvid")
+        group_id = data.get("group_id")
+        result = await get_note_info(cvid, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("note", e)
+
+
+async def handle_cheese_video(request):
+    try:
+        data = await request.json()
+        ep_id = data.get("ep_id")
+        season_id = data.get("season_id")
+        group_id = data.get("group_id")
+        result = await get_cheese_video_info(ep_id, season_id, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("cheese_video", e)
+
+
+async def handle_interactive_video(request):
+    try:
+        data = await request.json()
+        bvid = data.get("bvid")
+        group_id = data.get("group_id")
+        result = await get_interactive_video_info(bvid, group_id)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("interactive_video", e)
 
 
 async def handle_user_info(request):

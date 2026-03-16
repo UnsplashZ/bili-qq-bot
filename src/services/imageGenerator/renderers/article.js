@@ -1,6 +1,7 @@
 const { escapeHtml, formatPubTime, formatNumber } = require('../core/formatters');
 const { parseRichText } = require('./components/richtext');
 const { replaceEmojiTokensInHtml } = require('./components/articleHtmlEmoji');
+const { resolvePlainTextContent } = require('./components/contentNodes');
 const ICONS = require('./icons');
 
 const EMPTY_PARAGRAPH_START_RE = /^\s*<p(?:\s[^>]*)?>\s*(?:<br\s*\/?>|&nbsp;|\u00a0|\s)*\s*<\/p>/i
@@ -20,13 +21,7 @@ function trimArticleBlankParagraphs(html) {
 }
 
 function normalizeArticleSummary(summary) {
-    if (!summary) return ''
-    return String(summary)
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .replace(/\u200b/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
+    return resolvePlainTextContent(summary).text
 }
 
 /**
@@ -41,9 +36,11 @@ function renderArticleContent(data, emojiContext = null) {
     const authorFace = info.author_face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const hasHtmlContent = !!info.html_content;
     const contentClass = hasHtmlContent ? 'article-body' : 'text-content';
+    const resolvedTitle = resolvePlainTextContent(info.title)
+    const resolvedSummary = resolvePlainTextContent(normalizeArticleSummary(info.summary || ''))
     const contentHtml = hasHtmlContent
         ? replaceEmojiTokensInHtml(trimArticleBlankParagraphs(info.html_content), emojiContext)
-        : parseRichText(null, normalizeArticleSummary(info.summary || ''), emojiContext);
+        : parseRichText(resolvedSummary.richTextNodes, resolvedSummary.text, emojiContext);
 
     return `
         <div class="content">
@@ -58,7 +55,7 @@ function renderArticleContent(data, emojiContext = null) {
                     </div>
                 </div>
             </div>
-            <div class="title">${parseRichText(null, info.title, emojiContext)}</div>
+            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
             <div class="${contentClass}">${contentHtml}</div>
             <div class="stats article-stats">
                 <span class="stat-item">${ICONS.share} ${formatNumber(info.stats?.share)}</span>

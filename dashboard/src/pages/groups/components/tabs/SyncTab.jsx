@@ -47,6 +47,9 @@ const SyncTab = ({
           <div className="text-sm text-gray-400 mt-1">
             命中规则：总开关开启 AND 来源开启 AND 分类开启 AND 该来源下 UID 未被关闭
           </div>
+          <div className="text-xs text-gray-500 mt-1">
+            仅对订阅推送类型生效；收藏夹、音频、话题、文集等链接解析卡片不在此范围内。
+          </div>
         </div>
 
         <div className="space-y-3">
