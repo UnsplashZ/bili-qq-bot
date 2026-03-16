@@ -1,5 +1,6 @@
 import logging
 import re
+from copy import deepcopy
 
 from bilibili_api import dynamic, opus, user
 
@@ -16,6 +17,127 @@ from ..media.opus_enricher import (
 from .article_service import get_article_info, get_opus_detail
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_rich_text_nodes(nodes):
+    if not isinstance(nodes, list):
+        return []
+    return deepcopy(nodes)
+
+
+def _has_semantic_rich_text_nodes(nodes):
+    if not isinstance(nodes, list) or len(nodes) == 0:
+        return False
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get("type") or node.get("text") or node.get("orig_text"):
+            return True
+    return False
+
+
+def _has_useful_body_nodes(nodes):
+    if not isinstance(nodes, list) or len(nodes) == 0:
+        return False
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        node_type = node.get("type") or "RICH_TEXT_NODE_TYPE_TEXT"
+        node_text = normalize_preview_text(node.get("text") or "")
+
+        if node_type == "RICH_TEXT_NODE_TYPE_TOPIC":
+            continue
+        if node_type == "RICH_TEXT_NODE_TYPE_TEXT":
+            if node_text:
+                return True
+            continue
+        return True
+
+    return False
+
+
+def _compose_text_from_nodes(nodes):
+    if not isinstance(nodes, list):
+        return ""
+    return normalize_preview_text(
+        "".join(str((node or {}).get("text") or "") for node in nodes if isinstance(node, dict))
+    )
+
+
+def _build_body_payload(text="", rich_text_nodes=None, images=None, source=""):
+    normalized_nodes = _normalize_rich_text_nodes(rich_text_nodes)
+    normalized_text = normalize_preview_text(text)
+    if not normalized_text and normalized_nodes:
+        normalized_text = _compose_text_from_nodes(normalized_nodes)
+    return {
+        "text": normalized_text,
+        "rich_text_nodes": normalized_nodes,
+        "images": deepcopy(images or []),
+        "source": source,
+    }
+
+
+def _is_degraded_body(text, rich_text_nodes, placeholder_count):
+    if not text:
+        return True
+    if placeholder_count >= 2:
+        return True
+    return not _has_useful_body_nodes(rich_text_nodes)
+
+
+def _ensure_topic_on_body(body_obj, topic_info):
+    if not isinstance(body_obj, dict):
+        return
+
+    topic_name = (topic_info or {}).get("name")
+    if not topic_name:
+        return
+
+    text = body_obj.get("text", "")
+    if f"{topic_name}" not in text:
+        body_obj["text"] = text + f" #{topic_name}#"
+
+    nodes = body_obj.get("rich_text_nodes")
+    if not isinstance(nodes, list):
+        return
+
+    has_topic_node = any(
+        isinstance(node, dict)
+        and node.get("type") == "RICH_TEXT_NODE_TYPE_TOPIC"
+        and topic_name in str(node.get("orig_text") or node.get("text") or "")
+        for node in nodes
+    )
+    if has_topic_node:
+        return
+
+    nodes.append(
+        {
+            "text": " ",
+            "type": "RICH_TEXT_NODE_TYPE_TEXT",
+            "orig_text": " ",
+        }
+    )
+    nodes.append(
+        {
+            "text": f"{topic_name}",
+            "type": "RICH_TEXT_NODE_TYPE_TOPIC",
+            "orig_text": f"#{topic_name}#",
+        }
+    )
+
+
+def _ensure_topic_on_dynamic(module_dynamic):
+    if not isinstance(module_dynamic, dict):
+        return
+
+    topic_info = module_dynamic.get("topic") or {}
+    _ensure_topic_on_body(module_dynamic.get("desc"), topic_info)
+
+    major = module_dynamic.get("major") or {}
+    opus_body = major.get("opus") or {}
+    _ensure_topic_on_body(opus_body.get("summary"), topic_info)
 
 
 async def get_user_dynamic(uid, group_id=None):
@@ -265,31 +387,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
 
         try:
             md = modules.get("module_dynamic") or {}
-            topic_info = md.get("topic")
-            if topic_info and topic_info.get("name"):
-                topic_name = topic_info.get("name")
-                desc_obj = md.get("desc")
-                if desc_obj:
-                    text = desc_obj.get("text", "")
-                    if f"{topic_name}" not in text:
-                        desc_obj["text"] = text + f" #{topic_name}#"
-
-                        nodes = desc_obj.get("rich_text_nodes")
-                        if isinstance(nodes, list):
-                            nodes.append(
-                                {
-                                    "text": " ",
-                                    "type": "RICH_TEXT_NODE_TYPE_TEXT",
-                                    "orig_text": " ",
-                                }
-                            )
-                            nodes.append(
-                                {
-                                    "text": f"{topic_name}",
-                                    "type": "RICH_TEXT_NODE_TYPE_TOPIC",
-                                    "orig_text": f"#{topic_name}#",
-                                }
-                            )
+            _ensure_topic_on_dynamic(md)
         except Exception:
             pass
 
@@ -459,35 +557,65 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             current_summary_text = normalize_preview_text(
                 (opus_major.get("summary") or {}).get("text", "")
             )
+            current_desc_nodes = _normalize_rich_text_nodes(
+                (md.get("desc") or {}).get("rich_text_nodes")
+            )
+            current_summary_nodes = _normalize_rich_text_nodes(
+                (opus_major.get("summary") or {}).get("rich_text_nodes")
+            )
             current_desc_placeholder_count = count_image_placeholders(current_desc_text)
             current_summary_placeholder_count = count_image_placeholders(
                 current_summary_text
             )
 
-            need_text_enrich = is_article_like and (
-                not current_desc_text
-                or current_desc_placeholder_count >= 2
-                or (not current_desc_text and current_summary_placeholder_count >= 1)
+            need_body_sync = is_article_like and (
+                _is_degraded_body(
+                    current_desc_text,
+                    current_desc_nodes,
+                    current_desc_placeholder_count,
+                )
+                or _is_degraded_body(
+                    current_summary_text,
+                    current_summary_nodes,
+                    current_summary_placeholder_count,
+                )
             )
             need_image_enrich = is_article_like and not opus_major.get("pics")
 
-            opus_text = ""
-            opus_images = []
-            if need_text_enrich or need_image_enrich:
+            canonical_body = None
+            if _has_useful_body_nodes(current_summary_nodes):
+                canonical_body = _build_body_payload(
+                    current_summary_text,
+                    current_summary_nodes,
+                    opus_major.get("pics") or [],
+                    "existing_summary",
+                )
+
+            opus_body = None
+            if need_body_sync or need_image_enrich:
                 opus_id = item.get("id_str") or info.get("id_str") or dynamic_id
                 if opus_id and str(opus_id).isdigit():
                     o = opus.Opus(int(opus_id), credential=load_credential(group_id))
                     opus_info = await o.get_info()
-                    opus_text, opus_images = extract_opus_content_payload(opus_info)
+                    opus_body = extract_opus_content_payload(opus_info)
+                    if canonical_body is None and (
+                        opus_body.get("text")
+                        or _has_useful_body_nodes(opus_body.get("rich_text_nodes"))
+                    ):
+                        canonical_body = _build_body_payload(
+                            opus_body.get("text"),
+                            opus_body.get("rich_text_nodes"),
+                            opus_body.get("images"),
+                            "opus",
+                        )
 
-            if need_image_enrich and opus_images:
+            if need_image_enrich and (opus_body or {}).get("images"):
                 if "opus" not in major:
                     major["opus"] = {}
-                major["opus"]["pics"] = opus_images
+                major["opus"]["pics"] = deepcopy(opus_body.get("images") or [])
 
-            candidate_text = ""
-            candidate_source = ""
-            if need_text_enrich:
+            article_result = None
+            if canonical_body is None and need_body_sync:
                 jump_url = opus_major.get("jump_url") or (item.get("basic") or {}).get(
                     "jump_url"
                 )
@@ -500,58 +628,51 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                             article_data.get("summary") or ""
                         )
                         if article_summary:
-                            candidate_text = article_summary
-                            candidate_source = "article"
+                            canonical_body = _build_body_payload(
+                                article_summary,
+                                [],
+                                [],
+                                "article",
+                            )
                             if "opus" not in major:
                                 major["opus"] = {}
                             if not major["opus"].get("title") and article_data.get("title"):
                                 major["opus"]["title"] = article_data.get("title")
 
-                if not candidate_text and opus_text:
-                    candidate_text = opus_text
-                    candidate_source = "opus"
-
             has_real_images = bool((major.get("opus") or {}).get("pics"))
-            if candidate_text and has_real_images:
-                candidate_text = strip_image_placeholders(candidate_text)
+            canonical_text = (canonical_body or {}).get("text") or ""
+            canonical_nodes = _normalize_rich_text_nodes(
+                (canonical_body or {}).get("rich_text_nodes")
+            )
+            if canonical_text and has_real_images:
+                canonical_text = strip_image_placeholders(canonical_text)
 
-            if candidate_text:
-                should_replace_desc = (
-                    not current_desc_text
-                    or current_desc_placeholder_count >= 2
-                    or len(candidate_text) > len(current_desc_text) + 80
+            if need_body_sync and canonical_text:
+                if "opus" not in major:
+                    major["opus"] = {}
+
+                md["desc"] = {
+                    "text": canonical_text,
+                    "rich_text_nodes": deepcopy(canonical_nodes),
+                }
+                summary_obj = major["opus"].get("summary")
+                if not isinstance(summary_obj, dict):
+                    summary_obj = {}
+                summary_obj["text"] = canonical_text
+                summary_obj["rich_text_nodes"] = deepcopy(canonical_nodes)
+                major["opus"]["summary"] = summary_obj
+
+                service_log(
+                    logger,
+                    "debug",
+                    "dynamic-body-canonicalized",
+                    dynamicId=dynamic_id,
+                    source=(canonical_body or {}).get("source") or "unknown",
+                    length=len(canonical_text),
+                    richNodeCount=len(canonical_nodes),
                 )
 
-                if should_replace_desc:
-                    if not isinstance(md.get("desc"), dict):
-                        md["desc"] = {}
-                    md["desc"]["text"] = candidate_text
-                    existing_nodes = md["desc"].get("rich_text_nodes")
-                    if existing_nodes is None:
-                        md["desc"]["rich_text_nodes"] = []
-                    elif not isinstance(existing_nodes, list):
-                        md["desc"]["rich_text_nodes"] = []
-                    service_log(
-                        logger,
-                        "debug",
-                        "dynamic-desc-enriched",
-                        dynamicId=dynamic_id,
-                        source=candidate_source,
-                        length=len(candidate_text),
-                    )
-
-                if "opus" in major:
-                    summary_obj = major["opus"].get("summary")
-                    if not isinstance(summary_obj, dict):
-                        summary_obj = {}
-
-                    summary_text = normalize_preview_text(summary_obj.get("text") or "")
-                    if not summary_text or count_image_placeholders(summary_text) >= 2:
-                        summary_obj["text"] = candidate_text
-                        summary_obj["rich_text_nodes"] = (
-                            summary_obj.get("rich_text_nodes") or []
-                        )
-                        major["opus"]["summary"] = summary_obj
+            _ensure_topic_on_dynamic(md)
 
             md["major"] = major
             item_modules["module_dynamic"] = md
