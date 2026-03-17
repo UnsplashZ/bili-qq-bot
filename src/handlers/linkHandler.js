@@ -673,12 +673,13 @@ class LinkHandler {
                     info = await this.getDataWithCache('article', id, () => biliApi.getArticleInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            url = `https://www.bilibili.com/read/cv${id}`;
-                            await sendCard(info, info.type, url);
+                            url = info.data?.canonical_url || `https://www.bilibili.com/read/cv${id}`;
+                            await sendCard(info, 'article', url);
                         } catch (imgError) {
-                            sendFallbackText(`https://www.bilibili.com/read/cv${id}`, 'preview_generation_failed', {
+                            const fallbackUrl = info.data?.canonical_url || `https://www.bilibili.com/read/cv${id}`
+                            sendFallbackText(fallbackUrl, 'preview_generation_failed', {
                                 error: logger.getErrorMessage(imgError)
-                            }, `预览生成失败，已降级为文本链接：\nhttps://www.bilibili.com/read/cv${id}`);
+                            }, `预览生成失败，已降级为文本链接：\n${fallbackUrl}`);
                         }
                     } else {
                         sendFallbackText(`https://www.bilibili.com/read/cv${id}`, 'fetch_failed', {

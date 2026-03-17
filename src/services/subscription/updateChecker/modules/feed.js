@@ -1,4 +1,5 @@
 const { subscriptionManager, biliApi, config, logger } = require('../adapters/deps')
+const { classifyArchiveDynamic } = require('../helpers/archiveDynamic')
 const { decideAdvance } = require('../helpers/stateAdvance')
 const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
@@ -501,11 +502,25 @@ module.exports = {
         if (!item) return false
 
         const major = item?.modules?.module_dynamic?.major
-
-        // Skip video post auto-dynamic
-        if (major?.type === 'MAJOR_TYPE_ARCHIVE' || item.type === 'DYNAMIC_TYPE_AV') {
-            subLog('debug', 'feed-video-dynamic-skipped', {
+        if (item.type === 'DYNAMIC_TYPE_ARTICLE') {
+            subLog('debug', 'feed-article-dynamic-skipped', {
                 dynamicId: item.id_str
+            })
+            return true
+        }
+
+        const archiveDynamicType = classifyArchiveDynamic(item)
+        if (archiveDynamicType === 'video_auto_post') {
+            subLog('debug', 'feed-video-dynamic-skipped', {
+                dynamicId: item.id_str,
+                archiveDynamicType
+            })
+            return true
+        }
+        if (archiveDynamicType === 'unknown_archive_dynamic') {
+            subLog('debug', 'feed-unknown-archive-dynamic-skipped', {
+                dynamicId: item.id_str,
+                archiveDynamicType
             })
             return true
         }
