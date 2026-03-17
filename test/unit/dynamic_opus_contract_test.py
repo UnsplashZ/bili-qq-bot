@@ -285,7 +285,22 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
     async def test_get_dynamic_detail_should_canonicalize_desc_and_summary_from_opus_body(self):
         with (
             patch.object(dynamic_service, "load_credential", return_value=object()),
-            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service,
+                "build_dynamic_detail_author_context",
+                AsyncMock(
+                    return_value={
+                        "level": 0,
+                        "pendant_url": None,
+                        "card_url": None,
+                        "decoration_card": None,
+                        "card_number": None,
+                        "card_focus_color": None,
+                        "fan_color": None,
+                        "avatar_focus_color": None,
+                    }
+                ),
+            ),
             patch.object(
                 dynamic_service.dynamic,
                 "Dynamic",
@@ -334,7 +349,22 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
     async def test_get_dynamic_detail_should_add_opus_link_cards_and_vote_fallback_without_polluting_common(self):
         with (
             patch.object(dynamic_service, "load_credential", return_value=object()),
-            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service,
+                "build_dynamic_detail_author_context",
+                AsyncMock(
+                    return_value={
+                        "level": 0,
+                        "pendant_url": None,
+                        "card_url": None,
+                        "decoration_card": None,
+                        "card_number": None,
+                        "card_focus_color": None,
+                        "fan_color": None,
+                        "avatar_focus_color": None,
+                    }
+                ),
+            ),
             patch.object(
                 dynamic_service.dynamic,
                 "Dynamic",
@@ -363,7 +393,22 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
     async def test_get_dynamic_detail_should_dedupe_common_link_cards_against_existing_common(self):
         with (
             patch.object(dynamic_service, "load_credential", return_value=object()),
-            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service,
+                "build_dynamic_detail_author_context",
+                AsyncMock(
+                    return_value={
+                        "level": 0,
+                        "pendant_url": None,
+                        "card_url": None,
+                        "decoration_card": None,
+                        "card_number": None,
+                        "card_focus_color": None,
+                        "fan_color": None,
+                        "avatar_focus_color": None,
+                    }
+                ),
+            ),
             patch.object(
                 dynamic_service.dynamic,
                 "Dynamic",

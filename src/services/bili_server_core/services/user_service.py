@@ -4,7 +4,7 @@ from bilibili_api import user
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_avatar_focus
 from .opus_additional_service import enrich_opus_modules
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ async def get_user_info(uid, group_id=None):
             "archive_view": archive_view,
             "dynamic": latest_dynamic,
             "live_room": user_info.get("live_room", {}),
-            "focus": {"avatar": await get_image_focus_color(user_info.get("face", ""))},
+            "focus": await build_avatar_focus(user_info.get("face", "")),
         }
 
         service_log(logger, "info", "user-info-ready", uid=data["uid"], hasDynamic=bool(latest_dynamic))

@@ -5,7 +5,7 @@ from bilibili_api import article, audio, channel_series, cheese, favorite_list, 
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_focus
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +46,6 @@ def _extract_items(payload):
     if isinstance(data, dict):
         return _extract_items(data)
     return []
-
-
-async def _build_focus(cover="", avatar=""):
-    return {
-        "cover": await get_image_focus_color(cover or "") if cover else None,
-        "avatar": await get_image_focus_color(avatar or "") if avatar else None,
-    }
 
 
 async def get_favorite_list_info(media_id=None, favorite_type="video", group_id=None):
@@ -121,7 +114,7 @@ async def get_favorite_list_info(media_id=None, favorite_type="video", group_id=
                 "cover_class": "video",
                 "owner": {"name": owner_name, "face": owner_face},
                 "stats": [{"label": "内容", "value": item_count}],
-                "focus": await _build_focus(cover, owner_face),
+                "focus": await build_focus(cover, owner_face),
                 "favorite_type": favorite_type,
                 "media_id": media_id_int,
             },
@@ -162,7 +155,7 @@ async def get_audio_info(auid, group_id=None):
                 "cover_class": "video",
                 "owner": {"name": author or "Bilibili 音频", "face": ""},
                 "stats": [{"label": "播放", "value": play or 0}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": info,
             },
         }
@@ -196,7 +189,7 @@ async def get_audio_list_info(amid, group_id=None):
                 "cover_class": "video",
                 "owner": {"name": _coalesce(info.get("uname"), info.get("author"), "Bilibili 音频"), "face": ""},
                 "stats": [{"label": "曲目", "value": song_count}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": info,
             },
         }
@@ -230,7 +223,7 @@ async def get_topic_info(topic_id, group_id=None):
                 "cover_class": "video",
                 "owner": {"name": "Bilibili 话题", "face": ""},
                 "stats": [{"label": "内容", "value": view_count}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": info,
             },
         }
@@ -280,7 +273,7 @@ async def get_channel_series_info(uid, series_id, series_type="series", group_id
                 "cover_class": "video",
                 "owner": {"name": owner_name, "face": ""},
                 "stats": [{"label": "视频", "value": total}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": meta,
             },
         }
@@ -324,7 +317,7 @@ async def get_article_list_info(rlid, group_id=None):
                 "cover_class": "article",
                 "owner": {"name": author_name, "face": ""},
                 "stats": [{"label": "文章", "value": item_count}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": content,
             },
         }
@@ -369,7 +362,7 @@ async def get_note_info(cvid, group_id=None):
                 "cover_class": "article",
                 "owner": {"name": author_name, "face": ""},
                 "stats": [{"label": "图片", "value": len(images)}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": info,
             },
         }
@@ -414,7 +407,7 @@ async def get_cheese_video_info(ep_id=None, season_id=None, group_id=None):
                 "cover_class": "video",
                 "owner": {"name": course_title, "face": ""},
                 "stats": [{"label": "课程", "value": course_meta.get("episode_num") or 0}],
-                "focus": await _build_focus(cover, ""),
+                "focus": await build_focus(cover, ""),
                 "raw": meta,
             },
         }
@@ -438,7 +431,7 @@ async def get_interactive_video_info(bvid, group_id=None):
             "type": "interactive_video",
             "data": {
                 **info,
-                "focus": await _build_focus(cover, owner.get("face") or ""),
+                "focus": await build_focus(cover, owner.get("face") or ""),
             },
         }
     except Exception as e:

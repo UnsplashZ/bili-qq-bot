@@ -6,7 +6,6 @@ from bilibili_api import dynamic, opus, user
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
 from ..media.opus_enricher import (
     count_image_placeholders,
     extract_cv_id,
@@ -20,6 +19,11 @@ from .opus_additional_service import (
     enrich_opus_modules,
     enrich_additional_vote,
 )
+from .dynamic_author_service import (
+    build_dynamic_detail_author_context,
+    build_user_dynamic_author_context,
+)
+from .dynamic_topic_service import ensure_topic_on_dynamic
 
 logger = logging.getLogger(__name__)
 
@@ -92,137 +96,13 @@ def _is_degraded_body(text, rich_text_nodes, placeholder_count):
     return not _has_useful_body_nodes(rich_text_nodes)
 
 
-def _ensure_topic_on_body(body_obj, topic_info):
-    if not isinstance(body_obj, dict):
-        return
-
-    topic_name = (topic_info or {}).get("name")
-    if not topic_name:
-        return
-
-    text = body_obj.get("text", "")
-    if f"{topic_name}" not in text:
-        body_obj["text"] = text + f" #{topic_name}#"
-
-    nodes = body_obj.get("rich_text_nodes")
-    if not isinstance(nodes, list):
-        return
-
-    has_topic_node = any(
-        isinstance(node, dict)
-        and node.get("type") == "RICH_TEXT_NODE_TYPE_TOPIC"
-        and topic_name in str(node.get("orig_text") or node.get("text") or "")
-        for node in nodes
-    )
-    if has_topic_node:
-        return
-
-    nodes.append(
-        {
-            "text": " ",
-            "type": "RICH_TEXT_NODE_TYPE_TEXT",
-            "orig_text": " ",
-        }
-    )
-    nodes.append(
-        {
-            "text": f"{topic_name}",
-            "type": "RICH_TEXT_NODE_TYPE_TOPIC",
-            "orig_text": f"#{topic_name}#",
-        }
-    )
-
-
-def _ensure_topic_on_dynamic(module_dynamic):
-    if not isinstance(module_dynamic, dict):
-        return
-
-    topic_info = module_dynamic.get("topic") or {}
-    _ensure_topic_on_body(module_dynamic.get("desc"), topic_info)
-
-    major = module_dynamic.get("major") or {}
-    opus_body = major.get("opus") or {}
-    _ensure_topic_on_body(opus_body.get("summary"), topic_info)
-
-
 async def get_user_dynamic(uid, group_id=None):
     try:
         service_log(logger, "info", "fetch-user-dynamic", uid=uid, groupId=group_id)
         u = user.User(uid=int(uid), credential=load_credential(group_id))
         dynamics = await u.get_dynamics_new(offset="")
         if dynamics and "items" in dynamics and len(dynamics["items"]) > 0:
-            author_level = 0
-            pendant_url = None
-            card_url = None
-            decoration_card = None
-            card_number = None
-            fan_color = None
-
-            try:
-                info = await u.get_user_info()
-                author_level = info.get("level", 0)
-            except Exception:
-                author_level = 0
-
-            try:
-                profile = await u.get_user_profile()
-                pendant_url = (profile.get("pendant") or {}).get("image") or (
-                    (profile.get("decorate") or {}).get("pendant") or {}
-                ).get("image")
-                card_url = (profile.get("decorate") or {}).get("card_url") or (
-                    profile.get("decorate_card") or {}
-                ).get("image")
-            except Exception:
-                pass
-
-            first_item_ma = (
-                (dynamics["items"][0].get("modules") or {}).get("module_author") or {}
-            )
-            try:
-                pendant_url = pendant_url or ((first_item_ma.get("pendant") or {}).get("image"))
-                if "decoration_card" in first_item_ma and first_item_ma["decoration_card"]:
-                    decoration_card = first_item_ma["decoration_card"]
-                    card_number = (
-                        decoration_card.get("card_number")
-                        or decoration_card.get("fan_card_no")
-                        or decoration_card.get("card_no")
-                        or decoration_card.get("serial")
-                        or None
-                    )
-                    fan_info = decoration_card.get("fan", {})
-                    fan_color = fan_info.get("color") if fan_info else None
-            except Exception:
-                pass
-
-            card_focus_color = None
-            avatar_focus_color = None
-            try:
-                src = card_url or ((decoration_card or {}).get("card_url"))
-                card_focus_color = await get_image_focus_color(src) if src else None
-            except Exception:
-                pass
-            try:
-                author_face_url = (
-                    first_item_ma.get("face")
-                    or (dynamics["items"][0].get("author") or {}).get("face")
-                    or ""
-                )
-                avatar_focus_color = (
-                    await get_image_focus_color(author_face_url) if author_face_url else None
-                )
-            except Exception:
-                pass
-
-            author_info = {
-                "level": author_level,
-                "pendant_url": pendant_url,
-                "card_url": card_url,
-                "decoration_card": decoration_card,
-                "card_number": card_number,
-                "card_focus_color": card_focus_color,
-                "fan_color": fan_color,
-                "avatar_focus_color": avatar_focus_color,
-            }
+            author_info = await build_user_dynamic_author_context(u, dynamics)
 
             result_items = []
             for item in dynamics["items"][:5]:
@@ -399,82 +279,12 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
 
         try:
             md = modules.get("module_dynamic") or {}
-            _ensure_topic_on_dynamic(md)
+            ensure_topic_on_dynamic(md)
         except Exception:
             pass
 
         author_module = modules.get("module_author") or {}
-        author_uid = author_module.get("mid") or author_module.get("uid")
-
-        pendant_url = None
-        card_url = None
-        author_level = 0
-        decoration_card = None
-        card_number = None
-        fan_color = None
-
-        if "pendant" in author_module and author_module["pendant"]:
-            pendant_url = author_module["pendant"].get("image")
-
-        if "decoration_card" in author_module and author_module["decoration_card"]:
-            decoration_card = author_module["decoration_card"]
-            card_url = decoration_card.get("card_url")
-            card_number = (
-                decoration_card.get("card_number")
-                or decoration_card.get("fan_card_no")
-                or decoration_card.get("card_no")
-                or decoration_card.get("serial")
-                or None
-            )
-            fan_info = decoration_card.get("fan", {})
-            fan_color = fan_info.get("color") if fan_info else None
-
-        if "level_info" in author_module and author_module["level_info"]:
-            author_level = author_module["level_info"].get("current_level", 0)
-        elif "vip" in author_module and author_module["vip"]:
-            author_level = author_module["vip"].get("vip_level", 0)
-        elif "pendant" in author_module and author_module["pendant"]:
-            pass
-
-        if (not pendant_url or not card_url or author_level == 0) and author_uid:
-            try:
-                u = user.User(uid=int(author_uid), credential=load_credential(group_id))
-                base = await u.get_user_info()
-                author_level = base.get("level", author_level)
-                profile = await u.get_user_profile()
-                pendant_url = pendant_url or (profile.get("pendant") or {}).get(
-                    "image"
-                ) or ((profile.get("decorate") or {}).get("pendant") or {}).get("image")
-                card_url = card_url or (profile.get("decorate") or {}).get(
-                    "card_url"
-                ) or (profile.get("decorate_card") or {}).get("image")
-            except Exception:
-                pass
-        card_focus_color = None
-        avatar_focus_color = None
-        try:
-            src = card_url or ((decoration_card or {}).get("card_url"))
-            card_focus_color = await get_image_focus_color(src) if src else None
-        except Exception:
-            card_focus_color = None
-        try:
-            avatar_url = author_module.get("face") or ""
-            avatar_focus_color = (
-                await get_image_focus_color(avatar_url) if avatar_url else None
-            )
-        except Exception:
-            avatar_focus_color = None
-
-        author_obj = {
-            "level": author_level,
-            "pendant_url": pendant_url,
-            "card_url": card_url,
-            "decoration_card": decoration_card,
-            "card_number": card_number,
-            "card_focus_color": card_focus_color,
-            "fan_color": fan_color,
-            "avatar_focus_color": avatar_focus_color,
-        }
+        author_obj = await build_dynamic_detail_author_context(author_module, group_id)
         info["author"] = author_obj
         try:
             if isinstance(info.get("item"), dict):
@@ -643,7 +453,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                     richNodeCount=len(canonical_nodes),
                 )
 
-            _ensure_topic_on_dynamic(md)
+            ensure_topic_on_dynamic(md)
 
             if additional:
                 md["additional"] = additional

@@ -172,7 +172,22 @@ class UserDynamicOpusLinkCardContractTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(dynamic_service, "load_credential", return_value=object()),
             patch.object(opus_additional_service, "load_credential", return_value=object()),
-            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service,
+                "build_user_dynamic_author_context",
+                AsyncMock(
+                    return_value={
+                        "level": 6,
+                        "pendant_url": None,
+                        "card_url": None,
+                        "decoration_card": None,
+                        "card_number": None,
+                        "card_focus_color": None,
+                        "fan_color": None,
+                        "avatar_focus_color": None,
+                    }
+                ),
+            ),
             patch.object(
                 dynamic_service.user,
                 "User",

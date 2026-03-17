@@ -1,13 +1,5 @@
-function normalizePlainText(text) {
-    if (!text) return ''
-    return String(text)
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .replace(/\u200b/g, '')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
-}
+const { injectTopicNodeIfNeeded } = require('./dynamicBodyPostprocess')
+const { normalizePlainText } = require('./textUtils')
 
 function normalizeContentNodes(nodes, fallbackText = '') {
     if (Array.isArray(nodes) && nodes.length > 0) return nodes
@@ -430,100 +422,6 @@ function recordMerge(state, mode, nextNodes, nextSource = state.source) {
     ])]
 }
 
-function injectTopicNodeIfNeeded(nodes, topic, plainText) {
-    if (!Array.isArray(nodes) || nodes.length === 0) return nodes
-    if (!topic || !topic.name) return nodes
-
-    const topicBase = `#${topic.name}`
-    const topicFull = `${topicBase}#`
-    const jumpUrl = topic.jump_url ||
-        (topic.id ? `https://www.bilibili.com/v/topic/detail/?topic_id=${topic.id}` : '')
-
-    if (nodes.some(node => {
-        if (node?.type !== 'RICH_TEXT_NODE_TYPE_TOPIC') return false
-        const nodeText = typeof node.text === 'string' ? node.text : ''
-        return nodeText === topicFull || nodeText === topicBase || nodeText === topic.name
-    })) return nodes
-
-    const nextNodes = []
-    let inserted = false
-
-    for (const node of nodes) {
-        if (
-            inserted ||
-            !node ||
-            node.type !== 'RICH_TEXT_NODE_TYPE_TEXT' ||
-            typeof node.text !== 'string'
-        ) {
-            nextNodes.push(node)
-            continue
-        }
-
-        let matched = ''
-        let startIndex = node.text.indexOf(topicFull)
-        if (startIndex >= 0) {
-            matched = topicFull
-        } else {
-            startIndex = node.text.indexOf(topicBase)
-            if (startIndex >= 0) matched = topicBase
-        }
-
-        if (startIndex < 0 || !matched) {
-            nextNodes.push(node)
-            continue
-        }
-
-        const beforeText = node.text.slice(0, startIndex)
-        const afterText = node.text.slice(startIndex + matched.length)
-
-        if (beforeText) {
-            nextNodes.push({
-                ...node,
-                text: beforeText,
-                orig_text: beforeText
-            })
-        }
-
-        nextNodes.push({
-            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
-            text: matched,
-            orig_text: matched,
-            jump_url: jumpUrl
-        })
-
-        if (afterText) {
-            nextNodes.push({
-                ...node,
-                text: afterText,
-                orig_text: afterText
-            })
-        }
-
-        inserted = true
-    }
-
-    if (inserted) return nextNodes
-
-    if (typeof plainText === 'string' && (plainText.includes(topicBase) || plainText.includes(topicFull))) {
-        return nodes
-    }
-
-    return [
-        {
-            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
-            text: topic.name,
-            orig_text: topic.name,
-            jump_url: jumpUrl
-        },
-        {
-            type: 'RICH_TEXT_NODE_TYPE_TEXT',
-            text: '\n',
-            orig_text: '\n'
-        },
-        ...nodes
-    ]
-}
-
 function toSafeNumber(value) {
     const num = Number(value)
     return Number.isFinite(num) ? num : 0
@@ -663,6 +561,11 @@ module.exports = {
     collectDynamicImages,
     normalizeContentNodes,
     normalizePlainText,
+    stripImagePlaceholders,
+    normalizeRichTextNodes,
+    canBorrowSummaryNodes,
+    buildNodesFromSummary,
+    injectTopicNodeIfNeeded,
     resolvePlainTextContent,
     resolveDynamicContent
 }

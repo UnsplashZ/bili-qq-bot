@@ -2,66 +2,38 @@ const { formatPubTime, formatNumber, escapeHtml } = require('../core/formatters'
 const { parseRichText } = require('./components/richtext');
 const {
     collectDynamicImages: sharedCollectDynamicImages,
-    resolveDynamicContent
+    resolveDynamicContent,
+    normalizePlainText: sharedNormalizePlainText,
+    stripImagePlaceholders: sharedStripImagePlaceholders,
+    normalizeRichTextNodes: sharedNormalizeRichTextNodes,
+    canBorrowSummaryNodes: sharedCanBorrowSummaryNodes,
+    buildNodesFromSummary: sharedBuildNodesFromSummary,
+    injectTopicNodeIfNeeded: sharedInjectTopicNodeIfNeeded
 } = require('./components/contentNodes');
 const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderEmbeddedResourceCard, renderMediaHtml } = require('./components/media');
 const { renderOpusLinkCards, resolveOpusLinkCards } = require('./components/opusLinkCard');
+const {
+    resolveOrigEmbeddedResourceCard,
+    resolveDynamicCommonCard: sharedResolveDynamicCommonCard
+} = require('./components/embeddedResourceResolver');
+const {
+    renderDynamicSupplementalCards
+} = require('./components/dynamicSupplementalCards');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 const ICONS = require('./icons');
 const logger = require('../../../utils/logger');
 
-const EMBEDDED_KIND_META = {
-    favorite_list: { label: '收藏夹', color: '#FF8A00' },
-    audio: { label: '音频', color: '#8E6BFF' },
-    audio_list: { label: '歌单', color: '#6E56CF' },
-    topic: { label: '话题', color: '#00B5E5' },
-    channel_series: { label: '合集', color: '#26A69A' },
-    article_list: { label: '文集', color: '#FAA023' },
-    note: { label: '笔记', color: '#4CAF50' },
-    cheese_video: { label: '课程', color: '#FF7043' },
-    interactive_video: { label: '互动视频', color: '#FB7299' },
-    bangumi: { label: '番剧', color: '#00A1D6' },
-    generic: { label: 'Bilibili', color: '#5B86E5' }
-}
-
 function normalizePlainText(text) {
-    if (!text) return ''
-    return String(text)
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .replace(/\u200b/g, '')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
+    return sharedNormalizePlainText(text)
 }
 
 function stripImagePlaceholders(text, hasImages) {
-    const normalized = normalizePlainText(text)
-    if (!normalized) return ''
-    if (!hasImages) return normalized
-    return normalized
-        .replace(/\s*\[图片\]\s*/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
+    return sharedStripImagePlaceholders(text, hasImages)
 }
 
 function normalizeRichTextNodes(nodes, hasImages) {
-    if (!Array.isArray(nodes) || nodes.length === 0 || !hasImages) return nodes
-    return nodes.map(node => {
-        if (!node || typeof node !== 'object' || typeof node.text !== 'string') return node
-        const cleanedText = node.text
-            .replace(/\[图片\]/g, '')
-
-        if (cleanedText === node.text) return node
-
-        const nextNode = { ...node, text: cleanedText }
-        if (typeof node.orig_text === 'string') {
-            nextNode.orig_text = node.orig_text
-                .replace(/\[图片\]/g, '')
-        }
-        return nextNode
-    })
+    return sharedNormalizeRichTextNodes(nodes, hasImages)
 }
 
 function normalizeForNodeCompare(text) {
@@ -71,10 +43,7 @@ function normalizeForNodeCompare(text) {
 }
 
 function canBorrowSummaryNodes(descText, summaryText) {
-    const normalizedDesc = normalizeForNodeCompare(descText)
-    const normalizedSummary = normalizeForNodeCompare(summaryText)
-    if (!normalizedDesc || !normalizedSummary) return false
-    return normalizedDesc === normalizedSummary
+    return sharedCanBorrowSummaryNodes(descText, summaryText)
 }
 
 function hasRichLinkNodes(nodes) {
@@ -98,119 +67,11 @@ function looksLikeAddressLabelButMissingValue(text) {
 }
 
 function buildNodesFromSummary(descText, summaryNodes) {
-    if (!Array.isArray(summaryNodes)) return summaryNodes
-    const copied = summaryNodes.map(node => {
-        if (!node || typeof node !== 'object') return node
-        return { ...node }
-    })
-
-    const textNodeIndexes = []
-    copied.forEach((node, index) => {
-        if (node?.type === 'RICH_TEXT_NODE_TYPE_TEXT') textNodeIndexes.push(index)
-    })
-
-    // Only safe when summary has exactly one text carrier node.
-    // Multiple text nodes can drift from desc segmentation.
-    if (textNodeIndexes.length !== 1) return null
-
-    const textNodeIndex = textNodeIndexes[0]
-    const target = copied[textNodeIndex] || {}
-    copied[textNodeIndex] = {
-        ...target,
-        text: descText,
-        orig_text: descText
-    }
-
-    return copied
+    return sharedBuildNodesFromSummary(descText, summaryNodes)
 }
 
 function injectTopicNodeIfNeeded(nodes, topic, plainText) {
-    if (!Array.isArray(nodes) || nodes.length === 0) return nodes
-    if (!topic || !topic.name) return nodes
-    if (nodes.some(node => node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC')) return nodes
-
-    const topicBase = `#${topic.name}`
-    const topicFull = `${topicBase}#`
-    const jumpUrl = topic.jump_url ||
-        (topic.id ? `https://www.bilibili.com/v/topic/detail/?topic_id=${topic.id}` : '')
-
-    const nextNodes = []
-    let inserted = false
-
-    for (const node of nodes) {
-        if (
-            inserted ||
-            !node ||
-            node.type !== 'RICH_TEXT_NODE_TYPE_TEXT' ||
-            typeof node.text !== 'string'
-        ) {
-            nextNodes.push(node)
-            continue
-        }
-
-        let matched = ''
-        let startIndex = node.text.indexOf(topicFull)
-        if (startIndex >= 0) {
-            matched = topicFull
-        } else {
-            startIndex = node.text.indexOf(topicBase)
-            if (startIndex >= 0) matched = topicBase
-        }
-
-        if (startIndex < 0 || !matched) {
-            nextNodes.push(node)
-            continue
-        }
-
-        const beforeText = node.text.slice(0, startIndex)
-        const afterText = node.text.slice(startIndex + matched.length)
-
-        if (beforeText) {
-            nextNodes.push({
-                ...node,
-                text: beforeText,
-                orig_text: beforeText
-            })
-        }
-
-        nextNodes.push({
-            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
-            text: matched,
-            orig_text: matched,
-            jump_url: jumpUrl
-        })
-
-        if (afterText) {
-            nextNodes.push({
-                ...node,
-                text: afterText,
-                orig_text: afterText
-            })
-        }
-
-        inserted = true
-    }
-
-    if (inserted) return nextNodes
-
-    // 无法安全拆分时保持原节点，避免重复渲染话题
-    if (typeof plainText === 'string' && (plainText.includes(topicBase) || plainText.includes(topicFull))) {
-        return nodes
-    }
-    return [
-        {
-            type: 'RICH_TEXT_NODE_TYPE_TOPIC',
-            text: topic.name,
-            orig_text: topic.name,
-            jump_url: jumpUrl
-        },
-        {
-            type: 'RICH_TEXT_NODE_TYPE_TEXT',
-            text: '\n',
-            orig_text: '\n'
-        },
-        ...nodes
-    ]
+    return sharedInjectTopicNodeIfNeeded(nodes, topic, plainText)
 }
 
 function toSafeNumber(value) {
@@ -230,195 +91,8 @@ function normalizeDynamicImageItem(item) {
     }
 }
 
-function normalizeJumpUrl(url) {
-    if (!url) return ''
-    const raw = String(url)
-    if (raw.startsWith('//')) return `https:${raw}`
-    return raw
-}
-
-function firstNonEmpty(...values) {
-    for (const value of values) {
-        if (value === null || value === undefined) continue
-        const text = String(value).trim()
-        if (text) return text
-    }
-    return ''
-}
-
-function normalizeEmbeddedStats(statsLike) {
-    if (!statsLike) return []
-    if (Array.isArray(statsLike)) {
-        return statsLike
-            .map((item) => {
-                if (!item || typeof item !== 'object') return null
-                if (item.value === null || item.value === undefined || item.value === '') return null
-                return {
-                    label: item.label || '',
-                    value: item.value
-                }
-            })
-            .filter(Boolean)
-    }
-    if (typeof statsLike !== 'object') return []
-
-    const keyLabelMap = {
-        count: '内容',
-        total: '内容',
-        media_count: '内容',
-        play: '播放',
-        view: '播放',
-        vt: '播放',
-        collect: '收藏',
-        favorite: '收藏',
-        follower: '关注',
-        fans: '粉丝'
-    }
-
-    return Object.entries(statsLike)
-        .slice(0, 3)
-        .map(([key, value]) => {
-            if (value === null || value === undefined || value === '') return null
-            return {
-                label: keyLabelMap[key] || key,
-                value
-            }
-        })
-        .filter(Boolean)
-}
-
-function resolveEmbeddedKindMeta(kind) {
-    return EMBEDDED_KIND_META[kind] || EMBEDDED_KIND_META.generic
-}
-
-function resolveEmbeddedKindByKey(key, candidate = {}) {
-    const mapped = {
-        medialist: 'favorite_list',
-        audio: 'audio',
-        music: 'audio',
-        playlist: 'audio_list',
-        ugc_season: 'channel_series',
-        article: 'article_list',
-        note: 'note',
-        courses: 'cheese_video',
-        cheese: 'cheese_video',
-        topic: 'topic',
-        pgc: 'bangumi'
-    }
-    if (mapped[key]) return mapped[key]
-    if (candidate.badge?.text === '收藏') return 'favorite_list'
-    return 'generic'
-}
-
-function buildEmbeddedResourceCard(kind, candidate, overrides = {}) {
-    if (!candidate || typeof candidate !== 'object') return null
-
-    const meta = resolveEmbeddedKindMeta(kind)
-    const title = firstNonEmpty(
-        overrides.title,
-        candidate.title,
-        candidate.name,
-        candidate.head_text
-    )
-    const subtitle = firstNonEmpty(
-        overrides.subtitle,
-        candidate.sub_title,
-        candidate.subtitle,
-        candidate.desc1
-    )
-    const desc = firstNonEmpty(
-        overrides.desc,
-        candidate.desc,
-        candidate.description,
-        candidate.desc2,
-        candidate.summary
-    )
-    const cover = normalizeJumpUrl(firstNonEmpty(
-        overrides.cover,
-        candidate.cover,
-        candidate.cover_url,
-        candidate.image,
-        candidate.pic
-    ))
-    const badgeText = firstNonEmpty(
-        overrides.badgeText,
-        candidate.badge?.text,
-        meta.label
-    )
-    const badgeColor = firstNonEmpty(
-        overrides.badgeColor,
-        candidate.badge?.bg_color,
-        meta.color
-    )
-    const jumpUrl = normalizeJumpUrl(firstNonEmpty(
-        overrides.jumpUrl,
-        candidate.jump_url,
-        candidate.url,
-        candidate.uri
-    ))
-    const stats = normalizeEmbeddedStats(
-        overrides.stats || candidate.stats || candidate.stat
-    )
-
-    if (!title && !subtitle && !desc && !cover) return null
-
-    return {
-        kind,
-        title,
-        subtitle,
-        desc,
-        cover,
-        badgeText,
-        badgeColor,
-        jumpUrl,
-        stats,
-        variant: overrides.variant || '',
-        placement: overrides.placement || 'before_media'
-    }
-}
-
-function resolveOrigEmbeddedResourceCard(dynamicModule) {
-    if (!dynamicModule || typeof dynamicModule !== 'object') return null
-
-    const major = dynamicModule.major || {}
-
-    if (major.medialist) {
-        return buildEmbeddedResourceCard('favorite_list', major.medialist, {
-            subtitle: firstNonEmpty(major.medialist.sub_title, major.medialist.desc1)
-        })
-    }
-
-    const majorCandidates = Object.entries(major).filter(([key, value]) => {
-        if (key === 'type') return false
-        if (key === 'archive' || key === 'draw' || key === 'opus' || key === 'live_rcmd' || key === 'common') return false
-        return value && typeof value === 'object'
-    })
-
-    for (const [key, value] of majorCandidates) {
-        const card = buildEmbeddedResourceCard(resolveEmbeddedKindByKey(key, value), value)
-        if (card) return card
-    }
-
-    return null
-}
-
 function resolveDynamicCommonCard(dynamicModule) {
-    if (!dynamicModule || typeof dynamicModule !== 'object') return null
-
-    const major = dynamicModule.major || {}
-    const additional = dynamicModule.additional || {}
-    const commonCard = additional.common || major.common
-
-    if (!commonCard || typeof commonCard !== 'object') return null
-
-    return buildEmbeddedResourceCard('generic', commonCard, {
-        title: firstNonEmpty(commonCard.title, commonCard.head_text),
-        subtitle: firstNonEmpty(commonCard.desc1, commonCard.sub_title),
-        desc: firstNonEmpty(commonCard.desc2, commonCard.desc),
-        variant: 'compact',
-        placement: 'after_media',
-        badgeText: firstNonEmpty(commonCard.head_text, commonCard.badge?.text, 'Bilibili')
-    })
+    return sharedResolveDynamicCommonCard(dynamicModule)
 }
 
 function collectDynamicImages(dynamicModule) {
@@ -695,9 +369,6 @@ function renderDynamicContent(data, emojiContext = null) {
         });
     }
 
-    const voteObj = getVoteFromModules(modules);
-    const voteHtml = renderVoteCard(voteObj);
-
     let videoCard = null;
 
     if (module_dynamic.major?.archive) {
@@ -720,13 +391,7 @@ function renderDynamicContent(data, emojiContext = null) {
     }
 
     const mediaHtml = renderMediaHtml(images, videoCard, false);
-    const opusLinkCards = resolveOpusLinkCards(module_dynamic)
-    const opusLinkCardsHtml = renderOpusLinkCards(opusLinkCards, {
-        emojiContext
-    })
-    const commonHtml = renderEmbeddedResourceCard(resolveDynamicCommonCard(module_dynamic), {
-        emojiContext
-    })
+    const supplementalHtml = renderDynamicSupplementalCards(modules, { emojiContext })
 
     let origHtml = '';
     if (item.orig) {
@@ -760,9 +425,7 @@ function renderDynamicContent(data, emojiContext = null) {
             <div class="text-content">${text}</div>
             ${origHtml}
             ${mediaHtml}
-            ${opusLinkCardsHtml}
-            ${voteHtml}
-            ${commonHtml}
+            ${supplementalHtml}
             <div class="action-bar">
                  <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
                  <div class="action-item">${ICONS.comment} ${formatNumber(module_stat.comment?.count)}</div>

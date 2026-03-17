@@ -7,7 +7,7 @@ from bilibili_api import article, opus, user
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_focus
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +122,7 @@ async def get_article_info(cvid, group_id=None):
         if not cover:
             cover = ""
 
-        info["focus"] = {
-            "cover": await get_image_focus_color(cover),
-            "avatar": await get_image_focus_color(author_face),
-        }
+        info["focus"] = await build_focus(cover, author_face)
 
         if "publish_time" not in info:
             info["publish_time"] = info.get("ctime", info.get("ptime", 0))

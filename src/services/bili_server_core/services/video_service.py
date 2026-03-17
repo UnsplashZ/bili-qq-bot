@@ -5,7 +5,7 @@ from bilibili_api import user, video
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_focus
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +106,7 @@ async def get_video_info(bvid, group_id=None):
             )
         owner["official_verify"] = owner_official_verify
         info["owner"] = owner
-        cover_focus = await get_image_focus_color(cover_url)
-        avatar_focus = await get_image_focus_color(avatar_url)
-        info["focus"] = {"cover": cover_focus, "avatar": avatar_focus}
+        info["focus"] = await build_focus(cover_url, avatar_url)
         info_type = (
             "interactive_video"
             if (info.get("rights") or {}).get("is_stein_gate") == 1

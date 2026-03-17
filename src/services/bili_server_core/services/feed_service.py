@@ -5,7 +5,7 @@ from bilibili_api.utils.network import Api
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_focus
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,7 @@ async def get_live_room_info(room_id, group_id=None):
         anchor_info = info.get("anchor_info", {}).get("base_info", {})
         cover_url = room_info.get("cover") or ""
         avatar_url = anchor_info.get("face") or ""
-        info["focus"] = {
-            "cover": await get_image_focus_color(cover_url),
-            "avatar": await get_image_focus_color(avatar_url),
-        }
+        info["focus"] = await build_focus(cover_url, avatar_url)
         service_log(logger, "info", "live-room-info-ready", roomId=room_id)
         return {"status": "success", "type": "live", "data": info}
     except Exception as e:

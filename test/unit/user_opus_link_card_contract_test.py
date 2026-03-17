@@ -179,7 +179,7 @@ class UserOpusLinkCardContractTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(user_service, "load_credential", return_value=object()),
             patch.object(opus_additional_service, "load_credential", return_value=object()),
-            patch.object(user_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(user_service, "build_avatar_focus", AsyncMock(return_value={"avatar": None})),
             patch.object(
                 user_service.user,
                 "User",
@@ -204,7 +204,7 @@ class UserOpusLinkCardContractTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(user_service, "load_credential", return_value=object()),
             patch.object(opus_additional_service, "load_credential", return_value=object()),
-            patch.object(user_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(user_service, "build_avatar_focus", AsyncMock(return_value={"avatar": None})),
             patch.object(
                 user_service.user,
                 "User",

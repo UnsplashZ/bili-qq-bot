@@ -1,7 +1,7 @@
 from bilibili_api import bangumi
 
 from ..auth.credential_store import load_credential
-from ..media.image_focus import get_image_focus_color
+from .focus_service import build_cover_focus
 
 
 async def get_bangumi_info(season_id, group_id=None):
@@ -67,7 +67,7 @@ async def get_bangumi_info(season_id, group_id=None):
             "type_desc": overview.get("type_desc"),
             "series": overview.get("series", {}),
             "detail": detail,
-            "focus": {"cover": await get_image_focus_color(overview.get("cover", ""))},
+            "focus": await build_cover_focus(overview.get("cover", "")),
         }
 
         return {"status": "success", "type": "bangumi", "data": data}
@@ -134,9 +134,8 @@ async def get_media_info(media_id, group_id=None):
             "season_id": overview.get("season_id", ""),
             "series": overview.get("series", {}),
             "detail": detail,
-            "focus": {"cover": await get_image_focus_color(overview.get("cover", ""))},
+            "focus": await build_cover_focus(overview.get("cover", "")),
         }
         return {"status": "success", "type": "bangumi", "data": data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-

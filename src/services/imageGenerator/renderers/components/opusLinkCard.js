@@ -1,10 +1,6 @@
 const { escapeHtml } = require('../../core/formatters');
 const { parseRichText } = require('./richtext');
-
-function normalizePlainText(value) {
-    if (!value) return ''
-    return String(value).trim()
-}
+const { normalizePlainText } = require('./textUtils');
 
 function toSafeNumber(value) {
     const num = Number(value)
