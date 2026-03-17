@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本地预览实验台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>本地预览实验台</h1>
+        <p>输入一个 B 站链接，直接调用现有链路生成预览图和结构数据。</p>
+      </div>
+      <div class="topbar-status" id="health-status">服务检查中...</div>
+    </header>
+
+    <section class="control-panel panel">
+      <div class="form-grid">
+        <label class="field field-wide">
+          <span class="field-label">链接</span>
+          <textarea id="input" rows="3" placeholder="https://www.bilibili.com/read/cv45123193"></textarea>
+        </label>
+        <label class="field">
+          <span class="field-label">Group ID</span>
+          <input id="groupId" type="text" placeholder="可选">
+        </label>
+        <label class="field">
+          <span class="field-label">输出名</span>
+          <input id="outName" type="text" placeholder="可选">
+        </label>
+      </div>
+      <div class="toggle-row">
+        <label><input id="fresh" type="checkbox"> fresh</label>
+        <label><input id="emitHtml" type="checkbox"> 生成 HTML</label>
+        <label><input id="showId" type="checkbox" checked> showId</label>
+      </div>
+      <div class="action-row">
+        <button id="runBtn" type="button">执行</button>
+        <span class="run-status" id="run-status">待执行</span>
+      </div>
+      <div class="error-banner hidden" id="error-banner"></div>
+    </section>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>输入与解析</h2>
+        <div id="summary" class="summary-empty">执行后将在这里显示解析摘要。</div>
+      </section>
+
+      <section class="panel">
+        <h2>最终预览图</h2>
+        <div class="preview-frame" id="preview-frame">
+          <div class="preview-placeholder">执行后将在这里显示预览图。</div>
+        </div>
+        <details>
+          <summary>查看渲染 HTML</summary>
+          <pre id="render-html" class="code-block">暂无数据</pre>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>标准化 JSON</h2>
+        <pre id="data-json" class="code-block">暂无数据</pre>
+        <details>
+          <summary>查看 Manifest</summary>
+          <pre id="manifest-json" class="code-block">暂无数据</pre>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

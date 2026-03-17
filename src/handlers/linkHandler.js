@@ -604,7 +604,6 @@ class LinkHandler {
                         try {
                             url = `https://www.bilibili.com/video/${id}`;
                             await sendCard(info, info.type || 'video', url);
-                            // 异步触发视频下载（不阻塞预览卡片发送）
                             const videoDownloadService = require('../services/videoDownloadService')
                             if ((info.type || 'video') === 'video') {
                                 videoDownloadService.downloadAndSend(ws, groupId, id, info).catch(e => {
@@ -652,7 +651,6 @@ class LinkHandler {
                     info = await this.getDataWithCache('dynamic', id, () => biliApi.getDynamicInfo(id, groupId));
                     if (info.status === 'success') {
                         try {
-                            // Use returned type if available (e.g., 'article' for Opus redirects), fallback to 'dynamic'
                             const cardType = info.type || 'dynamic';
                             url = `https://t.bilibili.com/${id}`;
                             await sendCard(info, cardType, url);
@@ -903,7 +901,7 @@ class LinkHandler {
                         });
                     }
                     break;
-            } // switch end
+            }
         } catch (e) {
             // 🆕 增强错误上下文和日志记录
             const errorContext = {

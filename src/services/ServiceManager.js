@@ -41,6 +41,7 @@ class ServiceManager {
         this.baseUrl = `http://127.0.0.1:${this.port}`;
         this.lastRequestTime = Date.now();
         this.isRestarting = false;
+        this.shutdownRequested = false;
         this.stdoutBuffer = '';
         this.stderrBuffer = '';
 
@@ -122,7 +123,7 @@ class ServiceManager {
                 this.process = null;
 
                 // 仅在非主动重启时计入崩溃计数
-                if (!this.isRestarting) {
+                if (!this.isRestarting && !this.shutdownRequested) {
                     // 崩溃计数（5分钟滑动窗口）
                     const now = Date.now();
                     if (!this.crashWindowStart || now - this.crashWindowStart > this.CRASH_WINDOW_MS) {
@@ -241,17 +242,14 @@ class ServiceManager {
                 logger.logEvent('info', 'PY', 'svc:lifecycle', 'stop', { signal: 'SIGTERM' });
                 this.process.kill('SIGTERM');
 
-                // 🆕 添加10秒超时机制
-                const RESTART_TIMEOUT = 10000; // 10 seconds
+                const RESTART_TIMEOUT = 10000;
                 const startTime = Date.now();
                 let forcedKill = false;
 
-                // Wait for exit event to clear this.process (with timeout)
                 while (this.process) {
                     await new Promise(resolve => setTimeout(resolve, 100));
 
-                    const elapsed = Date.now() - startTime;
-                    if (elapsed > RESTART_TIMEOUT) {
+                    if (Date.now() - startTime > RESTART_TIMEOUT) {
                         logger.logEvent('warn', 'PY', 'svc:lifecycle', 'force-kill', {
                             timeout: `${RESTART_TIMEOUT}ms`,
                             signal: 'SIGKILL'
@@ -259,7 +257,6 @@ class ServiceManager {
                         this.process.kill('SIGKILL');
                         forcedKill = true;
 
-                        // Give SIGKILL 2 more seconds to work
                         const killStartTime = Date.now();
                         while (this.process && (Date.now() - killStartTime < 2000)) {
                             await new Promise(resolve => setTimeout(resolve, 100));
@@ -267,30 +264,59 @@ class ServiceManager {
 
                         if (this.process) {
                             logger.logEvent('error', 'PY', 'svc:lifecycle', 'force-kill-failed');
-                            // Force clear the reference to prevent infinite restart loop
                             this.process = null;
                         }
                         break;
                     }
                 }
 
-                if (forcedKill) {
-                    logger.logEvent('warn', 'PY', 'svc:lifecycle', 'terminated', { mode: 'force' });
-                } else {
-                    logger.logEvent('info', 'PY', 'svc:lifecycle', 'terminated', { mode: 'graceful' });
-                }
+                logger.logEvent(forcedKill ? 'warn' : 'info', 'PY', 'svc:lifecycle', 'terminated', {
+                    mode: forcedKill ? 'force' : 'graceful'
+                });
             }
         } catch (error) {
             logger.logEvent('error', 'PY', 'svc:lifecycle', 'restart-failed', { error: error.message });
-            // Ensure process reference is cleared even on error
             this.process = null;
         } finally {
-            // Always clear the restarting flag
             this.isRestarting = false;
         }
 
-        // Start the service again
         await this.start();
+    }
+
+    async stop() {
+        this.shutdownRequested = true;
+
+        try {
+            if (!this.process) {
+                return;
+            }
+
+            logger.logEvent('info', 'PY', 'svc:lifecycle', 'stop', { signal: 'SIGTERM' });
+            this.process.kill('SIGTERM');
+
+            const STOP_TIMEOUT = 5000;
+            const startTime = Date.now();
+            let forcedKill = false;
+
+            while (this.process) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (Date.now() - startTime > STOP_TIMEOUT && this.process) {
+                    logger.logEvent('warn', 'PY', 'svc:lifecycle', 'force-kill', {
+                        timeout: `${STOP_TIMEOUT}ms`,
+                        signal: 'SIGKILL'
+                    });
+                    this.process.kill('SIGKILL');
+                    forcedKill = true;
+                }
+            }
+
+            logger.logEvent('info', 'PY', 'svc:lifecycle', 'terminated', {
+                mode: forcedKill ? 'force' : 'graceful'
+            });
+        } finally {
+            this.shutdownRequested = false;
+        }
     }
 
     createReqId(endpoint) {

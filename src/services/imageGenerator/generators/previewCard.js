@@ -69,59 +69,46 @@ function renderTypeBadge(type, data, groupId, currentType) {
         </div>`;
 }
 
-/**
- * 生成预览卡片图片
- * @param {Object} data - 内容数据
- * @param {String} type - 内容类型
- * @param {String} groupId - 群组ID
- * @param {Boolean} show_id - 是否显示UID (仅用于user类型)
- * @returns {Promise<String>} Base64编码的图片
- */
-async function generatePreviewCard(data, type, groupId, show_id = true) {
-    return browserManager.withRetry(async () => {
-        await browserManager.init();
-        const page = await browserManager.createPage({ width: 1200, height: 1200 });
+function buildColorSummary(colorData = {}) {
+    return {
+        background: colorData.bgColor || '',
+        text: colorData.textColor || '',
+        subtext: colorData.subColor || '',
+        accent: colorData.accent || '',
+        border: colorData.borderColor || '',
+        gradientMix: colorData.gradientMix || ''
+    }
+}
 
-        try {
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true) {
+    const viewport = calculateViewport(type, data);
+    const isNight = isNightMode(groupId);
+    const typeConfig = getTypeConfig(type, data);
+    const colorData = calculateColors(type, data, typeConfig, isNight);
+    const css = generateCSS(colorData, viewport);
+    const emojiContext = await createRenderEmojiContext({ seedData: data });
 
-            // Logic extraction
-            const viewport = calculateViewport(type, data);
-            await page.setViewport(viewport);
+    let contentHtml = '';
+    if (type === 'video') {
+        contentHtml = renderVideoContent(data, emojiContext);
+    } else if (type === 'bangumi') {
+        contentHtml = renderBangumiContent(data, emojiContext);
+    } else if (type === 'article') {
+        contentHtml = renderArticleContent(data, emojiContext);
+    } else if (type === 'live') {
+        contentHtml = renderLiveContent(data, emojiContext);
+    } else if (type === 'dynamic') {
+        contentHtml = renderDynamicContent(data, emojiContext);
+    } else if (type === 'interactive_video') {
+        contentHtml = renderVideoContent(data, emojiContext);
+    } else if (type === 'user') {
+        contentHtml = renderUserContent(data, show_id, emojiContext);
+    } else {
+        contentHtml = renderGenericContent(data, emojiContext);
+    }
 
-            const isNight = isNightMode(groupId);
-            const typeConfig = getTypeConfig(type, data);
-            const colorData = calculateColors(type, data, typeConfig, isNight);
-
-            // Generate CSS
-            const css = generateCSS(colorData, viewport);
-            const emojiContext = await createRenderEmojiContext({ seedData: data });
-
-            // Render Content
-            let contentHtml = '';
-            if (type === 'video') {
-                contentHtml = renderVideoContent(data, emojiContext);
-            } else if (type === 'bangumi') {
-                contentHtml = renderBangumiContent(data, emojiContext);
-            } else if (type === 'article') {
-                contentHtml = renderArticleContent(data, emojiContext);
-            } else if (type === 'live') {
-                contentHtml = renderLiveContent(data, emojiContext);
-            } else if (type === 'dynamic') {
-                contentHtml = renderDynamicContent(data, emojiContext);
-            } else if (type === 'interactive_video') {
-                contentHtml = renderVideoContent(data, emojiContext);
-            } else if (type === 'user') {
-                contentHtml = renderUserContent(data, show_id, emojiContext);
-            } else {
-                contentHtml = renderGenericContent(data, emojiContext);
-            }
-
-            // Generate Type Badge HTML
-            const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
-
-            // Assemble Final HTML
-            const fullHtml = `<html><head>${css}</head><body>
+    const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
+    const fullHtml = `<html><head>${css}</head><body>
                 <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix}">
                     ${typeBadgeHtml}
                     <div class="card">
@@ -130,6 +117,30 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
                 </div>
             </body></html>`;
 
+    return {
+        fullHtml,
+        debugMeta: {
+            viewport,
+            themeClass: colorData.themeClass || '',
+            resolvedTypeConfig: {
+                label: typeConfig.label,
+                icon: typeConfig.icon
+            },
+            colorSummary: buildColorSummary(colorData)
+        }
+    };
+}
+
+async function generatePreviewCardArtifacts(data, type, groupId, show_id = true) {
+    return browserManager.withRetry(async () => {
+        await browserManager.init();
+        const page = await browserManager.createPage({ width: 1200, height: 1200 });
+
+        try {
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+            const { fullHtml, debugMeta } = await buildPreviewRenderArtifacts(data, type, groupId, show_id);
+            await page.setViewport(debugMeta.viewport);
             await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForSelector('.container', { timeout: 5000 });
 
@@ -192,7 +203,6 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
                 })
             }
 
-            // Detect truncation after images are loaded
             await page.evaluate(() => {
                 const elements = document.querySelectorAll('.text-content, .orig-text, .article-body');
                 elements.forEach(el => {
@@ -210,11 +220,32 @@ async function generatePreviewCard(data, type, groupId, show_id = true) {
                 omitBackground: true
             });
 
-            return imageBuffer.toString('base64');
+            return {
+                base64: imageBuffer.toString('base64'),
+                html: fullHtml,
+                debugMeta
+            };
         } finally {
             await browserManager.closePage(page);
         }
     });
 }
 
-module.exports = { generatePreviewCard, detectChargingContent };
+/**
+ * 生成预览卡片图片
+ * @param {Object} data - 内容数据
+ * @param {String} type - 内容类型
+ * @param {String} groupId - 群组ID
+ * @param {Boolean} show_id - 是否显示UID (仅用于user类型)
+ * @returns {Promise<String>} Base64编码的图片
+ */
+async function generatePreviewCard(data, type, groupId, show_id = true) {
+    const artifacts = await generatePreviewCardArtifacts(data, type, groupId, show_id)
+    return artifacts.base64
+}
+
+module.exports = {
+    generatePreviewCard,
+    generatePreviewCardArtifacts,
+    detectChargingContent
+};
