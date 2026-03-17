@@ -1545,6 +1545,91 @@ function generateCSS(colorData, viewport) {
                 overflow: hidden;
             }
 
+            .opus-link-card {
+                margin-top: 20px;
+                display: flex;
+                align-items: stretch;
+                border: 1px solid color-mix(in srgb, var(--color-border) 86%, var(--color-emphasis) 14%);
+                border-radius: var(--radius-md);
+                overflow: hidden;
+                background:
+                    linear-gradient(180deg, color-mix(in srgb, var(--color-card-bg) 84%, var(--color-emphasis) 16%), var(--color-card-bg));
+                box-shadow: var(--shadow-sm);
+                min-height: 132px;
+            }
+            .opus-link-card--no-cover .opus-link-card-body {
+                padding-left: 16px;
+            }
+            .opus-link-card-cover {
+                position: relative;
+                width: 184px;
+                min-width: 184px;
+                border-right: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent 15%);
+                background:
+                    linear-gradient(135deg, color-mix(in srgb, var(--color-soft-bg) 78%, var(--color-emphasis) 22%), var(--color-soft-bg));
+            }
+            .opus-link-card-cover-img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+                min-height: 132px;
+                max-height: 160px;
+            }
+            .opus-link-card-body {
+                display: flex;
+                flex: 1;
+                min-width: 0;
+                flex-direction: column;
+                justify-content: center;
+                gap: 0;
+                padding: 12px 14px;
+                background:
+                    linear-gradient(180deg, color-mix(in srgb, var(--color-soft-bg) 94%, #ffffff 6%), var(--color-soft-bg));
+            }
+            .opus-link-card-title {
+                font-size: 17px;
+                font-weight: 700;
+                color: var(--color-text);
+                line-height: 1.3;
+                word-break: break-word;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+            .opus-link-card-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-top: 8px;
+                color: var(--color-subtext);
+            }
+            .opus-link-card-stats {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 8px;
+                color: var(--color-subtext);
+            }
+            .opus-link-card-stat {
+                font-size: 12px;
+                font-weight: 600;
+                color: inherit;
+                white-space: nowrap;
+            }
+            .opus-link-card-desc {
+                margin-top: 6px;
+                font-size: 12px;
+                color: var(--color-subtext);
+                line-height: 1.35;
+                white-space: pre-wrap;
+                display: -webkit-box;
+                -webkit-line-clamp: 1;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
             .video-card-inline {
                 margin-top: 20px;
                 border: 1px solid var(--color-border);

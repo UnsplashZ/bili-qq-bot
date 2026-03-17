@@ -116,6 +116,163 @@ class _FakeOpusClient:
                                         ]
                                     },
                                 },
+                                {
+                                    "para_type": 6,
+                                    "link_card": {
+                                        "card": {
+                                            "type": "LINK_CARD_TYPE_UGC",
+                                            "ugc": {
+                                                "title": "笑了就会被小南梁坐脸",
+                                                "jump_url": "//www.bilibili.com/video/BV11dcUzAEc2/",
+                                                "cover": "https://i0.hdslb.com/bfs/archive/video-cover.jpg",
+                                                "width": 1280,
+                                                "height": 720,
+                                                "duration": "07:01",
+                                                "stat": {"play": "1.8万", "danmaku": "88"},
+                                            }
+                                        },
+                                    },
+                                },
+                                {
+                                    "para_type": 6,
+                                    "link_card": {
+                                        "card": {
+                                            "type": "LINK_CARD_TYPE_EVA3_VOTE",
+                                            "vote": {
+                                                "vote_id": "18017302",
+                                                "title": "猪鼻大赛",
+                                                "desc": "4人参与",
+                                                "join_num": 4,
+                                                "choice_cnt": 1,
+                                            }
+                                        },
+                                    },
+                                },
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+
+class _FakeDynamicClientWithoutVote:
+    async def get_info(self):
+        return {
+            "item": {
+                "id_str": "1179264368735420423",
+                "type": "DYNAMIC_TYPE_DRAW",
+                "basic": {"jump_url": "https://www.bilibili.com/opus/1179264368735420423"},
+                "modules": {
+                    "module_author": {
+                        "face": "https://i0.hdslb.com/bfs/face/member/noface.jpg"
+                    },
+                    "module_dynamic": {
+                        "desc": {
+                            "text": "[夜愿华章表情包_叫我吗][夜愿华章表情包_叫我吗]",
+                            "rich_text_nodes": [],
+                        },
+                        "major": {
+                            "type": "MAJOR_TYPE_OPUS",
+                            "opus": {
+                                "summary": {
+                                    "text": "[夜愿华章表情包_叫我吗][夜愿华章表情包_叫我吗]",
+                                    "rich_text_nodes": [],
+                                },
+                                "pics": [],
+                            },
+                        },
+                    },
+                },
+            }
+        }
+
+
+class _FakeDynamicClientWithExistingCommon:
+    async def get_info(self):
+        return {
+            "item": {
+                "id_str": "1175413428060160006",
+                "type": "DYNAMIC_TYPE_DRAW",
+                "basic": {"jump_url": "https://www.bilibili.com/opus/1175413428060160006"},
+                "modules": {
+                    "module_author": {
+                        "face": "https://i0.hdslb.com/bfs/face/member/noface.jpg"
+                    },
+                    "module_dynamic": {
+                        "desc": {
+                            "text": "正文",
+                            "rich_text_nodes": [],
+                        },
+                        "additional": {
+                            "common": {
+                                "head_text": "相关游戏",
+                                "title": "原神",
+                                "desc1": "角色扮演/二次元/冒险",
+                                "desc2": "跨越尘世的探索之旅",
+                                "jump_url": "https://www.biligame.com/detail?id=103496",
+                                "cover": "https://i0.hdslb.com/bfs/game/game-cover.png",
+                            }
+                        },
+                        "major": {
+                            "type": "MAJOR_TYPE_OPUS",
+                            "opus": {
+                                "summary": {
+                                    "text": "正文",
+                                    "rich_text_nodes": [],
+                                },
+                                "pics": [],
+                            },
+                        },
+                    },
+                },
+            }
+        }
+
+
+class _FakeOpusClientWithoutVote:
+    async def get_info(self):
+        return {
+            "item": {
+                "modules": [
+                    {
+                        "module_type": "MODULE_TYPE_CONTENT",
+                        "module_content": {
+                            "paragraphs": [
+                                {
+                                    "para_type": 6,
+                                    "link_card": {
+                                        "card": {
+                                            "type": "LINK_CARD_TYPE_COMMON",
+                                            "common": {
+                                                "head_text": "相关游戏",
+                                                "title": "原神",
+                                                "desc1": "角色扮演/二次元/冒险",
+                                                "desc2": "跨越尘世的探索之旅",
+                                                "jump_url": "https://www.biligame.com/detail?id=103496",
+                                                "cover": "https://i0.hdslb.com/bfs/game/game-cover.png",
+                                            }
+                                        },
+                                    },
+                                },
+                                {
+                                    "para_type": 6,
+                                    "link_card": {
+                                        "card": {
+                                            "type": "LINK_CARD_TYPE_EVA3_VOTE",
+                                            "vote": {
+                                                "title": "夜愿华章表情包你最喜欢哪个？",
+                                                "desc": "12人参与",
+                                                "join_num": 12,
+                                                "choice_cnt": 1,
+                                                "items": [
+                                                    {"desc": "叫我吗", "cnt": 9},
+                                                    {"desc": "你别急", "cnt": 3},
+                                                ],
+                                            }
+                                        },
+                                    },
+                                },
                             ]
                         },
                     }
@@ -158,6 +315,11 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(desc["text"].endswith("#元宵节快乐#"))
         self.assertEqual(module_dynamic["additional"]["vote"]["title"], "猪鼻大赛")
         self.assertEqual(module_dynamic["topic"]["name"], "元宵节快乐")
+        self.assertEqual(len(module_dynamic["additional"]["opus_link_cards"]), 1)
+        self.assertEqual(
+            module_dynamic["additional"]["opus_link_cards"][0]["card_type"],
+            "LINK_CARD_TYPE_UGC",
+        )
         self.assertEqual(
             module_dynamic["major"]["opus"]["pics"],
             [
@@ -168,6 +330,61 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         )
+
+    async def test_get_dynamic_detail_should_add_opus_link_cards_and_vote_fallback_without_polluting_common(self):
+        with (
+            patch.object(dynamic_service, "load_credential", return_value=object()),
+            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service.dynamic,
+                "Dynamic",
+                side_effect=lambda *_args, **_kwargs: _FakeDynamicClientWithoutVote(),
+            ),
+            patch.object(
+                dynamic_service.opus,
+                "Opus",
+                side_effect=lambda *_args, **_kwargs: _FakeOpusClientWithoutVote(),
+            ),
+        ):
+            result = await dynamic_service.get_dynamic_detail("1179264368735420423")
+
+        self.assertEqual(result["status"], "success")
+        module_dynamic = result["data"]["item"]["modules"]["module_dynamic"]
+        additional = module_dynamic["additional"]
+
+        self.assertNotIn("common", additional)
+        self.assertEqual(len(additional["opus_link_cards"]), 1)
+        self.assertEqual(additional["opus_link_cards"][0]["card_type"], "LINK_CARD_TYPE_COMMON")
+        self.assertEqual(additional["opus_link_cards"][0]["title"], "原神")
+        self.assertEqual(additional["vote"]["title"], "夜愿华章表情包你最喜欢哪个？")
+        self.assertEqual(additional["vote"]["join_num"], 12)
+        self.assertEqual(len(additional["vote"]["items"]), 2)
+
+    async def test_get_dynamic_detail_should_dedupe_common_link_cards_against_existing_common(self):
+        with (
+            patch.object(dynamic_service, "load_credential", return_value=object()),
+            patch.object(dynamic_service, "get_image_focus_color", AsyncMock(return_value=None)),
+            patch.object(
+                dynamic_service.dynamic,
+                "Dynamic",
+                side_effect=lambda *_args, **_kwargs: _FakeDynamicClientWithExistingCommon(),
+            ),
+            patch.object(
+                dynamic_service.opus,
+                "Opus",
+                side_effect=lambda *_args, **_kwargs: _FakeOpusClientWithoutVote(),
+            ),
+        ):
+            result = await dynamic_service.get_dynamic_detail("1175413428060160006")
+
+        self.assertEqual(result["status"], "success")
+        module_dynamic = result["data"]["item"]["modules"]["module_dynamic"]
+        additional = module_dynamic["additional"]
+
+        self.assertEqual(additional["common"]["title"], "原神")
+        self.assertNotIn("opus_link_cards", additional)
+        self.assertEqual(additional["vote"]["title"], "夜愿华章表情包你最喜欢哪个？")
+        self.assertEqual(additional["vote"]["join_num"], 12)
 
 
 if __name__ == "__main__":

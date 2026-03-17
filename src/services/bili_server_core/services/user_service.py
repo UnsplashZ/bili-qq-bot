@@ -5,9 +5,9 @@ from bilibili_api import user
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
 from ..media.image_focus import get_image_focus_color
+from .opus_additional_service import enrich_opus_modules
 
 logger = logging.getLogger(__name__)
-
 
 async def get_user_card(uid, group_id=None):
     try:
@@ -67,6 +67,16 @@ async def get_user_info(uid, group_id=None):
                     latest_dynamic = dynamics["items"][0]
         except Exception:
             pass
+
+        if isinstance(latest_dynamic, dict):
+            try:
+                await enrich_opus_modules(
+                    latest_dynamic.get("modules") or {},
+                    latest_dynamic.get("id_str"),
+                    group_id,
+                )
+            except Exception:
+                pass
 
         data = {
             "uid": user_info.get("mid", uid),

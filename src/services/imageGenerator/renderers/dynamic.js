@@ -6,6 +6,7 @@ const {
 } = require('./components/contentNodes');
 const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderEmbeddedResourceCard, renderMediaHtml } = require('./components/media');
+const { renderOpusLinkCards, resolveOpusLinkCards } = require('./components/opusLinkCard');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 const ICONS = require('./icons');
 const logger = require('../../../utils/logger');
@@ -719,6 +720,10 @@ function renderDynamicContent(data, emojiContext = null) {
     }
 
     const mediaHtml = renderMediaHtml(images, videoCard, false);
+    const opusLinkCards = resolveOpusLinkCards(module_dynamic)
+    const opusLinkCardsHtml = renderOpusLinkCards(opusLinkCards, {
+        emojiContext
+    })
     const commonHtml = renderEmbeddedResourceCard(resolveDynamicCommonCard(module_dynamic), {
         emojiContext
     })
@@ -755,6 +760,7 @@ function renderDynamicContent(data, emojiContext = null) {
             <div class="text-content">${text}</div>
             ${origHtml}
             ${mediaHtml}
+            ${opusLinkCardsHtml}
             ${voteHtml}
             ${commonHtml}
             <div class="action-bar">
@@ -779,6 +785,7 @@ module.exports = {
         injectTopicNodeIfNeeded,
         collectDynamicImages: sharedCollectDynamicImages,
         resolveDynamicText: resolveDynamicContent,
-        resolveDynamicCommonCard
+        resolveDynamicCommonCard,
+        resolveOpusLinkCards
     }
 };

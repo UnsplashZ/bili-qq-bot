@@ -108,6 +108,91 @@ class OpusEnricherContractTest(unittest.TestCase):
                 }
             ],
         )
+        self.assertEqual(payload["link_cards"], [])
+        self.assertIsNone(payload["fallback_vote"])
+
+    def test_extract_opus_content_payload_should_normalize_para_type_6_cards(self):
+        payload = extract_opus_content_payload(
+            {
+                "item": {
+                    "modules": [
+                        {
+                            "module_type": "MODULE_TYPE_CONTENT",
+                            "module_content": {
+                                "paragraphs": [
+                                    {
+                                        "para_type": 6,
+                                        "link_card": {
+                                            "card": {
+                                                "type": "LINK_CARD_TYPE_UGC",
+                                                "ugc": {
+                                                    "title": "搞笑视频合集",
+                                                    "jump_url": "//www.bilibili.com/video/BV11dcUzAEc2/",
+                                                    "cover": "https://i0.hdslb.com/bfs/archive/video-cover.jpg",
+                                                    "width": 1280,
+                                                    "height": 720,
+                                                    "duration": "07:01",
+                                                    "stat": {"play": "1.8万", "danmaku": "88"},
+                                                }
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "para_type": 6,
+                                        "link_card": {
+                                            "card": {
+                                                "type": "LINK_CARD_TYPE_COMMON",
+                                                "common": {
+                                                    "head_text": "相关游戏",
+                                                    "title": "原神",
+                                                    "desc1": "角色扮演/二次元/冒险",
+                                                    "desc2": "跨越尘世的探索之旅",
+                                                    "jump_url": "https://www.biligame.com/detail?id=103496",
+                                                    "cover": "https://i0.hdslb.com/bfs/game/game-cover.png",
+                                                }
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "para_type": 6,
+                                        "link_card": {
+                                            "card": {
+                                                "type": "LINK_CARD_TYPE_EVA3_VOTE",
+                                                "vote": {
+                                                    "vote_id": "18017302",
+                                                    "title": "猪鼻大赛",
+                                                    "desc": "4人参与",
+                                                    "join_num": 4,
+                                                    "choice_cnt": 1,
+                                                    "items": [
+                                                        {"desc": "依然是真凉", "cnt": 2},
+                                                        {"desc": "若樱", "cnt": 2},
+                                                    ],
+                                                }
+                                            },
+                                        },
+                                    },
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(len(payload["link_cards"]), 2)
+        self.assertEqual(payload["link_cards"][0]["card_type"], "LINK_CARD_TYPE_UGC")
+        self.assertEqual(payload["link_cards"][0]["badge_text"], "视频")
+        self.assertEqual(payload["link_cards"][0]["duration_text"], "07:01")
+        self.assertEqual(
+            payload["link_cards"][0]["stats"],
+            [{"label": "播放", "value": "1.8万"}, {"label": "弹幕", "value": "88"}],
+        )
+        self.assertEqual(payload["link_cards"][1]["card_type"], "LINK_CARD_TYPE_COMMON")
+        self.assertEqual(payload["link_cards"][1]["badge_text"], "相关游戏")
+        self.assertEqual(payload["fallback_vote"]["vote_id"], "18017302")
+        self.assertEqual(payload["fallback_vote"]["choice_cnt"], 1)
+        self.assertEqual(len(payload["fallback_vote"]["items"]), 2)
 
 
 if __name__ == "__main__":

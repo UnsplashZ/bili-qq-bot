@@ -15,6 +15,11 @@ from ..media.opus_enricher import (
     strip_image_placeholders,
 )
 from .article_service import get_article_info, get_opus_detail
+from .opus_additional_service import (
+    apply_opus_link_card_contract,
+    enrich_opus_modules,
+    enrich_additional_vote,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +234,13 @@ async def get_user_dynamic(uid, group_id=None):
                 module_dynamic = modules.get("module_dynamic")
 
                 if module_dynamic:
+                    if ((module_dynamic.get("major") or {}).get("type")) == "MAJOR_TYPE_OPUS":
+                        try:
+                            await enrich_opus_modules(modules, item.get("id_str"), group_id)
+                            module_dynamic = modules.get("module_dynamic") or module_dynamic
+                        except Exception:
+                            pass
+
                     if not module_dynamic.get("desc"):
                         major = module_dynamic.get("major") or {}
                         opus_data = major.get("opus")
@@ -473,64 +485,9 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
         try:
             mods = (info.get("item") or {}).get("modules") or info.get("modules") or {}
             md = mods.get("module_dynamic") or {}
-            additional = md.get("additional") or {}
-            vobj = additional.get("vote") or {}
-            vote_id = vobj.get("vote_id")
-            if vote_id:
-                from bilibili_api import vote as vote_api
-
-                vv = vote_api.Vote(vote_id=int(vote_id), credential=load_credential(group_id))
-                vinfo = await vv.get_info()
-                items = []
-                try:
-                    choices = (
-                        (vinfo.get("info") or {}).get("options")
-                        or vinfo.get("data", {}).get("choices")
-                        or vinfo.get("choices")
-                        or []
-                    )
-                except Exception:
-                    choices = []
-                for ch in choices:
-                    desc = (ch.get("desc") if isinstance(ch, dict) else str(ch)) or ""
-                    img = (ch.get("image") if isinstance(ch, dict) else None)
-                    cnt = (ch.get("cnt") if isinstance(ch, dict) else 0)
-                    items.append({"desc": desc, "image": img, "cnt": cnt})
-
-                join_num = (
-                    (vinfo.get("info") or {}).get("cnt")
-                    or vinfo.get("data", {}).get("join_num")
-                    or vinfo.get("join_num")
-                    or vobj.get("join_num")
-                )
-                choice_cnt = (
-                    (vinfo.get("info") or {}).get("choice_cnt")
-                    or vinfo.get("data", {}).get("choice_cnt")
-                    or vinfo.get("choice_cnt")
-                    or vobj.get("choice_cnt")
-                )
-                title = (
-                    (vinfo.get("info") or {}).get("title")
-                    or vinfo.get("data", {}).get("title")
-                    or vinfo.get("title")
-                    or vobj.get("title")
-                )
-                desc = (
-                    (vinfo.get("info") or {}).get("desc")
-                    or vinfo.get("data", {}).get("desc")
-                    or vinfo.get("desc")
-                    or vobj.get("desc")
-                )
-                vobj["items"] = items
-                if join_num is not None:
-                    vobj["join_num"] = join_num
-                if choice_cnt is not None:
-                    vobj["choice_cnt"] = choice_cnt
-                if title is not None:
-                    vobj["title"] = title
-                if desc is not None:
-                    vobj["desc"] = desc
-                additional["vote"] = vobj
+            additional = md.get("additional")
+            if isinstance(additional, dict):
+                await enrich_additional_vote(additional, group_id)
                 md["additional"] = additional
                 mods["module_dynamic"] = md
                 if isinstance(info.get("item"), dict):
@@ -567,6 +524,8 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
             current_summary_placeholder_count = count_image_placeholders(
                 current_summary_text
             )
+            additional = md.get("additional")
+            additional = additional if isinstance(additional, dict) else {}
 
             need_body_sync = is_article_like and (
                 _is_degraded_body(
@@ -581,6 +540,10 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                 )
             )
             need_image_enrich = is_article_like and not opus_major.get("pics")
+            need_link_card_enrich = (
+                major_type == "MAJOR_TYPE_OPUS"
+                and additional.get("opus_link_cards") is None
+            )
 
             canonical_body = None
             if _has_useful_body_nodes(current_summary_nodes):
@@ -592,7 +555,7 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                 )
 
             opus_body = None
-            if need_body_sync or need_image_enrich:
+            if need_body_sync or need_image_enrich or need_link_card_enrich:
                 opus_id = item.get("id_str") or info.get("id_str") or dynamic_id
                 if opus_id and str(opus_id).isdigit():
                     o = opus.Opus(int(opus_id), credential=load_credential(group_id))
@@ -613,6 +576,14 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                 if "opus" not in major:
                     major["opus"] = {}
                 major["opus"]["pics"] = deepcopy(opus_body.get("images") or [])
+
+            if major_type == "MAJOR_TYPE_OPUS":
+                apply_opus_link_card_contract(item_modules, opus_body or {})
+                md = item_modules.get("module_dynamic") or md
+                additional = md.get("additional")
+                additional = additional if isinstance(additional, dict) else {}
+                if additional.get("vote"):
+                    await enrich_additional_vote(additional, group_id)
 
             article_result = None
             if canonical_body is None and need_body_sync:
@@ -674,6 +645,8 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
 
             _ensure_topic_on_dynamic(md)
 
+            if additional:
+                md["additional"] = additional
             md["major"] = major
             item_modules["module_dynamic"] = md
             item["modules"] = item_modules

@@ -1,7 +1,13 @@
 const { escapeHtml, formatNumber } = require('../core/formatters');
 const { collectDynamicImages, resolveDynamicContent } = require('./components/contentNodes');
 const { parseRichText } = require('./components/richtext');
+const { renderOpusLinkCards, resolveOpusLinkCards } = require('./components/opusLinkCard');
+const { renderVoteCard, getVoteFromModules } = require('./components/vote');
+const { renderEmbeddedResourceCard } = require('./components/media');
 const { renderVerifyBadge } = require('./components/verifyBadge');
+const { __internal: dynamicInternal } = require('./dynamic');
+
+const { resolveDynamicCommonCard } = dynamicInternal;
 
 /**
  * 渲染用户主页内容
@@ -74,12 +80,22 @@ function renderUserContent(data, show_id, emojiContext = null) {
         }
 
         const dynContentHtml = parseRichText(resolvedDynamic.richTextNodes, dynText, emojiContext)
+        const opusLinkCardsHtml = renderOpusLinkCards(resolveOpusLinkCards(dynamicModule), {
+            emojiContext
+        })
+        const voteHtml = renderVoteCard(getVoteFromModules(modules))
+        const commonHtml = renderEmbeddedResourceCard(resolveDynamicCommonCard(dynamicModule), {
+            emojiContext
+        })
 
         dynamicHtml = `
             <div class="user-dynamic-section">
                 <div class="user-dynamic-title">最近动态</div>
                 <div class="user-dynamic-text">${dynContentHtml}</div>
                 ${mediaHtml}
+                ${opusLinkCardsHtml}
+                ${voteHtml}
+                ${commonHtml}
             </div>
         `;
     }
