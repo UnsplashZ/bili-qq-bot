@@ -52,6 +52,14 @@ body {
   margin-bottom: 16px;
 }
 
+.mode-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr;
@@ -74,7 +82,8 @@ body {
 }
 
 textarea,
-input {
+input,
+select {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #2b313d;
@@ -92,6 +101,18 @@ input {
   align-items: center;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+.structure-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #2b313d;
+  border-radius: 12px;
+  background: rgba(15, 17, 21, 0.75);
+}
+
+.dynamic-grid {
+  grid-template-columns: minmax(220px, 320px);
 }
 
 button {
@@ -202,6 +223,10 @@ a {
   }
 
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dynamic-grid {
     grid-template-columns: 1fr;
   }
 }

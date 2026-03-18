@@ -72,6 +72,94 @@ async function testRunApiReturnsStructuredPayload() {
     assert.strictEqual(res.body.renderHtml, '<div>preview</div>')
 }
 
+async function testRunApiAcceptsStructureModePayload() {
+    const outputDir = createTempDir()
+    let capturedOptions = null
+    const { app } = createPreviewLabWebApp({
+        outputDir,
+        runPreviewDebugSession: async (_input, options) => {
+            capturedOptions = options
+            return {
+                status: 'success',
+                manifest: {
+                    status: 'success',
+                    mode: 'structure',
+                    mockType: 'dynamic',
+                    structureOptions: options.structureOptions,
+                    input: '',
+                    resolvedLink: { type: 'dynamic', id: 'structure' },
+                    cardType: 'dynamic',
+                    canonicalUrl: 'preview-lab://structure/dynamic',
+                    pngPath: path.join(outputDir, 'structure.png'),
+                    jsonPath: path.join(outputDir, 'structure.json'),
+                    manifestPath: path.join(outputDir, 'structure.manifest.json'),
+                    outputName: 'structure',
+                    debugMeta: { themeClass: 'theme-light' }
+                },
+                dataPayload: {
+                    mode: 'structure',
+                    mockType: 'dynamic',
+                    structureOptions: options.structureOptions
+                },
+                previewTargetSummary: {
+                    cardType: 'dynamic',
+                    canonicalUrl: 'preview-lab://structure/dynamic'
+                },
+                artifactsSummary: {
+                    renderHtml: '<div>structure</div>',
+                    debugMeta: { themeClass: 'theme-light' }
+                }
+            }
+        }
+    })
+
+    const res = await request(app)
+        .post('/api/run')
+        .send({
+            mode: 'structure',
+            mockType: 'dynamic',
+            structureOptions: {
+                mediaMode: 'grid',
+                withCommonCard: true
+            }
+        })
+
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(capturedOptions.mode, 'structure')
+    assert.strictEqual(capturedOptions.mockType, 'dynamic')
+    assert.deepStrictEqual(capturedOptions.structureOptions, {
+        mediaMode: 'grid',
+        isForward: false,
+        withCommonCard: true,
+        withEmbeddedResource: false,
+        withOpusLinkCard: false,
+        withVote: false,
+        blocked: false,
+        seasonType: 'bangumi'
+    })
+    assert.strictEqual(res.body.manifest.mode, 'structure')
+    assert.strictEqual(res.body.manifest.mockType, 'dynamic')
+}
+
+async function testRunApiRejectsStructureModeWithoutMockType() {
+    const { app } = createPreviewLabWebApp({
+        outputDir: createTempDir(),
+        runPreviewDebugSession: async () => {
+            throw new Error('should not run')
+        }
+    })
+
+    const res = await request(app)
+        .post('/api/run')
+        .send({
+            mode: 'structure'
+        })
+
+    assert.strictEqual(res.status, 400)
+    assert.strictEqual(res.body.status, 'error')
+    assert.match(res.body.message, /缺少类型/)
+}
+
 async function testRunApiReturnsBusyWhenJobIsRunning() {
     const outputDir = createTempDir()
     const { app, state } = createPreviewLabWebApp({
@@ -116,6 +204,8 @@ async function testFileApiOnlyAllowsWhitelistedOutputFiles() {
 async function run() {
     await testIndexPageLoads()
     await testRunApiReturnsStructuredPayload()
+    await testRunApiAcceptsStructureModePayload()
+    await testRunApiRejectsStructureModeWithoutMockType()
     await testRunApiReturnsBusyWhenJobIsRunning()
     await testFileApiOnlyAllowsWhitelistedOutputFiles()
     console.log('PASS preview-lab-web-server')

@@ -17,10 +17,30 @@
     </header>
 
     <section class="control-panel panel">
+      <div class="mode-row">
+        <span class="field-label">模式</span>
+        <label><input id="modeLink" type="radio" name="mode" value="link" checked> 链接预览</label>
+        <label><input id="modeStructure" type="radio" name="mode" value="structure"> 结构预览</label>
+      </div>
       <div class="form-grid">
-        <label class="field field-wide">
+        <label class="field field-wide" id="inputField">
           <span class="field-label">链接</span>
           <textarea id="input" rows="3" placeholder="https://www.bilibili.com/read/cv45123193"></textarea>
+        </label>
+        <label class="field field-wide hidden" id="mockTypeField">
+          <span class="field-label">结构类型</span>
+          <select id="mockType"></select>
+        </label>
+        <label class="field hidden" id="seasonTypeField">
+          <span class="field-label">番剧子类型</span>
+          <select id="seasonType">
+            <option value="bangumi">番剧</option>
+            <option value="movie">电影</option>
+            <option value="doc">纪录片</option>
+            <option value="tv">电视剧</option>
+            <option value="guocha">国创</option>
+            <option value="variety">综艺</option>
+          </select>
         </label>
         <label class="field">
           <span class="field-label">Group ID</span>
@@ -30,6 +50,28 @@
           <span class="field-label">输出名</span>
           <input id="outName" type="text" placeholder="可选">
         </label>
+      </div>
+      <div class="structure-panel hidden" id="dynamicOptionsPanel">
+        <div class="form-grid dynamic-grid">
+          <label class="field">
+            <span class="field-label">媒体结构</span>
+            <select id="mediaMode">
+              <option value="single">单图</option>
+              <option value="grid">多图九宫格</option>
+              <option value="video">视频卡</option>
+              <option value="live_rcmd">直播推荐卡</option>
+              <option value="none">无媒体</option>
+            </select>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <label><input id="isForward" type="checkbox"> 转发动态</label>
+          <label><input id="withEmbeddedResource" type="checkbox"> 引用资源卡</label>
+          <label><input id="withOpusLinkCard" type="checkbox"> Opus 链接卡</label>
+          <label><input id="withVote" type="checkbox"> 投票卡</label>
+          <label><input id="withCommonCard" type="checkbox"> common 小卡</label>
+          <label><input id="blocked" type="checkbox"> 充电占位</label>
+        </div>
       </div>
       <div class="toggle-row">
         <label><input id="fresh" type="checkbox"> fresh</label>
@@ -71,6 +113,7 @@
     </main>
   </div>
 
+  <script src="/uiState.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -3,6 +3,10 @@ const path = require('path')
 const fs = require('fs')
 const { runPreviewDebugSession } = require('./session')
 const { parseBoolean, sanitizeOutputName } = require('./cliOptions')
+const {
+    SUPPORTED_MOCK_TYPES,
+    normalizeStructureOptions
+} = require('./mockData')
 
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 17870
@@ -20,14 +24,25 @@ function isAllowedOutputFile(fileName) {
     return ALLOWED_FILE_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
 }
 
+function normalizeMode(value) {
+    return value === 'structure' ? 'structure' : 'link'
+}
+
 function normalizeRunOptions(body = {}, outputDir) {
     return {
+        mode: normalizeMode(body.mode),
         groupId: body.groupId ? String(body.groupId) : null,
         cacheMode: parseBoolean(body.fresh, false) ? 'fresh' : 'cached',
         emitHtml: parseBoolean(body.emitHtml, false),
         showId: parseBoolean(body.showId, true),
         outName: sanitizeOutputName(body.outName || ''),
         outputDir,
+        mockType: body.mockType ? String(body.mockType) : '',
+        structureOptions: normalizeStructureOptions(
+            body.structureOptions && typeof body.structureOptions === 'object'
+                ? body.structureOptions
+                : {}
+        ),
         renderOverrides: body.renderOverrides && typeof body.renderOverrides === 'object'
             ? body.renderOverrides
             : {}
@@ -64,11 +79,27 @@ function createPreviewLabWebApp(deps = {}) {
             })
         }
 
+        const options = normalizeRunOptions(req.body, outputDir)
         const input = String(req.body?.input || '').trim()
-        if (!input) {
+
+        if (options.mode === 'link' && !input) {
             return res.status(400).json({
                 status: 'error',
                 message: '缺少输入链接'
+            })
+        }
+
+        if (options.mode === 'structure' && !options.mockType) {
+            return res.status(400).json({
+                status: 'error',
+                message: '结构预览模式缺少类型'
+            })
+        }
+
+        if (options.mode === 'structure' && !SUPPORTED_MOCK_TYPES.includes(options.mockType)) {
+            return res.status(400).json({
+                status: 'error',
+                message: `未支持的结构预览类型: ${options.mockType}`
             })
         }
 
@@ -76,7 +107,6 @@ function createPreviewLabWebApp(deps = {}) {
         const startedAt = new Date().toISOString()
 
         try {
-            const options = normalizeRunOptions(req.body, outputDir)
             const result = await runSession(input, options)
             const { manifest, dataPayload, previewTargetSummary, artifactsSummary } = result
             const imageUrl = `/api/files/${encodeURIComponent(path.basename(manifest.pngPath))}`
