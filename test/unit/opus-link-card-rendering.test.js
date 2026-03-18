@@ -209,10 +209,74 @@ function testUserCardCanRenderVoteAndCommonWithoutOpusLinkCard() {
     assert.ok(html.includes('相关游戏'))
 }
 
+function testUserCardEmbeddedResourceRendersBeforeVoteAndCommon() {
+    const html = renderUserContent({
+        data: {
+            uid: 1,
+            name: 'tester',
+            level: 6,
+            face: 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
+            relation: { follower: 1, following: 2 },
+            likes: 3,
+            archive_view: 4,
+            dynamic: {
+                modules: {
+                    module_author: {
+                        official_verify: { type: -1 }
+                    },
+                    module_dynamic: {
+                        desc: {
+                            text: '正文',
+                            rich_text_nodes: []
+                        },
+                        major: {
+                            type: 'MAJOR_TYPE_MEDIALIST',
+                            medialist: {
+                                title: '结构收藏夹',
+                                sub_title: '9个内容',
+                                cover: 'https://example.com/list-cover.jpg',
+                                jump_url: '//www.bilibili.com/medialist/detail/ml123456'
+                            }
+                        },
+                        additional: {
+                            vote: {
+                                desc: '你更喜欢哪一位？',
+                                join_num: 8,
+                                choice_cnt: 1,
+                                items: [
+                                    { desc: '悠妮里奈', cnt: 6 },
+                                    { desc: '若樱', cnt: 2 }
+                                ]
+                            },
+                            common: {
+                                head_text: '相关游戏',
+                                title: '原神',
+                                desc1: '角色扮演/二次元/冒险',
+                                desc2: '跨越尘世的探索之旅',
+                                cover: 'https://example.com/game.jpg'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }, true)
+
+    const resourceIndex = html.indexOf('<div class="embedded-resource-card"')
+    const voteIndex = html.indexOf('vote-card')
+    const commonIndex = html.indexOf('embedded-resource-card--compact')
+
+    assert.ok(resourceIndex >= 0, '用户卡最近动态应渲染引用资源卡')
+    assert.ok(resourceIndex < voteIndex, '用户卡引用资源卡应位于投票卡之前')
+    assert.ok(voteIndex < commonIndex, '用户卡投票卡应位于 common 小卡之前')
+    assert.ok(html.includes('结构收藏夹'))
+}
+
 function run() {
     testDynamicOpusLinkCardRendersBetweenMediaAndVote()
     testUserCardCanRenderOpusLinkCard()
     testUserCardCanRenderVoteAndCommonWithoutOpusLinkCard()
+    testUserCardEmbeddedResourceRendersBeforeVoteAndCommon()
     console.log('PASS opus-link-card-rendering')
 }
 

@@ -70,7 +70,52 @@ function buildDynamicPayload(moduleDynamic) {
     }
 }
 
-function testForwardMedialistRendersEmbeddedCard() {
+function testMainDynamicMedialistRendersEmbeddedCardBetweenMediaAndActionBar() {
+    const html = renderDynamicContent(buildDynamicPayload({
+        major: {
+            type: 'MAJOR_TYPE_MEDIALIST',
+            medialist: {
+                title: '音游比赛',
+                sub_title: '9个内容',
+                cover: 'https://example.com/cover.jpg',
+                jump_url: '//www.bilibili.com/medialist/detail/ml2260130607',
+                badge: {
+                    text: '收藏',
+                    bg_color: '#FB7299'
+                }
+            }
+        }
+    }))
+
+    const mediaIndex = html.indexOf('embedded-resource-card')
+    const actionIndex = html.indexOf('action-bar')
+
+    assert.ok(mediaIndex >= 0, '主动态应渲染嵌入资源卡')
+    assert.ok(mediaIndex < actionIndex, '主动态嵌入资源卡应位于数据栏之前')
+    assert.ok(html.includes('音游比赛'))
+    assert.ok(html.includes('9个内容'))
+    assert.ok(html.includes('收藏'))
+}
+
+function testMainDynamicUnknownResourceFallsBackToGenericCard() {
+    const html = renderDynamicContent(buildDynamicPayload({
+        major: {
+            type: 'MAJOR_TYPE_CUSTOM',
+            mystery: {
+                title: '未知资源标题',
+                sub_title: '可降级展示',
+                cover: 'https://example.com/custom.jpg',
+                desc: '未知资源描述'
+            }
+        }
+    }))
+
+    assert.ok(html.includes('embedded-resource-card'), '主动态未知资源应降级为最小嵌入卡')
+    assert.ok(html.includes('未知资源标题'))
+    assert.ok(html.includes('可降级展示'))
+}
+
+function testForwardMedialistDoesNotRenderEmbeddedCard() {
     const html = renderDynamicContent(buildForwardPayload({
         major: {
             type: 'MAJOR_TYPE_MEDIALIST',
@@ -87,14 +132,11 @@ function testForwardMedialistRendersEmbeddedCard() {
         }
     }))
 
-    assert.ok(html.includes('embedded-resource-card'), '应渲染嵌入资源卡')
-    assert.ok(html.includes('音游比赛'))
-    assert.ok(html.includes('9个内容'))
-    assert.ok(html.includes('收藏'))
-    assert.ok(!html.includes('<div class="orig-content">\n                \n                \n                \n                \n            </div>'))
+    assert.ok(!html.includes('embedded-resource-card'), '转发原动态不应再渲染嵌入资源卡')
+    assert.ok(!html.includes('音游比赛'))
 }
 
-function testForwardUnknownResourceFallsBackToGenericCard() {
+function testForwardUnknownResourceDoesNotRenderGenericCard() {
     const html = renderDynamicContent(buildForwardPayload({
         major: {
             type: 'MAJOR_TYPE_CUSTOM',
@@ -107,9 +149,8 @@ function testForwardUnknownResourceFallsBackToGenericCard() {
         }
     }))
 
-    assert.ok(html.includes('embedded-resource-card'), '未知资源应降级为最小嵌入卡')
-    assert.ok(html.includes('未知资源标题'))
-    assert.ok(html.includes('可降级展示'))
+    assert.ok(!html.includes('embedded-resource-card'), '转发原动态未知资源不应再渲染嵌入资源卡')
+    assert.ok(!html.includes('未知资源标题'))
 }
 
 function testForwardOrigCommonCardIsRemoved() {
@@ -184,6 +225,49 @@ function testMainDynamicCommonCardRendersAfterMediaAsCompactStrip() {
     assert.ok(titleIndex >= 0 && subtitleIndex > titleIndex, 'compact common 小卡标题应先于副标题渲染')
 }
 
+function testMainDynamicEmbeddedResourceRendersBeforeVoteAndCommon() {
+    const html = renderDynamicContent(buildDynamicPayload({
+        major: {
+            type: 'MAJOR_TYPE_MEDIALIST',
+            medialist: {
+                title: '结构收藏夹',
+                sub_title: '9个内容',
+                cover: 'https://example.com/cover.jpg',
+                jump_url: '//www.bilibili.com/medialist/detail/ml2260130607'
+            }
+        },
+        additional: {
+            type: 'ADDITIONAL_TYPE_COMMON',
+            common: {
+                head_text: '相关游戏',
+                title: '原神',
+                desc1: '角色扮演/二次元/冒险',
+                desc2: '跨越尘世的探索之旅',
+                cover: 'https://example.com/game.jpg'
+            },
+            vote: {
+                desc: '你更喜欢哪一位？',
+                join_num: 8,
+                choice_cnt: 1,
+                items: [
+                    { desc: '悠妮里奈', cnt: 6 },
+                    { desc: '若樱', cnt: 2 }
+                ]
+            }
+        }
+    }))
+
+    const resourceIndex = html.indexOf('<div class="embedded-resource-card"')
+    const voteIndex = html.indexOf('vote-card')
+    const commonIndex = html.indexOf('embedded-resource-card--compact')
+    const actionIndex = html.indexOf('action-bar')
+
+    assert.ok(resourceIndex >= 0, '主动态应渲染引用资源卡')
+    assert.ok(resourceIndex < voteIndex, '主动态引用资源卡应位于投票卡之前')
+    assert.ok(voteIndex < commonIndex, '主动态投票卡应位于 common 小卡之前')
+    assert.ok(commonIndex < actionIndex, '主动态 common 小卡应位于数据栏之前')
+}
+
 function testMainDynamicVoteCardRendersBelowMediaAndAboveCommon() {
     const html = renderDynamicContent(buildDynamicPayload({
         major: {
@@ -246,10 +330,13 @@ function testForwardArchiveRegressionStillRendersInlineVideo() {
 }
 
 function run() {
-    testForwardMedialistRendersEmbeddedCard()
-    testForwardUnknownResourceFallsBackToGenericCard()
+    testMainDynamicMedialistRendersEmbeddedCardBetweenMediaAndActionBar()
+    testMainDynamicUnknownResourceFallsBackToGenericCard()
+    testForwardMedialistDoesNotRenderEmbeddedCard()
+    testForwardUnknownResourceDoesNotRenderGenericCard()
     testForwardOrigCommonCardIsRemoved()
     testMainDynamicCommonCardRendersAfterMediaAsCompactStrip()
+    testMainDynamicEmbeddedResourceRendersBeforeVoteAndCommon()
     testMainDynamicVoteCardRendersBelowMediaAndAboveCommon()
     testForwardArchiveRegressionStillRendersInlineVideo()
     console.log('PASS dynamic-forward-resource-rendering')

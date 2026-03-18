@@ -160,9 +160,8 @@ async function testRunPreviewDebugSessionSupportsStructureModeWithoutLinkResolut
     assert.strictEqual(jsonPayload.resolvedLink.id, 'structure')
 }
 
-async function testRunPreviewDebugSessionUsesPreviewOnlyEmbeddedResourceInjection() {
+async function testRunPreviewDebugSessionStructureModeWithEmbeddedResourceUsesDirectRendererOutput() {
     const outputDir = createTempDir()
-    let injected = false
 
     const result = await runPreviewDebugSession('', {
         mode: 'structure',
@@ -202,8 +201,8 @@ async function testRunPreviewDebugSessionUsesPreviewOnlyEmbeddedResourceInjectio
             structureOptions
         }),
         generatePreviewCardArtifacts: async () => ({
-            base64: Buffer.from('before-inject').toString('base64'),
-            html: '<html><body><div class="container"><div class="card"><div class="content"><div class="action-bar"></div></div></div></div></body></html>',
+            base64: Buffer.from('direct-render').toString('base64'),
+            html: '<html><body><div class="container"><div class="card"><div class="content"><div class="embedded-resource-card"></div><div class="action-bar"></div></div></div></div></body></html>',
             debugMeta: {
                 viewport: { width: 1200, height: 800 },
                 themeClass: 'theme-light',
@@ -211,19 +210,14 @@ async function testRunPreviewDebugSessionUsesPreviewOnlyEmbeddedResourceInjectio
                 colorSummary: {}
             }
         }),
-        renderInjectedStructureArtifacts: async (_previewTarget, artifacts) => {
-            injected = true
-            return {
-                ...artifacts,
-                base64: Buffer.from('after-inject').toString('base64'),
-                html: '<html><body>after inject</body></html>'
-            }
+        renderInjectedStructureArtifacts: async () => {
+            throw new Error('should not use preview-only injection path')
         }
     })
 
-    assert.strictEqual(injected, true)
     assert.strictEqual(result.manifest.mode, 'structure')
     assert.strictEqual(result.manifest.mockType, 'dynamic')
+    assert.match(result.artifactsSummary.renderHtml, /embedded-resource-card/)
     assert.deepStrictEqual(result.manifest.structureOptions, {
         mediaMode: 'single',
         isForward: false,
@@ -320,7 +314,7 @@ async function testRunPreviewDebugSessionThrowsOnFailedTarget() {
 async function run() {
     await testRunPreviewDebugSessionWritesManifestJsonPngAndHtml()
     await testRunPreviewDebugSessionSupportsStructureModeWithoutLinkResolution()
-    await testRunPreviewDebugSessionUsesPreviewOnlyEmbeddedResourceInjection()
+    await testRunPreviewDebugSessionStructureModeWithEmbeddedResourceUsesDirectRendererOutput()
     await testRunPreviewDebugSessionSupportsStructureModeSpecialGenerators()
     await testRunPreviewDebugSessionThrowsOnFailedTarget()
     console.log('PASS preview-lab-session')
