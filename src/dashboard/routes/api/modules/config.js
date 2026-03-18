@@ -2,7 +2,6 @@ const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const subscriptionService = require('../../../../services/subscriptionService')
-const { readConfig } = require('../shared/config-store')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -24,7 +23,7 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
 // GET /api/config - Read config
 router.get('/config', async (req, res) => {
     try {
-        const config = await readConfig()
+        const config = sysConfig.getConfigSnapshot()
         config.rootAdminQQ = sysConfig.getRootAdminQQ()
         dashLog(req, 'info', 'config-fetched', {
             hasRootAdminQQ: Boolean(config.rootAdminQQ)

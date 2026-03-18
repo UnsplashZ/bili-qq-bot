@@ -300,6 +300,9 @@ const META = {
             return process.env.AI_SYSTEM_PROMPT || this.def;
         }
     },
+    aiChatBaseTimeoutSeconds: { env: null, def: 30, type: 'int' },
+    aiChatToolTimeoutSeconds: { env: null, def: 2, type: 'int' },
+    aiChatMaxTimeoutSeconds: { env: null, def: 45, type: 'int' },
 
     // AI Embedding Configuration
     aiEmbeddingApiUrl: {
@@ -721,6 +724,19 @@ const config = {
         configLog('info', 'config-reset', {
             keys: keys.join(',')
         });
+    },
+
+    getConfigSnapshot: function() {
+        const snapshot = {};
+        Object.keys(META).forEach((key) => {
+            const value = this[key];
+            if (value && typeof value === 'object') {
+                snapshot[key] = JSON.parse(JSON.stringify(value));
+                return;
+            }
+            snapshot[key] = value;
+        });
+        return snapshot;
     },
 
     // Save configuration to file (Only overrides)

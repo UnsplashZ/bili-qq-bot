@@ -21,6 +21,9 @@ const AI_ALLOWED_FIELDS = new Set([
     'aiChatModel',
     'aiChatProxy',
     'aiChatSystemPrompt',
+    'aiChatBaseTimeoutSeconds',
+    'aiChatToolTimeoutSeconds',
+    'aiChatMaxTimeoutSeconds',
     'aiEmbeddingApiUrl',
     'aiEmbeddingApiKey',
     'aiEmbeddingModel',
@@ -169,6 +172,12 @@ function normalizeAiConfigField(field, value, options = {}) {
             return _ensureFloatInRange(field, value, 0, 2)
         case 'aiContextLimit':
             return normalizeAiContextLimit(value, options.contextLimitRange || { min: 1, max: 100 })
+        case 'aiChatBaseTimeoutSeconds':
+            return _ensureIntInRange(field, value, 1, 600)
+        case 'aiChatToolTimeoutSeconds':
+            return _ensureIntInRange(field, value, 0, 300)
+        case 'aiChatMaxTimeoutSeconds':
+            return _ensureIntInRange(field, value, 1, 3600)
         case 'aiVectorSearchLimit':
             return _ensureIntInRange(field, value, 1, 10)
         case 'aiShortMessageThreshold':
@@ -217,6 +226,28 @@ function normalizeAiConfigUpdates(updates, options = {}) {
         }
         normalized[field] = normalizeAiConfigField(field, value, options)
     }
+
+    const currentConfig = options.currentConfig && typeof options.currentConfig === 'object'
+        ? options.currentConfig
+        : {}
+    const baseTimeoutSeconds = Object.prototype.hasOwnProperty.call(normalized, 'aiChatBaseTimeoutSeconds')
+        ? normalized.aiChatBaseTimeoutSeconds
+        : currentConfig.aiChatBaseTimeoutSeconds
+    const maxTimeoutSeconds = Object.prototype.hasOwnProperty.call(normalized, 'aiChatMaxTimeoutSeconds')
+        ? normalized.aiChatMaxTimeoutSeconds
+        : currentConfig.aiChatMaxTimeoutSeconds
+
+    if (
+        Number.isInteger(baseTimeoutSeconds) &&
+        Number.isInteger(maxTimeoutSeconds) &&
+        maxTimeoutSeconds < baseTimeoutSeconds
+    ) {
+        throw new AiConfigValidationError(
+            'aiChatMaxTimeoutSeconds',
+            'aiChatMaxTimeoutSeconds must be greater than or equal to aiChatBaseTimeoutSeconds'
+        )
+    }
+
     return normalized
 }
 

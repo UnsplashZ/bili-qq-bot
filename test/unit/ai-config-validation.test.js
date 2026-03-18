@@ -24,6 +24,9 @@ function run() {
         aiBusyMessageCount: '12',
         aiReplyCooldownMs: '15000',
         aiMaxRepliesPerWindow: '3',
+        aiChatBaseTimeoutSeconds: '30',
+        aiChatToolTimeoutSeconds: '2',
+        aiChatMaxTimeoutSeconds: '45',
         aiBotAliases: ['小助手', ' BiliBot ']
     })
 
@@ -42,6 +45,9 @@ function run() {
     assert.strictEqual(normalized.aiBusyMessageCount, 12)
     assert.strictEqual(normalized.aiReplyCooldownMs, 15000)
     assert.strictEqual(normalized.aiMaxRepliesPerWindow, 3)
+    assert.strictEqual(normalized.aiChatBaseTimeoutSeconds, 30)
+    assert.strictEqual(normalized.aiChatToolTimeoutSeconds, 2)
+    assert.strictEqual(normalized.aiChatMaxTimeoutSeconds, 45)
     assert.deepStrictEqual(normalized.aiBotAliases, ['小助手', 'BiliBot'])
 
     assert.throws(
@@ -72,6 +78,37 @@ function run() {
     assert.throws(
         () => normalizeAiConfigUpdates({ aiBusyMessageCount: 0 }),
         (err) => err instanceof AiConfigValidationError && err.field === 'aiBusyMessageCount'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiChatBaseTimeoutSeconds: 0 }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiChatBaseTimeoutSeconds'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiChatToolTimeoutSeconds: -1 }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiChatToolTimeoutSeconds'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({ aiChatMaxTimeoutSeconds: 3601 }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiChatMaxTimeoutSeconds'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates({
+            aiChatBaseTimeoutSeconds: 60,
+            aiChatMaxTimeoutSeconds: 30
+        }),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiChatMaxTimeoutSeconds'
+    )
+
+    assert.throws(
+        () => normalizeAiConfigUpdates(
+            { aiChatMaxTimeoutSeconds: 20 },
+            { currentConfig: { aiChatBaseTimeoutSeconds: 30, aiChatMaxTimeoutSeconds: 45 } }
+        ),
+        (err) => err instanceof AiConfigValidationError && err.field === 'aiChatMaxTimeoutSeconds'
     )
 
     assert.throws(

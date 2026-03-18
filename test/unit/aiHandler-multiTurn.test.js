@@ -84,6 +84,9 @@ async function run() {
     overrideConfigValue('aiApiKey', '')
     overrideConfigValue('aiApiUrl', '')
     overrideConfigValue('aiModel', '')
+    overrideConfigValue('aiChatBaseTimeoutSeconds', 30)
+    overrideConfigValue('aiChatToolTimeoutSeconds', 2)
+    overrideConfigValue('aiChatMaxTimeoutSeconds', 45)
 
     config.getGroupConfig = makeGroupConfig()
     config.isRagEnabledForGroup = () => false
@@ -302,6 +305,47 @@ async function run() {
     assert.ok(!capturedConfirmPayload.tools)
     assert.ok(!logs.some(line => line.includes('[AiHandler]')))
     console.log('✓ Case 7: confirm_needed 时不会暴露工具给模型')
+
+    // Case 8: 无工具时请求超时等于基础超时
+    let capturedTimeout = null
+    overrideConfigValue('aiChatBaseTimeoutSeconds', 33)
+    overrideConfigValue('aiChatToolTimeoutSeconds', 4)
+    overrideConfigValue('aiChatMaxTimeoutSeconds', 90)
+    mcpManager.getOpenAITools = () => []
+    axios.post = async (_url, _payload, options) => {
+        capturedTimeout = options.timeout
+        return {
+            data: {
+                choices: [{ message: { role: 'assistant', content: '基础超时验证通过。' } }]
+            }
+        }
+    }
+    const baseTimeoutReply = await aiHandler.getReply('测试基础超时', '2402855757', '1065812436')
+    assert.strictEqual(baseTimeoutReply, '基础超时验证通过。')
+    assert.strictEqual(capturedTimeout, 33000)
+    console.log('✓ Case 8: 无工具时使用基础超时')
+
+    // Case 9: 有工具时按工具数加时，并受最大超时截断
+    overrideConfigValue('aiChatBaseTimeoutSeconds', 30)
+    overrideConfigValue('aiChatToolTimeoutSeconds', 3)
+    overrideConfigValue('aiChatMaxTimeoutSeconds', 35)
+    mcpManager.getOpenAITools = () => ([
+        { type: 'function', function: { name: 'tool_1', description: 'tool1', parameters: { type: 'object', properties: {} } } },
+        { type: 'function', function: { name: 'tool_2', description: 'tool2', parameters: { type: 'object', properties: {} } } },
+        { type: 'function', function: { name: 'tool_3', description: 'tool3', parameters: { type: 'object', properties: {} } } }
+    ])
+    axios.post = async (_url, payload, options) => {
+        capturedTimeout = options.timeout
+        return {
+            data: {
+                choices: [{ message: { role: 'assistant', content: `工具数量=${payload.tools.length}` } }]
+            }
+        }
+    }
+    const cappedTimeoutReply = await aiHandler.getReply('测试工具加时', '2402855757', '1065812436')
+    assert.strictEqual(cappedTimeoutReply, '工具数量=3')
+    assert.strictEqual(capturedTimeout, 35000)
+    console.log('✓ Case 9: 工具加时会受最大超时截断')
 
     console.log('\n所有测试通过 ✓')
     } finally {

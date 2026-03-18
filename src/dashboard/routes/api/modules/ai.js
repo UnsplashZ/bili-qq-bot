@@ -14,7 +14,8 @@ const router = express.Router()
 router.post('/ai', async (req, res) => {
     try {
         const updates = normalizeAiConfigUpdates(req.body, {
-            contextLimitRange: { min: 1, max: 100 }
+            contextLimitRange: { min: 1, max: 100 },
+            currentConfig: sysConfig
         })
 
         Object.assign(sysConfig, updates)
@@ -44,7 +45,7 @@ router.post('/ai', async (req, res) => {
     }
 })
 
-// POST /api/ai/reset - Reset AI settings to defaults (.env)
+// POST /api/ai/reset - Reset AI settings to built-in defaults
 router.post('/ai/reset', async (req, res) => {
     try {
         const aiKeys = [
@@ -59,6 +60,9 @@ router.post('/ai/reset', async (req, res) => {
             'aiChatModel',
             'aiChatProxy',
             'aiChatSystemPrompt',
+            'aiChatBaseTimeoutSeconds',
+            'aiChatToolTimeoutSeconds',
+            'aiChatMaxTimeoutSeconds',
             'aiEmbeddingApiUrl',
             'aiEmbeddingApiKey',
             'aiEmbeddingModel',

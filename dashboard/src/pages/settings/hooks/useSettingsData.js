@@ -29,6 +29,9 @@ const DEFAULT_AI_CONFIG = {
     aiChatModel: 'gpt-3.5-turbo',
     aiChatProxy: '',
     aiChatSystemPrompt: '你是一个有用的助手',
+    aiChatBaseTimeoutSeconds: 30,
+    aiChatToolTimeoutSeconds: 2,
+    aiChatMaxTimeoutSeconds: 45,
     aiEmbeddingApiUrl: '',
     aiEmbeddingApiKey: '',
     aiEmbeddingModel: 'text-embedding-3-small',
@@ -117,6 +120,9 @@ export default function useSettingsData(show) {
                     aiChatModel,
                     aiChatProxy,
                     aiChatSystemPrompt,
+                    aiChatBaseTimeoutSeconds,
+                    aiChatToolTimeoutSeconds,
+                    aiChatMaxTimeoutSeconds,
                     aiEmbeddingApiUrl,
                     aiEmbeddingApiKey,
                     aiEmbeddingModel,
@@ -143,6 +149,9 @@ export default function useSettingsData(show) {
                     aiChatModel: aiChatModel || 'gpt-3.5-turbo',
                     aiChatProxy: aiChatProxy || '',
                     aiChatSystemPrompt: aiChatSystemPrompt || '你是一个有用的助手',
+                    aiChatBaseTimeoutSeconds: aiChatBaseTimeoutSeconds ?? 30,
+                    aiChatToolTimeoutSeconds: aiChatToolTimeoutSeconds ?? 2,
+                    aiChatMaxTimeoutSeconds: aiChatMaxTimeoutSeconds ?? 45,
                     aiEmbeddingApiUrl: aiEmbeddingApiUrl || '',
                     aiEmbeddingApiKey: aiEmbeddingApiKey || '',
                     aiEmbeddingModel: aiEmbeddingModel || 'text-embedding-3-small',
@@ -273,7 +282,7 @@ export default function useSettingsData(show) {
     }
 
     const resetAiSettings = async () => {
-        if (!window.confirm('确定要重置 AI 设置为默认值 (.env) 吗？此操作将覆盖当前的自定义设置。')) {
+        if (!window.confirm('确定要重置 AI 设置为内置默认值吗？此操作将覆盖当前的自定义设置。')) {
             return
         }
         setResettingAi(true)
@@ -296,13 +305,16 @@ export default function useSettingsData(show) {
                 aiChatModel: newConfig.aiChatModel || 'gpt-3.5-turbo',
                 aiChatProxy: newConfig.aiChatProxy || '',
                 aiChatSystemPrompt: newConfig.aiChatSystemPrompt || '你是一个有用的助手',
+                aiChatBaseTimeoutSeconds: newConfig.aiChatBaseTimeoutSeconds ?? 30,
+                aiChatToolTimeoutSeconds: newConfig.aiChatToolTimeoutSeconds ?? 2,
+                aiChatMaxTimeoutSeconds: newConfig.aiChatMaxTimeoutSeconds ?? 45,
                 aiEmbeddingApiUrl: newConfig.aiEmbeddingApiUrl || '',
                 aiEmbeddingApiKey: newConfig.aiEmbeddingApiKey || '',
                 aiEmbeddingModel: newConfig.aiEmbeddingModel || 'text-embedding-3-small',
                 aiEmbeddingProxy: newConfig.aiEmbeddingProxy || ''
             }))
 
-            show('AI 设置已重置为默认值', 'success')
+            show('AI 设置已重置为内置默认值', 'success')
         } catch (error) {
             console.error('Failed to reset AI settings:', error)
             show('重置 AI 设置失败', 'error')
