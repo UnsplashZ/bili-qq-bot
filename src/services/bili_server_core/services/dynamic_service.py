@@ -402,7 +402,11 @@ async def get_dynamic_detail(dynamic_id, group_id=None):
                 )
                 cv_id = extract_cv_id(jump_url)
                 if cv_id:
-                    article_result = await get_article_info(cv_id, group_id)
+                    article_result = await get_article_info(
+                        cv_id,
+                        group_id,
+                        allow_dynamic_redirect=False,
+                    )
                     if article_result.get("status") == "success":
                         article_data = article_result.get("data") or {}
                         article_summary = normalize_preview_text(

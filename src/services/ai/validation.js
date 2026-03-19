@@ -59,6 +59,15 @@ const AI_ALLOWED_FIELDS = new Set([
     'aiBotAliases'
 ])
 
+const AI_NULLABLE_OVERRIDE_FIELDS = new Set([
+    'aiApiUrl',
+    'aiApiKey',
+    'aiChatApiUrl',
+    'aiChatApiKey',
+    'aiEmbeddingApiUrl',
+    'aiEmbeddingApiKey'
+])
+
 const BOOLEAN_FIELDS = new Set([
     'aiEnableVectorCache',
     'aiEnableSmartTrim',
@@ -254,6 +263,7 @@ function normalizeAiConfigUpdates(updates, options = {}) {
 module.exports = {
     AiConfigValidationError,
     AI_ALLOWED_FIELDS,
+    AI_NULLABLE_OVERRIDE_FIELDS,
     normalizeAiConfigField,
     normalizeAiConfigUpdates,
     normalizeAiContextLimit

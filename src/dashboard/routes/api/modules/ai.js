@@ -2,7 +2,7 @@ const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const {
-    AI_ALLOWED_FIELDS,
+    AI_NULLABLE_OVERRIDE_FIELDS,
     AiConfigValidationError,
     normalizeAiConfigUpdates
 } = require('../../../../services/ai/validation')
@@ -13,20 +13,36 @@ const router = express.Router()
 // POST /api/ai - Update AI settings
 router.post('/ai', async (req, res) => {
     try {
-        const updates = normalizeAiConfigUpdates(req.body, {
+        if (!req.body || typeof req.body !== 'object') {
+            throw new AiConfigValidationError('payload', 'Invalid configuration data')
+        }
+
+        const clearFields = []
+        const rawUpdates = {}
+        for (const [field, value] of Object.entries(req.body)) {
+            if (value === null) {
+                if (!AI_NULLABLE_OVERRIDE_FIELDS.has(field)) {
+                    throw new AiConfigValidationError(field, `${field} does not support clearing override`)
+                }
+                clearFields.push(field)
+                continue
+            }
+            rawUpdates[field] = value
+        }
+
+        const updates = normalizeAiConfigUpdates(rawUpdates, {
             contextLimitRange: { min: 1, max: 100 },
             currentConfig: sysConfig
         })
 
-        Object.assign(sysConfig, updates)
-
-        const snapshot = {}
-        for (const field of AI_ALLOWED_FIELDS) {
-            snapshot[field] = sysConfig[field]
-        }
+        sysConfig.applyOverridePatch({
+            clear: clearFields,
+            set: updates
+        })
+        const snapshot = sysConfig.getAiEditorSnapshot()
 
         dashLog(req, 'info', 'ai-settings-updated', {
-            keys: Object.keys(updates).join(',')
+            keys: [...clearFields, ...Object.keys(updates)].join(',')
         })
         res.json({ message: 'AI settings updated', config: snapshot })
     } catch (error) {
@@ -45,7 +61,7 @@ router.post('/ai', async (req, res) => {
     }
 })
 
-// POST /api/ai/reset - Reset AI settings to built-in defaults
+// POST /api/ai/reset - Reset AI settings to env/default-backed effective values
 router.post('/ai/reset', async (req, res) => {
     try {
         const aiKeys = [
@@ -101,7 +117,7 @@ router.post('/ai/reset', async (req, res) => {
         dashLog(req, 'info', 'ai-settings-reset', {
             keyCount: aiKeys.length
         })
-        res.json({ message: 'AI settings reset to defaults', config: sysConfig })
+        res.json({ message: 'AI settings reset to defaults', config: sysConfig.getAiEditorSnapshot() })
     } catch (error) {
         dashLog(req, 'error', 'ai-settings-reset-failed', {
             error: logger.getErrorMessage(error)

@@ -23,7 +23,7 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
 // GET /api/config - Read config
 router.get('/config', async (req, res) => {
     try {
-        const config = sysConfig.getConfigSnapshot()
+        const config = sysConfig.getDashboardConfigSnapshot()
         config.rootAdminQQ = sysConfig.getRootAdminQQ()
         dashLog(req, 'info', 'config-fetched', {
             hasRootAdminQQ: Boolean(config.rootAdminQQ)

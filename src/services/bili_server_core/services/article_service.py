@@ -96,7 +96,7 @@ async def get_opus_detail(opus_id, group_id=None):
         return {"status": "error", "message": str(e)}
 
 
-async def get_article_info(cvid, group_id=None):
+async def get_article_info(cvid, group_id=None, *, allow_dynamic_redirect=True):
     try:
         service_log(logger, "info", "fetch-article-info", cvid=cvid, groupId=group_id)
         base_id = cvid.split("?")[0].split("#")[0]
@@ -138,7 +138,7 @@ async def get_article_info(cvid, group_id=None):
             pass
 
         resolved_opus_id = canonical.get("resolved_opus_id") or ""
-        if resolved_opus_id:
+        if resolved_opus_id and allow_dynamic_redirect:
             from .dynamic_service import get_dynamic_detail
 
             dynamic_result = await get_dynamic_detail(resolved_opus_id, group_id)
@@ -224,7 +224,7 @@ async def get_article_info(cvid, group_id=None):
         info["html_content"] = html_content
         info["author_face"] = author_face
         info["canonical_url"] = canonical.get("canonical_url") or f"https://www.bilibili.com/read/cv{cvid_int}"
-        info["resolved_opus_id"] = ""
+        info["resolved_opus_id"] = resolved_opus_id
         info["render_type"] = "article"
         info["render_payload"] = None
 

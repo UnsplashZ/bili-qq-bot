@@ -498,6 +498,228 @@ const META = {
     groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true }
 };
 
+const AI_EDITOR_SNAPSHOT_FIELDS = [
+    'aiApiUrl',
+    'aiApiKey',
+    'aiProbability',
+    'aiContextLimit',
+    'aiTemperature',
+    'aiHistoryMaxSize',
+    'aiEnableVectorCache',
+    'aiVectorSimilarityThreshold',
+    'aiVectorSearchLimit',
+    'aiMemorySafetyLimit',
+    'aiChatApiUrl',
+    'aiChatApiKey',
+    'aiChatModel',
+    'aiChatProxy',
+    'aiChatSystemPrompt',
+    'aiChatBaseTimeoutSeconds',
+    'aiChatToolTimeoutSeconds',
+    'aiChatMaxTimeoutSeconds',
+    'aiEmbeddingApiUrl',
+    'aiEmbeddingApiKey',
+    'aiEmbeddingModel',
+    'aiEmbeddingProxy',
+    'aiEnabled',
+    'aiRagEnabled',
+    'aiProfileEnabled'
+];
+
+const AI_SENSITIVE_FIELDS = new Set([
+    'aiApiUrl',
+    'aiApiKey',
+    'aiChatApiUrl',
+    'aiChatApiKey',
+    'aiEmbeddingApiUrl',
+    'aiEmbeddingApiKey'
+]);
+
+function cloneConfigValue(value) {
+    if (Array.isArray(value) || (value && typeof value === 'object')) {
+        return JSON.parse(JSON.stringify(value));
+    }
+    return value;
+}
+
+function hasOwnOverride(key) {
+    return Object.prototype.hasOwnProperty.call(_overrides, key);
+}
+
+function getEffectiveConfigValueWithoutMutation(key) {
+    const meta = META[key];
+    if (!meta) return undefined;
+
+    if (hasOwnOverride(key)) {
+        return cloneConfigValue(_overrides[key]);
+    }
+
+    if (typeof meta.get === 'function') {
+        return cloneConfigValue(meta.get.call(meta));
+    }
+
+    const envVal = meta.env ? process.env[meta.env] : undefined;
+    const rawVal = envVal !== undefined ? envVal : meta.def;
+    return cloneConfigValue(parseValue(rawVal, meta.type));
+}
+
+function createSensitiveFieldMeta(source, configured, masked, inheritedFrom = '') {
+    return {
+        source,
+        configured: Boolean(configured),
+        masked: Boolean(masked),
+        inheritedFrom
+    };
+}
+
+function getDirectEnvValue(envName, def, type) {
+    if (!envName) return cloneConfigValue(def);
+    const envVal = process.env[envName];
+    if (envVal === undefined) {
+        return cloneConfigValue(def);
+    }
+    return cloneConfigValue(parseValue(envVal, type));
+}
+
+function resolveSensitiveAiFieldSnapshot(field) {
+    if (hasOwnOverride(field)) {
+        const overrideValue = cloneConfigValue(_overrides[field]);
+        return {
+            value: overrideValue,
+            meta: createSensitiveFieldMeta('override', Boolean(overrideValue), false)
+        };
+    }
+
+    if (field === 'aiChatApiUrl') {
+        if (process.env.AI_CHAT_API_URL) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true)
+            };
+        }
+        if (hasOwnOverride('aiApiUrl')) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('override', Boolean(_overrides.aiApiUrl), true, 'aiApiUrl')
+            };
+        }
+        if (process.env.AI_API_URL) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true, 'aiApiUrl')
+            };
+        }
+        return {
+            value: '',
+            meta: createSensitiveFieldMeta('default', true, true)
+        };
+    }
+
+    if (field === 'aiChatApiKey') {
+        if (process.env.AI_CHAT_API_KEY) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true)
+            };
+        }
+        if (hasOwnOverride('aiApiKey')) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('override', Boolean(_overrides.aiApiKey), true, 'aiApiKey')
+            };
+        }
+        if (process.env.AI_API_KEY) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true, 'aiApiKey')
+            };
+        }
+        return {
+            value: '',
+            meta: createSensitiveFieldMeta('default', false, true)
+        };
+    }
+
+    if (field === 'aiEmbeddingApiUrl') {
+        if (process.env.AI_EMBEDDING_API_URL) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true)
+            };
+        }
+        if (process.env.AI_API_URL) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true, 'aiApiUrl')
+            };
+        }
+        return {
+            value: '',
+            meta: createSensitiveFieldMeta('default', true, true)
+        };
+    }
+
+    if (field === 'aiEmbeddingApiKey') {
+        if (process.env.AI_EMBEDDING_API_KEY) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true)
+            };
+        }
+        if (process.env.AI_API_KEY) {
+            return {
+                value: '',
+                meta: createSensitiveFieldMeta('env', true, true, 'aiApiKey')
+            };
+        }
+        return {
+            value: '',
+            meta: createSensitiveFieldMeta('default', false, true)
+        };
+    }
+
+    const meta = META[field];
+    const directEnvValue = getDirectEnvValue(meta.env, meta.def, meta.type);
+    const configured = Boolean(directEnvValue);
+    return {
+        value: '',
+        meta: createSensitiveFieldMeta(meta.env && process.env[meta.env] !== undefined ? 'env' : 'default', configured, true)
+    };
+}
+
+function buildAiEditorSnapshot() {
+    const snapshot = {};
+    const aiEditorMeta = {};
+
+    AI_EDITOR_SNAPSHOT_FIELDS.forEach((field) => {
+        if (AI_SENSITIVE_FIELDS.has(field)) {
+            const resolved = resolveSensitiveAiFieldSnapshot(field);
+            snapshot[field] = resolved.value;
+            aiEditorMeta[field] = resolved.meta;
+            return;
+        }
+
+        snapshot[field] = getEffectiveConfigValueWithoutMutation(field);
+    });
+
+    snapshot.aiEditorMeta = aiEditorMeta;
+    return snapshot;
+}
+
+function buildDashboardConfigSnapshot() {
+    return {
+        subscriptionCheckInterval: getEffectiveConfigValueWithoutMutation('subscriptionCheckInterval'),
+        linkCacheTimeout: getEffectiveConfigValueWithoutMutation('linkCacheTimeout'),
+        showId: getEffectiveConfigValueWithoutMutation('showId'),
+        videoDownloadEnabled: getEffectiveConfigValueWithoutMutation('videoDownloadEnabled'),
+        videoDownloadResolution: getEffectiveConfigValueWithoutMutation('videoDownloadResolution'),
+        videoDownloadMaxDuration: getEffectiveConfigValueWithoutMutation('videoDownloadMaxDuration'),
+        videoDownloadAutoClean: getEffectiveConfigValueWithoutMutation('videoDownloadAutoClean'),
+        videoDownloadCleanTimeout: getEffectiveConfigValueWithoutMutation('videoDownloadCleanTimeout'),
+        ...buildAiEditorSnapshot()
+    };
+}
+
 // Build the config object with dynamic getters/setters
 const config = {
     // Internal state
@@ -707,26 +929,36 @@ const config = {
     },
 
     // Delete specific keys from overrides and revert to env/default
-    deleteKeys: function(keys) {
-        if (!Array.isArray(keys)) return;
+    applyOverridePatch: function({ clear = [], set = {} } = {}) {
+        const clearKeys = Array.isArray(clear) ? clear : [];
+        const setEntries = set && typeof set === 'object' ? Object.entries(set) : [];
+        if (clearKeys.length === 0 && setEntries.length === 0) return;
 
-        // Remove from overrides
-        keys.forEach(key => {
+        clearKeys.forEach((key) => {
             delete _overrides[key];
         });
 
-        // Save changes (async, errors handled internally)
-        this._performSave().catch((err) => {
-            configLog('error', 'config-reset-save-failed', {
-                error: logger.getErrorMessage(err)
-            });
+        setEntries.forEach(([key, value]) => {
+            _overrides[key] = value;
         });
+
+        this.save();
+    },
+
+    // Delete specific keys from overrides and revert to env/default
+    deleteKeys: function(keys) {
+        if (!Array.isArray(keys)) return;
+
+        this.applyOverridePatch({ clear: keys });
         configLog('info', 'config-reset', {
             keys: keys.join(',')
         });
     },
 
     getConfigSnapshot: function() {
+        // Legacy helper for debugging only.
+        // Do not use this to initialize editable forms because some getters
+        // resolve env/fallback values and some keys lazily initialize overrides.
         const snapshot = {};
         Object.keys(META).forEach((key) => {
             const value = this[key];
@@ -737,6 +969,14 @@ const config = {
             snapshot[key] = value;
         });
         return snapshot;
+    },
+
+    getAiEditorSnapshot: function() {
+        return buildAiEditorSnapshot();
+    },
+
+    getDashboardConfigSnapshot: function() {
+        return buildDashboardConfigSnapshot();
     },
 
     // Save configuration to file (Only overrides)

@@ -100,6 +100,45 @@ class ArticleOpusResolutionContractTest(unittest.IsolatedAsyncioTestCase):
         mock_get_dynamic_detail.assert_awaited_once_with("1163549263798468617", None)
         mock_build_focus.assert_awaited_once()
 
+    @patch("src.services.bili_server_core.services.article_service.build_focus", new_callable=AsyncMock)
+    @patch("src.services.bili_server_core.services.dynamic_service.get_dynamic_detail", new_callable=AsyncMock)
+    @patch("src.services.bili_server_core.services.article_service._resolve_article_canonical", new_callable=AsyncMock)
+    @patch("src.services.bili_server_core.services.article_service.user.User")
+    @patch("src.services.bili_server_core.services.article_service.article.Article")
+    async def test_cv_redirected_to_opus_can_fallback_to_article_html_without_dynamic_redirect(
+        self,
+        mock_article_cls,
+        mock_user_cls,
+        mock_resolve_canonical,
+        mock_get_dynamic_detail,
+        mock_build_focus,
+    ):
+        mock_article_cls.return_value = _FakeArticleClient()
+        mock_user_cls.return_value = _FakeUserClient()
+        mock_resolve_canonical.return_value = {
+            "canonical_url": "https://www.bilibili.com/opus/1163549263798468617",
+            "resolved_opus_id": "1163549263798468617",
+            "html": '<div class="article-holder"><p>这是来自 canonical HTML 的正文</p></div>',
+        }
+        mock_build_focus.return_value = {"cover": "#abcdef", "avatar": "#123456"}
+
+        result = await article_service.get_article_info(
+            "cv45123193",
+            allow_dynamic_redirect=False,
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["type"], "article")
+        data = result["data"]
+        self.assertEqual(data["render_type"], "article")
+        self.assertIsNone(data["render_payload"])
+        self.assertEqual(data["canonical_url"], "https://www.bilibili.com/opus/1163549263798468617")
+        self.assertEqual(data["resolved_opus_id"], "1163549263798468617")
+        self.assertIn("这是来自 canonical HTML 的正文", data["summary"])
+        self.assertIn("这是来自 canonical HTML 的正文", data["html_content"])
+        mock_get_dynamic_detail.assert_not_awaited()
+        mock_build_focus.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()
