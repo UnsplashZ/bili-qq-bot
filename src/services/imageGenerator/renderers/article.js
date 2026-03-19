@@ -2,6 +2,7 @@ const { escapeHtml, formatPubTime, formatNumber } = require('../core/formatters'
 const { parseRichText } = require('./components/richtext');
 const { replaceEmojiTokensInHtml } = require('./components/articleHtmlEmoji');
 const { resolvePlainTextContent } = require('./components/contentNodes');
+const { renderDynamicContent } = require('./dynamic');
 const ICONS = require('./icons');
 
 const EMPTY_PARAGRAPH_START_RE = /^\s*<p(?:\s[^>]*)?>\s*(?:<br\s*\/?>|&nbsp;|\u00a0|\s)*\s*<\/p>/i
@@ -32,6 +33,9 @@ function normalizeArticleSummary(summary) {
  */
 function renderArticleContent(data, emojiContext = null) {
     const info = data.data;
+    if (info?.render_type === 'dynamic' && info.render_payload) {
+        return renderDynamicContent(info.render_payload, emojiContext)
+    }
     const pubDate = formatPubTime(info.publish_time);
     const authorFace = info.author_face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const hasHtmlContent = !!info.html_content;

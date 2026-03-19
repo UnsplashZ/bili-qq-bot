@@ -2,6 +2,8 @@ const { escapeHtml, formatNumber } = require('../core/formatters');
 const { collectDynamicImages, resolveDynamicContent } = require('./components/contentNodes');
 const { parseRichText } = require('./components/richtext');
 const { renderDynamicSupplementalCards } = require('./components/dynamicSupplementalCards');
+const { renderEmbeddedResourceCard } = require('./components/media');
+const { resolveDynamicEmbeddedResourceCard } = require('./components/embeddedResourceResolver');
 const { renderVerifyBadge } = require('./components/verifyBadge');
 
 /**
@@ -75,6 +77,10 @@ function renderUserContent(data, show_id, emojiContext = null) {
         }
 
         const dynContentHtml = parseRichText(resolvedDynamic.richTextNodes, dynText, emojiContext)
+        const embeddedResourceHtml = renderEmbeddedResourceCard(
+            resolveDynamicEmbeddedResourceCard(dynamicModule),
+            { emojiContext }
+        )
         const supplementalHtml = renderDynamicSupplementalCards(modules, {
             emojiContext
         })
@@ -84,6 +90,7 @@ function renderUserContent(data, show_id, emojiContext = null) {
                 <div class="user-dynamic-title">最近动态</div>
                 <div class="user-dynamic-text">${dynContentHtml}</div>
                 ${mediaHtml}
+                ${embeddedResourceHtml}
                 ${supplementalHtml}
             </div>
         `;

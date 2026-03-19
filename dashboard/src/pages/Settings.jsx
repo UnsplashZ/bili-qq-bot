@@ -86,6 +86,7 @@ const Settings = () => {
 
       <AiSettingsSection
         aiConfig={settingsData.aiConfig}
+        aiEditorMeta={settingsData.aiEditorMeta}
         savingAi={settingsData.savingAi}
         resettingAi={settingsData.resettingAi}
         onGlobalAiToggle={settingsData.handleGlobalAiToggle}

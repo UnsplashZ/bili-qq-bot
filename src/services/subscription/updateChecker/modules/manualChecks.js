@@ -1,4 +1,5 @@
 const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
+const { classifyArchiveDynamic } = require('../helpers/archiveDynamic')
 const { decideAdvance } = require('../helpers/stateAdvance')
 const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
 
@@ -21,6 +22,7 @@ module.exports = {
         const modules = item.modules || {}
         const dynamic = modules.module_dynamic || {}
         const major = dynamic.major || {}
+        const archiveDynamicType = classifyArchiveDynamic(item)
         const extractCvId = value => {
             if (!value) return ''
             const str = String(value)
@@ -39,16 +41,21 @@ module.exports = {
         }
 
         // Video (in dynamic)
-        if (type === 'video' || major.type === 'MAJOR_TYPE_ARCHIVE') {
+        if (type === 'video' || archiveDynamicType === 'video_auto_post') {
             const title = major.archive?.title || ''
             return title ? `${userName} 投稿了新视频：\n${title}` : `${userName} 投稿了新视频`
         }
 
+        if (archiveDynamicType === 'dynamic_video') {
+            const title = major.archive?.title || ''
+            return title ? `${userName} 发布了动态视频：\n${title}` : `${userName} 发布了动态视频`
+        }
+
         // Article/Opus (in dynamic)
-        if (type === 'article' || major.type === 'MAJOR_TYPE_OPUS') {
+        if (type === 'article' || item.type === 'DYNAMIC_TYPE_ARTICLE' || major.type === 'MAJOR_TYPE_OPUS') {
             const title = major.opus?.title || data.title || ''
             const cvId = resolveCvId(major, item, data)
-            if (cvId) {
+            if (cvId || item.type === 'DYNAMIC_TYPE_ARTICLE') {
                 return title ? `${userName} 投稿了新专栏：\n${title}` : `${userName} 投稿了新专栏`
             }
             return `${userName} 发布了新动态`
@@ -61,15 +68,20 @@ module.exports = {
             const origModules = origItem.modules || {}
             const origDynamic = origModules.module_dynamic || {}
             const origMajor = origDynamic.major || {}
+            const origArchiveDynamicType = classifyArchiveDynamic(origItem)
 
-            if (origMajor.type === 'MAJOR_TYPE_ARCHIVE') {
+            if (origArchiveDynamicType === 'video_auto_post') {
                 const title = origMajor.archive?.title || ''
                 return title ? `${userName} 转发了视频：\n${title}` : `${userName} 转发了视频`
+            }
+            if (origArchiveDynamicType === 'dynamic_video') {
+                const title = origMajor.archive?.title || ''
+                return title ? `${userName} 转发了动态视频：\n${title}` : `${userName} 转发了动态视频`
             }
             if (origMajor.type === 'MAJOR_TYPE_OPUS') {
                 const title = origMajor.opus?.title || ''
                 const cvId = resolveCvId(origMajor, origItem, orig)
-                if (cvId) {
+                if (cvId || origItem.type === 'DYNAMIC_TYPE_ARTICLE') {
                     return title ? `${userName} 转发了专栏：\n${title}` : `${userName} 转发了专栏`
                 }
                 return `${userName} 转发了一条动态`

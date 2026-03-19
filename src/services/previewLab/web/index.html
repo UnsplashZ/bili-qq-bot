@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本地预览实验台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>本地预览实验台</h1>
+        <p>输入一个 B 站链接，直接调用现有链路生成预览图和结构数据。</p>
+      </div>
+      <div class="topbar-status" id="health-status">服务检查中...</div>
+    </header>
+
+    <section class="control-panel panel">
+      <div class="mode-row">
+        <span class="field-label">模式</span>
+        <label><input id="modeLink" type="radio" name="mode" value="link" checked> 链接预览</label>
+        <label><input id="modeStructure" type="radio" name="mode" value="structure"> 结构预览</label>
+      </div>
+      <div class="form-grid">
+        <label class="field field-wide" id="inputField">
+          <span class="field-label">链接</span>
+          <textarea id="input" rows="3" placeholder="https://www.bilibili.com/read/cv45123193"></textarea>
+        </label>
+        <label class="field field-wide hidden" id="mockTypeField">
+          <span class="field-label">结构类型</span>
+          <select id="mockType"></select>
+        </label>
+        <label class="field hidden" id="seasonTypeField">
+          <span class="field-label">番剧子类型</span>
+          <select id="seasonType">
+            <option value="bangumi">番剧</option>
+            <option value="movie">电影</option>
+            <option value="doc">纪录片</option>
+            <option value="tv">电视剧</option>
+            <option value="guocha">国创</option>
+            <option value="variety">综艺</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Group ID</span>
+          <input id="groupId" type="text" placeholder="可选">
+        </label>
+        <label class="field">
+          <span class="field-label">输出名</span>
+          <input id="outName" type="text" placeholder="可选">
+        </label>
+      </div>
+      <div class="structure-panel hidden" id="dynamicOptionsPanel">
+        <div class="form-grid dynamic-grid">
+          <label class="field">
+            <span class="field-label">媒体结构</span>
+            <select id="mediaMode">
+              <option value="single">单图</option>
+              <option value="grid">多图九宫格</option>
+              <option value="video">视频卡</option>
+              <option value="live_rcmd">直播推荐卡</option>
+              <option value="none">无媒体</option>
+            </select>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <label><input id="isForward" type="checkbox"> 转发动态</label>
+          <label><input id="withEmbeddedResource" type="checkbox"> 引用资源卡</label>
+          <label><input id="withOpusLinkCard" type="checkbox"> Opus 链接卡</label>
+          <label><input id="withVote" type="checkbox"> 投票卡</label>
+          <label><input id="withCommonCard" type="checkbox"> common 小卡</label>
+          <label><input id="blocked" type="checkbox"> 充电占位</label>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <label><input id="fresh" type="checkbox"> fresh</label>
+        <label><input id="emitHtml" type="checkbox"> 生成 HTML</label>
+        <label><input id="showId" type="checkbox" checked> showId</label>
+      </div>
+      <div class="action-row">
+        <button id="runBtn" type="button">执行</button>
+        <span class="run-status" id="run-status">待执行</span>
+      </div>
+      <div class="error-banner hidden" id="error-banner"></div>
+    </section>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>输入与解析</h2>
+        <div id="summary" class="summary-empty">执行后将在这里显示解析摘要。</div>
+      </section>
+
+      <section class="panel">
+        <h2>最终预览图</h2>
+        <div class="preview-frame" id="preview-frame">
+          <div class="preview-placeholder">执行后将在这里显示预览图。</div>
+        </div>
+        <details>
+          <summary>查看渲染 HTML</summary>
+          <pre id="render-html" class="code-block">暂无数据</pre>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>标准化 JSON</h2>
+        <pre id="data-json" class="code-block">暂无数据</pre>
+        <details>
+          <summary>查看 Manifest</summary>
+          <pre id="manifest-json" class="code-block">暂无数据</pre>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <script src="/uiState.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

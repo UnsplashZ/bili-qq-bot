@@ -159,7 +159,7 @@ function buildEmbeddedResourceCard(kind, candidate, overrides = {}) {
     }
 }
 
-function resolveOrigEmbeddedResourceCard(dynamicModule) {
+function resolveDynamicEmbeddedResourceCard(dynamicModule) {
     if (!dynamicModule || typeof dynamicModule !== 'object') return null
 
     const major = dynamicModule.major || {}
@@ -212,6 +212,6 @@ module.exports = {
     resolveEmbeddedKindMeta,
     resolveEmbeddedKindByKey,
     buildEmbeddedResourceCard,
-    resolveOrigEmbeddedResourceCard,
+    resolveDynamicEmbeddedResourceCard,
     resolveDynamicCommonCard
 }

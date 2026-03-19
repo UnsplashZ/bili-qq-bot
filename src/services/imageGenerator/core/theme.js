@@ -1377,9 +1377,13 @@ function generateCSS(colorData, viewport) {
             .embedded-resource-card--compact {
                 display: flex;
                 align-items: stretch;
+                gap: 14px;
                 border-radius: var(--radius-md);
-                max-height: 94px;
+                height: 140px;
+                min-height: 120px;
+                max-height: 160px;
                 overflow: hidden;
+                background: var(--color-soft-bg);
             }
             .embedded-resource-card--compact .embedded-resource-body {
                 display: flex;
@@ -1388,7 +1392,8 @@ function generateCSS(colorData, viewport) {
                 gap: 0;
                 flex: 1;
                 min-width: 0;
-                padding: 8px 12px;
+                padding: 12px 16px 12px 0;
+                background: transparent;
             }
             .embedded-resource-cover {
                 position: relative;
@@ -1423,20 +1428,21 @@ function generateCSS(colorData, viewport) {
                 position: static;
             }
             .embedded-resource-card--compact .embedded-resource-cover {
-                width: 92px;
-                min-width: 92px;
-                aspect-ratio: 1 / 1;
-                border-radius: 12px 0 0 12px;
-                overflow: hidden;
+                display: flex;
+                flex: 0 0 auto;
+                width: auto;
+                align-self: stretch;
+                min-height: 120px;
+                max-height: 160px;
+                background: transparent;
             }
             .embedded-resource-card--compact .embedded-resource-cover-img {
-                width: 100%;
+                display: block;
+                width: auto;
                 height: 100%;
-                aspect-ratio: 1 / 1;
-                min-height: 0;
-                max-height: none;
-                object-fit: cover;
-                object-position: center;
+                aspect-ratio: auto;
+                border-radius: 12px;
+                background: transparent;
             }
             .embedded-resource-card--compact .embedded-resource-badge:not(.embedded-resource-badge--inline) {
                 display: none;
@@ -1453,11 +1459,14 @@ function generateCSS(colorData, viewport) {
                 border-radius: 0;
                 background: transparent;
                 color: color-mix(in srgb, var(--color-text) 35%, var(--color-subtext) 65%);
-                font-size: 11px;
+                font-size: 14px;
                 font-weight: 500;
                 letter-spacing: 0;
                 line-height: 1.2;
                 box-shadow: none;
+            }
+            .embedded-resource-card--compact.no-cover .embedded-resource-body {
+                padding-left: 16px;
             }
             .embedded-resource-body {
                 padding: 14px 16px 16px;
@@ -1510,7 +1519,7 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
             }
             .embedded-resource-card--compact .embedded-resource-subtitle {
-                font-size: 12px;
+                font-size: 14px;
                 margin-bottom: 0;
                 color: var(--color-subtext);
                 line-height: 1.25;
@@ -1520,9 +1529,9 @@ function generateCSS(colorData, viewport) {
                 overflow: hidden;
             }
             .embedded-resource-card--compact .embedded-resource-title {
-                font-size: 15px;
+                font-size: 19px;
                 margin-bottom: 3px;
-                line-height: 1.25;
+                line-height: 1.3;
                 display: -webkit-box;
                 -webkit-line-clamp: 1;
                 -webkit-box-orient: vertical;
@@ -1532,13 +1541,14 @@ function generateCSS(colorData, viewport) {
                 margin-top: 4px;
                 gap: 8px;
             }
-            .embedded-resource-card--compact .embedded-resource-stat,
-            .embedded-resource-card--compact .embedded-resource-desc {
-                font-size: 11px;
+            .embedded-resource-card--compact .embedded-resource-stat {
+                font-size: 14px;
                 line-height: 1.25;
             }
             .embedded-resource-card--compact .embedded-resource-desc {
                 margin-top: 3px;
+                font-size: 14px;
+                line-height: 1.25;
                 display: -webkit-box;
                 -webkit-line-clamp: 1;
                 -webkit-box-orient: vertical;
@@ -1549,32 +1559,32 @@ function generateCSS(colorData, viewport) {
                 margin-top: 20px;
                 display: flex;
                 align-items: stretch;
-                border: 1px solid color-mix(in srgb, var(--color-border) 86%, var(--color-emphasis) 14%);
+                gap: 14px;
+                border: 1px solid var(--color-border);
                 border-radius: var(--radius-md);
+                height: 140px;
                 overflow: hidden;
-                background:
-                    linear-gradient(180deg, color-mix(in srgb, var(--color-card-bg) 84%, var(--color-emphasis) 16%), var(--color-card-bg));
+                background: var(--color-soft-bg);
                 box-shadow: var(--shadow-sm);
-                min-height: 132px;
+                min-height: 120px;
+                max-height: 160px;
             }
             .opus-link-card--no-cover .opus-link-card-body {
                 padding-left: 16px;
             }
             .opus-link-card-cover {
-                position: relative;
-                width: 184px;
-                min-width: 184px;
-                border-right: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent 15%);
-                background:
-                    linear-gradient(135deg, color-mix(in srgb, var(--color-soft-bg) 78%, var(--color-emphasis) 22%), var(--color-soft-bg));
+                display: flex;
+                flex: 0 0 auto;
+                align-self: stretch;
+                background: transparent;
             }
             .opus-link-card-cover-img {
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
                 display: block;
-                min-height: 132px;
-                max-height: 160px;
+                width: auto;
+                height: 100%;
+                aspect-ratio: auto;
+                border-radius: 12px;
+                background: transparent;
             }
             .opus-link-card-body {
                 display: flex;
@@ -1583,12 +1593,11 @@ function generateCSS(colorData, viewport) {
                 flex-direction: column;
                 justify-content: center;
                 gap: 0;
-                padding: 12px 14px;
-                background:
-                    linear-gradient(180deg, color-mix(in srgb, var(--color-soft-bg) 94%, #ffffff 6%), var(--color-soft-bg));
+                padding: 12px 14px 12px 0;
+                background: transparent;
             }
             .opus-link-card-title {
-                font-size: 17px;
+                font-size: 19px;
                 font-weight: 700;
                 color: var(--color-text);
                 line-height: 1.3;
@@ -1604,6 +1613,7 @@ function generateCSS(colorData, viewport) {
                 gap: 6px;
                 margin-top: 8px;
                 color: var(--color-subtext);
+                font-size: 14px;
             }
             .opus-link-card-stats {
                 display: flex;
@@ -1613,14 +1623,14 @@ function generateCSS(colorData, viewport) {
                 color: var(--color-subtext);
             }
             .opus-link-card-stat {
-                font-size: 12px;
+                font-size: 14px;
                 font-weight: 600;
                 color: inherit;
                 white-space: nowrap;
             }
             .opus-link-card-desc {
                 margin-top: 6px;
-                font-size: 12px;
+                font-size: 14px;
                 color: var(--color-subtext);
                 line-height: 1.35;
                 white-space: pre-wrap;

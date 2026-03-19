@@ -14,7 +14,7 @@ const { renderVoteCard, getVoteFromModules } = require('./components/vote');
 const { renderEmbeddedResourceCard, renderMediaHtml } = require('./components/media');
 const { renderOpusLinkCards, resolveOpusLinkCards } = require('./components/opusLinkCard');
 const {
-    resolveOrigEmbeddedResourceCard,
+    resolveDynamicEmbeddedResourceCard,
     resolveDynamicCommonCard: sharedResolveDynamicCommonCard
 } = require('./components/embeddedResourceResolver');
 const {
@@ -199,11 +199,6 @@ function renderOrigContent(origItemRaw, emojiContext = null) {
     }
 
     const o_mediaHtml = renderMediaHtml(o_images, o_videoCard, true);
-    const o_embeddedResource = resolveOrigEmbeddedResourceCard(o_dynamic)
-    const o_embeddedResourceHtml = renderEmbeddedResourceCard(o_embeddedResource, {
-        isOrig: true,
-        emojiContext
-    })
     const o_voteObj = getVoteFromModules(omodules);
     const o_voteHtml = renderVoteCard(o_voteObj);
     const o_name = o_author.name || 'Unknown';
@@ -212,7 +207,7 @@ function renderOrigContent(origItemRaw, emojiContext = null) {
     const o_verifyType = Number(o_author.official_verify?.type)
     const o_verifyBadge = renderVerifyBadge(o_verifyType, 'author-verify-badge--orig')
 
-    if (!o_title && !o_text && !o_voteHtml && !o_mediaHtml && !o_embeddedResourceHtml) {
+    if (!o_title && !o_text && !o_voteHtml && !o_mediaHtml) {
         return ''
     }
 
@@ -232,7 +227,6 @@ function renderOrigContent(origItemRaw, emojiContext = null) {
                 ${o_title ? `<div class="orig-title">${o_title}</div>` : ''}
                 ${o_text ? `<div class="orig-text">${o_text}</div>` : ''}
                 ${o_voteHtml}
-                ${o_embeddedResourceHtml}
                 ${o_mediaHtml}
             </div>
         </div>
@@ -391,6 +385,10 @@ function renderDynamicContent(data, emojiContext = null) {
     }
 
     const mediaHtml = renderMediaHtml(images, videoCard, false);
+    const embeddedResourceHtml = renderEmbeddedResourceCard(
+        resolveDynamicEmbeddedResourceCard(module_dynamic),
+        { emojiContext }
+    )
     const supplementalHtml = renderDynamicSupplementalCards(modules, { emojiContext })
 
     let origHtml = '';
@@ -425,6 +423,7 @@ function renderDynamicContent(data, emojiContext = null) {
             <div class="text-content">${text}</div>
             ${origHtml}
             ${mediaHtml}
+            ${embeddedResourceHtml}
             ${supplementalHtml}
             <div class="action-bar">
                  <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
@@ -448,6 +447,7 @@ module.exports = {
         injectTopicNodeIfNeeded,
         collectDynamicImages: sharedCollectDynamicImages,
         resolveDynamicText: resolveDynamicContent,
+        resolveDynamicEmbeddedResourceCard,
         resolveDynamicCommonCard,
         resolveOpusLinkCards
     }

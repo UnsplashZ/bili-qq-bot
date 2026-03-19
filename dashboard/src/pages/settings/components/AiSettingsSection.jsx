@@ -2,8 +2,25 @@ import GlassCard from '../../../components/GlassCard'
 import AiConfigSection from '../../../components/AiConfigSection'
 import { Save, Cpu, MessageSquare } from 'lucide-react'
 
+function getAiSourceHint(meta, fallbackText) {
+    if (!meta || typeof meta !== 'object') {
+        return fallbackText
+    }
+    if (meta.inheritedFrom === 'aiApiUrl' || meta.inheritedFrom === 'aiApiKey') {
+        return '当前继承通用 AI 配置。留空可继续继承，填写后会保存为当前字段的自定义覆盖值。'
+    }
+    if (meta.source === 'env') {
+        return '当前由环境变量提供。留空可继续使用环境变量，填写后会保存为自定义覆盖值。'
+    }
+    if (meta.source === 'default') {
+        return '当前使用默认值。留空可继续使用默认值，填写后会保存为自定义覆盖值。'
+    }
+    return fallbackText
+}
+
 const AiSettingsSection = ({
     aiConfig,
+    aiEditorMeta,
     savingAi,
     resettingAi,
     onGlobalAiToggle,
@@ -189,7 +206,9 @@ const AiSettingsSection = ({
                                 placeholder="https://api.openai.com/v1/chat/completions"
                                 className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                             />
-                            <p className="text-xs text-gray-500 mt-1">对话服务的API地址</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getAiSourceHint(aiEditorMeta?.aiChatApiUrl, '对话服务的API地址')}
+                            </p>
                         </div>
 
                         <div>
@@ -203,7 +222,9 @@ const AiSettingsSection = ({
                                 placeholder="sk-..."
                                 className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                             />
-                            <p className="text-xs text-gray-500 mt-1">对话服务的密钥</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getAiSourceHint(aiEditorMeta?.aiChatApiKey, '对话服务的密钥')}
+                            </p>
                         </div>
 
                         <div>
@@ -248,6 +269,62 @@ const AiSettingsSection = ({
                             <p className="text-xs text-gray-500 mt-1">定义AI的角色和行为</p>
                         </div>
                     </div>
+
+                    <div className="pt-4 border-t border-white/10">
+                        <div className="flex items-center gap-2 mb-3">
+                            <MessageSquare className="w-4 h-4 text-blue-300" />
+                            <h4 className="text-base font-semibold text-white">对话超时设置</h4>
+                        </div>
+                        <p className="text-xs text-white/60 mb-4">
+                            实际请求超时 = min(基础超时 + 工具数 × 每个工具附加超时, 最大超时)
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    基础超时（秒）
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="600"
+                                    value={aiConfig.aiChatBaseTimeoutSeconds}
+                                    onChange={(e) => onAiChange('aiChatBaseTimeoutSeconds', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">纯文本回复的基础等待时间。</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    每个工具附加超时（秒）
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="300"
+                                    value={aiConfig.aiChatToolTimeoutSeconds}
+                                    onChange={(e) => onAiChange('aiChatToolTimeoutSeconds', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">每个工具为总超时增加的时间。</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    最大超时（秒）
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="3600"
+                                    value={aiConfig.aiChatMaxTimeoutSeconds}
+                                    onChange={(e) => onAiChange('aiChatMaxTimeoutSeconds', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">最终请求允许的超时上限。</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="space-y-4 pt-6 border-t border-white/10">
@@ -274,7 +351,9 @@ const AiSettingsSection = ({
                                 placeholder="https://api.openai.com/v1/embeddings"
                                 className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
                             />
-                            <p className="text-xs text-gray-500 mt-1">向量化服务的API地址</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getAiSourceHint(aiEditorMeta?.aiEmbeddingApiUrl, '向量化服务的API地址')}
+                            </p>
                         </div>
 
                         <div>
@@ -288,7 +367,9 @@ const AiSettingsSection = ({
                                 placeholder="sk-..."
                                 className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
                             />
-                            <p className="text-xs text-gray-500 mt-1">向量化服务的密钥</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getAiSourceHint(aiEditorMeta?.aiEmbeddingApiKey, '向量化服务的密钥')}
+                            </p>
                         </div>
 
                         <div>
@@ -327,7 +408,7 @@ const AiSettingsSection = ({
                         disabled={resettingAi || savingAi}
                         className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-50"
                     >
-                        {resettingAi ? '重置中...' : '重置为默认值 (.env)'}
+                        {resettingAi ? '重置中...' : '重置为默认值'}
                     </button>
                     <button
                         onClick={onSaveAi}

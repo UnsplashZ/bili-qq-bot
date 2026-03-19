@@ -437,11 +437,19 @@ conversation_source=${source}
             }
             const proxyConfig = getAxiosProxyConfig(config.aiChatProxy);
 
-            // 动态超时计算: 基础30秒 + 每个工具2秒，最大45秒
-            const BASE_TIMEOUT = 30000;      // 30 seconds
-            const TOOL_TIMEOUT = 2000;       // 2 seconds per tool
-            const MAX_TIMEOUT = 45000;       // 45 seconds max
-            dynamicTimeout = Math.min(BASE_TIMEOUT + (tools.length * TOOL_TIMEOUT), MAX_TIMEOUT);
+            const baseTimeoutSeconds = Number.isInteger(config.aiChatBaseTimeoutSeconds) && config.aiChatBaseTimeoutSeconds > 0
+                ? config.aiChatBaseTimeoutSeconds
+                : 30;
+            const toolTimeoutSeconds = Number.isInteger(config.aiChatToolTimeoutSeconds) && config.aiChatToolTimeoutSeconds >= 0
+                ? config.aiChatToolTimeoutSeconds
+                : 2;
+            const maxTimeoutSeconds = Number.isInteger(config.aiChatMaxTimeoutSeconds) && config.aiChatMaxTimeoutSeconds > 0
+                ? config.aiChatMaxTimeoutSeconds
+                : 45;
+            const baseTimeoutMs = baseTimeoutSeconds * 1000;
+            const toolTimeoutMs = toolTimeoutSeconds * 1000;
+            const maxTimeoutMs = maxTimeoutSeconds * 1000;
+            dynamicTimeout = Math.min(baseTimeoutMs + (tools.length * toolTimeoutMs), maxTimeoutMs);
 
             this.logAiEvent('debug', traceId, 'timeout-ready', {
                 timeoutMs: dynamicTimeout,

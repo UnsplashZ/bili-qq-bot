@@ -55,6 +55,7 @@ dashboard/dist/
 README.md
 LICENSE
 check_data_structure.js
+tools/
 *.md
 
 # Fonts (已复制到系统字体目录)

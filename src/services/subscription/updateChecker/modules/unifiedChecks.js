@@ -419,14 +419,13 @@ module.exports = {
                             continue
                         }
 
-                        const { actualType, title: articleTitle } = resolveArticleTitle(info)
+                        const { actualType, title: articleTitle, url } = resolveArticleTitle(info)
                         const notificationText = `${name} 发布了新专栏：\n${articleTitle}`
-                        const url = `https://www.bilibili.com/read/${cvid}`
                         const notifyResult = await this.notifyGroupsWithImageAndCache(
                             normalizedTargetGroupSourceMap,
                             info,
                             actualType,
-                            url,
+                            url || `https://www.bilibili.com/read/${cvid}`,
                             notificationText,
                             { actorUid: uid, fallbackSources: [fallbackSource], disableDedup }
                         )

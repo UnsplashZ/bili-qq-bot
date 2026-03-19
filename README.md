@@ -424,6 +424,53 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 
 8.  **访问 WebUI**：打开浏览器访问 `http://localhost:3000`
 
+### 本地预览实验台（可选）
+
+适用于只想调试“链接解析 -> 数据获取 -> 预览渲染”链路，而不想先启动完整 Bot、Docker 或 WebUI 的场景。
+
+#### 1. 一次性 CLI 出图
+
+每次执行都会使用最新代码，并将产物写入 `test/output/`：
+
+```bash
+node tools/preview-lab.js "https://www.bilibili.com/read/cv45123193"
+
+# 可选参数示例
+node tools/preview-lab.js "https://t.bilibili.com/1180316687231090707" --fresh --html --out-name dynamic-video
+```
+
+支持的常用参数：
+
+| 参数 | 说明 |
+| :--- | :--- |
+| `--fresh` | 跳过 previewLab 进程内缓存，强制重新抓取 |
+| `--html` | 额外生成本地 HTML 调试页 |
+| `--show-id` | 覆盖用户卡是否显示 UID |
+| `--out-name <name>` | 自定义输出文件名前缀 |
+| `--group-id <gid>` | 指定调试使用的群号上下文 |
+
+默认会在 `test/output/` 生成：
+
+*   预览图 PNG
+*   标准化 JSON
+*   manifest JSON
+*   调试 HTML（仅在启用 `--html` 时生成）
+
+#### 2. 本地 Web 调试页
+
+如需在浏览器里输入链接并直接查看预览图、解析摘要、标准化 JSON 和渲染 HTML，可启动独立本地调试页：
+
+```bash
+node tools/preview-lab-web.js
+```
+
+然后访问 `http://127.0.0.1:17870`。
+
+> 说明：
+> *   这是独立本地工具，不依赖 `npm start`、dashboard 或 docker。
+> *   当前为单任务串行执行；如果一个任务尚未完成，新的执行请求会返回 busy。
+> *   该工具使用 previewLab 自己的进程内缓存，不会写入生产运行时的共享缓存。
+
 ### WebUI 前端开发（可选）
 
 WebUI 基于 React + Vite + Tailwind CSS 构建，开发时可独立运行：
@@ -445,6 +492,9 @@ npm run build   # 生产构建，输出至 dashboard/dist
 
 *   `setup.sh`: 一键部署脚本
 *   `Dockerfile` / `docker-compose.yml`: Docker 部署配置
+*   `tools/`: 本地调试工具
+    *   `preview-lab.js`: 一次性本地预览 CLI
+    *   `preview-lab-web.js`: 独立本地 Web 调试页启动入口
 *   `config/`:
     *   `config/.env`: **核心配置文件** (API Key, WS 地址等)
     *   `config.json`: 运行时动态配置 (黑名单, 自动保存)
@@ -477,6 +527,7 @@ npm run build   # 生产构建，输出至 dashboard/dist
         *   `aiHandler.js`: AI 对话、RAG 检索、上下文管理
     *   `services/`: B站 API, 绘图服务, 订阅服务
         *   `biliApi.js`: Bilibili API 调用 (通过 Python 子进程)
+        *   `previewLab/`: 本地预览实验台共享内核（输入解析、目标获取、会话落盘、Web 调试页）
         *   `imageGenerator/`: **Puppeteer 图片生成服务** (模块化架构，17 个文件)
             *   `index.js`: 主入口，导出单例 ImageGenerator 类
             *   `core/`: 核心模块

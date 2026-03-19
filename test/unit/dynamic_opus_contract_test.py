@@ -281,6 +281,45 @@ class _FakeOpusClientWithoutVote:
         }
 
 
+class _FakeDegradedArticleDynamicClient:
+    async def get_info(self):
+        return {
+            "item": {
+                "id_str": "1179264368735420423",
+                "type": "DYNAMIC_TYPE_ARTICLE",
+                "basic": {"jump_url": "https://www.bilibili.com/read/cv45123193"},
+                "modules": {
+                    "module_author": {
+                        "face": "https://i0.hdslb.com/bfs/face/member/noface.jpg"
+                    },
+                    "module_dynamic": {
+                        "desc": {
+                            "text": "",
+                            "rich_text_nodes": [],
+                        },
+                        "major": {
+                            "type": "MAJOR_TYPE_OPUS",
+                            "opus": {
+                                "title": "",
+                                "summary": {
+                                    "text": "",
+                                    "rich_text_nodes": [],
+                                },
+                                "pics": [],
+                                "jump_url": "https://www.bilibili.com/read/cv45123193",
+                            },
+                        },
+                    },
+                },
+            }
+        }
+
+
+class _FakeEmptyOpusClient:
+    async def get_info(self):
+        return {"item": {"modules": []}}
+
+
 class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
     async def test_get_dynamic_detail_should_canonicalize_desc_and_summary_from_opus_body(self):
         with (
@@ -430,6 +469,64 @@ class DynamicOpusContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("opus_link_cards", additional)
         self.assertEqual(additional["vote"]["title"], "夜愿华章表情包你最喜欢哪个？")
         self.assertEqual(additional["vote"]["join_num"], 12)
+
+    async def test_get_dynamic_detail_should_disable_dynamic_redirect_when_falling_back_to_article(self):
+        article_result = {
+            "status": "success",
+            "type": "article",
+            "data": {
+                "title": "article fallback title",
+                "summary": "来自 article fallback 的完整正文",
+            },
+        }
+
+        with (
+            patch.object(dynamic_service, "load_credential", return_value=object()),
+            patch.object(
+                dynamic_service,
+                "build_dynamic_detail_author_context",
+                AsyncMock(
+                    return_value={
+                        "level": 0,
+                        "pendant_url": None,
+                        "card_url": None,
+                        "decoration_card": None,
+                        "card_number": None,
+                        "card_focus_color": None,
+                        "fan_color": None,
+                        "avatar_focus_color": None,
+                    }
+                ),
+            ),
+            patch.object(
+                dynamic_service.dynamic,
+                "Dynamic",
+                side_effect=lambda *_args, **_kwargs: _FakeDegradedArticleDynamicClient(),
+            ),
+            patch.object(
+                dynamic_service.opus,
+                "Opus",
+                side_effect=lambda *_args, **_kwargs: _FakeEmptyOpusClient(),
+            ),
+            patch.object(
+                dynamic_service,
+                "get_article_info",
+                AsyncMock(return_value=article_result),
+            ) as mock_get_article_info,
+        ):
+            result = await dynamic_service.get_dynamic_detail("1179264368735420423")
+
+        self.assertEqual(result["status"], "success")
+        module_dynamic = result["data"]["item"]["modules"]["module_dynamic"]
+        summary = module_dynamic["major"]["opus"]["summary"]
+        self.assertEqual(module_dynamic["desc"]["text"], "来自 article fallback 的完整正文")
+        self.assertEqual(summary["text"], "来自 article fallback 的完整正文")
+        self.assertEqual(module_dynamic["major"]["opus"]["title"], "article fallback title")
+        mock_get_article_info.assert_awaited_once_with(
+            "45123193",
+            None,
+            allow_dynamic_redirect=False,
+        )
 
 
 if __name__ == "__main__":
