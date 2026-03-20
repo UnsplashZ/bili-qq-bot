@@ -66,6 +66,11 @@ const Settings = () => {
         savingGeneral={settingsData.savingGeneral}
         onGeneralChange={settingsData.handleGeneralChange}
         onSaveGeneral={settingsData.saveGeneralSettings}
+        previewGradientConfig={settingsData.previewGradientConfig}
+        savingPreviewGradient={settingsData.savingPreviewGradient}
+        onPreviewGradientChange={settingsData.handlePreviewGradientChange}
+        onSavePreviewGradient={settingsData.savePreviewGradientSettings}
+        onResetPreviewGradient={settingsData.resetPreviewGradientSettings}
       />
 
       <BiliGlobalSection

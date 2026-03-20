@@ -26,6 +26,8 @@ const originals = {
     performSave: config._performSave,
     aiCommandSend: aiCommand.sendGroupMessage,
     settingsSend: settingsCommand.sendGroupMessage,
+    previewGradientColor1: config.previewGradientColor1,
+    previewGradientColor2: config.previewGradientColor2,
     env: {
         AI_API_URL: process.env.AI_API_URL,
         AI_API_KEY: process.env.AI_API_KEY,
@@ -71,6 +73,10 @@ async function withApiServer(run) {
 function restore() {
     config.isGroupAdmin = originals.isGroupAdmin
     config.isRootAdmin = originals.isRootAdmin
+    config.save = () => {}
+    config._performSave = async () => {}
+    config.previewGradientColor1 = originals.previewGradientColor1
+    config.previewGradientColor2 = originals.previewGradientColor2
     config.save = originals.save
     config._performSave = originals.performSave
     aiCommand.sendGroupMessage = originals.aiCommandSend
@@ -111,6 +117,13 @@ function restoreAiOverrides() {
         'aiEnabled',
         'aiRagEnabled',
         'aiProfileEnabled'
+    ])
+}
+
+function restorePreviewGradientOverrides() {
+    config.deleteKeys([
+        'previewGradientColor1',
+        'previewGradientColor2'
     ])
 }
 
@@ -218,6 +231,22 @@ async function testApiConfigReturnsTimeoutDefaultsWithoutOverrides() {
     assert.ok(!Object.prototype.hasOwnProperty.call(res.body, '_overrides'))
     assert.ok(!Object.prototype.hasOwnProperty.call(res.body, '_saveTimer'))
     console.log('✓ /api/config 在默认态返回 AI 对话超时字段')
+}
+
+async function testApiConfigReturnsPreviewGradientDefaultsWithoutOverrides() {
+    const token = buildToken()
+    config.save = () => {}
+    config._performSave = async () => {}
+    restorePreviewGradientOverrides()
+
+    const res = await withApiServer((client) => client
+        .get('/api/config')
+        .set('Authorization', `Bearer ${token}`))
+
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(res.body.previewGradientColor1, '#FB7299')
+    assert.strictEqual(res.body.previewGradientColor2, '#87CEEB')
+    console.log('✓ /api/config 在默认态返回预览图渐变色字段')
 }
 
 async function testApiConfigMasksEnvBackedSensitiveFields() {
@@ -429,16 +458,65 @@ async function testApiAiCanClearAndUpdateInSinglePatch() {
     console.log('✓ /api/ai 可在一次 patch 中同时清除 override 并更新其他字段')
 }
 
+async function testApiConfigAcceptsPreviewGradientFields() {
+    const token = buildToken()
+    config.save = () => {}
+    config._performSave = async () => {}
+    restorePreviewGradientOverrides()
+
+    const res = await withApiServer((client) => client
+        .post('/api/config')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+            previewGradientColor1: '#112233',
+            previewGradientColor2: '#AABBCC'
+        }))
+
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(config.previewGradientColor1, '#112233')
+    assert.strictEqual(config.previewGradientColor2, '#AABBCC')
+
+    const configRes = await withApiServer((client) => client
+        .get('/api/config')
+        .set('Authorization', `Bearer ${token}`))
+
+    assert.strictEqual(configRes.status, 200)
+    assert.strictEqual(configRes.body.previewGradientColor1, '#112233')
+    assert.strictEqual(configRes.body.previewGradientColor2, '#AABBCC')
+    console.log('✓ /api/config 可保存预览图渐变色字段')
+}
+
+async function testApiConfigRejectsInvalidPreviewGradientFields() {
+    const token = buildToken()
+    config.save = () => {}
+    config._performSave = async () => {}
+
+    const res = await withApiServer((client) => client
+        .post('/api/config')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+            previewGradientColor1: '#12',
+            previewGradientColor2: '#AABBCC'
+        }))
+
+    assert.strictEqual(res.status, 400)
+    assert.ok(String(res.body.error || '').includes('previewGradientColor1'))
+    console.log('✓ /api/config 会拒绝非法预览图渐变色字段')
+}
+
 async function run() {
     await testCommandsUseSameContextLimitRange()
     await testAiCommandRejectsDirtyProbabilityInput()
     await testApiRejectsUnknownAiField()
     await testApiConfigReturnsTimeoutDefaultsWithoutOverrides()
+    await testApiConfigReturnsPreviewGradientDefaultsWithoutOverrides()
     await testApiConfigMasksEnvBackedSensitiveFields()
     await testApiAiPatchDoesNotPersistEnvBackedSensitiveFields()
     await testApiAiAllowsClearingSensitiveOverrides()
     await testApplyOverridePatchTriggersSingleSave()
     await testApiAiCanClearAndUpdateInSinglePatch()
+    await testApiConfigAcceptsPreviewGradientFields()
+    await testApiConfigRejectsInvalidPreviewGradientFields()
     await testApiAcceptsChatTimeoutFields()
     await testApiResetClearsNewAiFields()
 }

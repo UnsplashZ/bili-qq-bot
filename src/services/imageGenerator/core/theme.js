@@ -2,6 +2,9 @@ const config = require('../../../config');
 const { generateUnifiedCSS, DESIGN_SYSTEM } = require('../../../utils/designSystem');
 const { getCustomFonts } = require('./formatters');
 
+const DEFAULT_PREVIEW_GRADIENT_COLOR1 = '#FB7299';
+const DEFAULT_PREVIEW_GRADIENT_COLOR2 = '#87CEEB';
+
 /**
  * 判断是否为夜间模式
  */
@@ -192,35 +195,22 @@ function calculateColors(type, data, currentType, isNight) {
         addColor(f.avatar);
     }
 
-    // 辅助色
-    const lightBlue = '#87CEEB';
-    const pink = '#FB7299';
+    const { color1, color2 } = getPreviewGradientBaseColors();
 
-    // 颜色补全：0种时用类型默认色，1+种时都添加浅蓝和粉色
+    // 颜色补全：0种时用类型默认色，1+种时都添加全局辅助渐变色
     if (colors.length === 0) {
         addColor(currentType.color);
     }
-    // 无论提取到几种颜色（1、2或更多），都补全为：基础色 + 浅蓝色 + 粉色
+    // 无论提取到几种颜色（1、2或更多），都补全为：内容色 + 渐变色1 + 渐变色2
     if (colors.length > 0) {
-        addColor(lightBlue);
-        addColor(pink);
+        addColor(color2);
+        addColor(color1);
     }
 
-    // 生成混合渐变效果
-    // 核心：基础色线性渐变 + 粉色/浅蓝光斑叠加
-
-    // 通用：粉色光斑（右上）
-    const pinkSpots = `radial-gradient(ellipse 80% 60% at 85% 15%, ${hexToRgba(pink, 0.4)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 75% 25%, ${hexToRgba(pink, 0.25)} 0%, transparent 50%)`;
-
-    // 通用：浅蓝光斑（左下）
-    const blueSpots = `radial-gradient(ellipse 80% 60% at 15% 85%, ${hexToRgba(lightBlue, 0.35)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 25% 75%, ${hexToRgba(lightBlue, 0.2)} 0%, transparent 50%)`;
-
-    // 基础色线性渐变（从左上到右下）
-    const stops = colors.map((c, i) => `${c} ${Math.round(i * 100 / (colors.length - 1))}%`).join(', ');
-    const baseGradient = `linear-gradient(135deg, ${stops})`;
-
-    // 组合所有渐变层
-    const gradientMix = `${baseGradient}, ${pinkSpots}, ${blueSpots}`;
+    const gradientMix = buildGradientMixFromColors(colors, {
+        accentColor1: color1,
+        accentColor2: color2
+    });
 
     if (isNight) {
         // 深色模式：更浓郁
@@ -255,6 +245,87 @@ function calculateColors(type, data, currentType, isNight) {
  */
 function isHex(c) {
     return typeof c === 'string' && /^#([0-9a-fA-F]{6})$/.test(c);
+}
+
+function normalizeHexColor(color, fallback) {
+    const candidate = typeof color === 'string' ? color.trim().toUpperCase() : '';
+    if (isHex(candidate)) return candidate;
+    return fallback;
+}
+
+function mixHexColors(color1, color2, ratio = 0.5) {
+    const weight = Math.min(Math.max(Number(ratio) || 0, 0), 1);
+    const [r1, g1, b1] = hexToRgb(color1);
+    const [r2, g2, b2] = hexToRgb(color2);
+    const mixChannel = (left, right) => Math.round(left + (right - left) * weight);
+    return rgbToHex(
+        mixChannel(r1, r2),
+        mixChannel(g1, g2),
+        mixChannel(b1, b2)
+    );
+}
+
+function hexToRgb(color) {
+    const hex = color.replace('#', '');
+    return [
+        parseInt(hex.slice(0, 2), 16),
+        parseInt(hex.slice(2, 4), 16),
+        parseInt(hex.slice(4, 6), 16)
+    ];
+}
+
+function rgbToHex(r, g, b) {
+    const toHex = (value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
+function buildLinearGradientStops(colors) {
+    if (colors.length <= 1) {
+        const color = colors[0] || DEFAULT_PREVIEW_GRADIENT_COLOR1;
+        return `${color} 0%, ${color} 100%`;
+    }
+    return colors
+        .map((color, index) => `${color} ${Math.round(index * 100 / (colors.length - 1))}%`)
+        .join(', ');
+}
+
+function buildGradientMixFromColors(inputColors = [], { accentColor1, accentColor2 }) {
+    const colors = [];
+    const seen = new Set();
+    const addColor = (color) => {
+        const normalized = normalizeHexColor(color, '');
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        colors.push(normalized);
+    };
+
+    inputColors.forEach(addColor);
+    if (colors.length === 0) {
+        addColor(accentColor1);
+        addColor(mixHexColors(accentColor1, accentColor2, 0.5));
+        addColor(accentColor2);
+    }
+
+    const baseGradient = `linear-gradient(135deg, ${buildLinearGradientStops(colors)})`;
+    const color1Spots = `radial-gradient(ellipse 80% 60% at 85% 15%, ${hexToRgba(accentColor1, 0.4)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 75% 25%, ${hexToRgba(accentColor1, 0.25)} 0%, transparent 50%)`;
+    const color2Spots = `radial-gradient(ellipse 80% 60% at 15% 85%, ${hexToRgba(accentColor2, 0.35)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 25% 75%, ${hexToRgba(accentColor2, 0.2)} 0%, transparent 50%)`;
+
+    return `${baseGradient}, ${color1Spots}, ${color2Spots}`;
+}
+
+function getPreviewGradientBaseColors() {
+    return {
+        color1: normalizeHexColor(config.previewGradientColor1, DEFAULT_PREVIEW_GRADIENT_COLOR1),
+        color2: normalizeHexColor(config.previewGradientColor2, DEFAULT_PREVIEW_GRADIENT_COLOR2)
+    };
+}
+
+function getStaticPreviewGradientMix() {
+    const { color1, color2 } = getPreviewGradientBaseColors();
+    return buildGradientMixFromColors(
+        [color1, mixHexColors(color1, color2, 0.5), color2],
+        { accentColor1: color1, accentColor2: color2 }
+    );
 }
 
 /**
@@ -1749,6 +1820,9 @@ module.exports = {
     calculateViewport,
     getTypeConfig,
     calculateColors,
+    getPreviewGradientBaseColors,
+    getStaticPreviewGradientMix,
+    buildGradientMixFromColors,
     generateCSS,
     adjustBrightness,
     hexToRgba

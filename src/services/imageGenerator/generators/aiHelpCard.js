@@ -1,5 +1,5 @@
 const browserManager = require('../core/browser');
-const { isNightMode } = require('../core/theme');
+const { isNightMode, getStaticPreviewGradientMix } = require('../core/theme');
 const { getCustomFonts } = require('../core/formatters');
 const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
 
@@ -26,7 +26,7 @@ async function generateAIHelpCard(groupId) {
             const colorData = {
                 themeClass,
                 badgeColor: '#FB7299',
-                gradientMix: isNight ? 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)' : 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)',
+                gradientMix: getStaticPreviewGradientMix(),
                 currentType: { label: 'AI 配置', color: '#FB7299', icon: '🤖' }
             };
             const viewport = { width: 1000, minWidth: 400 };

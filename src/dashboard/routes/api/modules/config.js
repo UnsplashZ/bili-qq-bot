@@ -5,11 +5,14 @@ const subscriptionService = require('../../../../services/subscriptionService')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
+const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
 
 const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'subscriptionCheckInterval',
     'linkCacheTimeout',
     'showId',
+    'previewGradientColor1',
+    'previewGradientColor2',
     'aiEnabled',
     'aiRagEnabled',
     'aiProfileEnabled',
@@ -19,6 +22,10 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'videoDownloadAutoClean',
     'videoDownloadCleanTimeout'
 ]
+
+function normalizeHexColor(value) {
+    return String(value || '').trim().toUpperCase()
+}
 
 // GET /api/config - Read config
 router.get('/config', async (req, res) => {
@@ -82,6 +89,17 @@ router.post('/config', async (req, res) => {
             typeof filtered.showId !== 'boolean'
         ) {
             return res.status(400).json({ error: 'showId must be a boolean' })
+        }
+
+        for (const field of ['previewGradientColor1', 'previewGradientColor2']) {
+            if (filtered[field] === undefined) continue
+            const normalized = normalizeHexColor(filtered[field])
+            if (!HEX_COLOR_PATTERN.test(normalized)) {
+                return res.status(400).json({
+                    error: `${field} must be a hex color in #RRGGBB format`
+                })
+            }
+            filtered[field] = normalized
         }
 
         const validResolutions = ['360p', '480p', '720p', '1080p', '1080p+']

@@ -1,12 +1,224 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
 import GlassCard from '../../../components/GlassCard'
-import { Save, Clock, Settings as SettingsIcon } from 'lucide-react'
+import GradientColorPickerPopover from './GradientColorPickerPopover'
+import { Save, Clock, Palette, RotateCcw, Settings as SettingsIcon } from 'lucide-react'
+
+const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
+
+function normalizeHexColor(value) {
+    return String(value || '').trim().toUpperCase()
+}
+
+function isValidHexColor(value) {
+    return HEX_COLOR_PATTERN.test(normalizeHexColor(value))
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max)
+}
+
+function hexToRgb(hex) {
+    const normalized = normalizeHexColor(hex).replace('#', '')
+    return {
+        r: parseInt(normalized.slice(0, 2), 16),
+        g: parseInt(normalized.slice(2, 4), 16),
+        b: parseInt(normalized.slice(4, 6), 16)
+    }
+}
+
+function rgbToHex({ r, g, b }) {
+    const toHex = (value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase()
+}
+
+function mixHexColors(left, right, ratio = 0.5) {
+    const weight = Math.min(Math.max(Number(ratio) || 0, 0), 1)
+    const leftRgb = hexToRgb(left)
+    const rightRgb = hexToRgb(right)
+    return rgbToHex({
+        r: leftRgb.r + (rightRgb.r - leftRgb.r) * weight,
+        g: leftRgb.g + (rightRgb.g - leftRgb.g) * weight,
+        b: leftRgb.b + (rightRgb.b - leftRgb.b) * weight
+    })
+}
+
+function buildGradientBackground(color1, color2) {
+    const midpoint = mixHexColors(color1, color2, 0.5)
+    return {
+        backgroundImage: [
+            `radial-gradient(ellipse 80% 58% at 84% 15%, ${color1}4D 0%, transparent 70%)`,
+            `radial-gradient(ellipse 80% 58% at 14% 85%, ${color2}40 0%, transparent 70%)`,
+            `linear-gradient(135deg, ${color1} 0%, ${midpoint} 44%, ${color2} 100%)`
+        ].join(', ')
+    }
+}
+
+function buildChipPreview(color) {
+    const lighter = mixHexColors(color, '#FFFFFF', 0.28)
+    const darker = mixHexColors(color, '#000000', 0.16)
+    return {
+        backgroundImage: `radial-gradient(circle at 72% 24%, rgba(255,255,255,0.18), transparent 24%), linear-gradient(135deg, ${lighter} 0%, ${color} 52%, ${darker} 100%)`
+    }
+}
+
+const GRADIENT_FIELDS = ['previewGradientColor1', 'previewGradientColor2']
+const FIELD_LABELS = {
+    previewGradientColor1: '渐变色 1',
+    previewGradientColor2: '渐变色 2'
+}
+const FIELD_DESCRIPTIONS = {
+    previewGradientColor1: '主色。',
+    previewGradientColor2: '辅助色。'
+}
+const DEFAULT_PICKER_SIZE = {
+    width: 408,
+    height: 420
+}
 
 const GeneralSettingsSection = ({
     generalConfig,
     savingGeneral,
     onGeneralChange,
-    onSaveGeneral
+    onSaveGeneral,
+    previewGradientConfig,
+    savingPreviewGradient,
+    onPreviewGradientChange,
+    onSavePreviewGradient,
+    onResetPreviewGradient
 }) => {
+    const [gradientInputs, setGradientInputs] = useState(previewGradientConfig)
+    const [gradientErrors, setGradientErrors] = useState({})
+    const [pickerState, setPickerState] = useState(null)
+    const previewGradientSectionRef = useRef(null)
+    const pickerRef = useRef(null)
+    const triggerRefs = useRef({})
+
+    useEffect(() => {
+        setGradientInputs(previewGradientConfig)
+        setGradientErrors({})
+    }, [previewGradientConfig])
+
+    const liveColor1 = previewGradientConfig.previewGradientColor1
+    const liveColor2 = previewGradientConfig.previewGradientColor2
+    const liveGradientStyle = useMemo(() => buildGradientBackground(liveColor1, liveColor2), [liveColor1, liveColor2])
+
+    const updatePickerPlacement = (field) => {
+        const container = previewGradientSectionRef.current
+        const trigger = triggerRefs.current[field]
+        if (!container || !trigger) return
+
+        const containerRect = container.getBoundingClientRect()
+        const triggerRect = trigger.getBoundingClientRect()
+        const pickerRect = pickerRef.current?.getBoundingClientRect()
+        const pickerWidth = pickerRect?.width || DEFAULT_PICKER_SIZE.width
+        const pickerHeight = pickerRect?.height || DEFAULT_PICKER_SIZE.height
+        const padding = 16
+
+        const rawLeft = triggerRect.left - containerRect.left - pickerWidth + triggerRect.width + 96
+        const rawTop = triggerRect.top - containerRect.top - 64
+        const maxLeft = Math.max(padding, containerRect.width - pickerWidth - padding)
+        const maxTop = Math.max(padding, containerRect.height - pickerHeight - padding)
+        const left = clamp(rawLeft, padding, maxLeft)
+        const top = clamp(rawTop, padding, maxTop)
+        const triggerCenterX = triggerRect.left - containerRect.left + (triggerRect.width / 2)
+        const arrowLeft = clamp(triggerCenterX - left, 48, pickerWidth - 48)
+
+        setPickerState(prev => (
+            prev?.field === field
+                ? { ...prev, top, left, arrowLeft }
+                : { field, top, left, arrowLeft }
+        ))
+    }
+
+    useEffect(() => {
+        if (!pickerState?.field) return undefined
+
+        const frameId = window.requestAnimationFrame(() => {
+            updatePickerPlacement(pickerState.field)
+        })
+
+        const handleResize = () => updatePickerPlacement(pickerState.field)
+        window.addEventListener('resize', handleResize)
+
+        return () => {
+            window.cancelAnimationFrame(frameId)
+            window.removeEventListener('resize', handleResize)
+        }
+    }, [pickerState?.field])
+
+    useEffect(() => {
+        if (!pickerState?.field) return undefined
+
+        const handlePointerDown = (event) => {
+            const pickerElement = pickerRef.current
+            const triggerElement = triggerRefs.current[pickerState.field]
+            if (pickerElement?.contains(event.target) || triggerElement?.contains(event.target)) {
+                return
+            }
+            setPickerState(null)
+        }
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setPickerState(null)
+            }
+        }
+
+        document.addEventListener('pointerdown', handlePointerDown)
+        window.addEventListener('keydown', handleKeyDown)
+
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown)
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [pickerState])
+
+    const handleGradientInputChange = (field, rawValue) => {
+        const nextValue = rawValue.toUpperCase()
+        setGradientInputs(prev => ({ ...prev, [field]: nextValue }))
+
+        if (isValidHexColor(nextValue)) {
+            const normalized = normalizeHexColor(nextValue)
+            onPreviewGradientChange(field, normalized)
+            setGradientInputs(prev => ({ ...prev, [field]: normalized }))
+            setGradientErrors(prev => ({ ...prev, [field]: '' }))
+        }
+    }
+
+    const handleApplyPickerColor = (field, nextColor) => {
+        const normalized = normalizeHexColor(nextColor)
+        setGradientInputs(prev => ({ ...prev, [field]: normalized }))
+        setGradientErrors(prev => ({ ...prev, [field]: '' }))
+        onPreviewGradientChange(field, normalized)
+        setPickerState(null)
+    }
+
+    const handleSavePreviewGradient = () => {
+        const nextErrors = {}
+        for (const field of GRADIENT_FIELDS) {
+            if (!isValidHexColor(gradientInputs[field])) {
+                nextErrors[field] = '请输入 #RRGGBB 格式的颜色代码'
+            }
+        }
+        setGradientErrors(nextErrors)
+        if (Object.keys(nextErrors).length > 0) return
+        onSavePreviewGradient()
+    }
+
+    const handleResetPreviewGradient = () => {
+        setPickerState(null)
+        onResetPreviewGradient()
+    }
+
+    const handleTogglePicker = (field) => {
+        if (pickerState?.field === field) {
+            setPickerState(null)
+            return
+        }
+
+        setPickerState({ field, top: 16, left: 16, arrowLeft: 56 })
+    }
+
     return (
         <section>
             <div className="flex items-center gap-2 mb-4">
@@ -26,7 +238,7 @@ const GeneralSettingsSection = ({
                             type="number"
                             min="10"
                             value={generalConfig.subscriptionCheckInterval}
-                            onChange={(e) => onGeneralChange('subscriptionCheckInterval', parseInt(e.target.value) || 0)}
+                            onChange={(e) => onGeneralChange('subscriptionCheckInterval', parseInt(e.target.value, 10) || 0)}
                             className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:outline-none"
                         />
                         <p className="text-xs text-gray-500 mt-1">系统检查订阅更新的频率，建议不少于 60 秒。</p>
@@ -74,6 +286,91 @@ const GeneralSettingsSection = ({
                         <Save size={18} />
                         {savingGeneral ? '保存中...' : '保存常规设置'}
                     </button>
+                </div>
+
+                <div ref={previewGradientSectionRef} className="relative mt-8 border-t border-white/10 pt-8">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Palette className="text-pink-300" size={18} />
+                        <h3 className="text-lg font-semibold text-white">预览图渐变色</h3>
+                    </div>
+                    <p className="mb-4 text-xs text-white/55">可直接输颜色代码，也可点色块选色。</p>
+
+                    <div className="space-y-4">
+                        {GRADIENT_FIELDS.map((field) => (
+                            <div key={field} className="rounded-[18px] border border-white/10 bg-white/5 p-4">
+                                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                        <p className="text-sm font-medium text-white">{FIELD_LABELS[field]}</p>
+                                        <p className="mt-1 text-xs text-white/55">{FIELD_DESCRIPTIONS[field]}</p>
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            ref={(node) => {
+                                                triggerRefs.current[field] = node
+                                            }}
+                                            onClick={() => handleTogglePicker(field)}
+                                            className={`grid h-14 w-14 place-items-center rounded-2xl border bg-white/5 transition-colors ${pickerState?.field === field ? 'border-pink-300/60' : 'border-white/15 hover:border-white/25'}`}
+                                        >
+                                            <span className="h-10 w-10 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(previewGradientConfig[field])} />
+                                        </button>
+                                        <input
+                                            type="text"
+                                            value={gradientInputs[field]}
+                                            onChange={(e) => handleGradientInputChange(field, e.target.value)}
+                                            className={`h-11 w-36 rounded-xl border bg-black/30 px-4 font-mono text-sm tracking-[0.03em] text-white outline-none transition-colors ${gradientErrors[field] ? 'border-rose-400/70 focus:border-rose-300' : 'border-white/15 focus:border-pink-300/70'}`}
+                                        />
+                                    </div>
+                                </div>
+
+                                {gradientErrors[field] && (
+                                    <p className="mt-3 text-xs text-rose-300">{gradientErrors[field]}</p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium text-white">即时渐变反馈</span>
+                            <span className="text-xs text-white/55">改颜色后立刻更新</span>
+                        </div>
+                        <div className="mt-3 h-[18px] rounded-full border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_24px_rgba(0,0,0,0.16)]" style={liveGradientStyle} />
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={handleResetPreviewGradient}
+                            disabled={savingPreviewGradient}
+                            className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 disabled:opacity-50"
+                        >
+                            <RotateCcw size={16} />
+                            恢复默认渐变色
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSavePreviewGradient}
+                            disabled={savingPreviewGradient}
+                            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
+                        >
+                            <Save size={16} />
+                            {savingPreviewGradient ? '保存中...' : '保存预览图渐变色'}
+                        </button>
+                    </div>
+
+                    {pickerState?.field && (
+                        <GradientColorPickerPopover
+                            popoverRef={pickerRef}
+                            style={{ top: `${pickerState.top}px`, left: `${pickerState.left}px` }}
+                            arrowLeft={pickerState.arrowLeft}
+                            fieldLabel={FIELD_LABELS[pickerState.field]}
+                            value={previewGradientConfig[pickerState.field]}
+                            onApply={(color) => handleApplyPickerColor(pickerState.field, color)}
+                            onClose={() => setPickerState(null)}
+                        />
+                    )}
                 </div>
             </GlassCard>
         </section>
