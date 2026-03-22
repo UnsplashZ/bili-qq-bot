@@ -1,9 +1,12 @@
 'use strict'
 
 const browserManager = require('../imageGenerator/core/browser')
-const { isNightMode, getStaticPreviewGradientMix } = require('../imageGenerator/core/theme')
+const { isNightMode } = require('../imageGenerator/core/theme')
 const { getCustomFonts } = require('../imageGenerator/core/formatters')
 const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../utils/designSystem')
+
+const LEGACY_LIGHT_GRADIENT = 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)'
+const LEGACY_DARK_GRADIENT = 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)'
 
 async function generatePreviewLabAIHelpCard(groupId) {
     return browserManager.withRetry(async () => {
@@ -22,7 +25,7 @@ async function generatePreviewLabAIHelpCard(groupId) {
             const colorData = {
                 themeClass,
                 badgeColor: '#FB7299',
-                gradientMix: getStaticPreviewGradientMix(),
+                gradientMix: isNight ? LEGACY_DARK_GRADIENT : LEGACY_LIGHT_GRADIENT,
                 currentType: { label: 'AI 配置', color: '#FB7299', icon: '🤖' }
             }
             const viewport = { width: 1000, minWidth: 400 }

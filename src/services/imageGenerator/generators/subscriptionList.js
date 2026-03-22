@@ -1,10 +1,12 @@
 const browserManager = require('../core/browser');
-const { isNightMode, getStaticPreviewGradientMix } = require('../core/theme');
+const { isNightMode } = require('../core/theme');
 const { escapeHtml, getCustomFonts } = require('../core/formatters');
 const { buildPreviewFontFamily, generateUnifiedCSS } = require('../../../utils/designSystem');
 const { renderVerifyBadge } = require('../renderers/components/verifyBadge');
 
 const DEFAULT_AVATAR_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+const LEGACY_LIGHT_GRADIENT = 'linear-gradient(135deg, #fef5f6 0%, #e8f5ff 50%, #f0f9ff 100%)';
+const LEGACY_DARK_GRADIENT = 'linear-gradient(135deg, #1a1a1a 0%, #2c3e50 100%)';
 
 function resolveAvatarSrc(user) {
     const face = String(user?.face || '').trim();
@@ -59,7 +61,7 @@ async function generateSubscriptionList(data, groupId, show_id = true, title = '
     const colorData = {
         themeClass,
         badgeColor: '#FB7299',
-        gradientMix: getStaticPreviewGradientMix(),
+        gradientMix: isNight ? LEGACY_DARK_GRADIENT : LEGACY_LIGHT_GRADIENT,
         currentType: { label: '订阅列表', color: '#FB7299', icon: '📋' }
     };
     const viewport = { width: 960, minWidth: 400 };

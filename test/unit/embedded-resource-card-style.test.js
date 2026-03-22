@@ -75,11 +75,11 @@ function testCompactEmbeddedResourceCardTextScale() {
     const statRule = extractRule(css, '.embedded-resource-card--compact .embedded-resource-stat')
     const descRule = extractRule(css, '.embedded-resource-card--compact .embedded-resource-desc')
 
-    assert.ok(badgeRule.includes('font-size: 14px;'), 'common 小卡 badge 字号应提升到 14px')
-    assert.ok(subtitleRule.includes('font-size: 14px;'), 'common 小卡副标题字号应提升到 14px')
-    assert.ok(titleRule.includes('font-size: 19px;'), 'common 小卡标题字号应提升到 19px')
-    assert.ok(statRule.includes('font-size: 14px;'), 'common 小卡统计字号应提升到 14px')
-    assert.ok(descRule.includes('font-size: 14px;'), 'common 小卡描述字号应提升到 14px')
+    assert.ok(badgeRule.includes('font-size: 16px;'), 'common 小卡 badge 字号应调整到 16px')
+    assert.ok(subtitleRule.includes('font-size: 16px;'), 'common 小卡副标题字号应调整到 16px')
+    assert.ok(titleRule.includes('font-size: 24px;'), 'common 小卡标题字号应调整到 24px')
+    assert.ok(statRule.includes('font-size: 16px;'), 'common 小卡统计字号应调整到 16px')
+    assert.ok(descRule.includes('font-size: 16px;'), 'common 小卡描述字号应调整到 16px')
 }
 
 function run() {

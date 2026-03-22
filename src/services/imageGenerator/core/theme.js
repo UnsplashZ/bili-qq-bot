@@ -1530,7 +1530,7 @@ function generateCSS(colorData, viewport) {
                 border-radius: 0;
                 background: transparent;
                 color: color-mix(in srgb, var(--color-text) 35%, var(--color-subtext) 65%);
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: 500;
                 letter-spacing: 0;
                 line-height: 1.2;
@@ -1590,7 +1590,7 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
             }
             .embedded-resource-card--compact .embedded-resource-subtitle {
-                font-size: 14px;
+                font-size: 16px;
                 margin-bottom: 0;
                 color: var(--color-subtext);
                 line-height: 1.25;
@@ -1600,7 +1600,7 @@ function generateCSS(colorData, viewport) {
                 overflow: hidden;
             }
             .embedded-resource-card--compact .embedded-resource-title {
-                font-size: 19px;
+                font-size: 24px;
                 margin-bottom: 3px;
                 line-height: 1.3;
                 display: -webkit-box;
@@ -1613,12 +1613,12 @@ function generateCSS(colorData, viewport) {
                 gap: 8px;
             }
             .embedded-resource-card--compact .embedded-resource-stat {
-                font-size: 14px;
+                font-size: 16px;
                 line-height: 1.25;
             }
             .embedded-resource-card--compact .embedded-resource-desc {
                 margin-top: 3px;
-                font-size: 14px;
+                font-size: 16px;
                 line-height: 1.25;
                 display: -webkit-box;
                 -webkit-line-clamp: 1;
