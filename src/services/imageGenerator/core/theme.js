@@ -1,9 +1,14 @@
 const config = require('../../../config');
 const { generateUnifiedCSS, DESIGN_SYSTEM } = require('../../../utils/designSystem');
 const { getCustomFonts } = require('./formatters');
-
-const DEFAULT_PREVIEW_GRADIENT_COLOR1 = '#FB7299';
-const DEFAULT_PREVIEW_GRADIENT_COLOR2 = '#87CEEB';
+const {
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR1,
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR2,
+    normalizeHexColor,
+    hexToRgba,
+    buildPreviewGradientLayers,
+    buildPreviewGradientMix
+} = require('../../../shared/previewGradientModel.cjs');
 
 /**
  * 判断是否为夜间模式
@@ -197,26 +202,22 @@ function calculateColors(type, data, currentType, isNight) {
 
     const { color1, color2 } = getPreviewGradientBaseColors();
 
-    // 颜色补全：0种时用类型默认色，1+种时都添加全局辅助渐变色
-    if (colors.length === 0) {
-        addColor(currentType.color);
-    }
-    // 无论提取到几种颜色（1、2或更多），都补全为：内容色 + 渐变色1 + 渐变色2
-    if (colors.length > 0) {
-        addColor(color2);
-        addColor(color1);
-    }
-
-    const gradientMix = buildGradientMixFromColors(colors, {
+    const { atmosphereLayer, contentLayer, overlayLayer } = buildGradientLayersFromColors(colors, {
         accentColor1: color1,
-        accentColor2: color2
+        accentColor2: color2,
+        isNight
     });
+    const gradientOverlay = overlayLayer || '';
+    const gradientMix = [gradientOverlay, contentLayer, atmosphereLayer].filter(Boolean).join(', ');
 
     if (isNight) {
         // 深色模式：更浓郁
         return {
             badgeColor,
             themeClass,
+            gradientAtmosphere: atmosphereLayer,
+            gradientContent: contentLayer,
+            gradientOverlay,
             gradientMix,
             badgeBg: '#23272D',
             badgeTextColor: badgeColor,
@@ -229,6 +230,9 @@ function calculateColors(type, data, currentType, isNight) {
         return {
             badgeColor,
             themeClass,
+            gradientAtmosphere: atmosphereLayer,
+            gradientContent: contentLayer,
+            gradientOverlay,
             gradientMix,
             badgeBg: `linear-gradient(135deg, ${badgeColor}, ${adjustBrightness(badgeColor, -10)})`,
             badgeTextColor: '#fff',
@@ -247,85 +251,34 @@ function isHex(c) {
     return typeof c === 'string' && /^#([0-9a-fA-F]{6})$/.test(c);
 }
 
-function normalizeHexColor(color, fallback) {
-    const candidate = typeof color === 'string' ? color.trim().toUpperCase() : '';
-    if (isHex(candidate)) return candidate;
-    return fallback;
+function buildGradientMixFromColors(inputColors = [], { accentColor1, accentColor2, isNight = false }) {
+    return buildPreviewGradientMix({
+        accentColor1,
+        accentColor2,
+        contentColors: inputColors,
+        isNight
+    });
 }
 
-function mixHexColors(color1, color2, ratio = 0.5) {
-    const weight = Math.min(Math.max(Number(ratio) || 0, 0), 1);
-    const [r1, g1, b1] = hexToRgb(color1);
-    const [r2, g2, b2] = hexToRgb(color2);
-    const mixChannel = (left, right) => Math.round(left + (right - left) * weight);
-    return rgbToHex(
-        mixChannel(r1, r2),
-        mixChannel(g1, g2),
-        mixChannel(b1, b2)
-    );
-}
-
-function hexToRgb(color) {
-    const hex = color.replace('#', '');
-    return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16)
-    ];
-}
-
-function rgbToHex(r, g, b) {
-    const toHex = (value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-}
-
-function buildLinearGradientStops(colors) {
-    if (colors.length <= 1) {
-        const color = colors[0] || DEFAULT_PREVIEW_GRADIENT_COLOR1;
-        return `${color} 0%, ${color} 100%`;
-    }
-    return colors
-        .map((color, index) => `${color} ${Math.round(index * 100 / (colors.length - 1))}%`)
-        .join(', ');
-}
-
-function buildGradientMixFromColors(inputColors = [], { accentColor1, accentColor2 }) {
-    const colors = [];
-    const seen = new Set();
-    const addColor = (color) => {
-        const normalized = normalizeHexColor(color, '');
-        if (!normalized || seen.has(normalized)) return;
-        seen.add(normalized);
-        colors.push(normalized);
-    };
-
-    inputColors.forEach(addColor);
-    if (colors.length === 0) {
-        addColor(accentColor1);
-        addColor(mixHexColors(accentColor1, accentColor2, 0.5));
-        addColor(accentColor2);
-    }
-
-    const baseGradient = `linear-gradient(135deg, ${buildLinearGradientStops(colors)})`;
-    const color1Spots = `radial-gradient(ellipse 80% 60% at 85% 15%, ${hexToRgba(accentColor1, 0.4)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 75% 25%, ${hexToRgba(accentColor1, 0.25)} 0%, transparent 50%)`;
-    const color2Spots = `radial-gradient(ellipse 80% 60% at 15% 85%, ${hexToRgba(accentColor2, 0.35)} 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 25% 75%, ${hexToRgba(accentColor2, 0.2)} 0%, transparent 50%)`;
-
-    return `${baseGradient}, ${color1Spots}, ${color2Spots}`;
+function buildGradientLayersFromColors(inputColors = [], { accentColor1, accentColor2, isNight = false }) {
+    return buildPreviewGradientLayers({
+        accentColor1,
+        accentColor2,
+        contentColors: inputColors,
+        isNight
+    });
 }
 
 function getPreviewGradientBaseColors() {
     return {
-        color1: normalizeHexColor(config.previewGradientColor1, DEFAULT_PREVIEW_GRADIENT_COLOR1),
-        color2: normalizeHexColor(config.previewGradientColor2, DEFAULT_PREVIEW_GRADIENT_COLOR2)
+        color1: normalizeHexColor(config.previewGradientColor1, DEFAULT_PREVIEW_ATMOSPHERE_COLOR1),
+        color2: normalizeHexColor(config.previewGradientColor2, DEFAULT_PREVIEW_ATMOSPHERE_COLOR2)
     };
 }
 
 function getStaticPreviewGradientMix() {
     const { color1, color2 } = getPreviewGradientBaseColors();
-    return buildGradientMixFromColors(
-        [color1, mixHexColors(color1, color2, 0.5), color2],
-        { accentColor1: color1, accentColor2: color2 }
-    );
+    return buildGradientMixFromColors([], { accentColor1: color1, accentColor2: color2 });
 }
 
 /**
@@ -351,21 +304,6 @@ function adjustBrightness(hex, percent) {
     const bb = Math.round(b).toString(16).padStart(2, '0');
 
     return `#${rr}${gg}${bb}`;
-}
-
-/**
- * 将 hex 颜色转换为 rgba
- */
-function hexToRgba(hex, alpha) {
-    // 移除 # 号
-    hex = hex.replace('#', '');
-
-    // 转换为 RGB
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 /**

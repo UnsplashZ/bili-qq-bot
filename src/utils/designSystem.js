@@ -53,7 +53,18 @@ function buildPreviewFontFamily(customFontFamilies = []) {
 
 // 统一的CSS生成函数
 function generateUnifiedCSS(colorData, viewport, options = {}) {
-    const { currentType, badgeColor, badgeBg, badgeTextColor, badgeShadow, badgeBorder, gradientMix } = colorData;
+    const {
+        currentType,
+        badgeColor,
+        badgeBg,
+        badgeTextColor,
+        badgeShadow,
+        badgeBorder,
+        gradientMix,
+        gradientAtmosphere = gradientMix,
+        gradientContent = '',
+        gradientOverlay = ''
+    } = colorData;
     const { minWidth = 400, width = 1200 } = viewport;
     const { customFontsCss = '', customFontFamilies = [] } = options;
 
@@ -73,6 +84,9 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 --color-soft-bg: #F0F2F5;
                 --color-soft-bg-2: #EDEFF3;
                 --gradient-mix: ${gradientMix};
+                --gradient-atmosphere: ${gradientAtmosphere};
+                --gradient-content: ${gradientContent || 'none'};
+                --gradient-overlay: ${gradientOverlay || 'none'};
 
                 /* 强调色 */
                 --color-primary: ${currentType?.color || '#FB7299'};
@@ -189,8 +203,7 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 content: '';
                 position: absolute;
                 inset: 0;
-                background: var(--gradient-mix);
-                opacity: 0.35;
+                background: var(--gradient-atmosphere);
                 z-index: 0;
                 border-radius: var(--radius-container);
             }
@@ -198,6 +211,15 @@ function generateUnifiedCSS(colorData, viewport, options = {}) {
                 .container.gradient-bg::before {
                     backdrop-filter: blur(4px);
                 }
+            }
+            .container.gradient-bg::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: var(--gradient-overlay), var(--gradient-content);
+                z-index: 0;
+                border-radius: var(--radius-container);
+                pointer-events: none;
             }
             .container.gradient-bg > * {
                 position: relative;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import GlassCard from '../../../components/GlassCard'
 import GradientColorPickerPopover from './GradientColorPickerPopover'
 import { Save, Clock, Palette, RotateCcw, Settings as SettingsIcon } from 'lucide-react'
+import { buildGradientBackground, FIELD_DESCRIPTIONS, FIELD_LABELS } from './previewGradientModel'
 
 const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
 
@@ -42,17 +43,6 @@ function mixHexColors(left, right, ratio = 0.5) {
     })
 }
 
-function buildGradientBackground(color1, color2) {
-    const midpoint = mixHexColors(color1, color2, 0.5)
-    return {
-        backgroundImage: [
-            `radial-gradient(ellipse 80% 58% at 84% 15%, ${color1}4D 0%, transparent 70%)`,
-            `radial-gradient(ellipse 80% 58% at 14% 85%, ${color2}40 0%, transparent 70%)`,
-            `linear-gradient(135deg, ${color1} 0%, ${midpoint} 44%, ${color2} 100%)`
-        ].join(', ')
-    }
-}
-
 function buildChipPreview(color) {
     const lighter = mixHexColors(color, '#FFFFFF', 0.28)
     const darker = mixHexColors(color, '#000000', 0.16)
@@ -62,14 +52,6 @@ function buildChipPreview(color) {
 }
 
 const GRADIENT_FIELDS = ['previewGradientColor1', 'previewGradientColor2']
-const FIELD_LABELS = {
-    previewGradientColor1: '渐变色 1',
-    previewGradientColor2: '渐变色 2'
-}
-const FIELD_DESCRIPTIONS = {
-    previewGradientColor1: '主色。',
-    previewGradientColor2: '辅助色。'
-}
 const DEFAULT_PICKER_SIZE = {
     width: 408,
     height: 420
@@ -291,9 +273,9 @@ const GeneralSettingsSection = ({
                 <div ref={previewGradientSectionRef} className="relative mt-8 border-t border-white/10 pt-8">
                     <div className="flex items-center gap-2 mb-4">
                         <Palette className="text-pink-300" size={18} />
-                        <h3 className="text-lg font-semibold text-white">预览图渐变色</h3>
+                        <h3 className="text-lg font-semibold text-white">预览图氛围色</h3>
                     </div>
-                    <p className="mb-4 text-xs text-white/55">可直接输颜色代码，也可点色块选色。</p>
+                    <p className="mb-4 text-xs text-white/55">固定底板保持整体中性，下面两种颜色只控制轻量氛围层。</p>
 
                     <div className="space-y-4">
                         {GRADIENT_FIELDS.map((field) => (
@@ -347,7 +329,7 @@ const GeneralSettingsSection = ({
                             className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 disabled:opacity-50"
                         >
                             <RotateCcw size={16} />
-                            恢复默认渐变色
+                            恢复默认氛围色
                         </button>
                         <button
                             type="button"
@@ -356,7 +338,7 @@ const GeneralSettingsSection = ({
                             className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
                         >
                             <Save size={16} />
-                            {savingPreviewGradient ? '保存中...' : '保存预览图渐变色'}
+                            {savingPreviewGradient ? '保存中...' : '保存预览图氛围色'}
                         </button>
                     </div>
 

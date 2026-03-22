@@ -18,6 +18,7 @@ COPY dashboard/package.json dashboard/package-lock.json ./
 RUN npm ci --no-audit --no-fund \
     && npm cache clean --force
 
+COPY src/shared /app/src/shared
 COPY dashboard/ ./
 RUN npm run build
 
@@ -55,7 +56,6 @@ ENV NODE_ENV=production \
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY src ./src
-COPY config ./config
 COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
 
 RUN mkdir -p logs temp config fonts data/downloads /app/.config/QQ/tmp/

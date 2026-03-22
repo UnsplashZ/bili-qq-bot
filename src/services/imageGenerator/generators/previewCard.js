@@ -76,6 +76,9 @@ function buildColorSummary(colorData = {}) {
         subtext: colorData.subColor || '',
         accent: colorData.accent || '',
         border: colorData.borderColor || '',
+        gradientAtmosphere: colorData.gradientAtmosphere || '',
+        gradientContent: colorData.gradientContent || '',
+        gradientOverlay: colorData.gradientOverlay || '',
         gradientMix: colorData.gradientMix || ''
     }
 }
@@ -109,7 +112,7 @@ async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true) 
 
     const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
     const fullHtml = `<html><head>${css}</head><body>
-                <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix}">
+                <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">
                     ${typeBadgeHtml}
                     <div class="card">
                         ${contentHtml}

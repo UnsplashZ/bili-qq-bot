@@ -26,6 +26,7 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm ci --no-audit --no-fund \
     && npm cache clean --force
 
+COPY src/shared /app/src/shared
 # 拷贝 dashboard 源码并执行生产构建（输出 dist）
 COPY dashboard/ ./
 RUN npm run build
@@ -80,7 +81,6 @@ ENV NODE_ENV=production \
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY src ./src
-COPY config ./config
 COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
 
 # 创建运行期目录（日志/临时文件/下载目录/QQ 临时目录）
