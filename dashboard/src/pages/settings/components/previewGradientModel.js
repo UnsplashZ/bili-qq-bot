@@ -17,6 +17,19 @@ export const FIELD_DESCRIPTIONS = {
     previewGradientColor2: '控制左下区域的氛围色。'
 }
 
+export function resolveEffectivePreviewGradientColors(gradientInputs = {}, previewGradientConfig = {}) {
+    return {
+        previewGradientColor1: normalizeHexColor(
+            gradientInputs.previewGradientColor1,
+            normalizeHexColor(previewGradientConfig.previewGradientColor1, DEFAULT_PREVIEW_ATMOSPHERE_COLOR1)
+        ),
+        previewGradientColor2: normalizeHexColor(
+            gradientInputs.previewGradientColor2,
+            normalizeHexColor(previewGradientConfig.previewGradientColor2, DEFAULT_PREVIEW_ATMOSPHERE_COLOR2)
+        )
+    }
+}
+
 export function buildGradientBackground(color1, color2) {
     const { atmosphereLayer } = buildPreviewGradientLayers({
         accentColor1: normalizeHexColor(color1, DEFAULT_PREVIEW_ATMOSPHERE_COLOR1),

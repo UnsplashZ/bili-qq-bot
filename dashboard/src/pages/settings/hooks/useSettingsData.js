@@ -8,8 +8,8 @@ const GENERAL_CONFIG_DEFAULTS = {
 }
 
 const PREVIEW_GRADIENT_DEFAULTS = {
-    previewGradientColor1: '#FB7299',
-    previewGradientColor2: '#87CEEB'
+    previewGradientColor1: '#D8C7F1',
+    previewGradientColor2: '#BFE6E2'
 }
 
 function extractGeneralConfig(source) {

@@ -244,8 +244,8 @@ async function testApiConfigReturnsPreviewGradientDefaultsWithoutOverrides() {
         .set('Authorization', `Bearer ${token}`))
 
     assert.strictEqual(res.status, 200)
-    assert.strictEqual(res.body.previewGradientColor1, '#FB7299')
-    assert.strictEqual(res.body.previewGradientColor2, '#87CEEB')
+    assert.strictEqual(res.body.previewGradientColor1, '#D8C7F1')
+    assert.strictEqual(res.body.previewGradientColor2, '#BFE6E2')
     console.log('✓ /api/config 在默认态返回预览图渐变色字段')
 }
 

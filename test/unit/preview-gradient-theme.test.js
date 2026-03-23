@@ -37,10 +37,13 @@ async function run() {
         { color: '#778899' },
         false
     )
-    assert.ok(extracted.gradientContent.includes(theme.hexToRgba('#445566', 0.3)))
-    assert.ok(extracted.gradientContent.includes('42% 20%'))
-    assert.ok(!extracted.gradientContent.includes('56% 56%'))
-    assert.ok(extracted.gradientMix.indexOf(theme.hexToRgba('#445566', 0.3)) < extracted.gradientMix.indexOf(theme.hexToRgba('#102030', 0.34)))
+    assert.ok(extracted.gradientContent.includes(theme.hexToRgba('#445566', 0.18)))
+    assert.ok(extracted.gradientContent.includes(theme.hexToRgba('#445566', 0.099)))
+    assert.ok(extracted.gradientContent.includes(theme.hexToRgba('#445566', 0.039599999999999996)))
+    assert.ok(extracted.gradientContent.includes('36% 14%'))
+    assert.ok(extracted.gradientContent.includes('transparent 86%'))
+    assert.ok(!extracted.gradientContent.includes('42% 20%'))
+    assert.ok(extracted.gradientMix.indexOf(theme.hexToRgba('#445566', 0.18)) < extracted.gradientMix.indexOf(theme.hexToRgba('#102030', 0.34)))
 
     const noContentGradient = theme.buildGradientMixFromColors([], {
         accentColor1: '#102030',
@@ -65,9 +68,12 @@ async function run() {
         { color: '#778899' },
         true
     )
-    assert.ok(darkExtracted.gradientContent.includes(theme.hexToRgba('#445566', 0.22)))
-    assert.ok(darkExtracted.gradientContent.includes('42% 20%'))
-    assert.ok(!darkExtracted.gradientContent.includes('56% 56%'))
+    assert.ok(darkExtracted.gradientContent.includes(theme.hexToRgba('#445566', 0.16)))
+    assert.ok(darkExtracted.gradientContent.includes(theme.hexToRgba('#445566', 0.08800000000000001)))
+    assert.ok(darkExtracted.gradientContent.includes(theme.hexToRgba('#445566', 0.0352)))
+    assert.ok(darkExtracted.gradientContent.includes('36% 14%'))
+    assert.ok(darkExtracted.gradientContent.includes('transparent 86%'))
+    assert.ok(!darkExtracted.gradientContent.includes('42% 20%'))
 
     const baseColors = theme.getPreviewGradientBaseColors()
     assert.strictEqual(baseColors.color1, '#102030')

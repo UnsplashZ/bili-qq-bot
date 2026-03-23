@@ -2,8 +2,8 @@ const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
 
 const FIXED_PREVIEW_BASE_GRADIENT = 'linear-gradient(135deg, #FFF7FB 0%, #F4F6FF 50%, #F0F9FF 100%)'
 const FIXED_PREVIEW_DARK_BASE_GRADIENT = 'linear-gradient(135deg, #121418 0%, #233346 100%)'
-const DEFAULT_PREVIEW_ATMOSPHERE_COLOR1 = '#FB7299'
-const DEFAULT_PREVIEW_ATMOSPHERE_COLOR2 = '#87CEEB'
+const DEFAULT_PREVIEW_ATMOSPHERE_COLOR1 = '#D8C7F1'
+const DEFAULT_PREVIEW_ATMOSPHERE_COLOR2 = '#BFE6E2'
 
 function normalizeHexColor(value, fallback = '') {
     const normalized = String(value || '').trim().toUpperCase()
@@ -40,12 +40,14 @@ function buildPreviewGradientLayers({
 } = {}) {
     const primary = normalizeHexColor(accentColor1, DEFAULT_PREVIEW_ATMOSPHERE_COLOR1)
     const secondary = normalizeHexColor(accentColor2, DEFAULT_PREVIEW_ATMOSPHERE_COLOR2)
-    const tintAlpha = isNight ? 0.22 : 0.3
+    const tintAlpha = isNight ? 0.16 : 0.18
     const contentLayerParts = []
     const normalizedContentColors = collectContentColors(contentColors)
 
     normalizedContentColors.forEach((color) => {
-        contentLayerParts.push(`radial-gradient(ellipse 78% 52% at 42% 20%, ${hexToRgba(color, tintAlpha)} 0%, transparent 62%)`)
+        contentLayerParts.push(
+            `radial-gradient(ellipse 96% 72% at 36% 14%, ${hexToRgba(color, tintAlpha)} 0%, ${hexToRgba(color, tintAlpha * 0.55)} 42%, ${hexToRgba(color, tintAlpha * 0.22)} 68%, transparent 86%)`
+        )
     })
 
     const atmosphereParts = [

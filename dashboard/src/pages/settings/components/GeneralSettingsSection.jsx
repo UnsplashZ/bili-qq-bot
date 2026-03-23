@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlassCard from '../../../components/GlassCard'
 import GradientColorPickerPopover from './GradientColorPickerPopover'
-import { Save, Clock, Palette, RotateCcw, Settings as SettingsIcon } from 'lucide-react'
-import { buildGradientBackground, FIELD_DESCRIPTIONS, FIELD_LABELS } from './previewGradientModel'
+import PreviewGradientModal from './PreviewGradientModal'
+import { Save, Clock, Palette, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react'
+import { FIELD_DESCRIPTIONS, FIELD_LABELS, resolveEffectivePreviewGradientColors } from './previewGradientModel'
 
 const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
 
@@ -71,6 +72,7 @@ const GeneralSettingsSection = ({
     const [gradientInputs, setGradientInputs] = useState(previewGradientConfig)
     const [gradientErrors, setGradientErrors] = useState({})
     const [pickerState, setPickerState] = useState(null)
+    const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
     const previewGradientSectionRef = useRef(null)
     const pickerRef = useRef(null)
     const triggerRefs = useRef({})
@@ -80,9 +82,10 @@ const GeneralSettingsSection = ({
         setGradientErrors({})
     }, [previewGradientConfig])
 
-    const liveColor1 = previewGradientConfig.previewGradientColor1
-    const liveColor2 = previewGradientConfig.previewGradientColor2
-    const liveGradientStyle = useMemo(() => buildGradientBackground(liveColor1, liveColor2), [liveColor1, liveColor2])
+    const effectivePreviewColors = useMemo(
+        () => resolveEffectivePreviewGradientColors(gradientInputs, previewGradientConfig),
+        [gradientInputs, previewGradientConfig]
+    )
 
     const updatePickerPlacement = (field) => {
         const container = previewGradientSectionRef.current
@@ -189,16 +192,23 @@ const GeneralSettingsSection = ({
 
     const handleResetPreviewGradient = () => {
         setPickerState(null)
+        setIsPreviewModalOpen(false)
         onResetPreviewGradient()
     }
 
     const handleTogglePicker = (field) => {
+        setIsPreviewModalOpen(false)
         if (pickerState?.field === field) {
             setPickerState(null)
             return
         }
 
         setPickerState({ field, top: 16, left: 16, arrowLeft: 56 })
+    }
+
+    const handleOpenPreviewModal = () => {
+        setPickerState(null)
+        setIsPreviewModalOpen(true)
     }
 
     return (
@@ -295,7 +305,7 @@ const GeneralSettingsSection = ({
                                             onClick={() => handleTogglePicker(field)}
                                             className={`grid h-14 w-14 place-items-center rounded-2xl border bg-white/5 transition-colors ${pickerState?.field === field ? 'border-pink-300/60' : 'border-white/15 hover:border-white/25'}`}
                                         >
-                                            <span className="h-10 w-10 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(previewGradientConfig[field])} />
+                                            <span className="h-10 w-10 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(effectivePreviewColors[field])} />
                                         </button>
                                         <input
                                             type="text"
@@ -314,11 +324,20 @@ const GeneralSettingsSection = ({
                     </div>
 
                     <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm font-medium text-white">即时渐变反馈</span>
-                            <span className="text-xs text-white/55">改颜色后立刻更新</span>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <p className="text-sm font-medium text-white">预览效果</p>
+                                <p className="mt-1 text-xs text-white/55">查看固定底板与当前氛围色合成后的卡片观感</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleOpenPreviewModal}
+                                className="inline-flex items-center gap-2 self-start rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 md:self-auto"
+                            >
+                                <Eye size={16} />
+                                查看预览
+                            </button>
                         </div>
-                        <div className="mt-3 h-[18px] rounded-full border border-white/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_24px_rgba(0,0,0,0.16)]" style={liveGradientStyle} />
                     </div>
 
                     <div className="mt-5 flex flex-wrap justify-end gap-3">
@@ -348,11 +367,18 @@ const GeneralSettingsSection = ({
                             style={{ top: `${pickerState.top}px`, left: `${pickerState.left}px` }}
                             arrowLeft={pickerState.arrowLeft}
                             fieldLabel={FIELD_LABELS[pickerState.field]}
-                            value={previewGradientConfig[pickerState.field]}
+                            value={effectivePreviewColors[pickerState.field]}
                             onApply={(color) => handleApplyPickerColor(pickerState.field, color)}
                             onClose={() => setPickerState(null)}
                         />
                     )}
+
+                    <PreviewGradientModal
+                        isOpen={isPreviewModalOpen}
+                        onClose={() => setIsPreviewModalOpen(false)}
+                        color1={effectivePreviewColors.previewGradientColor1}
+                        color2={effectivePreviewColors.previewGradientColor2}
+                    />
                 </div>
             </GlassCard>
         </section>
