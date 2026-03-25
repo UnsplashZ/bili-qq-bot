@@ -326,7 +326,7 @@ function generateCSS(colorData, viewport) {
             .cover.video { aspect-ratio: 16/9; }
             .cover.bangumi { aspect-ratio: 3/4; object-fit: cover; }
             .cover.live { aspect-ratio: 16/9; }
-            .cover.article { aspect-ratio: 21/9; }
+            .cover.article { aspect-ratio: auto; height: auto; }
 
             .content {
                 padding: 24px;
@@ -714,7 +714,7 @@ function generateCSS(colorData, viewport) {
                 white-space: pre-wrap;
                 word-wrap: break-word;
                 text-align: left;
-                max-height: 2500px;
+                max-height: 800px;
                 overflow: hidden;
                 position: relative;
             }
@@ -748,6 +748,36 @@ function generateCSS(colorData, viewport) {
             .container.article-mode .card {
                 max-width: none;
                 margin: 0;
+            }
+
+            .article-cover-container {
+                margin: 0 0 20px 0;
+                overflow: hidden;
+                border-radius: var(--radius-lg);
+                box-shadow: var(--shadow-sm);
+            }
+
+            .article-excerpt {
+                margin-top: 16px;
+                margin-bottom: 24px;
+                display: -webkit-box;
+                -webkit-line-clamp: 3;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                line-height: 1.75;
+                max-height: calc(1.75em * 3);
+                position: relative;
+            }
+
+            .article-excerpt.truncated::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 72px;
+                background: linear-gradient(to bottom, transparent, var(--color-card-bg));
+                pointer-events: none;
             }
 
             .article-body {

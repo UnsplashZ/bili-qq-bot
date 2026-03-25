@@ -26,10 +26,10 @@
 
 *   🚀 **全类型解析**：精准识别并解析以下内容
     *   视频 (BV/av)、番剧 (ss/ep)、直播间 (live)
-    *   专栏文章 (cv) - 支持 2000 字长文摘要，保留富文本格式与插图
+    *   专栏文章 (cv) - 统一渲染为紧凑预览卡，支持封面、标题、三行摘要、作者装扮与统计信息
     *   动态 (t.bilibili.com) - 支持长文、多图、转发动态，完美还原装扮卡片与粉丝编号
     *   用户主页 (space) - 展示用户数据，自动抓取并展示最新一条动态
-    *   Opus 图文 (opus) - 支持富文本解析，完美还原图文混排
+    *   Opus 图文 (opus) - 自动区分普通动态与“文章型 opus”，文章型 opus 按专栏语义解析并渲染
     *   小程序/短链 (b23.tv) - 自动还原目标链接
 
 *   🎨 **高颜值预览**
@@ -37,6 +37,7 @@
     *   统一设计系统：支持定时深色模式，毛玻璃视觉风格
     *   智能配色：自动提取装扮卡片重点色，动态调整氛围背景
     *   SVG 矢量图标 & Emoji，无乱码，视觉统一
+    *   专栏作者头部支持头像框、认证、等级，以及可从动态装扮卡回补的粉丝装扮卡与编号
 
 *   🤖 **智能 AI 对话**
     *   群组记忆 (RAG)：内置向量记忆系统，支持长期记忆与语义检索
@@ -437,6 +438,12 @@ node tools/preview-lab.js "https://www.bilibili.com/read/cv45123193"
 
 # 可选参数示例
 node tools/preview-lab.js "https://t.bilibili.com/1180316687231090707" --fresh --html --out-name dynamic-video
+
+# 文章型 opus（应渲染 article 卡）
+node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
+
+# read/cv 专栏（应渲染 article 卡，且无大会员标签）
+node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
 ```
 
 支持的常用参数：
@@ -455,6 +462,13 @@ node tools/preview-lab.js "https://t.bilibili.com/1180316687231090707" --fresh -
 *   标准化 JSON
 *   manifest JSON
 *   调试 HTML（仅在启用 `--html` 时生成）
+
+当前 article / dynamic 预览规则摘要：
+
+*   普通动态正文 `.text-content` 的最大可见高度为 `800px`，约 15 行，超出后底部渐隐
+*   article 封面按原图比例显示，不再强制裁成 `21:9`
+*   article 卡片的正文区域是三行摘要预览，不展示大会员标签
+*   文章型 `opus` 会自动映射到 article 渲染链路
 
 #### 2. 本地 Web 调试页
 

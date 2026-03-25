@@ -31,20 +31,20 @@ async function testArticleHtmlOnlyReplacesTextNodes() {
     assert.ok(html.includes('<script>var x = "[星星眼]"</script>'), 'script 内容不应被错误替换')
 }
 
-async function testArticleRendererSupportsHtmlContentEmojiReplacement() {
+async function testArticleRendererSupportsSummaryEmojiReplacement() {
     const emojiContext = await buildContext()
     const html = renderArticleContent({
         data: {
             author_face: 'https://i0.hdslb.com/bfs/face/member/noface.jpg',
             author_name: 'tester',
             title: '专栏标题',
-            html_content: '<p>专栏正文[星星眼]</p>',
+            summary: '专栏正文[星星眼]',
             publish_time: 1700000000,
             stats: {}
         }
     }, emojiContext)
 
-    assert.ok(html.includes('<img class="emoji"'), 'article html_content 应支持文本节点级官方表情替换')
+    assert.ok(html.includes('<img class="emoji"'), 'article 摘要应支持文本节点级官方表情替换')
 }
 
 async function testArticleHtmlDoesNotReplaceEmojiInsideCodeLikeTags() {
@@ -75,7 +75,7 @@ async function testArticleHtmlKeepsNestedBlockedTagContentUntouched() {
 
 async function run() {
     await testArticleHtmlOnlyReplacesTextNodes()
-    await testArticleRendererSupportsHtmlContentEmojiReplacement()
+    await testArticleRendererSupportsSummaryEmojiReplacement()
     await testArticleHtmlDoesNotReplaceEmojiInsideCodeLikeTags()
     await testArticleHtmlKeepsNestedBlockedTagContentUntouched()
     console.log('PASS article-html-emoji')

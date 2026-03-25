@@ -74,10 +74,46 @@ async function testFreshModeBypassesPreviewLabMemoryCache() {
     assert.strictEqual(sendCalls, 2)
 }
 
+async function testOpusArticleUsesArticleCardTypeWhileKeepingOpusCanonicalUrl() {
+    let sendPayload = null
+
+    serviceManager.sendCommand = async (endpoint, payload) => {
+        sendPayload = { endpoint, payload }
+        return {
+            status: 'success',
+            type: 'article',
+            data: {
+                title: '文章型 Opus',
+                canonical_url: 'https://www.bilibili.com/opus/1183668934980665366'
+            }
+        }
+    }
+
+    const link = {
+        type: 'opus',
+        id: '1183668934980665366',
+        match: 'https://www.bilibili.com/opus/1183668934980665366'
+    }
+
+    const result = await resolvePreviewTarget(link, {
+        groupId: '1000',
+        cacheMode: 'fresh'
+    })
+
+    assert.deepStrictEqual(sendPayload, {
+        endpoint: 'opus',
+        payload: { opus_id: '1183668934980665366', group_id: '1000' }
+    })
+    assert.strictEqual(result.status, 'success')
+    assert.strictEqual(result.cardType, 'article')
+    assert.strictEqual(result.canonicalUrl, 'https://www.bilibili.com/opus/1183668934980665366')
+}
+
 async function run() {
     try {
         await testCachedModeUsesOnlyPreviewLabMemoryCache()
         await testFreshModeBypassesPreviewLabMemoryCache()
+        await testOpusArticleUsesArticleCardTypeWhileKeepingOpusCanonicalUrl()
         console.log('PASS preview-lab-target-resolver')
     } finally {
         restore()

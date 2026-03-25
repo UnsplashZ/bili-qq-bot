@@ -329,6 +329,36 @@ function testForwardArchiveRegressionStillRendersInlineVideo() {
     assert.ok(html.includes('视频标题'))
 }
 
+function testForwardArticleOrigRendersCompactArticlePreview() {
+    const html = renderDynamicContent(buildForwardPayload({
+        desc: {
+            text: '原专栏摘要',
+            rich_text_nodes: []
+        },
+        major: {
+            type: 'MAJOR_TYPE_OPUS',
+            opus: {
+                title: '文章标题',
+                jump_url: 'https://www.bilibili.com/read/cv47068592',
+                summary: {
+                    text: '原专栏摘要',
+                    rich_text_nodes: []
+                },
+                pics: [
+                    { url: 'https://example.com/article-cover.jpg' }
+                ]
+            }
+        }
+    }))
+
+    assert.ok(html.includes('orig-card--article'), '转发原专栏应切换到文章预览卡')
+    assert.ok(html.includes('orig-article-cover-container'), '转发原专栏应渲染封面')
+    assert.ok(html.includes('orig-article-title'), '转发原专栏应渲染标题')
+    assert.ok(html.includes('orig-article-excerpt'), '转发原专栏应渲染摘要')
+    assert.ok(html.includes('orig-article-stats'), '转发原专栏应渲染统计')
+    assert.ok(!html.includes('video-card-inline'), '转发原专栏不应误渲染成视频卡')
+}
+
 function run() {
     testMainDynamicMedialistRendersEmbeddedCardBetweenMediaAndActionBar()
     testMainDynamicUnknownResourceFallsBackToGenericCard()
@@ -339,6 +369,7 @@ function run() {
     testMainDynamicEmbeddedResourceRendersBeforeVoteAndCommon()
     testMainDynamicVoteCardRendersBelowMediaAndAboveCommon()
     testForwardArchiveRegressionStillRendersInlineVideo()
+    testForwardArticleOrigRendersCompactArticlePreview()
     console.log('PASS dynamic-forward-resource-rendering')
 }
 

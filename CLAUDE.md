@@ -95,6 +95,26 @@ python3 src/services/bili_server.py --port 10001
 curl http://localhost:10001/health
 ```
 
+### Targeted Preview / Regression Checks
+
+Use `tools/preview-lab.js` for local preview regression. Generated files should be written to `test/output/`.
+
+```bash
+# 文章型 opus
+node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
+
+# read/cv 专栏
+node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
+
+# 长正文动态
+node tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
+```
+
+Current expectations:
+- main dynamic `.text-content` max height is `800px` (about 15 lines)
+- article cover uses original image ratio instead of forced `21:9`
+- article cards should not render `user-vip-label`
+
 ### Linting & Code Quality
 
 No configured linters. Follow existing code style:
@@ -152,6 +172,29 @@ Renderers (Pure HTML) → Generators (Browser + Render) → PNG Output
 - **Components** (`renderers/components/`): Reusable pieces (richtext.js, media.js, vote.js)
 - **Generators** (`generators/`): Combine renderers with browser instance (previewCard.js, helpCard.js, aiHelpCard.js, subscriptionList.js)
 - **Core** (`core/`): Browser management (browser.js), formatters (formatters.js), theme system (theme.js — dark/light mode with color extraction)
+
+Article / Opus notes:
+- `get_opus_detail()` normalizes `opus` links into semantic result types:
+  - article-like opus -> `type: article`
+  - regular opus -> `type: dynamic`
+- article-like opus resolves `cv` in this order:
+  - `turn_to_article()`
+  - `item.basic.rid_str`
+  - `item.basic.comment_id_str`
+  - page SSR `__INITIAL_STATE__` / `module_copyright.right_text`
+- `article.js` now renders a compact article preview card:
+  - header
+  - cover
+  - title
+  - 3-line excerpt with fade
+  - stats
+- article author header may include:
+  - pendant frame
+  - official verify badge
+  - level
+  - right-side decoration card and fan number if they can be recovered from the author's dynamic `module_author.decoration_card`
+- VIP labels are intentionally limited to `user.js` profile cards and should not appear on article/dynamic/video/etc cards.
+- forwarded original dynamics that are actually articles render through `orig-card--article` instead of the regular forwarded dynamic card.
 
 When adding new content types:
 1. Create renderer in `renderers/`

@@ -1,5 +1,6 @@
 const { formatPubTime, formatNumber, escapeHtml } = require('../core/formatters');
 const { parseRichText } = require('./components/richtext');
+const { resolvePlainTextContent } = require('./components/contentNodes');
 const {
     collectDynamicImages: sharedCollectDynamicImages,
     resolveDynamicContent,
@@ -175,6 +176,69 @@ function resolveDynamicText(dynamicModule, hasImages) {
     }
 }
 
+function isOrigArticleLike(oitem, dynamicModule) {
+    const jumpUrl = dynamicModule?.major?.opus?.jump_url || oitem?.basic?.jump_url || ''
+    return oitem?.type === 'DYNAMIC_TYPE_ARTICLE' || /\/read\/cv\d+/i.test(String(jumpUrl))
+}
+
+function resolveOrigArticleCover(dynamicModule) {
+    const pics = dynamicModule?.major?.opus?.pics || []
+    if (Array.isArray(pics) && pics[0]?.url) return pics[0].url
+    return ''
+}
+
+function resolveOrigArticleTitle(dynamicModule) {
+    return resolvePlainTextContent(dynamicModule?.major?.opus?.title || '')
+}
+
+function renderOrigArticleContent(oitem, omodules, emojiContext = null) {
+    const o_author = omodules.module_author || {}
+    const o_dynamic = omodules.module_dynamic || {}
+    const o_stat = omodules.module_stat || {}
+    const o_name = o_author.name || 'Unknown'
+    const o_face = o_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg'
+    const o_pubTime = formatPubTime(oitem.pub_ts) || formatPubTime(o_author.pub_ts) || o_author.pub_time || ''
+    const o_verifyType = Number(o_author.official_verify?.type)
+    const o_verifyBadge = renderVerifyBadge(o_verifyType, 'author-verify-badge--orig')
+    const cover = resolveOrigArticleCover(o_dynamic)
+    const title = resolveOrigArticleTitle(o_dynamic)
+    const resolvedOrig = resolveDynamicContent(o_dynamic, !!cover)
+    const summaryHtml = parseRichText(resolvedOrig.richTextNodes, resolvedOrig.text, emojiContext)
+
+    if (!title.text && !resolvedOrig.text && !cover) {
+        return ''
+    }
+
+    return `
+        <div class="orig-card orig-card--article">
+            <div class="orig-header">
+                <div class="avatar-wrapper avatar-wrapper--orig">
+                    <img class="orig-author-avatar" src="${escapeHtml(o_face)}">
+                    ${o_verifyBadge}
+                </div>
+                <div class="orig-author-meta">
+                    <span class="orig-author-name">${escapeHtml(o_name)}</span>
+                    ${o_pubTime ? `<span class="orig-pub-time">${escapeHtml(String(o_pubTime))}</span>` : ''}
+                </div>
+            </div>
+            <div class="orig-content orig-article-content">
+                ${cover ? `
+                    <div class="cover-container article-cover-container orig-article-cover-container">
+                        <img class="cover article" src="${escapeHtml(cover)}">
+                    </div>
+                ` : ''}
+                ${title.text ? `<div class="orig-title orig-article-title">${parseRichText(title.richTextNodes, title.text, emojiContext)}</div>` : ''}
+                ${resolvedOrig.text ? `<div class="orig-text article-excerpt orig-article-excerpt">${summaryHtml}</div>` : ''}
+                <div class="stats article-stats orig-article-stats">
+                    <span class="stat-item">${ICONS.share} ${formatNumber(o_stat.forward?.count)}</span>
+                    <span class="stat-item">${ICONS.comment} ${formatNumber(o_stat.comment?.count)}</span>
+                    <span class="stat-item">${ICONS.like} ${formatNumber(o_stat.like?.count)}</span>
+                </div>
+            </div>
+        </div>
+    `
+}
+
 /**
  * 渲染转发的原动态内容
  * @param {Object} origItemRaw - 原动态数据
@@ -186,6 +250,10 @@ function renderOrigContent(origItemRaw, emojiContext = null) {
     const omodules = oitem.modules || {};
     const o_author = omodules.module_author || {};
     const o_dynamic = omodules.module_dynamic || {};
+
+    if (isOrigArticleLike(oitem, o_dynamic)) {
+        return renderOrigArticleContent(oitem, omodules, emojiContext)
+    }
 
     const o_images = sharedCollectDynamicImages(o_dynamic);
     const resolvedOrig = resolveDynamicContent(o_dynamic, o_images.length > 0);
