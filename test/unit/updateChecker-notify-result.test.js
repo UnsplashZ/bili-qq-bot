@@ -3,8 +3,9 @@
 const assert = require('assert')
 
 const notifyModule = require('../../src/services/subscription/updateChecker/modules/notify')
-const linkHandler = require('../../src/handlers/linkHandler')
 const deps = require('../../src/services/subscription/updateChecker/adapters/deps')
+
+const linkDomainPath = require.resolve('../../src/services/link')
 
 function createSourceMap(groupIds) {
     const map = new Map()
@@ -13,7 +14,7 @@ function createSourceMap(groupIds) {
 }
 
 describe('updateChecker notify result', function () {
-    const originalAddUrlToCache = linkHandler.addUrlToCache
+    const originalLinkDomainModule = require.cache[linkDomainPath]
     const originalNotificationHas = deps.notificationHistory.has
     const originalNotificationAdd = deps.notificationHistory.add
     const originalIsGroupEnabled = deps.config.isGroupEnabled
@@ -23,7 +24,11 @@ describe('updateChecker notify result', function () {
     const originalGeneratePreviewCard = deps.imageGenerator.generatePreviewCard
 
     afterEach(function () {
-        linkHandler.addUrlToCache = originalAddUrlToCache
+        if (originalLinkDomainModule) {
+            require.cache[linkDomainPath] = originalLinkDomainModule
+        } else {
+            delete require.cache[linkDomainPath]
+        }
         deps.notificationHistory.has = originalNotificationHas
         deps.notificationHistory.add = originalNotificationAdd
         deps.config.isGroupEnabled = originalIsGroupEnabled
@@ -35,8 +40,19 @@ describe('updateChecker notify result', function () {
 
     it('notifyGroupsWithImageAndCache 应返回结构化结果且仅缓存成功群', async function () {
         const cached = []
-        linkHandler.addUrlToCache = (url, groupId) => {
-            cached.push({ url, groupId: String(groupId) })
+        require.cache[linkDomainPath] = {
+            id: linkDomainPath,
+            filename: linkDomainPath,
+            loaded: true,
+            exports: {
+                cacheResolvedText(url, groupId) {
+                    cached.push({ url, groupId: String(groupId) })
+                    return {
+                        addedCount: 1,
+                        cacheKeys: [`video|BV_TEST|${String(groupId)}`]
+                    }
+                }
+            }
         }
 
         const fakeContext = {

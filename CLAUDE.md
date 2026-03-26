@@ -17,11 +17,21 @@ bili-qq-bot/
 │   ├── config.js           # Configuration management
 │   ├── commands/           # Command modules
 │   ├── handlers/           # Message, link, AI handlers
-│   ├── services/           # Core services (BiliApi, ImageGenerator, etc.)
-│   ├── utils/              # Utilities (logger, storage, cache)
-│   └── dashboard/          # Dashboard backend (Express)
+│   ├── services/           # Core services
+│   │   ├── ai/             # AI chat, memory, profile, prompt helpers
+│   │   ├── bili_server_core/ # Python API backend
+│   │   ├── bili_server.py   # Python compatibility entry
+│   │   ├── imageGenerator/  # Preview card rendering and generation
+│   │   └── subscription/    # Subscription service and update checker
+│   │       └── updateChecker/ # Feed, video, article, live checks
+│   ├── dashboard/          # Dashboard backend (Express)
+│   │   ├── routes/api/     # REST API implementation
+│   │   └── middleware/     # Auth and request middleware
+│   └── utils/              # Utilities (logger, storage, cache)
 ├── dashboard/              # Dashboard frontend (React/Vite)
-│   ├── src/                # React components and pages
+│   ├── src/                # React app source
+│   │   ├── pages/          # Pages (dashboard, login, groups/settings/logs)
+│   │   └── utils/          # Frontend helpers
 │   └── dist/               # Production build (served by bot)
 ├── test/                   # Test files and generated outputs
 │   ├── unit/               # Unit tests (*.test.js)
@@ -41,6 +51,9 @@ bili-qq-bot/
 │   └── mcp_servers.json    # MCP tool definitions
 ├── fonts/                  # Custom fonts for image rendering
 ├── logs/                   # Application logs
+├── tools/                  # Local helper scripts
+│   ├── preview-lab.js      # Preview Lab CLI
+│   └── preview-lab-web.js  # Preview Lab Web
 └── napcat/                 # NapCat QQ client data
 ```
 
@@ -79,13 +92,14 @@ cd dashboard
 npm install
 npm run dev     # Development server (port 5173)
 npm run build   # Production build to dashboard/dist
+npm run lint    # ESLint check
 ```
 
 After building, the main bot serves static files from `dashboard/dist` at port 3000.
 
 ### Python Service Testing
 
-The Bilibili API service runs independently:
+The Bilibili API service runs independently, with the main implementation in `src/services/bili_server_core/` and a compatibility entry still available at `src/services/bili_server.py`.
 
 ```bash
 # Test the Python server directly
@@ -97,7 +111,7 @@ curl http://localhost:10001/health
 
 ### Targeted Preview / Regression Checks
 
-Use `tools/preview-lab.js` for local preview regression. Generated files should be written to `test/output/`.
+Use `tools/preview-lab.js` for local preview regression checks and write generated files to `test/output/`; use `tools/preview-lab-web.js` for browser-based manual inspection.
 
 ```bash
 # 文章型 opus
@@ -108,6 +122,9 @@ node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallba
 
 # 长正文动态
 node tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
+
+# Preview Lab Web
+node tools/preview-lab-web.js
 ```
 
 Current expectations:
@@ -115,189 +132,114 @@ Current expectations:
 - article cover uses original image ratio instead of forced `21:9`
 - article cards should not render `user-vip-label`
 
-### Linting & Code Quality
+### Code Style
 
-No configured linters. Follow existing code style:
+Use the main `Testing & Verification` section below for test and validation entry points.
+
+Follow existing code style:
 - **JavaScript:** 4-space indentation, no semicolons
 - **Python:** PEP 8 style, 4-space indentation
 
 ## Architecture Overview
 
-### Core Message Flow
+### Bot Runtime Lifecycle
 
-```
-QQ User → NapCat (WebSocket) → bot.js → MessageHandler
-                                              ↓
-                         ┌────────────────────┴─────────────────────┐
-                         ↓                    ↓                      ↓
-                    LinkHandler         CommandManager          AIHandler
-                         ↓                    ↓                      ↓
-                    BiliApi             Execute Commands      VectorMemory
-                         ↓                                           ↓
-                  Python Server                              RAG Retrieval
-                         ↓                                           ↓
-                  ImageGenerator ←────────────────────────────── LLM API
-                         ↓
-                  Send to QQ Group
-```
+`/src/bot.js` is the runtime entry point and owns the socket lifecycle around NapCat/OneBot. It keeps the cross-module runtime handle in one place and gates bot-scoped services on connection state.
 
-### Key Architectural Components
+- Establish and maintain the WebSocket connection
+- Keep `global.bot` aligned with login and group state
+- Start bot-scoped services only after the socket is ready
+- Route transport events into the internal service boundaries
+- Stop timers and loops cleanly on disconnect
 
-**1. Dual Configuration System**
+### Message Pipeline
 
-- **Layer 1 (`.env`):** Startup config (API keys, WS_URL, ADMIN_QQ)
-- **Layer 2 (`config.json`):** Runtime config (hot-reloadable via commands)
-- **Priority:** config.json > environment variable > default
-- **Group Overrides:** Each group in `groupConfigs[groupId]` can override global settings
+`/src/handlers/messageHandler.js` is the main ingress for QQ messages. It defines the processing order without expanding the downstream implementation details that are documented later in the file.
 
-Implementation: `/src/config.js` with META schema defining all config keys.
+- Normalize group and private conversation identity
+- Apply early guards for self messages, permissions, blacklist, and enablement
+- Persist context inputs before reply selection
+- Dispatch commands before link handling
+- Hand off link previews and AI replies to dedicated handlers
+- Keep private-session scope separate from group scope
 
-**2. Service Manager Pattern**
+### AI Pipeline
 
-`ServiceManager.js` manages the Python subprocess lifecycle:
-- Health checks via `/health` endpoint
-- Auto-restart on failure (exponential backoff)
-- Idle shutdown after 1 hour
-- All Bilibili API calls proxy through this service
+The AI path is split across `messageHandler.js`, `handlers/aiHandler.js`, and the AI support services under `/src/services/ai/`. This section only describes the division of responsibility.
 
-**3. Image Generation Pipeline**
+- Separate reply admission from prompt construction and model invocation
+- Keep context, response shaping, and execution safety in distinct services
+- Centralize final orchestration in `aiHandler.js`
+- Treat memory, bot facts, and tool control as supporting layers
+- Avoid duplicating the detailed AI step sequence from later sections
 
-Modular Puppeteer-based system (`/src/services/imageGenerator/`):
+### Subscription Architecture
 
-```
-Renderers (Pure HTML) → Generators (Browser + Render) → PNG Output
-```
+The subscription subsystem is split into scheduling, persistent state, and polling/checking. The boundary between them stays narrow so feed-specific logic can reuse shared helpers without owning lifecycle concerns.
 
-- **Renderers** (`renderers/`): Pure functions returning HTML strings (video.js, dynamic.js, article.js, live.js, bangumi.js, user.js)
-- **Components** (`renderers/components/`): Reusable pieces (richtext.js, media.js, vote.js)
-- **Generators** (`generators/`): Combine renderers with browser instance (previewCard.js, helpCard.js, aiHelpCard.js, subscriptionList.js)
-- **Core** (`core/`): Browser management (browser.js), formatters (formatters.js), theme system (theme.js — dark/light mode with color extraction)
+- `subscriptionService.js` handles bot lifecycle integration and scheduling
+- `subscriptionManager.js` owns persistent state and state mutation helpers
+- `updateChecker/` contains polling and content-specific checks
+- Shared helper modules cover state advancement, deduplication, and reachability
+- Checker modules focus on feed/video/article/live/bangumi processing and notification dispatch
 
-Article / Opus notes:
-- `get_opus_detail()` normalizes `opus` links into semantic result types:
-  - article-like opus -> `type: article`
-  - regular opus -> `type: dynamic`
-- article-like opus resolves `cv` in this order:
-  - `turn_to_article()`
-  - `item.basic.rid_str`
-  - `item.basic.comment_id_str`
-  - page SSR `__INITIAL_STATE__` / `module_copyright.right_text`
-- `article.js` now renders a compact article preview card:
-  - header
-  - cover
-  - title
-  - 3-line excerpt with fade
-  - stats
-- article author header may include:
-  - pendant frame
-  - official verify badge
-  - level
-  - right-side decoration card and fan number if they can be recovered from the author's dynamic `module_author.decoration_card`
-- VIP labels are intentionally limited to `user.js` profile cards and should not appear on article/dynamic/video/etc cards.
-- forwarded original dynamics that are actually articles render through `orig-card--article` instead of the regular forwarded dynamic card.
+### Dashboard Architecture
 
-When adding new content types:
-1. Create renderer in `renderers/`
-2. Add case to `generators/previewCard.js`
-3. Update `CARD_WIDTH` and viewport settings if needed
+The dashboard is a two-part system: an Express backend embedded in the bot process and a separate React/Vite frontend. The split keeps API/auth responsibilities on the backend and page composition on the frontend.
 
-**4. Storage Patterns**
+- Backend serves the built frontend and exposes config/subscription APIs
+- API modules are organized by domain under `routes/api/modules/`
+- Middleware handles auth and request shaping
+- Frontend pages own login, settings, groups, and logs workflows
+- Shared UI components stay separate from route and server concerns
 
-All data in `/data/` directory:
+### Python Service Boundary
 
-```
-/data/
-├── cache/              # LRU cache (1GB limit, API responses)
-├── contexts/           # AI conversation history (per-group JSON)
-├── vectors/            # Vector embeddings (per-group, 200MB max)
-├── cookies.json        # Bilibili credentials (global only)
-├── cookies_map.json    # Cookie account mapping
-├── subfollowers.json   # Subscription follower state
-└── subscriptions.json  # Subscription mappings
-```
+The Python implementation under `/src/services/bili_server_core/` is the Bilibili data backend. Node-side code treats it as an external boundary through `biliApi.js`, while the Python side handles Bilibili-specific fetching and normalization.
 
-**Atomic Write Pattern:** Used throughout via `storageUtils.js`:
-```javascript
-// Write to temp → validate → rename (atomic operation)
-await asyncWriteWithBackup(filePath, data, createBackup=true)
-```
+- `bili_server.py` remains as a compatibility entry
+- `web/routes.py` defines the HTTP surface
+- `web/handlers.py` adapts requests into service calls
+- `services/` contains the content/domain logic
+- Node handlers, preview generation, and subscription checks consume the normalized results
 
-**5. Vector Memory Architecture**
+### Key Code Locations
 
-Three-tier caching (`vectorMemoryService.js`):
-- **L1:** In-memory vectors (200MB limit)
-- **L2:** LRU group cache (3 active groups max)
-- **L3:** Query-level cache (20 queries/group, 5min TTL)
+#### Bot runtime and transport
+- `/src/bot.js` — WebSocket lifecycle and runtime startup/shutdown
+- `/src/services/requestApprovalService.js` — OneBot request handling
+- `/src/services/subscriptionService.js` — subscription scheduling tied to bot lifecycle
 
-Memory is auto-trimmed when size limits are exceeded (10% default trim ratio).
+#### Message ingress and dispatch
+- `/src/handlers/messageHandler.js` — main QQ message ingress and routing
+- `/src/commands/index.js` — command dispatch entry
+- `/src/services/link/index.js` — link-domain entry for message preparation, extraction, cache helpers, and pipeline orchestration
+- `/src/handlers/linkHandler.js` — compatibility facade for legacy link callers during migration
+- `/src/services/notificationService.js` — outbound message delivery
 
-**6. Subscription System**
+#### AI pipeline
+- `/src/handlers/aiHandler.js` — AI orchestration entry
+- `/src/services/ai/` — AI support services for memory, gating, context, prompts, and execution control
 
-Facade pattern (`subscriptionService.js` → `subscription/SubscriptionManager.js`):
-- Periodic polling (default 60s interval)
-- Detects: new dynamics, videos, articles, live status changes, bangumi episodes
-- Cookie-based follow syncing (per-group)
-- Notifications sent to all subscribed groups
+#### Subscriptions and update checking
+- `/src/services/subscription/subscriptionManager.js` — subscription state and cookie followings
+- `/src/services/subscription/updateChecker/` — polling/checking implementation
+- `/src/services/subscription/updateChecker/modules/feed.js` — feed-specific skip and dispatch logic
 
-**Content Type Detection:**
+#### Bilibili service boundary and preview generation
+- `/src/services/biliApi.js` — Node client for the Python service
+- `/src/services/bili_server_core/web/routes.py` — Python HTTP routes
+- `/src/services/imageGenerator/index.js` — preview generation entry
+- `/src/services/imageGenerator/renderers/` — content-type HTML renderers
+- `/src/services/imageGenerator/generators/previewCard.js` — type-to-renderer preview assembly
 
-订阅系统支持多种内容类型推送：
-
-1. **视频投稿** (`checkUserVideo`):
-   - 使用 `/user_videos` API端点获取最新视频
-   - 状态追踪：`lastVideoId`
-   - 空数组处理：区分初始化/正常检查/强制检查三种场景
-
-2. **专栏文章** (`checkUserArticle`):
-   - 使用 `/user_articles` API端点获取最新专栏
-   - 状态追踪：`lastArticleId`
-   - 空数组处理：同视频投稿
-
-3. **动态更新** (`checkUserDynamic`):
-   - 获取用户动态流
-   - 状态追踪：`lastDynamicId`
-   - 应用去重逻辑（见下方）
-
-4. **直播状态** (`checkUserLive`):
-   - 检测开播/下播事件
-   - 状态追踪：`lastLiveStatus`
-
-**Feed Deduplication:**
-
-订阅系统自动跳过视频/专栏投稿的自动动态，避免重复推送：
-
-**跳过规则：**
-- 视频投稿自动动态：`major.type === 'MAJOR_TYPE_ARCHIVE'` 或 `item.type === 'DYNAMIC_TYPE_AV'`
-- 专栏投稿自动动态：`major.type === 'MAJOR_TYPE_OPUS'` 且 `jump_url` 匹配 `/read/cv\d+`
-
-**保留推送：**
-- 图文动态（Opus但不含专栏链接）
-- 转发动态、纯文字动态、直播推荐等
-
-**状态持久化：**
-- Cookie同步用户：状态存储在 `subscriptions.json` 的 `cookieFollowings` 字段
-- 手动订阅用户：状态存储在 `subscriptions` 数组中
-- 定期刷新（每小时）时必须保留所有状态字段
-
-**实现位置：**
-- `subscription/updateChecker/modules/feed.js` - `shouldSkipDynamic()`（动态去重逻辑）
-- `subscription/updateChecker/modules/unifiedChecks.js` - `checkUserVideoUnified()` 与 `checkUserArticleUnified()`（视频/专栏检查）
-- `subscription/subscriptionManager.js` - `setCookieFollowings()`（状态保留）
-- 在 `checkUserDynamic()` 与 `processDynamicFeed()` 调用链中生效
-
-### Critical Code Locations
-
-| Feature | Primary File | Key Function/Class |
-|---------|-------------|-------------------|
-| WebSocket connection | `/src/bot.js` | Lines 34-148 |
-| Message routing | `/src/handlers/messageHandler.js` | `handleMessage()` |
-| URL extraction | `/src/handlers/linkHandler.js` | `extractUrls()` |
-| Command dispatch | `/src/commands/index.js` | `dispatch()` |
-| AI context | `/src/handlers/aiHandler.js` | `getReply()` |
-| Vector search | `/src/services/vectorMemoryService.js` | `searchSimilar()` |
-| Config resolution | `/src/config.js` | Lines 84-200 (META) |
-| Image generation | `/src/services/imageGenerator/index.js` | `generatePreviewCard()` |
-| Python API | `/src/services/bili_server_core/` | `web/handlers.py` + `services/*.py` |
+#### Dashboard backend and frontend
+- `/src/dashboard/server.js` — Express host and static asset serving
+- `/src/dashboard/routes/api/index.js` — dashboard API composition root
+- `/src/dashboard/routes/api/modules/` — dashboard API domain modules
+- `/dashboard/src/pages/groups/` — groups management frontend
+- `/dashboard/src/pages/settings/` — settings frontend
+- `/dashboard/src/pages/logs/` — logs frontend
 
 ## Configuration System Deep Dive
 
@@ -328,78 +270,80 @@ All `config.json` writes are debounced (500ms) via `saveConfigDebounced()` to pr
 
 ### AI Function Toggles
 
-AI功能支持全局和群级分级开关：
+AI features use both global and group-level switches.
 
-**全局配置（META）：**
-- `aiEnabled`: 全局AI开关（默认true）
-- `aiRagEnabled`: 全局RAG开关（默认true）
+**Global config (`META`):**
+- `aiEnabled`: global AI switch (default `true`)
+- `aiRagEnabled`: global RAG switch (default `true`)
 
-**群级配置（groupConfigs[groupId]）：**
+**Group config (`groupConfigs[groupId]`):**
 ```javascript
 {
-  aiEnabled?: boolean,      // 可选，不设置则继承全局
-  aiRagEnabled?: boolean    // 可选，不设置则继承全局
+  aiEnabled?: boolean,      // optional, inherits the global value when unset
+  aiRagEnabled?: boolean    // optional, inherits the global value when unset
 }
 ```
 
-**权限检查函数：**
+**Helper checks:**
 ```javascript
-// 检查群是否启用AI功能
+// Check whether AI is enabled for the group
 config.isAiEnabledForGroup(groupId)
 
-// 检查群是否启用RAG功能（依赖AI启用）
+// Check whether RAG is enabled for the group (depends on AI)
 config.isRagEnabledForGroup(groupId)
 ```
 
-**依赖关系：**
-- RAG功能需要AI功能启用（AI关闭时RAG自动不可用）
-- 群级配置优先于全局配置
-- 全局开关可以强制关闭所有群的功能
+**Dependency rules:**
+- RAG requires AI to be enabled, so disabling AI also disables RAG
+- Group-level config takes precedence over the global setting
+- The global switches can force the feature off for every group
 
-**使用位置：**
-- `aiHandler.js` - AI回复前检查`isAiEnabledForGroup()`
-- `aiHandler.js` - 向量检索前检查`isRagEnabledForGroup()`
-- Dashboard - Settings页面管理全局开关
-- Dashboard - Groups页面管理群级开关
+**Used in:**
+- `aiHandler.js` - checks `isAiEnabledForGroup()` before generating an AI reply
+- `aiHandler.js` - checks `isRagEnabledForGroup()` before vector retrieval
+- Dashboard Settings - manages the global switches
+- Dashboard Groups - manages the group-level switches
 
 ### Cookie Management
 
-系统仅使用全局Cookie（`data/cookies.json`）进行Bilibili API认证：
+The system uses only the global cookie file (`data/cookies.json`) for Bilibili API authentication.
 
-- 所有群组共享同一个全局Cookie
-- 群级Cookie文件（`cookies_{groupId}.json`）已废弃
-- Dashboard Settings页面管理全局Cookie
-- Dashboard Groups页面不再显示Cookie管理选项
+- All groups share the same global cookie
+- Group-level cookie files such as `cookies_{groupId}.json` are deprecated
+- Dashboard Settings manages the global cookie
+- Dashboard Groups no longer exposes cookie management
 
 ## Message Handler Pipeline
 
-When a message arrives from QQ:
+When a message arrives from QQ, `messageHandler.js` processes it in this order:
 
-1. **Pre-checks** (`messageHandler.js`):
-   - Blacklist filtering (global + per-group)
-   - Group enabled/disabled status
-   - JSON mini-program extraction
+1. **Pre-checks**:
+   - Ignore self messages and reject unsupported private-chat entry cases early
+   - Apply blacklist filtering (global + per-group)
+   - Check whether the target group is enabled
+   - Extract JSON mini-program payloads when present
 
-2. **AI Context Recording**:
-   - All messages saved to `/data/contexts/{groupId}.json`
-   - Even if not replied to, used for future context
+2. **Context recording**:
+   - Save non-command conversation context to `/data/contexts/{groupId}.json`
+   - Record inputs that may later be used by AI memory/profile flows even when no reply is sent
 
-3. **Link Processing**:
-   - Regex extraction (10+ patterns for bilibili.com, b23.tv, etc.)
-   - Cache check (TTL from `linkCacheTimeout`)
-   - Fetch via `BiliApi` → Python service
-   - Generate preview image via `ImageGenerator`
+3. **Command handling**:
+   - Commands start with `/` (for example `/订阅用户 123456`)
+   - Run permission checks (user → group admin → root admin)
+   - Dispatch through `/src/commands/index.js`
+   - Return early when a command fully handles the message
 
-4. **Command Handling**:
-   - Commands start with `/` (e.g., `/订阅用户 123456`)
-   - Permission check (user → group admin → root admin)
-   - Dispatch to appropriate command module
+4. **Link processing**:
+   - Extract supported Bilibili URLs from the remaining message text
+   - Apply link cache checks (`linkCacheTimeout`)
+   - Fetch normalized data through `BiliApi` → Python service
+   - Generate preview images through `ImageGenerator`
 
-5. **AI Processing**:
-   - Probability check (`aiProbability` or `@bot` mention)
-   - Vector memory search for relevant context
-   - Build prompt with history + retrieved memories
-   - Call LLM API (supports OpenAI-compatible endpoints)
+5. **AI processing**:
+   - Check reply admission (`aiProbability`, mentions, and related gating)
+   - Search vector memory for relevant context when enabled
+   - Build the prompt from history and retrieved context
+   - Call the configured LLM endpoint
 
 ## Bilibili Content Types
 
@@ -418,42 +362,15 @@ When a message arrives from QQ:
 
 ### Adding New Content Type Support
 
-1. **Add URL regex** to `/src/handlers/linkHandler.js`:
-```javascript
-const MY_TYPE_REGEX = /pattern/
-```
+For a new Bilibili content type, keep the chain aligned instead of following a fixed scaffold:
 
-2. **Add Python service function** to the appropriate module under `/src/services/bili_server_core/services/`:
-```python
-async def get_my_type_info(id, group_id=None):
-    # Use bilibili_api classes
-    return {"status": "success", "type": "my_type", "data": info}
-```
+1. Add or extend URL detection in `/src/services/link/linkExtractor.js` (and the structured/regex parsers it composes)
+2. Add or register the type handler under `/src/services/link/linkTypes/` and `/src/services/link/linkRegistry.js`
+3. Expose normalized data from the Python service boundary under `/src/services/bili_server_core/` when the existing endpoints are not enough
+4. Add preview rendering support under `/src/services/imageGenerator/renderers/` and wire the type in `/src/services/imageGenerator/generators/previewCard.js`
+5. Only add Dashboard or subscription handling if that content type actually needs those entry points
 
-3. **Add web handler + route**:
-```python
-# /src/services/bili_server_core/web/handlers.py
-async def handle_my_type(request):
-    ...
-
-# /src/services/bili_server_core/web/routes.py
-web.post('/my_type', handle_my_type)
-```
-
-4. **Add renderer** to `/src/services/imageGenerator/renderers/mytype.js`:
-```javascript
-function renderMyType(data, opts) {
-    return `<html>...</html>`
-}
-module.exports = { renderMyType }
-```
-
-5. **Update generator** in `/src/services/imageGenerator/generators/previewCard.js`:
-```javascript
-case 'my_type':
-    html = renderMyType(data, opts)
-    break
-```
+The important part is that the Node side continues to consume a normalized `type + data` result instead of duplicating Bilibili-specific parsing in multiple places. `src/handlers/linkHandler.js` is now a compatibility facade, not the primary extension point for new link types.
 
 ## Command System
 
@@ -475,19 +392,13 @@ module.exports = {
 
 ### Adding a New Command
 
-1. Create file in `/src/commands/` (e.g., `mycommand.js`)
-2. Implement `execute` function with permission checks
-3. Register in `/src/commands/index.js`:
-```javascript
-const myCommand = require('./mycommand')
+Keep command work centered on the existing dispatch path:
 
-async function dispatch(context) {
-    if (message.startsWith('/mycommand')) {
-        return await myCommand.execute(context)
-    }
-    // ...
-}
-```
+1. Add or update the command module under `/src/commands/`
+2. Wire the trigger in `/src/commands/index.js`, which remains the dispatch entry
+3. Keep permission checks and response shape consistent with neighboring commands
+
+Prefer extending the current command flow over introducing parallel entry points or command-local routing.
 
 ### Permission Levels
 
@@ -555,31 +466,62 @@ MCPManager automatically discovers tools and makes them available to AI via func
 
 ## Dashboard Architecture
 
-### Backend (Express)
+This section focuses on concrete implementation entry points and extension locations. For the higher-level backend/frontend split, see `Architecture Overview > Dashboard Architecture`.
+
+### Backend Entry Points
 
 Located in `/src/dashboard/`:
-- **server.js:** Express app setup, static file serving
-- **routes/api.js:** Compatibility entry (re-export), implementation split under `routes/api/`
-- **routes/api/index.js + routes/api/modules/*.js:** RESTful endpoints for config, groups, subscriptions
-- **middleware/auth.js:** JWT authentication
+- **server.js:** Express app setup and static asset serving
+- **routes/api.js:** compatibility entry (re-export)
+- **routes/api/index.js:** API composition root
+- **routes/api/modules/*.js:** domain route modules for config, groups, subscriptions, and related features
+- **middleware/auth.js:** JWT authentication middleware
 
-### Frontend (React/Vite)
+### Frontend Entry Points
 
 Located in `/dashboard/src/`:
-- **Pages:** Dashboard, Login, Groups, Settings, Logs
-- **Components:** GlassCard, GlassModal (Tailwind + glassmorphism)
-- **API Client:** `/dashboard/src/utils/auth.js` with Axios + JWT interceptor
+- **App.jsx:** frontend routing entry
+- **pages/**: page implementations such as Dashboard, Login, Groups, Settings, and Logs
+- **components/**: shared UI components
+- **utils/auth.js:** Axios client and JWT interceptor
 
 ### Adding Dashboard Features
 
-1. **Backend API:** Add route module under `/src/dashboard/routes/api/modules/`, then register it in `/src/dashboard/routes/api/index.js` (keep `/src/dashboard/routes/api.js` as compatibility entry)
-2. **Frontend Page:** Create in `/dashboard/src/pages/`
+1. **Backend API:** Add a route module under `/src/dashboard/routes/api/modules/`, then register it in `/src/dashboard/routes/api/index.js` (keep `/src/dashboard/routes/api.js` as the compatibility entry)
+2. **Frontend page/flow:** Add or update the page under `/dashboard/src/pages/`
 3. **Routing:** Update `/dashboard/src/App.jsx`
-4. **Build:** `cd dashboard && npm run build` (outputs to `dashboard/dist`)
+4. **Build:** Run `cd dashboard && npm run build` so the bot serves the updated `dashboard/dist`
 
-## Testing Strategy
+## Testing & Verification
 
-All test files and generated preview outputs are organized in the `/test/` directory.
+Use the existing verification paths in this repository before adding new ad-hoc checks. Most changes can be validated with a combination of unit tests, Dashboard frontend checks, preview regression tools, and health/log inspection.
+
+### Verification Paths
+
+**Automated checks:**
+```bash
+# Root unit tests (mocha)
+npm test
+
+# Run one test file when narrowing a regression
+node test/unit/detectChargingContent.test.js
+
+# Dashboard frontend checks
+cd dashboard && npm run lint
+cd dashboard && npm run build
+```
+
+`npm test` is a real entry point and runs `mocha --exit "test/unit/**/*.test.js"`.
+
+**Preview and rendering checks:**
+- Use `tools/preview-lab.js` for targeted local preview regression and write outputs to `test/output/`
+- Use `tools/preview-lab-web.js` for browser-based manual inspection when comparing layouts or styles
+- Prefer these tools over temporary one-off render scripts for preview/card issues
+
+**Service and runtime checks:**
+- Use `curl http://localhost:10001/health` to confirm the Python service is alive before debugging downstream failures
+- Use the Dashboard Logs page and `logs/application.log` to confirm actual runtime behavior before adding instrumentation
+- For subscription/API issues, verify the relevant endpoint or runtime status first, then narrow to code
 
 ### Test Organization
 
@@ -591,78 +533,52 @@ test/
 ```
 
 **Naming Convention:**
-- Test files: `*.test.js` or `test_*.js`
+- Test files: `*.test.js`
 - Generated previews: write directly to `test/output/`
 
-### Current Testing Status
+### Choosing the Fastest Check
 
-Unit tests exist in `test/unit/` and cover core modules such as message/link handlers, update checker, vector memory, dashboard API behavior, and video download config. `npm test` is still a placeholder — run individual files with `node`.
-
-### Recommended Test Coverage
-
-**Unit Tests (to be added in test/unit/):**
-- Config resolution logic (`.env` → `config.json` → defaults)
-- Link extraction regex patterns
-- Vector memory LRU eviction
-- AI context message cleaning (CQ code removal)
-- Storage utils (size checks, atomic writes)
-- Subscription system state management
-
-**Integration Tests (future expansion):**
-- WebSocket message routing
-- Python service communication
-- Dashboard API routes
-- Subscription polling cycle
-- Image generation pipeline
-
-**Mocking Targets:**
-- `ws` for WebSocket events
-- `axios` for Bilibili API responses
-- `fs` for file I/O operations
-- `puppeteer` browser instances
-
-### Running Tests
-
-```bash
-# Run all tests (when implemented)
-npm test
-
-# Run specific test file
-node test/unit/detectChargingContent.test.js
-```
+- **Node/backend logic change:** start with `npm test`
+- **Dashboard UI/config change:** run `cd dashboard && npm run lint && npm run build`
+- **Preview card/rendering change:** run `node tools/preview-lab.js ...` and inspect output in `test/output/`
+- **Browser/manual preview comparison:** run `node tools/preview-lab-web.js`
+- **Python/Bilibili service issue:** run `/health` and inspect logs before changing code
 
 ## Documentation Organization
 
-All documentation is organized in the `/docs/` directory with specific subdirectories for different purposes.
+All project documentation is organized under `/docs/`, with plans and records separated by lifecycle stage.
 
 ### Directory Structure
 
-**docs/plans/** - Active implementation/design plans:
+**docs/plans/** - Active plans and new planning documents:
 - Markdown format (`.md` files)
 - Named with date prefix: `YYYY-MM-DD-topic.md`
-- Contains: requirements, approach, implementation steps, risks
-- New plans should be written here first
+- Contains: context, problem, solution, implementation steps, verification, risks
+- All new plan documents should be created here by default
+- If you are unsure where a future implementation/design note belongs, put it in `docs/plans/`
 
 **docs/done/** - Completed implementation/design records:
 - Move files from `docs/plans/` to `docs/done/` after execution is complete
-- May also contain execution/retrospective records
-- Preserves history of decisions and completed work
+- May also contain retrospectives, diagnosis notes, and completed records
+- Preserves implementation history and decision outcomes
 
 **docs/images/** - Screenshots and diagrams:
 - Architecture diagrams
 - UI screenshots
-- Flow charts and visualizations
+- Flow charts and visual references
 
 **docs/napcat_interface/** - NapCat interface documentation and related materials.
 
 ### Documentation Best Practices
 
-**When to Create a Plan/Record Document:**
+**When to Create a Plan Document:**
 - Multi-file changes affecting 3+ files
-- Complex logic changes (e.g., subscription system)
+- Complex logic changes (for example, subscription flow or config behavior)
 - New feature implementation
 - Refactoring with architectural impact
-- Placement rule: create in `docs/plans/`, move to `docs/done/` when finished
+- Any follow-up implementation plan requested during future work
+
+Rule: create the plan in `docs/plans/` first, and only move it to `docs/done/` after the work is finished.
 
 **When to Add Investigation Notes:**
 - Non-obvious bugs requiring investigation
@@ -766,113 +682,72 @@ docker-compose up -d
 
 ## Debugging Tips
 
-### Enable Verbose Logging
+Prefer existing observability and verification tools before editing source code to add logs. In most cases you can confirm the failing layer by checking runtime logs, the Dashboard Logs page, preview regression tools, and Python health/API reachability.
 
-Edit `/src/utils/logger.js` to set log level:
-```javascript
-logger.level = 'DEBUG'  // Change from INFO
-```
+### Start With Existing Signals
 
-**Important:** Critical checks should use `logger.info()` or higher to ensure they're visible in production.
+Check these in order before changing code:
+
+1. **Dashboard Logs page** - fastest way to inspect recent runtime behavior from the Web UI
+2. **Application logs** - inspect `logs/application.log` locally or container logs in Docker
+3. **Python health check** - confirm the service is actually alive: `curl http://localhost:10001/health`
+4. **Preview tools** - reproduce card/rendering issues with `tools/preview-lab.js` or `tools/preview-lab-web.js`
+5. **Targeted tests/builds** - run `npm test`, `cd dashboard && npm run lint`, or `cd dashboard && npm run build` depending on the change surface
+
+Only add temporary instrumentation after the existing logs and checks are insufficient.
 
 ### Monitor Python Service
 
 ```bash
-# Check if Python service is running
+# Check whether something is listening on the Python service port
 lsof -i :10001
 
-# View Python service logs
-docker logs bili-qq-bot | grep PyServer
-
-# Or in local dev
-tail -f logs/application.log | grep bili_server
-
-# Test Python service health
+# Health check
 curl http://localhost:10001/health
 
-# Verify API endpoints exist
+# Verify a specific API endpoint exists
 curl -X POST http://localhost:10001/user_videos -H "Content-Type: application/json" -d '{"uid": "123"}'
+
+# Docker logs
+docker logs bili-qq-bot | grep PyServer
 ```
+
+For local development, inspect `logs/application.log` before assuming the Node side is at fault.
 
 **Python Service Troubleshooting:**
-- If API returns 404: Check if service is running old version (orphan process)
-- If service not responding: Check logs for startup errors
-- If authentication fails: Verify `data/cookies.json` has valid BUVID3
+- If an endpoint returns 404, first suspect an old/orphaned Python process still holding port `10001`
+- If `/health` fails, debug service startup before investigating higher layers
+- If authentication fails, verify `data/cookies.json` includes valid cookie/device fields such as `BUVID3`
 
-### Inspect WebSocket Messages
+### Preview and Rendering Debugging
 
-Add debug logging in `/src/bot.js`:
-```javascript
-ws.on('message', (data) => {
-    logger.debug('[WS Raw]', data.toString())
-    // ... existing code
-})
+For preview card issues, prefer the existing tools over ad-hoc debug scripts:
+
+```bash
+# CLI preview regression
+node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
+
+# Browser-based preview inspection
+node tools/preview-lab-web.js
 ```
 
-### Check Cache Status
-
-Cache is in-memory LRU. To inspect:
-```javascript
-// In cacheManager.js, add:
-function getCacheStats() {
-    return {
-        size: cache.size,
-        totalSize: currentSize,
-        limit: MAX_CACHE_SIZE
-    }
-}
-```
+Write generated outputs to `test/output/` and compare there.
 
 ### Subscription State Debugging
 
-Check current subscription states:
-```javascript
-// In subscriptionManager.js or via Dashboard API
-const state = {
-    manualSubs: subscriptions,
-    cookieSubs: cookieFollowings
-}
-console.log(JSON.stringify(state, null, 2))
-```
+When debugging subscription regressions, inspect persisted state and logs first. Focus on whether the state fields are present and whether a refresh path overwrote them.
 
 Look for:
-- Missing `lastVideoId` or `lastArticleId` fields (indicates state not persisted)
-- Null values (indicates initialization state)
-- Unexpected resets (indicates refresh overwrote state)
+- Missing `lastDynamicId`, `lastLiveStatus`, `lastVideoId`, or `lastArticleId`
+- Null values that indicate initialization state
+- State values reverting after cookie-following refresh
 
-### Creating Debug Scripts
+### When to Add Temporary Instrumentation
 
-When investigating complex issues, create one-off scripts under `/test/` (prefer temporary local usage and clean up after use):
-
-```javascript
-// test/temp_subscription_state.js
-const subscriptionManager = require('../src/services/subscription/subscriptionManager')
-
-async function main() {
-    // Load current state
-    await subscriptionManager.loadSubscriptions()
-
-    // Test specific functionality
-    const user = subscriptionManager.getCookieFollowingState('123456')
-    console.log('User state:', user)
-
-    // Verify state preservation after refresh
-    await subscriptionManager.refreshCookieFollowings()
-    const userAfter = subscriptionManager.getCookieFollowingState('123456')
-    console.log('User state after refresh:', userAfter)
-
-    // Compare states
-    console.log('State preserved:', JSON.stringify(user) === JSON.stringify(userAfter))
-}
-
-main().catch(console.error)
-```
-
-**Remember to:**
-- Write generated preview images to `test/output/`
-- Document findings in `/docs/done/`
-- Remove one-off scripts after investigation
-- Add relevant insights to MEMORY.md
+Only after logs, health checks, preview tools, and tests/builds are not enough:
+- Add the smallest possible temporary log
+- Prefer existing logger paths over broad source edits
+- Remove temporary instrumentation after the issue is understood or fixed
 
 ## Code Style Conventions
 
@@ -928,14 +803,14 @@ if (!isRoot) {
 
 ### Private Chat Restriction
 
-私聊入口仅限 Root 管理员（`ADMIN_QQ`）使用：
+Private-chat entry is limited to the root administrator (`ADMIN_QQ`).
 
-1. 非 Root 私聊消息会被直接拒绝（提示“此功能仅限管理员使用”）。
-2. Root 私聊可用能力：聊天/AI/链接解析/下载。
-3. Root 私聊不支持群管理能力：`/设置`、`/管理`、订阅管理（`/订阅*`、`/取消订阅*`、`/查询订阅`）会被统一拒绝，并提示在目标群聊或 WebUI 操作。
-4. WebUI 群管理域仅允许数字群号；`private_*` 会返回 `400 WebUI 不支持私聊会话管理`。
+1. Private messages from non-root users are rejected immediately with the message indicating that the feature is admin-only.
+2. Root private chat can use chat, AI, link parsing, and download features.
+3. Root private chat cannot use group-management features such as `/设置`, `/管理`, or subscription management commands (`/订阅*`, `/取消订阅*`, `/查询订阅`); those flows must be handled in the target group or through the Web UI.
+4. The Web UI group-management scope only accepts numeric group IDs. Requests using `private_*` return `400 WebUI 不支持私聊会话管理`.
 
-群管理员（非 Root）无法使用私聊功能。
+Group admins who are not root cannot use private-chat entry.
 
 ## Performance Optimization
 
@@ -959,27 +834,27 @@ if (!isRoot) {
 
 ## Common Pitfalls
 
-1. **Missing BUVID3:** Bilibili API returns 412 errors without valid device fingerprint. Ensure cookies include BUVID3 field.
+1. **Stringify `groupId` early**: JavaScript object keys are string-keyed in practice. Convert all group session IDs to `String(groupId)` before they touch config, caches, context storage, or Dashboard APIs, otherwise you can hit subtle mismatches such as `groupConfigs[123] !== groupConfigs["123"]`.
 
-2. **Tab State Drift:** In Groups page, avoid hardcoded tab indices. Keep tab definitions centralized in `dashboard/src/pages/groups/constants/tabs.js` and align submit/load logic with tab keys.
+2. **A private session is not a numeric group**: Private conversations use the `private_<userId>` form and must not be treated as numeric group IDs. The Web UI group-management scope accepts only numeric groups, so passing `private_*` into that path causes semantic errors or a direct `400` response.
 
-3. **Group Config Not Loaded:** Always call `ensureGroupConfig(groupId)` before accessing `groupConfigs[groupId]`.
+3. **Do not key Groups page tab state by index**: Avoid hard-coded tab indices. Keep `dashboard/src/pages/groups/constants/tabs.js` as the single source of truth, and base loading, submit, and default-active logic on tab keys instead of positions.
 
-4. **Python Service Timeout:** Default idle shutdown is 1 hour. Increase in `ServiceManager.js` if needed.
+4. **Keep Dashboard forms and APIs in sync**: When adding or changing config fields, update the frontend form, backend allowlist, read endpoints, and write endpoints together. Changing only one side creates false-success states where the UI shows a setting that does not persist, or the API supports a field that the UI cannot save.
 
-5. **WebSocket Reconnection:** Connection state managed in `bot.js`. Never manually reconnect in handlers.
+5. **Ensure group config exists before reading it**: Call `ensureGroupConfig(groupId)` before accessing `groupConfigs[groupId]`, especially on new groups, edge-session paths, or migration paths where the object may not exist yet.
 
-6. **Atomic Write Violations:** Always use `asyncWriteWithBackup()` for data files to prevent corruption.
+6. **Orphaned Python processes can mask the real version**: After the bot exits, an older Python service may still hold port `10001`. If `/health` or a specific endpoint behaves unexpectedly, check `lsof -i :10001` first before assuming the current code failed to start or did not take effect.
 
-7. **GroupId类型不一致**：JavaScript对象键必须是字符串。确保所有groupId在使用前转换为字符串：`String(groupId)`。WebSocket消息中的groupId可能是数字类型，必须立即转换以确保配置访问正确（`groupConfigs[123] !== groupConfigs["123"]`）。
+7. **Preserve all subscription state fields on refresh paths**: Refresh flows such as `refreshCookieFollowings()` must not drop state fields. `setCookieFollowings()` or equivalent merge logic must preserve `lastDynamicId`, `lastLiveStatus`, `lastVideoId`, and `lastArticleId`, otherwise the system can fall back into initialization state and cause missed or duplicate notifications.
 
-8. **数组越界访问**：在访问数组元素前必须检查数组长度。订阅系统中的 `newVideos[0]` 和 `newArticles[0]` 在空数组时会返回 `undefined`。使用提前失败原则：`if (array.length === 0) return`。
+8. **Check array length before indexing**: In subscription and fetch logic, do not read `newVideos[0]`, `newArticles[0]`, or similar values without guarding for empty arrays first. Short-circuit empty results early so `undefined` does not leak into state updates or notification flows.
 
-9. **Python服务版本不匹配**：Bot退出后Python服务可能成为孤儿进程继续运行。重启Bot前先检查进程：`lsof -i :10001`，必要时手动终止旧进程。考虑在启动时验证必需的API端点是否可用。
+9. **Python API field names may differ across endpoints**: Username fields may appear as `name` or `uname` depending on the endpoint. Use a defensive fallback such as `follower.name || follower.uname || 'Unknown'`.
 
-10. **订阅状态字段丢失**：`refreshCookieFollowings()` 定期刷新会覆盖状态。在 `setCookieFollowings()` 中必须保留所有状态字段（`lastDynamicId`、`lastLiveStatus`、`lastVideoId`、`lastArticleId`），不能只保留部分。
+10. **Do not bypass the standard atomic write path**: Data-file writes should use existing atomic helpers such as `asyncWriteWithBackup()` to avoid corrupting config or subscription state during interrupted writes.
 
-11. **Python API字段名不一致**：不同API端点返回的用户名字段可能不同（`uname` vs `name`）。使用前先检查Python服务返回的实际字段名，必要时使用 `||` 运算符提供回退：`follower.name || follower.uname || 'Unknown'`。
+11. **Do not take over connection lifecycle inside handlers**: WebSocket reconnection and runtime-state transitions are owned centrally by `bot.js`. Business handlers should not initiate reconnects or maintain parallel connection state.
 
 ## Useful Code Patterns
 

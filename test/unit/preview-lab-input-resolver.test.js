@@ -34,6 +34,39 @@ async function testResolvePreviewInputKeepsOnlyFirstRecognizedLink() {
     assert.ok(!resolved.normalizedInput.includes('[CQ:'), '应去掉 CQ 码')
 }
 
+async function testResolvePreviewInputUsesLinkServicesDeps() {
+    let expandCalled = false
+    let extractCalled = false
+
+    const resolved = await resolvePreviewInput('https://b23.tv/mock', { groupId: '1000' }, {
+        linkServices: {
+            async expandShortLinks(input) {
+                expandCalled = true
+                assert.strictEqual(input, 'https://b23.tv/mock')
+                return 'https://www.bilibili.com/video/BV1ZHiyBkExG'
+            },
+            extractLinksFromMessage(input, groupId) {
+                extractCalled = true
+                assert.strictEqual(input, 'https://www.bilibili.com/video/BV1ZHiyBkExG')
+                assert.strictEqual(groupId, '1000')
+                return [{
+                    type: 'video',
+                    id: 'BV1ZHiyBkExG',
+                    cacheKey: 'video|BV1ZHiyBkExG|1000',
+                    match: 'https://www.bilibili.com/video/BV1ZHiyBkExG',
+                    meta: {},
+                    sourceToken: 'https://www.bilibili.com/video/BV1ZHiyBkExG'
+                }]
+            }
+        }
+    })
+
+    assert.strictEqual(expandCalled, true)
+    assert.strictEqual(extractCalled, true)
+    assert.strictEqual(resolved.resolvedLink.type, 'video')
+    assert.strictEqual(resolved.resolvedLink.id, 'BV1ZHiyBkExG')
+}
+
 async function testResolvePreviewInputThrowsWhenNoLinkFound() {
     let error = null
     try {
@@ -48,6 +81,7 @@ async function testResolvePreviewInputThrowsWhenNoLinkFound() {
 async function run() {
     await testResolvePreviewInputRecognizesSupportedLinkTypes()
     await testResolvePreviewInputKeepsOnlyFirstRecognizedLink()
+    await testResolvePreviewInputUsesLinkServicesDeps()
     await testResolvePreviewInputThrowsWhenNoLinkFound()
     console.log('PASS preview-lab-input-resolver')
 }

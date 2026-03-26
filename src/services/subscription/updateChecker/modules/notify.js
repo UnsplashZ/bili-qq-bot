@@ -234,12 +234,12 @@ module.exports = {
         })
 
         // 添加链接到缓存
-        const linkHandler = require('../../../../handlers/linkHandler')
+        const { cacheResolvedText } = require('../../../../services/link')
         const cacheGroupIds = Array.isArray(notifyResult?.successGroups)
             ? notifyResult.successGroups
             : groupIds
         for (const groupId of cacheGroupIds) {
-            linkHandler.addUrlToCache(textUrl, groupId)
+            cacheResolvedText(textUrl, groupId)
         }
 
         return {
