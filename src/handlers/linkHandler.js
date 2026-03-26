@@ -5,7 +5,13 @@ const config = require('../config')
 const cacheManager = require('../utils/cacheManager')
 const notificationService = require('../services/notificationService')
 const { shortLinkRegex, expandShortUrl } = require('../services/link/shortLinkExpander')
-const { extractLinksFromMessage } = require('../services/link/linkExtractor')
+const {
+    extractLinksFromMessage,
+    cacheResolvedText,
+    isCached,
+    markProcessed,
+    cleanupExpired
+} = require('../services/link')
 
 const LINK_CACHE_SCOPE = logger.createScope('svc', 'link-cache');
 
@@ -13,9 +19,6 @@ class LinkHandler {
     constructor() {
         // Regex for Short Links (b23.tv/xxxx)
         this.shortLinkRegex = shortLinkRegex
-
-        // Link processing cache
-        this.linkCache = new Map();
 
         // 🆕 Request ID counter for error tracking
         this.requestIdCounter = 0;
@@ -41,62 +44,17 @@ class LinkHandler {
 
     // 检查单个链接是否在缓存中
     isLinkCached(cacheKey) {
-        if (this.linkCache.has(cacheKey)) {
-            const cachedTime = this.linkCache.get(cacheKey);
-
-            // Parse groupId from cacheKey: type|id|groupId
-            // Use lastIndexOf to safely extract groupId
-            const lastSeparatorIndex = cacheKey.lastIndexOf('|');
-            // If separator not found (index -1), check if it might be old format (underscore)
-            // But for simplicity and correctness with new format, we strictly look for |
-            // If no | found, it might be a key without groupId, or old key. 
-            // For backward compatibility with running memory, we could check _, but since it's just cache, letting it expire is fine.
-            
-            let groupId = null;
-            if (lastSeparatorIndex !== -1) {
-                groupId = cacheKey.substring(lastSeparatorIndex + 1);
-            } else {
-                 // Fallback for global cache keys without groupId (type|id) -> groupId remains null
-            }
-
-            // Get timeout for this group
-            const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
-            const timeout = (timeoutSeconds || 300) * 1000;
-
-            if (Date.now() - cachedTime < timeout) {
-                this.log('info', LINK_CACHE_SCOPE, 'cache-hit', {
-                    cacheKey
-                });
-                return true;
-            } else {
-                // 缓存已过期，删除它
-                this.linkCache.delete(cacheKey);
-            }
-        }
-        return false;
+        return isCached(cacheKey)
     }
 
     // 将链接添加到缓存
     addLinkToCache(cacheKey) {
-        this.linkCache.set(cacheKey, Date.now());
-        this.cleanupExpiredCache();
+        return markProcessed(cacheKey)
     }
 
     // 清理过期的缓存项
     cleanupExpiredCache() {
-        const now = Date.now();
-        for (const [key, time] of this.linkCache.entries()) {
-            // Use lastIndexOf to safely extract groupId
-            const lastSeparatorIndex = key.lastIndexOf('|');
-            const groupId = lastSeparatorIndex !== -1 ? key.substring(lastSeparatorIndex + 1) : null;
-
-            const timeoutSeconds = config.getGroupConfig(groupId, 'linkCacheTimeout');
-            const timeout = (timeoutSeconds || 300) * 1000;
-
-            if (now - time >= timeout) {
-                this.linkCache.delete(key);
-            }
-        }
+        return cleanupExpired()
     }
 
     // Helper to get data with cache
@@ -583,33 +541,30 @@ class LinkHandler {
             this.log('warn', LINK_CACHE_SCOPE, 'cache-add-skipped', {
                 reason: 'missing_url_or_group',
                 groupId
-            });
-            return;
+            })
+            return {
+                addedCount: 0,
+                cacheKeys: []
+            }
         }
 
-        // 提取链接信息
-        const links = this.extractLinks(url, groupId);
-        if (links.length === 0) {
+        const result = cacheResolvedText(url, groupId)
+        if (result.addedCount === 0) {
             this.log('debug', LINK_CACHE_SCOPE, 'cache-add-skipped', {
                 reason: 'no_valid_links',
                 groupId
-            });
-            return;
+            })
+            return result
         }
 
-        // 获取群组的缓存超时配置
-        const groupConfig = config.groupConfigs[groupId] || {};
-        const timeout = (groupConfig.linkCacheTimeout ?? config.linkCacheTimeout ?? 600) * 1000;
-
-        // 添加所有提取到的链接到缓存
-        for (const link of links) {
-            const { cacheKey } = link;
-            this.linkCache.set(cacheKey, Date.now());
+        for (const cacheKey of result.cacheKeys) {
             this.log('debug', LINK_CACHE_SCOPE, 'cache-added', {
                 cacheKey,
-                timeoutMs: timeout
-            });
+                groupId
+            })
         }
+
+        return result
     }
 }
 
