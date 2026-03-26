@@ -1,6 +1,7 @@
 'use strict'
 
 const assert = require('assert')
+const logger = require('../../src/utils/logger')
 
 const linkRegistry = require('../../src/services/link/linkRegistry')
 const linkFetchService = require('../../src/services/link/linkFetchService')
@@ -248,9 +249,49 @@ describe('link service infrastructure contracts', function () {
             ws,
             groupId: '10001',
             descriptor,
-            info
+            info,
+            scope: 'msg:10001:20002:30003'
         })
 
         assert.deepStrictEqual(calls, [[ws, '10001', 'BV1download', info]])
+    })
+
+    it('does not wait for video download completion and logs async dispatch failures', async function () {
+        const calls = []
+        const logs = []
+        let rejectDownload
+        const off = logger.onLog((entry) => logs.push(entry.message))
+
+        try {
+            videoDownloadService.downloadAndSend = (...args) => {
+                calls.push(args)
+                return new Promise((_, reject) => {
+                    rejectDownload = reject
+                })
+            }
+
+            const context = {
+                ws: { name: 'socket' },
+                groupId: '10001',
+                descriptor: { id: 'BV1async' },
+                info: { title: 'video title' },
+                scope: 'msg:10001:20002:30003'
+            }
+
+            await videoHandler.afterSend(context)
+            assert.deepStrictEqual(calls, [[context.ws, '10001', 'BV1async', context.info]])
+
+            rejectDownload(new Error('download failed'))
+            await new Promise((resolve) => setImmediate(resolve))
+
+            assert.ok(logs.some(line =>
+                line.includes('ERR LINK')
+                && line.includes('[msg:10001:20002:30003]')
+                && line.includes('download-dispatch-failed')
+                && line.includes('linkId=BV1async')
+            ))
+        } finally {
+            off()
+        }
     })
 })

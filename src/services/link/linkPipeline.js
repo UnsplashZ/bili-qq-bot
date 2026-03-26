@@ -57,6 +57,21 @@ async function sendFallbackText(descriptor, url, text, context, options) {
 
 function defaultSendGroupMessage() {}
 
+function buildFetchFailureText(handler, info, descriptor, targetUrl) {
+    if (typeof handler.buildFetchFailureText === 'function') {
+        const customText = handler.buildFetchFailureText(info, descriptor)
+        if (customText) {
+            return customText
+        }
+    }
+
+    if (!targetUrl) {
+        return null
+    }
+
+    return `获取信息失败，已降级为文本链接：\n${targetUrl}`
+}
+
 async function prepareRender(handler, info, descriptor, groupId) {
     if (typeof handler.prepareRender === 'function') {
         return handler.prepareRender({
@@ -109,11 +124,28 @@ async function processDescriptor(descriptor, context, options) {
         const fallbackUrl = handler.buildUrl(descriptor, info)
 
         if (!info || info.status !== 'success') {
+            const failureText = buildFetchFailureText(handler, info, descriptor, fallbackUrl)
+            if (!failureText) {
+                return {
+                    descriptor,
+                    cacheKey,
+                    status: 'failed',
+                    reason: 'fetch_failed',
+                    infoStatus: info?.status,
+                    error: info?.message || '',
+                    fromDataCache: fromCache
+                }
+            }
+
+            const sent = await sendFallbackText(descriptor, fallbackUrl, failureText, context, options)
+            linkCacheService.markProcessedDescriptor({ ...descriptor, cacheKey })
+
             return {
                 descriptor,
                 cacheKey,
-                status: 'failed',
+                status: sent.status,
                 reason: 'fetch_failed',
+                url: sent.url,
                 infoStatus: info?.status,
                 error: info?.message || '',
                 fromDataCache: fromCache

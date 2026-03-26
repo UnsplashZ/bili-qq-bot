@@ -36,7 +36,7 @@ describe('linkCacheService', function () {
         assert.strictEqual(linkCacheService.isCached(cacheKey), true)
     })
 
-    it('cleans up expired entries using the timeout snapped at write time', function () {
+    it('keeps existing entries when the group timeout is extended before cleanup', function () {
         config.groupConfigs['expire-group'] = { linkCacheTimeout: 1 }
 
         const cacheKey = 'dynamic|123456|expire-group'
@@ -46,10 +46,10 @@ describe('linkCacheService', function () {
 
         linkCacheService.cleanupExpired()
 
-        assert.strictEqual(linkCacheService.isCached(cacheKey), false)
+        assert.strictEqual(linkCacheService.isCached(cacheKey), true)
     })
 
-    it('keeps existing cache entry expiry unchanged after group timeout changes', function () {
+    it('expires existing cache entries immediately when the group timeout is shortened', function () {
         config.groupConfigs['test-group'] = { linkCacheTimeout: 60 }
 
         const cacheKey = 'video|BV1xx411c7mD|test-group'
@@ -57,6 +57,6 @@ describe('linkCacheService', function () {
         linkCacheService.__setCacheTimeForTests(cacheKey, Date.now() - 30000)
         config.groupConfigs['test-group'].linkCacheTimeout = 10
 
-        assert.strictEqual(linkCacheService.isCached(cacheKey), true)
+        assert.strictEqual(linkCacheService.isCached(cacheKey), false)
     })
 })

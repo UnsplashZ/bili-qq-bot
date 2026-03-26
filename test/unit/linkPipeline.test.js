@@ -113,6 +113,7 @@ describe('linkPipeline', function () {
 
     it('deduplicates descriptors by cacheKey before processing fetch failures', async function () {
         let fetchCount = 0
+        const sentMessages = []
 
         const result = await linkPipeline.processLinkDescriptors([{
             type: 'video',
@@ -142,16 +143,112 @@ describe('linkPipeline', function () {
                     fromCache: false
                 }
             },
-            sendGroupMessage: async () => {}
+            sendGroupMessage: async (ws, groupId, messageChain, userId) => {
+                sentMessages.push({ ws, groupId, messageChain, userId })
+            }
         })
 
         assert.strictEqual(fetchCount, 1)
         assert.strictEqual(result.foundCount, 2)
         assert.strictEqual(result.results.length, 1)
+        assert.strictEqual(result.successCount, 1)
+        assert.strictEqual(result.failureCount, 0)
+        assert.strictEqual(result.results[0].status, 'sent_fallback_text')
+        assert.strictEqual(result.results[0].reason, 'fetch_failed')
+        assert.strictEqual(result.results[0].url, 'https://www.bilibili.com/video/BV1dup')
+        assert.strictEqual(linkDomain.isCached('video|BV1dup|10001'), true)
+        assert.deepStrictEqual(sentMessages, [{
+            ws: {},
+            groupId: '10001',
+            messageChain: [{
+                type: 'text',
+                data: {
+                    text: '获取信息失败，已降级为文本链接：\nhttps://www.bilibili.com/video/BV1dup'
+                }
+            }],
+            userId: undefined
+        }])
+    })
+
+    it('uses handler-specific fetch failure text when provided', async function () {
+        const sentMessages = []
+
+        const result = await linkPipeline.processLinkDescriptors([{
+            type: 'user',
+            id: '12345',
+            cacheKey: 'user|12345|10001'
+        }], {
+            ws: {},
+            groupId: '10001'
+        }, {
+            getHandler() {
+                return {
+                    type: 'user',
+                    buildUrl(descriptor) {
+                        return `https://space.bilibili.com/${descriptor.id}`
+                    },
+                    buildFetchFailureText(info, descriptor) {
+                        return `获取用户失败: ${info.message}\nhttps://space.bilibili.com/${descriptor.id}`
+                    }
+                }
+            },
+            fetchLinkInfo: async () => ({
+                info: { status: 'error', message: 'cookie expired' },
+                cacheKey: 'user_12345',
+                fromCache: false
+            }),
+            sendGroupMessage: async (ws, groupId, messageChain, userId) => {
+                sentMessages.push({ ws, groupId, messageChain, userId })
+            }
+        })
+
+        assert.strictEqual(result.successCount, 1)
+        assert.strictEqual(result.failureCount, 0)
+        assert.strictEqual(result.results[0].status, 'sent_fallback_text')
+        assert.strictEqual(result.results[0].reason, 'fetch_failed')
+        assert.strictEqual(linkDomain.isCached('user|12345|10001'), true)
+        assert.deepStrictEqual(sentMessages, [{
+            ws: {},
+            groupId: '10001',
+            messageChain: [{
+                type: 'text',
+                data: {
+                    text: '获取用户失败: cookie expired\nhttps://space.bilibili.com/12345'
+                }
+            }],
+            userId: undefined
+        }])
+    })
+
+    it('keeps fetch failures as failed when no fallback url or text is available', async function () {
+        const result = await linkPipeline.processLinkDescriptors([{
+            type: 'video',
+            id: 'BV1nofallback',
+            cacheKey: 'video|BV1nofallback|10001'
+        }], {
+            ws: {},
+            groupId: '10001'
+        }, {
+            getHandler() {
+                return {
+                    type: 'video',
+                    buildUrl() {
+                        return null
+                    }
+                }
+            },
+            fetchLinkInfo: async () => ({
+                info: { status: 'error', message: 'fetch failed' },
+                cacheKey: 'video_BV1nofallback',
+                fromCache: false
+            })
+        })
+
+        assert.strictEqual(result.successCount, 0)
         assert.strictEqual(result.failureCount, 1)
         assert.strictEqual(result.results[0].status, 'failed')
         assert.strictEqual(result.results[0].reason, 'fetch_failed')
-        assert.strictEqual(linkDomain.isCached('video|BV1dup|10001'), false)
+        assert.strictEqual(linkDomain.isCached('video|BV1nofallback|10001'), false)
     })
 
     it('prefers handler cache identity for dedupe and processed-cache hits', async function () {

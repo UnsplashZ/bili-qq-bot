@@ -96,7 +96,12 @@ describe('linkHandler logging summary', function () {
             assert.ok(logs.some(line => line.includes('INF LINK') && line.includes('[msg:1000:2:555]') && line.includes('fetch-start')))
             assert.ok(logs.some(line => line.includes('INF LINK') && line.includes('[msg:1000:2:555]') && line.includes('card-ready')))
             assert.ok(logs.some(line => line.includes('WRN LINK') && line.includes('[msg:1000:2:555]') && line.includes('fallback-text')))
-            assert.ok(logs.some(line => line.includes('ERR LINK') && line.includes('[msg:1000:2:555]') && line.includes('item-failed') && line.includes('reason=fetch_failed')))
+            assert.ok(logs.some(line =>
+                line.includes('WRN LINK')
+                && line.includes('[msg:1000:2:555]')
+                && line.includes('fallback-text')
+                && line.includes('reason=fetch_failed')
+            ))
             assert.ok(!logs.some(line => line.includes('[LinkHandler]')))
         } finally {
             const fakeDownloadService = require('../../src/services/videoDownloadService')

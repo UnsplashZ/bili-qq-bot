@@ -66,7 +66,8 @@ class LinkCacheService {
 
         const cacheEntry = this.cache.get(normalizedCacheKey)
         const cachedTime = cacheEntry?.cachedAt
-        const timeoutMs = cacheEntry?.timeoutMs
+        const groupId = resolveGroupIdFromCacheKey(normalizedCacheKey)
+        const timeoutMs = getTimeoutMs(groupId)
 
         if (Number.isFinite(cachedTime) && Number.isFinite(timeoutMs) && Date.now() - cachedTime < timeoutMs) {
             logger.logEvent('info', 'LINK', LINK_CACHE_SCOPE, 'cache-hit', {
@@ -85,11 +86,8 @@ class LinkCacheService {
             return null
         }
 
-        const groupId = resolveGroupIdFromCacheKey(normalizedCacheKey)
-        const timeoutMs = getTimeoutMs(groupId)
         this.cache.set(normalizedCacheKey, {
-            cachedAt: Date.now(),
-            timeoutMs
+            cachedAt: Date.now()
         })
         this.cleanupExpired()
         return normalizedCacheKey
@@ -108,7 +106,8 @@ class LinkCacheService {
         const now = Date.now()
         for (const [cacheKey, cacheEntry] of this.cache.entries()) {
             const cachedTime = cacheEntry?.cachedAt
-            const timeoutMs = cacheEntry?.timeoutMs
+            const groupId = resolveGroupIdFromCacheKey(cacheKey)
+            const timeoutMs = getTimeoutMs(groupId)
             if (!Number.isFinite(cachedTime) || !Number.isFinite(timeoutMs) || now - cachedTime >= timeoutMs) {
                 this.cache.delete(cacheKey)
             }

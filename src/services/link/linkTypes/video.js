@@ -2,6 +2,7 @@
 
 const biliApi = require('../../biliApi')
 const videoDownloadService = require('../../videoDownloadService')
+const logger = require('../../../utils/logger')
 
 module.exports = {
     type: 'video',
@@ -19,6 +20,14 @@ module.exports = {
             return
         }
 
-        await videoDownloadService.downloadAndSend(context.ws, context.groupId, context.descriptor.id, context.info)
+        videoDownloadService.downloadAndSend(context.ws, context.groupId, context.descriptor.id, context.info)
+            .catch((error) => {
+                logger.logEvent('error', 'LINK', context.scope || '', 'download-dispatch-failed', {
+                    groupId: context.groupId,
+                    linkType: 'video',
+                    linkId: context.descriptor.id,
+                    error: logger.getErrorMessage(error)
+                })
+            })
     }
 }
