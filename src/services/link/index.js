@@ -34,6 +34,10 @@ module.exports = {
     markProcessed: linkCacheService.markProcessed.bind(linkCacheService),
     markProcessedDescriptor: linkCacheService.markProcessedDescriptor.bind(linkCacheService),
     cleanupExpired: linkCacheService.cleanupExpired.bind(linkCacheService),
+    getHandler: require('./linkRegistry').getHandler,
+    fetchLinkInfo: require('./linkFetchService').fetch,
+    prepareLinkRender: require('./linkRenderService').prepare,
+    sendPreparedLink: require('./linkSender').sendPrepared,
     __resetCacheForTests: linkCacheService.__resetForTests.bind(linkCacheService),
     __setCacheTimeForTests: linkCacheService.__setCacheTimeForTests.bind(linkCacheService)
 }

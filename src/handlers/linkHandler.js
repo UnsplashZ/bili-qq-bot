@@ -4,6 +4,10 @@ const logger = require('../utils/logger')
 const config = require('../config')
 const cacheManager = require('../utils/cacheManager')
 const notificationService = require('../services/notificationService')
+const linkRegistry = require('../services/link/linkRegistry')
+const linkFetchService = require('../services/link/linkFetchService')
+const linkRenderService = require('../services/link/linkRenderService')
+const linkSender = require('../services/link/linkSender')
 const { shortLinkRegex, expandShortUrl } = require('../services/link/shortLinkExpander')
 const {
     extractLinksFromMessage,
@@ -107,20 +111,114 @@ class LinkHandler {
 
     sendGroupMessage(ws, groupId, messageChain, userId = null) {
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
-            const realUserId = groupId.replace('private_', '');
-            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true);
-            return;
+            const realUserId = groupId.replace('private_', '')
+            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
+            return
         }
 
         if (groupId) {
-            notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true);
+            notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
         } else if (userId) {
-            notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true);
+            notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
         } else {
             this.log('warn', '', 'send-skipped', {
                 reason: 'missing_target'
-            });
+            })
         }
+    }
+
+    async processRegistryLink(link, ws, groupId, userId, traceContext, requestId, scope) {
+        const handler = linkRegistry.getHandler(link.type)
+        if (!handler) {
+            return false
+        }
+
+        const sendFallbackText = (targetUrl, reason, extraFields = {}, textOverride = null) => {
+            this.log('warn', scope, 'fallback-text', {
+                requestId,
+                linkType: link.type,
+                linkId: link.id,
+                reason,
+                ...extraFields
+            })
+            this.sendGroupMessage(ws, groupId, [{
+                type: 'text',
+                data: {
+                    text: textOverride || `获取信息失败，已降级为文本链接：\n${targetUrl}`
+                }
+            }], userId)
+        }
+
+        const { info } = await linkFetchService.fetch(handler, groupId, link, {
+            onCacheHit: (cacheKey) => {
+                this.log('info', LINK_CACHE_SCOPE, 'data-cache-hit', {
+                    cacheKey
+                })
+            }
+        })
+
+        const fallbackUrl = handler.buildUrl(link, info)
+        if (!info || info.status !== 'success') {
+            sendFallbackText(fallbackUrl, 'fetch_failed', {
+                status: info?.status,
+                error: info?.message || ''
+            })
+            return true
+        }
+
+        const prepared = await linkRenderService.prepare(handler, info, link, groupId)
+        if (prepared.status === 'render_failed') {
+            sendFallbackText(fallbackUrl, 'render_failed')
+            return true
+        }
+
+        if (prepared.status === 'fallback_text_ready') {
+            sendFallbackText(prepared.url || fallbackUrl, prepared.reason || 'preview_generation_failed', {
+                error: prepared.error || ''
+            }, prepared.text)
+            return true
+        }
+
+        await linkSender.sendPrepared(ws, groupId, prepared, userId, {
+            logContext: {
+                scope,
+                requestId,
+                linkType: link.type,
+                linkId: link.id
+            },
+            sendGroupMessage: this.sendGroupMessage.bind(this),
+            sendGroupMessageWithFallback: this.sendGroupMessageWithFallback.bind(this)
+        })
+
+        this.log('info', scope, 'card-ready', {
+            requestId,
+            linkType: link.type,
+            linkId: link.id,
+            url: prepared.url
+        })
+
+        if (typeof handler.afterSend === 'function') {
+            Promise.resolve(handler.afterSend({
+                ws,
+                groupId,
+                userId,
+                descriptor: link,
+                info,
+                prepared,
+                traceContext,
+                requestId,
+                scope
+            })).catch((e) => {
+                this.log('error', scope, 'after-send-failed', {
+                    requestId,
+                    linkType: link.type,
+                    linkId: link.id,
+                    error: logger.getErrorMessage(e)
+                })
+            })
+        }
+
+        return true
     }
 
     // 处理单个链接
@@ -146,33 +244,37 @@ class LinkHandler {
                 linkId: id,
                 reason,
                 ...extraFields
-            });
+            })
             this.sendGroupMessage(ws, groupId, [{
                 type: 'text',
                 data: {
                     text: textOverride || `获取信息失败，已降级为文本链接：\n${targetUrl}`
                 }
-            }], userId);
-        };
+            }], userId)
+        }
 
         const sendCard = async (cardInfo, cardType, targetUrl, previewBase64 = null) => {
-            const base64Payload = previewBase64 || await imageGenerator.generatePreviewCard(cardInfo, cardType, groupId);
+            const base64Payload = previewBase64 || await imageGenerator.generatePreviewCard(cardInfo, cardType, groupId)
             await this.sendGroupMessageWithFallback(ws, groupId, base64Payload, targetUrl, userId, {
                 scope,
                 requestId,
                 linkType: type,
                 linkId: id
-            });
+            })
             this.log('info', scope, 'card-ready', {
                 requestId,
                 linkType: type,
                 linkId: id,
                 url: targetUrl
-            });
-        };
+            })
+        }
 
         try {
-            let info, base64Image, url;
+            let info, base64Image, url
+
+            if (await this.processRegistryLink(link, ws, groupId, userId, traceContext, requestId, scope)) {
+                return
+            }
 
             switch (type) {
                 case 'video':

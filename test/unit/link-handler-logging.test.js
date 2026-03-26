@@ -21,6 +21,7 @@ const originals = {
     sendGroupMessage: linkHandler.sendGroupMessage,
     sendGroupMessageWithFallback: linkHandler.sendGroupMessageWithFallback,
     notificationSendGroup: notificationService.sendGroupMessage,
+    notificationSendPrivate: notificationService.sendPrivateMessage,
     getGroupConfig: config.getGroupConfig
 }
 
@@ -33,6 +34,7 @@ function restore() {
     linkHandler.sendGroupMessage = originals.sendGroupMessage
     linkHandler.sendGroupMessageWithFallback = originals.sendGroupMessageWithFallback
     notificationService.sendGroupMessage = originals.notificationSendGroup
+    notificationService.sendPrivateMessage = originals.notificationSendPrivate
     config.getGroupConfig = originals.getGroupConfig
 }
 
@@ -56,6 +58,7 @@ async function run() {
         imageGenerator.generatePreviewCard = async () => 'ZmFrZQ=='
         linkHandler.sendGroupMessageWithFallback = async () => {}
         linkHandler.sendGroupMessage = async () => {}
+        notificationService.sendPrivateMessage = async () => {}
 
         await linkHandler.processSingleLink({
             type: 'video',
