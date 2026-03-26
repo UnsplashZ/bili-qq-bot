@@ -213,7 +213,8 @@ The Python implementation under `/src/services/bili_server_core/` is the Bilibil
 #### Message ingress and dispatch
 - `/src/handlers/messageHandler.js` — main QQ message ingress and routing
 - `/src/commands/index.js` — command dispatch entry
-- `/src/handlers/linkHandler.js` — link extraction and normalization entry
+- `/src/services/link/index.js` — link-domain entry for message preparation, extraction, cache helpers, and pipeline orchestration
+- `/src/handlers/linkHandler.js` — compatibility facade for legacy link callers during migration
 - `/src/services/notificationService.js` — outbound message delivery
 
 #### AI pipeline
@@ -363,12 +364,13 @@ When a message arrives from QQ, `messageHandler.js` processes it in this order:
 
 For a new Bilibili content type, keep the chain aligned instead of following a fixed scaffold:
 
-1. Add or extend URL detection in `/src/handlers/linkHandler.js`
-2. Expose normalized data from the Python service boundary under `/src/services/bili_server_core/` when the existing endpoints are not enough
-3. Add preview rendering support under `/src/services/imageGenerator/renderers/` and wire the type in `/src/services/imageGenerator/generators/previewCard.js`
-4. Only add Dashboard or subscription handling if that content type actually needs those entry points
+1. Add or extend URL detection in `/src/services/link/linkExtractor.js` (and the structured/regex parsers it composes)
+2. Add or register the type handler under `/src/services/link/linkTypes/` and `/src/services/link/linkRegistry.js`
+3. Expose normalized data from the Python service boundary under `/src/services/bili_server_core/` when the existing endpoints are not enough
+4. Add preview rendering support under `/src/services/imageGenerator/renderers/` and wire the type in `/src/services/imageGenerator/generators/previewCard.js`
+5. Only add Dashboard or subscription handling if that content type actually needs those entry points
 
-The important part is that the Node side continues to consume a normalized `type + data` result instead of duplicating Bilibili-specific parsing in multiple places.
+The important part is that the Node side continues to consume a normalized `type + data` result instead of duplicating Bilibili-specific parsing in multiple places. `src/handlers/linkHandler.js` is now a compatibility facade, not the primary extension point for new link types.
 
 ## Command System
 
