@@ -12,10 +12,9 @@
 const assert = require('assert')
 
 const linkDomainPath = require.resolve('../../src/services/link')
-const shortLinkExpanderPath = require.resolve('../../src/services/link/shortLinkExpander')
 const linkHandlerPath = require.resolve('../../src/handlers/linkHandler')
 
-function loadLinkHandlerWithMocks({ linkDomainExports, shortLinkExpanderExports } = {}) {
+function loadLinkHandlerWithMocks({ linkDomainExports } = {}) {
     delete require.cache[linkHandlerPath]
 
     if (linkDomainExports) {
@@ -29,23 +28,11 @@ function loadLinkHandlerWithMocks({ linkDomainExports, shortLinkExpanderExports 
         delete require.cache[linkDomainPath]
     }
 
-    if (shortLinkExpanderExports) {
-        require.cache[shortLinkExpanderPath] = {
-            id: shortLinkExpanderPath,
-            filename: shortLinkExpanderPath,
-            loaded: true,
-            exports: shortLinkExpanderExports
-        }
-    } else {
-        delete require.cache[shortLinkExpanderPath]
-    }
-
     return require('../../src/handlers/linkHandler')
 }
 
 describe('LinkHandler facade delegation', function () {
     const originalLinkDomainModule = require.cache[linkDomainPath]
-    const originalShortLinkExpanderModule = require.cache[shortLinkExpanderPath]
 
     afterEach(function () {
         delete require.cache[linkHandlerPath]
@@ -53,11 +40,6 @@ describe('LinkHandler facade delegation', function () {
             require.cache[linkDomainPath] = originalLinkDomainModule
         } else {
             delete require.cache[linkDomainPath]
-        }
-        if (originalShortLinkExpanderModule) {
-            require.cache[shortLinkExpanderPath] = originalShortLinkExpanderModule
-        } else {
-            delete require.cache[shortLinkExpanderPath]
         }
     })
 
@@ -102,10 +84,15 @@ describe('LinkHandler facade delegation', function () {
         ])
     })
 
-    it('expandUrl 应委托给 shortLinkExpander facade', async function () {
+    it('expandUrl 应委托给 link service facade', async function () {
         const calls = []
         const handler = loadLinkHandlerWithMocks({
             linkDomainExports: {
+                shortLinkRegex: /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/,
+                expandShortUrl(shortUrl) {
+                    calls.push(shortUrl)
+                    return Promise.resolve('https://www.bilibili.com/video/BV1xx411c7mD')
+                },
                 extractLinksFromMessage() {
                     return []
                 },
@@ -120,13 +107,6 @@ describe('LinkHandler facade delegation', function () {
                 },
                 cleanupExpired() {
                     return 0
-                }
-            },
-            shortLinkExpanderExports: {
-                shortLinkRegex: /https?:\/\/b23\.tv\/[a-zA-Z0-9]+/,
-                expandShortUrl(shortUrl) {
-                    calls.push(shortUrl)
-                    return Promise.resolve('https://www.bilibili.com/video/BV1xx411c7mD')
                 }
             }
         })

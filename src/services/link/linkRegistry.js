@@ -8,6 +8,15 @@ const live = require('./linkTypes/live')
 const opus = require('./linkTypes/opus')
 const ep = require('./linkTypes/ep')
 const media = require('./linkTypes/media')
+const user = require('./linkTypes/user')
+const favoriteList = require('./linkTypes/favoriteList')
+const audio = require('./linkTypes/audio')
+const audioList = require('./linkTypes/audioList')
+const topic = require('./linkTypes/topic')
+const channelSeries = require('./linkTypes/channelSeries')
+const articleList = require('./linkTypes/articleList')
+const note = require('./linkTypes/note')
+const cheeseVideo = require('./linkTypes/cheeseVideo')
 
 const handlers = new Map([
     video,
@@ -17,7 +26,16 @@ const handlers = new Map([
     live,
     opus,
     ep,
-    media
+    media,
+    user,
+    favoriteList,
+    audio,
+    audioList,
+    topic,
+    channelSeries,
+    articleList,
+    note,
+    cheeseVideo
 ].map((handler) => [handler.type, handler]))
 
 function getHandler(type) {

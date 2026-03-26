@@ -5,7 +5,7 @@ const aiContextService = require('../services/aiContextService');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const config = require('../config');
-const linkHandler = require('./linkHandler');
+const linkService = require('../services/link');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 const requestApprovalService = require('../services/requestApprovalService');
@@ -264,6 +264,14 @@ class MessageHandler {
             }
         }
 
+        const preparedLinks = await linkService.prepareIncomingMessageLinks({
+            rawMessage,
+            messageSegments,
+            groupId,
+            traceContext
+        })
+        rawMessage = preparedLinks.rawMessage
+
         // Record message for AI context
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
@@ -273,69 +281,6 @@ class MessageHandler {
             const cleanForContext = this.normalizeMessageForStorage(rawMessage);
             if (cleanForContext) {
                 aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName, messageMeta);
-            }
-        }
-
-        // Check for JSON message (Mini Program) and extract URL (before cache check)
-        const jsonMsg = messageSegments.find(m => m.type === 'json');
-        if (jsonMsg) {
-            try {
-                logger.logEvent('info', 'LINK', traceContext.scope, 'json-extract-start');
-                const jsonData = JSON.parse(jsonMsg.data.data);
-                logger.logEvent('debug', 'LINK', traceContext.scope, 'json-keys', {
-                    keys: Object.keys(jsonData).join(',')
-                });
-
-                // Common paths for URL in Bilibili Mini Program
-                // Including paths for standard app, HD app, and other variations
-                const url = jsonData.meta?.detail_1?.qqdocurl
-                    || jsonData.meta?.detail_1?.url
-                    || jsonData.meta?.news?.jumpUrl
-                    || jsonData.meta?.detail?.qqdocurl
-                    || jsonData.meta?.detail?.url
-                    || jsonData.prompt
-                    || jsonData.meta?.detail_1?.preview
-                    || jsonData.url;
-
-                if (url) {
-                    logger.logEvent('info', 'LINK', traceContext.scope, 'json-url-found', {
-                        url
-                    });
-                    rawMessage += " " + url; // Append to rawMessage for regex matching
-                } else {
-                    logger.logEvent('warn', 'LINK', traceContext.scope, 'json-url-missing', {
-                        preview: JSON.stringify(jsonData, null, 2).substring(0, 500)
-                    });
-                }
-            } catch (e) {
-                logger.logEvent('warn', 'LINK', traceContext.scope, 'json-parse-failed', {
-                    error: logger.getErrorMessage(e)
-                });
-            }
-        }
-
-        // Expand short links if present (before cache check)
-        // Access shortLinkRegex from LinkHandler
-        if (linkHandler.shortLinkRegex && linkHandler.shortLinkRegex.test(rawMessage)) {
-            const match = rawMessage.match(linkHandler.shortLinkRegex);
-            if (match) {
-                const shortUrl = match[0];
-                logger.logEvent('info', 'LINK', traceContext.scope, 'short-link-found', {
-                    shortUrl
-                });
-                try {
-                    const expanded = await linkHandler.expandUrl(shortUrl);
-                    logger.logEvent('info', 'LINK', traceContext.scope, 'short-link-expanded', {
-                        shortUrl,
-                        expandedUrl: expanded
-                    });
-                    rawMessage += " " + expanded;
-                } catch (e) {
-                    logger.logEvent('error', 'LINK', traceContext.scope, 'short-link-expand-failed', {
-                        shortUrl,
-                        error: logger.getErrorMessage(e)
-                    });
-                }
             }
         }
 
@@ -377,95 +322,33 @@ class MessageHandler {
         }
 
         // ========== Link Processing ==========
-        const safeRawMessage = rawMessage.replace(/\[CQ:[^\]]+\]/g, '');
-        const links = linkHandler.extractLinks(safeRawMessage, groupId, traceContext);
-
-        if (links.length > 0) {
-            const seenKeys = new Set();
-            const uncachedLinks = links.filter(l => {
-                if (linkHandler.isLinkCached(l.cacheKey) || seenKeys.has(l.cacheKey)) return false;
-                seenKeys.add(l.cacheKey);
-                return true;
-            });
-
-            if (uncachedLinks.length === 0) {
-                // 全部链接在冷却期内
-                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.SHUSH);
-                return;
+        if (preparedLinks.descriptors.length > 0) {
+            const allDescriptorsCached = preparedLinks.descriptors.every((descriptor) => linkService.isCached(descriptor.cacheKey))
+            if (allDescriptorsCached) {
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.SHUSH)
+                return
             }
 
-            // 有未缓存链接，开始处理
-            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING);
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING)
 
-            let hasErrors = false;
+            const linkResult = await linkService.handleIncomingMessageLinks({
+                ws,
+                groupId,
+                userId,
+                descriptors: preparedLinks.descriptors,
+                traceContext,
+                messageId
+            })
 
-            for (let i = 0; i < uncachedLinks.length; i++) {
-                const link = uncachedLinks[i];
-                let processSuccess = false;
+            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING, false)
 
-                try {
-                    await linkHandler.processSingleLink(link, ws, groupId, userId, traceContext);
-                    processSuccess = true;
-                    logger.logEvent('debug', 'LINK', traceContext.scope, 'item-processed', {
-                        linkType: link.type,
-                        linkId: link.id
-                    });
-                } catch (error) {
-                    logger.logEvent('error', 'LINK', traceContext.scope, 'item-failed', {
-                        error: logger.getErrorMessage(error),
-                        groupId,
-                        userId,
-                        linkType: link.type,
-                        linkId: link.id
-                    });
-                    hasErrors = true;
-
-                    // 不添加到缓存，允许用户重试
-                    // 向用户发送错误提示
-                    try {
-                        await linkHandler.sendGroupMessage(ws, groupId, [
-                            {
-                                type: 'text',
-                                data: {
-                                    text: `处理链接失败: ${error.message || '未知错误'}\n您可以稍后重新发送链接重试`
-                                }
-                            }
-                        ], userId);
-                    } catch (sendError) {
-                        logger.logEvent('error', 'LINK', traceContext.scope, 'error-message-send-failed', {
-                            error: logger.getErrorMessage(sendError)
-                        });
-                    }
-                }
-
-                // 只在成功处理后添加到缓存
-                if (processSuccess) {
-                    linkHandler.addLinkToCache(link.cacheKey);
-                    logger.logEvent('debug', 'LINK', traceContext.scope, 'cache-added', {
-                        cacheKey: link.cacheKey
-                    });
-                }
-
-                // 处理完成后延迟，避免并发冲突
-                if (i < uncachedLinks.length - 1) {
-                    logger.logEvent('debug', 'LINK', traceContext.scope, 'next-item-delay', {
-                        delayMs: 1000
-                    });
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
-
-            // 撤销思考表情，发送结果表情。
-            // 注：hasErrors 为 true 表示"至少一个链接失败"，并非全部失败。
-            // 失败链接的具体 URL 已在上方错误提示文字中说明。
-            this.sendEmojiReaction(ws, messageId, LINK_EMOJI.THINKING, false);
-            if (hasErrors) {
-                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.CRYING);
+            if (linkResult.failureCount > 0) {
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.CRYING)
             } else {
-                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.OK);
+                this.sendEmojiReaction(ws, messageId, LINK_EMOJI.OK)
             }
 
-            return;
+            return
         }
 
         // Check for AI Reply

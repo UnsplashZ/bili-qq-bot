@@ -31,7 +31,7 @@ describe('link service infrastructure contracts', function () {
         videoDownloadService.downloadAndSend = originals.downloadAndSend
     })
 
-    it('registers and returns the core eight link handlers', function () {
+    it('registers and returns all migrated link handlers', function () {
         const expectedTypes = [
             'video',
             'bangumi',
@@ -40,7 +40,16 @@ describe('link service infrastructure contracts', function () {
             'live',
             'opus',
             'ep',
-            'media'
+            'media',
+            'user',
+            'favorite_list',
+            'audio',
+            'audio_list',
+            'topic',
+            'channel_series',
+            'article_list',
+            'note',
+            'cheese_video'
         ]
 
         for (const type of expectedTypes) {

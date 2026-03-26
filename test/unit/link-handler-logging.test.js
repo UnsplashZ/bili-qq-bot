@@ -75,6 +75,14 @@ async function run() {
             match: 'https://www.bilibili.com/video/BV1ZHiyBkExG/'
         }, {}, '1000', '2', { scope: 'msg:1000:2:555' })
 
+        biliApi.getVideoInfo = async () => ({ status: 'error', message: 'fetch failed' })
+        await linkHandler.processSingleLink({
+            type: 'video',
+            id: 'BV1fetchfail',
+            cacheKey: 'video|BV1fetchfail|1000',
+            match: 'https://www.bilibili.com/video/BV1fetchfail/'
+        }, {}, '1000', '2', { scope: 'msg:1000:2:555' })
+
         biliApi.getBangumiInfo = async () => ({ status: 'success', data: { title: 'bangumi' } })
         imageGenerator.generatePreviewCard = async () => 'ZmFrZQ=='
         await linkHandler.processSingleLink({
@@ -88,8 +96,9 @@ async function run() {
         assert.ok(logs.some(line => line.includes('INF LINK') && line.includes('[msg:1000:2:555]') && line.includes('fetch-start')))
         assert.ok(logs.some(line => line.includes('INF LINK') && line.includes('[msg:1000:2:555]') && line.includes('card-ready')))
         assert.ok(logs.some(line => line.includes('WRN LINK') && line.includes('[msg:1000:2:555]') && line.includes('fallback-text')))
+        assert.ok(logs.some(line => line.includes('ERR LINK') && line.includes('[msg:1000:2:555]') && line.includes('item-failed') && line.includes('reason=fetch_failed')))
         assert.ok(!logs.some(line => line.includes('[LinkHandler]')))
-        console.log('✓ linkHandler 会输出 extract/fetch-start/card-ready/fallback-text 摘要日志')
+        console.log('✓ linkHandler 会输出 extract/fetch-start/card-ready/fallback-text/item-failed 摘要日志')
     } finally {
         const fakeDownloadService = require('../../src/services/videoDownloadService')
         if (originals.downloadAndSend) fakeDownloadService.downloadAndSend = originals.downloadAndSend

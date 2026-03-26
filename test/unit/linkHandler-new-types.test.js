@@ -132,4 +132,36 @@ describe('LinkHandler new resource extraction', function () {
         )
         assert.deepStrictEqual(links, [])
     })
+
+    it('已迁移类型通过高层入口处理且不依赖旧 switch 分支', async function () {
+        const linkService = require('../../src/services/link')
+        const originalHandleIncomingMessageLinks = linkService.handleIncomingMessageLinks
+
+        let serviceCall = null
+
+        linkService.handleIncomingMessageLinks = async function (input) {
+            serviceCall = input
+            return {
+                results: [{
+                    status: 'sent_card',
+                    url: 'https://space.bilibili.com/24680'
+                }]
+            }
+        }
+
+        try {
+            await linkHandler.processSingleLink({
+                type: 'user',
+                id: '24680',
+                match: 'https://space.bilibili.com/24680'
+            }, {}, '10001', '20002')
+        } finally {
+            linkService.handleIncomingMessageLinks = originalHandleIncomingMessageLinks
+        }
+
+        assert.ok(serviceCall)
+        assert.strictEqual(serviceCall.descriptors[0].type, 'user')
+        assert.strictEqual(serviceCall.groupId, '10001')
+        assert.strictEqual(serviceCall.userId, '20002')
+    })
 })
