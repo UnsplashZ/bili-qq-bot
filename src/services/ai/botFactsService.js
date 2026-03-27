@@ -1,7 +1,5 @@
 'use strict'
 
-const config = require('../../config')
-
 function normalizeId(value, fallback = 'unknown') {
     const raw = String(value ?? '').trim()
     return raw || fallback
@@ -21,16 +19,15 @@ function normalizeAliases(value) {
     return normalized
 }
 
-function buildBotFacts(groupId, turnMeta = {}) {
-    const runtimeBot = global.bot || {}
-    const configuredBotName = String(config.getGroupConfig(groupId, 'aiBotName') || '').trim()
-    const botName = String(runtimeBot.nickname || configuredBotName || '').trim()
+function buildBotFacts({ bot = {}, botName = '', botAliases = [], ownerId, turnMeta = {} } = {}) {
+    const runtimeBot = bot || {}
+    const resolvedBotName = String(runtimeBot.nickname || botName || '').trim()
 
     return {
         botId: normalizeId(runtimeBot.selfId),
-        botName,
-        botAliases: normalizeAliases(config.getGroupConfig(groupId, 'aiBotAliases')),
-        ownerId: normalizeId(config.getRootAdminQQ()),
+        botName: resolvedBotName,
+        botAliases: normalizeAliases(botAliases),
+        ownerId: normalizeId(ownerId),
         currentMentionsBot: turnMeta.currentMentionsBot === true,
         currentReplyToBot: turnMeta.isReplyToBot === true
     }

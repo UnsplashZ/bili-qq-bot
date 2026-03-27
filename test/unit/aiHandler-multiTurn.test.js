@@ -59,6 +59,7 @@ function makeGroupConfig(overrides = {}) {
         aiContextLimit: 20,
         aiTemperature: 0.7,
         aiIdentityRagMode: 'strict',
+        aiPromptAssemblerEnabled: true,
         aiStructuredContextEnabled: true,
         aiAdminClaimRequiresTool: true,
         aiProfileEnabled: false,
@@ -306,7 +307,127 @@ async function run() {
     assert.ok(!logs.some(line => line.includes('[AiHandler]')))
     console.log('✓ Case 7: confirm_needed 时不会暴露工具给模型')
 
+    // Case 7.1: aiPromptAssemblerEnabled=false 时回退到 legacy prompt 与 tools
+    config.getGroupConfig = makeGroupConfig({
+        aiPromptAssemblerEnabled: false,
+        aiStructuredContextEnabled: true,
+        aiAdminClaimRequiresTool: false
+    })
+    aiContextService.getContext = () => ([
+        {
+            role: 'user',
+            content: '查一下天气',
+            userId: '2402855757',
+            userName: '测试用户',
+            speakerId: '2402855757',
+            speakerName: '测试用户',
+            mentionIds: ['1099804769'],
+            isAtBot: true,
+            source: 'group',
+            timestamp: Date.now()
+        }
+    ])
+    mcpManager.getOpenAITools = () => ([{
+        type: 'function',
+        function: { name: 'weather_lookup', description: 'weather', parameters: { type: 'object', properties: {} } }
+    }])
+    let legacyPayload = null
+    axios.post = async (_url, payload) => {
+        legacyPayload = payload
+        return {
+            data: {
+                choices: [{ message: { role: 'assistant', content: '今天晴。' } }]
+            }
+        }
+    }
+    const legacyReply = await aiHandler.getReply(
+        'raw message',
+        '2402855757',
+        '1065812436',
+        null,
+        {
+            selectedContext: {
+                currentTurn: {
+                    role: 'user',
+                    content: '那就处理一下吧',
+                    speakerId: '2402855757',
+                    speakerName: '测试用户'
+                },
+                threadMessages: [],
+                backgroundSummary: ''
+            },
+            responseMode: {
+                mode: 'confirm_needed',
+                reasons: ['ambiguous_action']
+            }
+        }
+    )
+    assert.strictEqual(legacyReply, '今天晴。')
+    assert.ok(Array.isArray(legacyPayload.tools))
+    assert.strictEqual(legacyPayload.tools.length, 1)
+    assert.ok(!legacyPayload.messages[0].content.includes('[CURRENT_USER_MESSAGE]'))
+    assert.ok(!legacyPayload.messages[0].content.includes('[BOT_FACTS]'))
+    assert.ok(!legacyPayload.messages[0].content.includes('[RESPONSE_MODE]'))
+    console.log('✓ Case 7.1: aiPromptAssemblerEnabled=false 时会回退到 legacy prompt 与 tools')
+
+    // Case 7.2: aiStructuredContextEnabled=false 时回退到 legacy prompt 与 tools
+    config.getGroupConfig = makeGroupConfig({
+        aiPromptAssemblerEnabled: true,
+        aiStructuredContextEnabled: false,
+        aiAdminClaimRequiresTool: false
+    })
+    let structuredDisabledPayload = null
+    axios.post = async (_url, payload) => {
+        structuredDisabledPayload = payload
+        return {
+            data: {
+                choices: [{ message: { role: 'assistant', content: '继续走旧链路。' } }]
+            }
+        }
+    }
+    const structuredDisabledReply = await aiHandler.getReply(
+        'raw message',
+        '2402855757',
+        '1065812436',
+        null,
+        {
+            selectedContext: {
+                currentTurn: {
+                    role: 'user',
+                    content: '那就处理一下吧',
+                    speakerId: '2402855757',
+                    speakerName: '测试用户'
+                },
+                threadMessages: [],
+                backgroundSummary: ''
+            },
+            responseMode: {
+                mode: 'confirm_needed',
+                reasons: ['ambiguous_action']
+            }
+        }
+    )
+    assert.strictEqual(structuredDisabledReply, '继续走旧链路。')
+    assert.ok(Array.isArray(structuredDisabledPayload.tools))
+    assert.strictEqual(structuredDisabledPayload.tools.length, 1)
+    assert.ok(!structuredDisabledPayload.messages[0].content.includes('[CURRENT_USER_MESSAGE]'))
+    console.log('✓ Case 7.2: aiStructuredContextEnabled=false 时会回退到 legacy prompt 与 tools')
+
     // Case 8: 无工具时请求超时等于基础超时
+    aiContextService.getContext = () => ([
+        {
+            role: 'user',
+            content: '测试基础超时',
+            userId: '2402855757',
+            userName: '测试用户',
+            speakerId: '2402855757',
+            speakerName: '测试用户',
+            mentionIds: ['1099804769'],
+            isAtBot: true,
+            source: 'group',
+            timestamp: Date.now()
+        }
+    ])
     let capturedTimeout = null
     overrideConfigValue('aiChatBaseTimeoutSeconds', 33)
     overrideConfigValue('aiChatToolTimeoutSeconds', 4)
@@ -324,6 +445,85 @@ async function run() {
     assert.strictEqual(baseTimeoutReply, '基础超时验证通过。')
     assert.strictEqual(capturedTimeout, 33000)
     console.log('✓ Case 8: 无工具时使用基础超时')
+
+    // Case 8.1: vectorSearch 抛错时仍继续回复
+    config.getGroupConfig = makeGroupConfig({ aiProfileEnabled: false })
+    config.isRagEnabledForGroup = () => true
+    aiContextService.getContext = () => ([
+        {
+            role: 'user',
+            content: '我是谁',
+            userId: '2402855757',
+            userName: '测试用户',
+            speakerId: '2402855757',
+            speakerName: '测试用户',
+            mentionIds: ['1099804769'],
+            isAtBot: true,
+            source: 'group',
+            timestamp: Date.now()
+        }
+    ])
+    vectorMemory.search = async () => {
+        throw new Error('vector down')
+    }
+    axios.post = async () => ({
+        data: {
+            choices: [{ message: { role: 'assistant', content: '你是测试用户。' } }]
+        }
+    })
+    const ragFallbackReply = await aiHandler.getReply('raw message', '2402855757', '1065812436')
+    assert.strictEqual(ragFallbackReply, '你是测试用户。')
+    console.log('✓ Case 8.1: RAG 失败时仍继续返回模型回复')
+
+    // Case 8.2: profile 注入抛错时仍继续回复
+    config.getGroupConfig = makeGroupConfig({ aiProfileEnabled: true })
+    config.isRagEnabledForGroup = () => false
+    vectorMemory.search = async () => []
+    userProfileService.getActiveProfiles = async () => {
+        throw new Error('profile store broken')
+    }
+    axios.post = async () => ({
+        data: {
+            choices: [{ message: { role: 'assistant', content: '你好。' } }]
+        }
+    })
+    const profileFallbackReply = await aiHandler.getReply('raw message', '2402855757', '1065812436')
+    assert.strictEqual(profileFallbackReply, '你好。')
+    console.log('✓ Case 8.2: profile 注入失败时仍继续返回模型回复')
+
+    // Case 8.3: 持久化阶段抛错时不应把异常冒到消息主循环
+    config.getGroupConfig = makeGroupConfig({ aiProfileEnabled: false })
+    config.isRagEnabledForGroup = () => false
+    aiContextService.getContext = () => ([
+        {
+            role: 'user',
+            content: '测试持久化异常',
+            userId: '2402855757',
+            userName: '测试用户',
+            speakerId: '2402855757',
+            speakerName: '测试用户',
+            mentionIds: ['1099804769'],
+            isAtBot: true,
+            source: 'group',
+            timestamp: Date.now()
+        }
+    ])
+    aiHandler.addMessageToContext = (groupId, role) => {
+        if (role === 'assistant') {
+            throw new Error('context store broken')
+        }
+    }
+    axios.post = async () => ({
+        data: {
+            choices: [{ message: { role: 'assistant', content: '这条回复会在持久化时失败。' } }]
+        }
+    })
+    const persistenceFallbackReply = await aiHandler.getReply('raw message', '2402855757', '1065812436')
+    assert.strictEqual(persistenceFallbackReply, null)
+    assert.ok(logs.some(line => line.includes('api-request-failed')))
+    console.log('✓ Case 8.3: 持久化阶段抛错时会被顶层兜底并返回 null')
+
+    aiHandler.addMessageToContext = () => {}
 
     // Case 9: 有工具时按工具数加时，并受最大超时截断
     overrideConfigValue('aiChatBaseTimeoutSeconds', 30)

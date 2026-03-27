@@ -94,7 +94,10 @@ async function run() {
 
     assert.strictEqual(reply, '记得，上次也是超时。')
     assert.ok(capturedPayload.messages[0].content.includes('[RELEVANT_MEMORIES]'))
-    console.log('✓ 结构化 prompt 下仍会独立注入 memories block')
+    assert.ok(capturedPayload.messages[0].content.includes('[BOT_FACTS]'))
+    assert.ok(capturedPayload.messages[0].content.includes('bot_id='))
+    assert.ok(capturedPayload.messages[0].content.includes('owner_id='))
+    console.log('✓ 结构化 prompt 下会独立注入 memories 与 BOT_FACTS block')
 }
 
 run()
