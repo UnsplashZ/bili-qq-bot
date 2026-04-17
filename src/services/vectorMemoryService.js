@@ -488,12 +488,21 @@ class VectorMemoryService {
             // Check for duplicates (only check recent memories for performance)
             const duplicateThreshold = 0.95;
             const recentMemories = memory.slice(-50); // Check last 50 memories
+            const normalizedUserId = userId != null ? String(userId) : null
 
             for (const existing of recentMemories) {
+                if (role === 'user') {
+                    if (String(existing.role || '') !== 'user') continue
+                    if (!normalizedUserId || String(existing.userId || '') !== normalizedUserId) continue
+                } else if (String(existing.role || '') !== String(role || '')) {
+                    continue
+                }
+
                 const similarity = this.cosineSimilarity(vector, existing.vector);
                 if (similarity > duplicateThreshold) {
                     vectorLog('info', 'memory-duplicate-updated', {
-                        similarity: similarity.toFixed(3)
+                        similarity: similarity.toFixed(3),
+                        userScoped: role === 'user'
                     }, groupScope);
                     // Update timestamp and increment access count
                     existing.timestamp = Date.now();

@@ -14,7 +14,8 @@ Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to 
 bili-qq-bot/
 ├── src/                    # Main application source
 │   ├── bot.js              # Entry point, WebSocket connection
-│   ├── config.js           # Configuration management
+│   ├── config.js           # Compatibility entry re-exporting src/config/
+│   ├── config/             # Modular configuration system
 │   ├── commands/           # Command modules
 │   ├── handlers/           # Message, link, AI handlers
 │   ├── services/           # Core services
@@ -165,11 +166,11 @@ Follow existing code style:
 
 ### AI Pipeline
 
-The AI path is split across `messageHandler.js`, `handlers/aiHandler.js`, and the AI support services under `/src/services/ai/`. This section only describes the division of responsibility.
+The AI path is split across `messageHandler.js`, `handlers/aiHandler.js`, and the AI support services under `/src/services/ai/`. `aiHandler.js` is now a thin orchestration entry that assembles runtime dependencies and delegates message sanitization, identity policy, retrieval augmentation, LLM chat, persistence, and reply orchestration to dedicated services.
 
 - Separate reply admission from prompt construction and model invocation
 - Keep context, response shaping, and execution safety in distinct services
-- Centralize final orchestration in `aiHandler.js`
+- Centralize top-level orchestration in `aiHandler.js` while keeping implementation details in `services/ai/`
 - Treat memory, bot facts, and tool control as supporting layers
 - Avoid duplicating the detailed AI step sequence from later sections
 
@@ -218,8 +219,15 @@ The Python implementation under `/src/services/bili_server_core/` is the Bilibil
 - `/src/services/notificationService.js` — outbound message delivery
 
 #### AI pipeline
-- `/src/handlers/aiHandler.js` — AI orchestration entry
-- `/src/services/ai/` — AI support services for memory, gating, context, prompts, and execution control
+- `/src/handlers/aiHandler.js` — AI orchestration entry and runtime assembly
+- `/src/services/ai/messageSanitizerService.js` — message sanitization and tag-safe normalization
+- `/src/services/ai/identityPolicyService.js` — identity intent detection, speaker parsing, and admin action guards
+- `/src/services/ai/retrievalAugmentService.js` — retrieval augmentation and RAG search option selection
+- `/src/services/ai/replyRuntimeService.js` — runtime dependency assembly for replies
+- `/src/services/ai/replyOrchestratorService.js` — high-level reply loop orchestration
+- `/src/services/ai/replyPersistenceService.js` — reply persistence helpers
+- `/src/services/ai/llmChatService.js` — chat API execution and fallback behavior
+- `/src/services/ai/` — broader AI support services for memory, gating, context, prompts, and execution control
 
 #### Subscriptions and update checking
 - `/src/services/subscription/subscriptionManager.js` — subscription state and cookie followings
@@ -245,28 +253,42 @@ The Python implementation under `/src/services/bili_server_core/` is the Bilibil
 
 ### Adding New Config Keys
 
-1. Add to META in `/src/config.js`:
+1. Add the schema entry in `/src/config/schema.js`:
 ```javascript
 META = {
   myNewKey: { env: 'MY_NEW_KEY', def: 'default', type: 'string' }
 }
 ```
 
-2. Config automatically gets getter/setter:
+2. The exported config object from `/src/config/index.js` automatically gets getters via `store.defineGetters(...)`:
 ```javascript
 sysConfig.myNewKey = 'new value'  // Sets in config.json
 let val = sysConfig.myNewKey      // Reads: config.json > env > default
 ```
 
-3. For group-level overrides, access via:
+3. For group-level overrides, use the existing helpers instead of open-coding merge logic:
 ```javascript
+sysConfig.ensureGroupConfig(groupId)
 let groupConfig = sysConfig.groupConfigs[groupId]
 groupConfig.myNewKey = 'group-specific value'
+await sysConfig.saveConfigDebounced()
 ```
+
+4. If the key also needs Dashboard exposure or AI editor snapshots, update the relevant builders in `/src/config/aiConfig.js` or the Dashboard API allowlists together.
 
 ### Config Persistence
 
-All `config.json` writes are debounced (500ms) via `saveConfigDebounced()` to prevent I/O storms.
+`src/config.js` remains the compatibility import path, but persistence now lives in the modular config layer under `/src/config/`.
+
+- schema and defaults: `/src/config/schema.js`
+- override loading and save flow: `/src/config/store.js`
+- group-level helpers: `/src/config/groupConfig.js`
+- AI and dashboard snapshots: `/src/config/aiConfig.js`
+- auth and admin helpers: `/src/config/authConfig.js`
+- JWT secret ownership/compatibility: `/src/config/jwtSecretOwner.js`
+- shape normalization helpers: `/src/config/normalizers.js`
+
+All `config.json` writes are still debounced (500ms) via `saveConfigDebounced()` to prevent I/O storms.
 
 ### AI Function Toggles
 

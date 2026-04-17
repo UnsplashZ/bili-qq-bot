@@ -40,7 +40,7 @@ async function testCollectAugments() {
         },
         getActiveProfiles: async (contextKey, userIds) => {
             calls.push(['getActiveProfiles', contextKey, userIds])
-            return [{ userName: '张三', profile: '喜欢直接一点' }]
+            return [{ userName: '张三', profileData: { summary: '喜欢直接一点', topics: ['聊天'] } }]
         },
         isRagEnabledForGroup: () => true,
         log: () => {}
@@ -70,7 +70,7 @@ async function testRagFailureIsBestEffort() {
         vectorSearch: async () => {
             throw new Error('vector down')
         },
-        getActiveProfiles: async () => [{ userName: '张三', profile: '喜欢直接一点' }],
+        getActiveProfiles: async () => [{ userName: '张三', profileSummary: '喜欢直接一点' }],
         isRagEnabledForGroup: () => true,
         log: (level, message, fields = {}) => logs.push({ level, message, fields })
     })
@@ -123,7 +123,7 @@ async function testBotIdentityStrictDisablesRag() {
         vectorSearch: async () => {
             throw new Error('should not call vectorSearch')
         },
-        getActiveProfiles: async () => [{ userName: '张三', profile: '喜欢直接一点' }],
+        getActiveProfiles: async () => [{ userName: '张三', profileSummary: '喜欢直接一点' }],
         isRagEnabledForGroup: () => true,
         log: () => {}
     })

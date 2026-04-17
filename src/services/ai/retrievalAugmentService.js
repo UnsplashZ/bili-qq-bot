@@ -1,5 +1,7 @@
 'use strict'
 
+const { buildPromptProfileLine } = require('../userProfileService')
+
 function getRagSearchOptions(intentType, currentUserId, ragMode) {
     const options = {}
     const normalizedRagMode = ragMode === 'normal' ? 'normal' : 'strict'
@@ -76,9 +78,11 @@ async function collectAugments({
 
             if (recentUserIds.length > 0) {
                 const profiles = await getActiveProfiles(contextKey, recentUserIds)
-                const validProfiles = profiles.filter(p => p.profile)
+                const validProfiles = profiles
+                    .map(profile => buildPromptProfileLine(profile))
+                    .filter(Boolean)
                 if (validProfiles.length > 0) {
-                    profileText = validProfiles.map(p => `${p.userName || '用户'}: ${p.profile}`).join('\n\n')
+                    profileText = validProfiles.join('\n\n')
                 }
             }
         } catch (error) {

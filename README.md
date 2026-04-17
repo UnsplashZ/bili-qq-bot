@@ -217,7 +217,9 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
 
 ### 2. 动态配置 (config.json)
-这些配置随bot运行自动创建，支持热更新（通过 `/设置` 和 `/AI` 相关指令），无需手动修改：
+这些配置随 bot 运行自动创建，支持热更新（通过 `/设置` 和 `/AI` 相关指令），无需手动修改。
+
+内部实现现已拆分为模块化配置子系统：`src/config.js` 作为兼容入口，实际逻辑位于 `src/config/` 目录（如 `schema.js`、`store.js`、`groupConfig.js`、`aiConfig.js`、`authConfig.js`、`jwtSecretOwner.js`、`normalizers.js`）。对外调用方式保持兼容，仍可通过 `require('./src/config')` 或现有 `config` 入口访问。
 
 | 字段名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
@@ -530,7 +532,8 @@ npm run build   # 生产构建，输出至 dashboard/dist
     *   `dist/`: 生产构建输出 (由主服务托管)
 *   `src/`: 源代码
     *   `bot.js`: 程序入口，WebSocket 连接与消息分发
-    *   `config.js`: 配置管理系统 (双重配置架构 + 分群覆盖)
+    *   `config.js`: 配置兼容入口（转发到模块化配置实现）
+    *   `config/`: 配置子模块（schema、store、groupConfig、aiConfig、authConfig、jwtSecretOwner、normalizers）
     *   `dashboard/`: WebUI 后端
         *   `server.js`: Express 应用，静态文件托管与 WebSocket 日志推送
         *   `routes/api.js`: 兼容入口壳（转发到模块化实现）
@@ -538,7 +541,7 @@ npm run build   # 生产构建，输出至 dashboard/dist
         *   `middleware/auth.js`: JWT 认证中间件
     *   `handlers/`: 消息与 AI 处理逻辑
         *   `messageHandler.js`: 链接解析、指令系统、权限管理
-        *   `aiHandler.js`: AI 对话、RAG 检索、上下文管理
+        *   `aiHandler.js`: AI 回复入口与总编排，具体能力下沉到 `src/services/ai/`
     *   `services/`: B站 API, 绘图服务, 订阅服务
         *   `biliApi.js`: Bilibili API 调用 (通过 Python 子进程)
         *   `previewLab/`: 本地预览实验台共享内核（输入解析、目标获取、会话落盘、Web 调试页）
@@ -563,6 +566,14 @@ npm run build   # 生产构建，输出至 dashboard/dist
         *   `vectorMemoryService.js`: 向量嵌入与相似度检索
         *   `userProfileService.js`: 用户画像生成与存储
         *   `videoDownloadService.js`: 视频下载、发送与清理调度
+        *   `ai/`: AI 子模块
+            *   `messageSanitizerService.js`: 消息清洗、名称与标记规范化
+            *   `identityPolicyService.js`: 身份意图识别、发言者/提及解析、管理动作保护
+            *   `retrievalAugmentService.js`: RAG 检索参数与增强信息收集
+            *   `replyRuntimeService.js`: AI 运行时装配
+            *   `replyOrchestratorService.js`: LLM 对话循环与总编排
+            *   `replyPersistenceService.js`: 回复持久化
+            *   `llmChatService.js`: 聊天模型请求与回退链路
     *   `utils/`: 工具函数
         *   `logger.js`: 日志系统 (log4js)
         *   `cacheManager.js`: LRU 缓存管理器

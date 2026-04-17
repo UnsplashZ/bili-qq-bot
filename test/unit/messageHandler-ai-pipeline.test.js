@@ -27,6 +27,7 @@ const originals = {
     addMemory: vectorMemoryService.addMemory,
     recordMessage: userProfileService.recordMessage,
     maybeUpdateProfile: userProfileService.maybeUpdateProfile,
+    maybeScheduleProfileUpdate: userProfileService.maybeScheduleProfileUpdate,
     getContext: aiContextService.getContext,
     gateEvaluate: replyGateService.evaluate,
     gateRecordBotReply: replyGateService.recordBotReply,
@@ -47,6 +48,7 @@ function restore() {
     vectorMemoryService.addMemory = originals.addMemory
     userProfileService.recordMessage = originals.recordMessage
     userProfileService.maybeUpdateProfile = originals.maybeUpdateProfile
+    userProfileService.maybeScheduleProfileUpdate = originals.maybeScheduleProfileUpdate
     aiContextService.getContext = originals.getContext
     replyGateService.evaluate = originals.gateEvaluate
     replyGateService.recordBotReply = originals.gateRecordBotReply
@@ -74,6 +76,7 @@ async function testPipelinePayloadPassedToAiHandler() {
     vectorMemoryService.addMemory = async () => {}
     userProfileService.recordMessage = async () => {}
     userProfileService.maybeUpdateProfile = async () => {}
+    userProfileService.maybeScheduleProfileUpdate = async () => {}
     aiHandler.addMessageToContext = () => {}
     aiContextService.getContext = () => ([
         { role: 'user', speakerId: '2', speakerName: '测试用户', content: '前面超时了', timestamp: 1000 },
@@ -115,8 +118,73 @@ async function testPipelinePayloadPassedToAiHandler() {
     console.log('✓ messageHandler 会把结构化 AI 管线输入传给 aiHandler')
 }
 
+async function testProfileRefreshNoLongerDependsOnBotReply() {
+    config.ensureGroupConfig = () => {}
+    config.isGroupEnabled = () => true
+    config.isGroupAdmin = () => true
+    config.isRootAdmin = () => true
+    config.getGroupConfig = (_groupId, key) => {
+        const map = {
+            aiReplyGateEnabled: true,
+            aiContextSelectorEnabled: true,
+            aiResponseModeEnabled: true
+        }
+        if (Object.prototype.hasOwnProperty.call(map, key)) return map[key]
+        return originals.getGroupConfig.call(config, _groupId, key)
+    }
+
+    commandManager.dispatch = async () => false
+    linkHandler.extractLinks = () => []
+    linkHandler.shortLinkRegex = null
+    aiHandler.addMessageToContext = () => {}
+    aiContextService.getContext = () => []
+    replyGateService.evaluate = () => ({
+        shouldReply: false,
+        triggerLevel: 'none',
+        busyMode: false,
+        score: 0,
+        reasons: ['test']
+    })
+    replyGateService.recordBotReply = () => {}
+    aiHandler.getReply = async () => {
+        throw new Error('should not request ai reply')
+    }
+    messageHandler.sendGroupMessage = () => {}
+
+    const calls = []
+    vectorMemoryService.addMemory = async () => {
+        calls.push('vector')
+    }
+    userProfileService.recordMessage = async () => {
+        calls.push('record')
+    }
+    userProfileService.maybeScheduleProfileUpdate = async () => {
+        calls.push('schedule')
+    }
+    userProfileService.maybeUpdateProfile = async () => {
+        calls.push('legacy')
+    }
+
+    await messageHandler.handleMessage({}, {
+        post_type: 'message',
+        message_type: 'group',
+        self_id: 1,
+        message_id: 456,
+        user_id: 2,
+        group_id: 1000,
+        raw_message: '今天也来签到',
+        message: [{ type: 'text', data: { text: '今天也来签到' } }],
+        sender: { nickname: '测试用户' }
+    })
+
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepStrictEqual(calls, ['vector', 'record', 'schedule'])
+    console.log('✓ messageHandler 会在 bot 不回复时独立触发用户画像刷新检查')
+}
+
 async function run() {
     await testPipelinePayloadPassedToAiHandler()
+    await testProfileRefreshNoLongerDependsOnBotReply()
 }
 
 run()

@@ -296,14 +296,19 @@ class MessageHandler {
                         error: logger.getErrorMessage(e)
                      });
                  });
-                 // Record message for user profile metadata (no LLM call, always fast)
-                 userProfileService.recordMessage(groupId, userId, userName).catch(e => {
-                     logger.logEvent('error', 'BOT', traceContext.scope, 'profile-record-failed', {
-                        groupId,
-                        userId,
-                        error: logger.getErrorMessage(e)
+                 // Record metadata and independently trigger profile refresh without depending on bot reply.
+                 Promise.resolve()
+                     .then(async () => {
+                         await userProfileService.recordMessage(groupId, userId, userName)
+                         await userProfileService.maybeScheduleProfileUpdate(groupId, userId, userName, aiContextService, vectorMemoryService)
+                     })
+                     .catch(e => {
+                         logger.logEvent('error', 'BOT', traceContext.scope, 'profile-record-failed', {
+                            groupId,
+                            userId,
+                            error: logger.getErrorMessage(e)
+                         });
                      });
-                 });
              }
         }
 
@@ -417,14 +422,6 @@ class MessageHandler {
                 if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
                     replyGateService.recordBotReply(groupId, userId)
                 }
-                // Async profile update check (fire-and-forget, only triggers if conditions met)
-                userProfileService.maybeUpdateProfile(groupId, userId, userName, aiContextService, vectorMemoryService).catch(e => {
-                    logger.logEvent('error', 'AI', traceContext.scope, 'profile-update-failed', {
-                        groupId,
-                        userId,
-                        error: logger.getErrorMessage(e)
-                    });
-                });
             }
         }
     }

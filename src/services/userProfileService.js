@@ -2,22 +2,204 @@
 
 const fs = require('fs').promises
 const path = require('path')
+const axios = require('axios')
 const logger = require('../utils/logger')
 const config = require('../config')
 const { asyncWriteWithBackup } = require('../utils/storageUtils')
 const { getAxiosProxyConfig } = require('../utils/proxyUtils')
 
+const PROFILE_SCHEMA_VERSION = 2
+const PROFILE_EVIDENCE_LIMIT = 8
+const PROFILE_GENERATION_SAMPLE_LIMIT = 80
+const PROFILE_GENERATION_FAILURE_COOLDOWN_MS = 10 * 60 * 1000
+
 function storeLog(level, message, fields = {}) {
     logger.logEvent(level, 'STORE', 'svc:profile', message, fields)
+}
+
+function clampPositiveInt(value, fallback) {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+    return fallback
+}
+
+function normalizeTimestamp(value) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function trimString(value, maxLength = 0) {
+    if (typeof value !== 'string') return ''
+    const trimmed = value.trim()
+    if (!maxLength || trimmed.length <= maxLength) return trimmed
+    return trimmed.slice(0, maxLength)
+}
+
+function normalizeStringList(value, maxItems = 6, maxItemLength = 48) {
+    if (!Array.isArray(value)) return []
+    const normalized = []
+    for (const item of value) {
+        const text = trimString(item, maxItemLength)
+        if (!text || normalized.includes(text)) continue
+        normalized.push(text)
+        if (normalized.length >= maxItems) break
+    }
+    return normalized
+}
+
+function buildProfileDataFromSummary(summaryText = '') {
+    const summary = trimString(summaryText, 300)
+    if (!summary) return null
+    return {
+        summary,
+        topics: [],
+        traits: [],
+        speakingStyle: [],
+        personalFacts: [],
+        notes: []
+    }
+}
+
+function normalizeProfileData(value, fallbackSummary = '') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return buildProfileDataFromSummary(fallbackSummary)
+    }
+
+    const summary = trimString(value.summary || fallbackSummary, 300)
+    if (!summary) return null
+
+    return {
+        summary,
+        topics: normalizeStringList(value.topics),
+        traits: normalizeStringList(value.traits),
+        speakingStyle: normalizeStringList(value.speakingStyle),
+        personalFacts: normalizeStringList(value.personalFacts),
+        notes: normalizeStringList(value.notes)
+    }
+}
+
+function summarizeProfileText(entry) {
+    if (!entry || typeof entry !== 'object') return ''
+    const profileData = normalizeProfileData(entry.profileData, entry.profileSummary || entry.profile || '')
+    if (profileData && profileData.summary) {
+        return profileData.summary
+    }
+    return trimString(entry.profileSummary || entry.profile || '', 300)
+}
+
+function buildPromptProfileLine(entry) {
+    const summary = summarizeProfileText(entry)
+    if (!summary) return ''
+    const name = trimString(entry.userName, 64) || `用户${entry.userId || ''}` || '用户'
+    return `${name}: ${summary}`
+}
+
+function normalizeEvidenceItem(item) {
+    if (!item || typeof item !== 'object') return null
+    const excerpt = trimString(item.excerpt, 120)
+    if (!excerpt) return null
+    const source = item.source === 'vector_memory' ? 'vector_memory' : 'context'
+    const timestamp = normalizeTimestamp(item.timestamp)
+    return {
+        source,
+        excerpt,
+        timestamp
+    }
+}
+
+function normalizeSourceStats(value) {
+    const safe = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    return {
+        contextMessages: clampPositiveInt(safe.contextMessages, 0),
+        vectorMessages: clampPositiveInt(safe.vectorMessages, 0),
+        totalMessages: clampPositiveInt(safe.totalMessages, 0),
+        lastGeneratedFromMessageCount: clampPositiveInt(safe.lastGeneratedFromMessageCount, 0)
+    }
+}
+
+function normalizeProfileEntry(entry, userId, fallbackUserName = '') {
+    const existing = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {}
+    const normalizedUserId = String(existing.userId || userId || '').trim()
+    const profileSummary = summarizeProfileText(existing)
+    const profileData = normalizeProfileData(existing.profileData, profileSummary)
+    return {
+        userId: normalizedUserId,
+        userName: trimString(existing.userName || fallbackUserName || `用户${normalizedUserId}`, 64) || `用户${normalizedUserId}`,
+        profile: profileSummary || null,
+        profileSummary: profileSummary || null,
+        profileData,
+        profileVersion: profileData ? PROFILE_SCHEMA_VERSION : (existing.profileVersion || null),
+        lastUpdated: normalizeTimestamp(existing.lastUpdated),
+        totalMessages: clampPositiveInt(existing.totalMessages, 0),
+        messagesSinceUpdate: clampPositiveInt(existing.messagesSinceUpdate, 0),
+        lastActiveTime: normalizeTimestamp(existing.lastActiveTime),
+        generationStatus: ['idle', 'running', 'failed'].includes(existing.generationStatus) ? existing.generationStatus : 'idle',
+        lastGenerationAttemptAt: normalizeTimestamp(existing.lastGenerationAttemptAt),
+        lastGenerationError: trimString(existing.lastGenerationError, 200) || null,
+        evidence: Array.isArray(existing.evidence)
+            ? existing.evidence.map(normalizeEvidenceItem).filter(Boolean).slice(0, PROFILE_EVIDENCE_LIMIT)
+            : [],
+        sourceStats: normalizeSourceStats(existing.sourceStats)
+    }
+}
+
+function shouldGenerateProfile(entry, { minMessages, updateInterval, now = Date.now() }) {
+    if (!entry) return false
+    if ((entry.totalMessages || 0) < minMessages) return false
+    if (entry.generationStatus === 'running') return false
+    if (entry.generationStatus === 'failed' && entry.lastGenerationAttemptAt && (now - entry.lastGenerationAttemptAt) < PROFILE_GENERATION_FAILURE_COOLDOWN_MS) {
+        return false
+    }
+    if (!summarizeProfileText(entry)) return true
+    return (entry.messagesSinceUpdate || 0) >= updateInterval
+}
+
+function normalizeGeneratedPayload(rawContent, fallbackMaxLength) {
+    const content = trimString(rawContent, 4000)
+    if (!content) return null
+
+    const jsonBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i)
+    const candidateJson = jsonBlockMatch ? jsonBlockMatch[1].trim() : content
+
+    try {
+        const parsed = JSON.parse(candidateJson)
+        const profileData = normalizeProfileData({
+            summary: parsed.summary,
+            topics: parsed.topics,
+            traits: parsed.traits,
+            speakingStyle: parsed.speakingStyle,
+            personalFacts: parsed.personalFacts,
+            notes: parsed.notes
+        })
+        if (profileData) {
+            const summary = trimString(profileData.summary, fallbackMaxLength)
+            return {
+                profileData: {
+                    ...profileData,
+                    summary
+                },
+                profileSummary: summary
+            }
+        }
+    } catch (_) {
+        // Fall back to plain text summary
+    }
+
+    const summary = trimString(content.replace(/```(?:json)?/gi, '').replace(/```/g, ''), fallbackMaxLength)
+    if (!summary) return null
+    return {
+        profileData: buildProfileDataFromSummary(summary),
+        profileSummary: summary
+    }
 }
 
 class UserProfileService {
     constructor() {
         this.dataDir = path.join(process.cwd(), 'data', 'profiles')
         this._resolvedDataDir = path.resolve(this.dataDir)
-        this.profiles = new Map()  // groupId -> { userId -> profileEntry }
+        this.profiles = new Map()
         this.saveTimers = new Map()
-        this._pendingUpdates = new Set()  // 正在生成画像的 "groupId:userId" 集合，防止并发重复生成
+        this._pendingUpdates = new Set()
         this.init()
     }
 
@@ -48,15 +230,25 @@ class UserProfileService {
         return { safeGroupId, resolvedPath: resolved }
     }
 
+    _normalizeGroupProfiles(rawProfiles) {
+        const source = rawProfiles && typeof rawProfiles === 'object' && !Array.isArray(rawProfiles) ? rawProfiles : {}
+        const normalized = {}
+        for (const [userId, entry] of Object.entries(source)) {
+            normalized[String(userId)] = normalizeProfileEntry(entry, userId)
+        }
+        return normalized
+    }
+
     async _loadGroupProfiles(groupId) {
         const { safeGroupId, resolvedPath } = this._profilePath(groupId)
         if (this.profiles.has(safeGroupId)) return this.profiles.get(safeGroupId)
         try {
             const data = await fs.readFile(resolvedPath, 'utf8')
             const parsed = JSON.parse(data)
-            this.profiles.set(safeGroupId, parsed)
-            return parsed
-        } catch (e) {
+            const normalized = this._normalizeGroupProfiles(parsed)
+            this.profiles.set(safeGroupId, normalized)
+            return normalized
+        } catch (_) {
             const empty = {}
             this.profiles.set(safeGroupId, empty)
             return empty
@@ -66,9 +258,6 @@ class UserProfileService {
     _saveGroupProfilesDebounced(groupId) {
         const { safeGroupId, resolvedPath } = this._profilePath(groupId)
         if (this.saveTimers.has(safeGroupId)) clearTimeout(this.saveTimers.get(safeGroupId))
-        storeLog('info', 'profile-save-queued', {
-            groupId: safeGroupId
-        })
         this.saveTimers.set(safeGroupId, setTimeout(async () => {
             this.saveTimers.delete(safeGroupId)
             const data = this.profiles.get(safeGroupId)
@@ -88,90 +277,116 @@ class UserProfileService {
         }, 500))
     }
 
-    /**
-     * 记录用户发言，更新基础元数据（始终运行，无 LLM 调用）
-     */
     async recordMessage(groupId, userId, userName) {
-        if (String(groupId).startsWith('private_')) return
-        if (!userId) return
+        if (String(groupId).startsWith('private_')) return null
+        if (!userId) return null
 
         const safeGroupId = this._validateGroupId(groupId)
         const profiles = await this._loadGroupProfiles(safeGroupId)
-        const existing = profiles[userId]
+        const normalizedUserId = String(userId)
+        const existing = normalizeProfileEntry(profiles[normalizedUserId], normalizedUserId, userName)
         const now = Date.now()
 
-        profiles[userId] = {
-            userId: String(userId),
-            userName: userName || (existing ? existing.userName : `用户${userId}`),
-            profile: existing ? existing.profile : null,
-            lastUpdated: existing ? existing.lastUpdated : null,
-            totalMessages: (existing ? existing.totalMessages : 0) + 1,
-            messagesSinceUpdate: (existing ? existing.messagesSinceUpdate : 0) + 1,
+        profiles[normalizedUserId] = {
+            ...existing,
+            userId: normalizedUserId,
+            userName: trimString(userName || existing.userName || `用户${normalizedUserId}`, 64) || `用户${normalizedUserId}`,
+            totalMessages: (existing.totalMessages || 0) + 1,
+            messagesSinceUpdate: (existing.messagesSinceUpdate || 0) + 1,
             lastActiveTime: now
         }
 
         this._saveGroupProfilesDebounced(safeGroupId)
+        return profiles[normalizedUserId]
     }
 
-    /**
-     * 检查并触发画像更新（fire-and-forget，调用方须加 .catch()）
-     */
-    async maybeUpdateProfile(groupId, userId, userName, contextService, vectorMemoryService) {
-        if (String(groupId).startsWith('private_')) return
-        if (!userId) return
+    getGenerationEligibility(entry) {
+        const minMessages = clampPositiveInt(config.aiProfileMinMessages, 30)
+        const updateInterval = clampPositiveInt(config.aiProfileUpdateInterval, 50)
+        return {
+            minMessages,
+            updateInterval,
+            shouldGenerate: shouldGenerateProfile(entry, { minMessages, updateInterval })
+        }
+    }
+
+    async maybeScheduleProfileUpdate(groupId, userId, userName, contextService, vectorMemoryService) {
+        if (String(groupId).startsWith('private_')) return false
+        if (!userId) return false
         const safeGroupId = this._validateGroupId(groupId)
-        if (!config.getGroupConfig(safeGroupId, 'aiProfileEnabled')) return
+        if (!config.getGroupConfig(safeGroupId, 'aiProfileEnabled')) return false
 
         const profiles = await this._loadGroupProfiles(safeGroupId)
-        const entry = profiles[userId]
-        if (!entry) return
+        const normalizedUserId = String(userId)
+        const entry = normalizeProfileEntry(profiles[normalizedUserId], normalizedUserId, userName)
+        profiles[normalizedUserId] = entry
+        const eligibility = this.getGenerationEligibility(entry)
+        if (!eligibility.shouldGenerate) return false
 
-        const minMessages = config.aiProfileMinMessages
-        const updateInterval = config.aiProfileUpdateInterval
-
-        const shouldGenerate = entry.totalMessages >= minMessages &&
-            (!entry.profile || entry.messagesSinceUpdate >= updateInterval)
-
-        if (!shouldGenerate) return
-
-        // 并发控制：防止同一用户短时间多次触发 LLM 重复生成
-        const pendingKey = `${safeGroupId}:${String(userId)}`
+        const pendingKey = `${safeGroupId}:${normalizedUserId}`
         if (this._pendingUpdates.has(pendingKey)) {
             storeLog('debug', 'profile-generate-skipped', {
                 groupId: safeGroupId,
-                userId: String(userId),
+                userId: normalizedUserId,
                 reason: 'already_in_progress'
             })
-            return
+            return false
         }
+
         this._pendingUpdates.add(pendingKey)
+        entry.generationStatus = 'running'
+        entry.lastGenerationAttemptAt = Date.now()
+        entry.lastGenerationError = null
+        this._saveGroupProfilesDebounced(safeGroupId)
+
         try {
             storeLog('info', 'profile-generate-start', {
                 groupId: safeGroupId,
-                userId: String(userId)
+                userId: normalizedUserId,
+                totalMessages: entry.totalMessages,
+                messagesSinceUpdate: entry.messagesSinceUpdate
             })
-            await this._generateProfile(safeGroupId, userId, userName, entry, contextService, vectorMemoryService)
+            await this._generateProfile(safeGroupId, normalizedUserId, userName, entry, contextService, vectorMemoryService)
+            return true
         } finally {
             this._pendingUpdates.delete(pendingKey)
         }
     }
 
-    async _generateProfile(groupId, userId, userName, entry, contextService, vectorMemoryService) {
-        // 1. 收集消息（上下文优先，不足时从向量记忆补充）
+    async maybeUpdateProfile(groupId, userId, userName, contextService, vectorMemoryService) {
+        return this.maybeScheduleProfileUpdate(groupId, userId, userName, contextService, vectorMemoryService)
+    }
+
+    _collectContextMessages(groupId, userId, contextService) {
+        const context = (contextService && typeof contextService.getContext === 'function') ? contextService.getContext(groupId) || [] : []
+        return context
+            .filter(message => {
+                if (!message || message.role !== 'user') return false
+                const speakerId = message.speakerId || message.userId
+                return speakerId != null && String(speakerId) === String(userId)
+            })
+            .map(message => ({
+                text: trimString(message.content, 600),
+                timestamp: normalizeTimestamp(message.timestamp),
+                source: 'context'
+            }))
+            .filter(message => message.text)
+    }
+
+    async _collectProfileMessages(groupId, userId, contextService, vectorMemoryService) {
         const messages = []
+        const contextMessages = this._collectContextMessages(groupId, userId, contextService)
+        messages.push(...contextMessages)
 
-        const context = (contextService && contextService.getContext) ? contextService.getContext(groupId) || [] : []
-        const ctxMessages = context.filter(m => m.userId && String(m.userId) === String(userId))
-        messages.push(...ctxMessages.map(m => ({ text: m.content, timestamp: m.timestamp })))
-
-        if (messages.length < 20 && vectorMemoryService) {
+        let vectorMessages = []
+        if (messages.length < 20 && vectorMemoryService && typeof vectorMemoryService.getMemoriesByUser === 'function') {
             try {
-                const vecMessages = await vectorMemoryService.getMemoriesByUser(groupId, String(userId), 100)
-                for (const m of vecMessages) {
-                    if (!messages.find(x => x.text === m.text)) {
-                        messages.push(m)
-                    }
-                }
+                vectorMessages = await vectorMemoryService.getMemoriesByUser(groupId, String(userId), 120)
+                messages.push(...vectorMessages.map(message => ({
+                    text: trimString(message.text, 600),
+                    timestamp: normalizeTimestamp(message.timestamp),
+                    source: 'vector_memory'
+                })).filter(message => message.text))
             } catch (e) {
                 storeLog('warn', 'profile-memory-fetch-failed', {
                     groupId,
@@ -181,10 +396,84 @@ class UserProfileService {
             }
         }
 
-        messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-        const recent = messages.slice(-100)
+        const deduped = []
+        const seen = new Set()
+        for (const message of messages) {
+            const dedupeKey = `${message.source}:${message.timestamp || 0}:${message.text}`
+            if (seen.has(dedupeKey)) continue
+            seen.add(dedupeKey)
+            deduped.push(message)
+        }
 
-        if (recent.length === 0) {
+        deduped.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        const recentMessages = deduped.slice(-PROFILE_GENERATION_SAMPLE_LIMIT)
+        const evidence = recentMessages
+            .slice(-PROFILE_EVIDENCE_LIMIT)
+            .map(message => ({
+                source: message.source,
+                timestamp: message.timestamp,
+                excerpt: trimString(message.text, 120)
+            }))
+            .filter(item => item.excerpt)
+
+        return {
+            messages: recentMessages,
+            evidence,
+            sourceStats: {
+                contextMessages: contextMessages.length,
+                vectorMessages: vectorMessages.length,
+                totalMessages: recentMessages.length,
+                lastGeneratedFromMessageCount: recentMessages.length
+            }
+        }
+    }
+
+    _buildGenerationPrompt({ entry, userName, profileData, recentMessages, maxLength }) {
+        const profileJson = profileData ? JSON.stringify(profileData, null, 2) : '无'
+        const messageList = recentMessages.map(message => {
+            const time = message.timestamp ? new Date(message.timestamp).toLocaleDateString('zh-CN') : '未知日期'
+            const sourceLabel = message.source === 'vector_memory' ? '向量记忆' : '上下文'
+            return `[${time}][${sourceLabel}] ${message.text}`
+        }).join('\n')
+
+        return [
+            `请基于同一位群成员自己的历史发言，生成结构化用户画像。`,
+            `严格要求：只能依据提供的该用户本人发言，不要引入其他群成员信息，不要猜测无证据内容。`,
+            `请输出 JSON 对象，不要输出额外解释。字段要求：`,
+            `- summary: 不超过${maxLength}字的兼容摘要，适合直接注入聊天 prompt`,
+            `- topics: 数组，列出常聊/常关心的话题`,
+            `- traits: 数组，列出可观察到的性格或互动特点`,
+            `- speakingStyle: 数组，列出说话风格`,
+            `- personalFacts: 数组，列出明确提到过的个人信息或长期偏好`,
+            `- notes: 数组，列出其它稳定观察，避免重复`,
+            `如果信息不足，请保守输出，宁缺毋滥。`,
+            `用户昵称：${trimString(userName || entry.userName, 64) || '用户'}`,
+            `已有画像摘要：${summarizeProfileText(entry) || '无'}`,
+            `已有结构化画像：${profileJson}`,
+            `该用户可用发言：\n${messageList}`
+        ].join('\n')
+    }
+
+    async _generateProfile(groupId, userId, userName, entry, contextService, vectorMemoryService) {
+        const collected = await this._collectProfileMessages(groupId, userId, contextService, vectorMemoryService)
+        const recentMessages = collected.messages
+        const baselineMessagesSinceUpdate = clampPositiveInt(entry.messagesSinceUpdate, 0)
+        const applyGenerationFailure = async (lastGenerationError) => {
+            const profiles = await this._loadGroupProfiles(groupId)
+            const currentEntry = normalizeProfileEntry(profiles[userId], userId, userName)
+            const remainingMessagesSinceUpdate = Math.max(0, (currentEntry.messagesSinceUpdate || 0) - baselineMessagesSinceUpdate)
+            currentEntry.userName = trimString(userName || currentEntry.userName, 64) || currentEntry.userName
+            currentEntry.messagesSinceUpdate = remainingMessagesSinceUpdate
+            currentEntry.generationStatus = 'failed'
+            currentEntry.lastGenerationError = lastGenerationError
+            currentEntry.sourceStats = normalizeSourceStats(collected.sourceStats)
+            profiles[userId] = currentEntry
+            this._saveGroupProfilesDebounced(groupId)
+            return currentEntry
+        }
+
+        if (recentMessages.length === 0) {
+            await applyGenerationFailure('no_messages')
             storeLog('warn', 'profile-generate-skipped', {
                 groupId,
                 userId: String(userId),
@@ -193,32 +482,16 @@ class UserProfileService {
             return
         }
 
-        // 2. 构建 prompt
-        const maxLength = config.aiProfileMaxLength
-        const messageList = recent.map(m => {
-            const time = m.timestamp ? new Date(m.timestamp).toLocaleDateString('zh-CN') : '未知日期'
-            return `[${time}] ${m.text}`
-        }).join('\n')
+        const maxLength = clampPositiveInt(config.aiProfileMaxLength, 200)
+        const prompt = this._buildGenerationPrompt({
+            entry,
+            userName,
+            profileData: entry.profileData,
+            recentMessages,
+            maxLength
+        })
 
-        const promptParts = [
-            `请根据以下群聊中某位用户的历史发言，生成一段简短的用户画像（不超过${maxLength}字）。`,
-            `画像应包含：这个人感兴趣的话题、性格特征、说话风格、提到过的个人信息等。`,
-            `只描述客观可观察的特征，不做主观评价。`,
-        ]
-        if (entry.profile) {
-            promptParts.push(`如果已有旧画像，请在旧画像基础上增量更新，保留仍然有效的信息，加入新观察到的特征。`)
-        }
-        promptParts.push(`\n用户昵称：${userName || entry.userName}`)
-        if (entry.profile) {
-            promptParts.push(`\n旧画像：${entry.profile}`)
-        }
-        promptParts.push(`\n该用户最近的发言：\n${messageList}`)
-
-        const prompt = promptParts.join('\n')
-
-        // 3. 调用 LLM（复用聊天模型配置，与 aiHandler 保持一致的回退逻辑）
         try {
-            const axios = require('axios')
             const apiUrl = config.aiChatApiUrl || config.aiApiUrl
             const apiKey = config.aiChatApiKey || config.aiApiKey
             const model = config.aiChatModel || config.aiModel
@@ -226,11 +499,11 @@ class UserProfileService {
             const response = await axios.post(apiUrl, {
                 model,
                 messages: [
-                    { role: 'system', content: '你是一个分析用户画像的助手，请简洁客观地描述用户特征。' },
+                    { role: 'system', content: '你是一个严谨的用户画像整理助手，只能根据给定用户自己的发言生成客观、保守、结构化的画像。输出必须是 JSON。' },
                     { role: 'user', content: prompt }
                 ],
-                max_tokens: maxLength * 2,
-                temperature: 0.3
+                max_tokens: maxLength * 4,
+                temperature: 0.2
             }, {
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
@@ -240,8 +513,10 @@ class UserProfileService {
                 timeout: 30000
             })
 
-            const newProfile = response.data?.choices?.[0]?.message?.content?.trim()
-            if (!newProfile) {
+            const rawContent = response.data?.choices?.[0]?.message?.content
+            const normalizedPayload = normalizeGeneratedPayload(rawContent, maxLength)
+            if (!normalizedPayload || !normalizedPayload.profileSummary) {
+                await applyGenerationFailure('empty_profile')
                 storeLog('warn', 'profile-generate-empty', {
                     groupId,
                     userId: String(userId)
@@ -249,19 +524,30 @@ class UserProfileService {
                 return
             }
 
-            // 4. 保存
             const profiles = await this._loadGroupProfiles(groupId)
-            if (profiles[userId]) {
-                profiles[userId].profile = newProfile
-                profiles[userId].lastUpdated = Date.now()
-                profiles[userId].messagesSinceUpdate = 0
-                this._saveGroupProfilesDebounced(groupId)
-                storeLog('info', 'profile-updated', {
-                    groupId,
-                    userId: String(userId)
-                })
-            }
+            const currentEntry = normalizeProfileEntry(profiles[userId], userId, userName)
+            const remainingMessagesSinceUpdate = Math.max(0, (currentEntry.messagesSinceUpdate || 0) - baselineMessagesSinceUpdate)
+            currentEntry.userName = trimString(userName || currentEntry.userName, 64) || currentEntry.userName
+            currentEntry.profileVersion = PROFILE_SCHEMA_VERSION
+            currentEntry.profile = normalizedPayload.profileSummary
+            currentEntry.profileSummary = normalizedPayload.profileSummary
+            currentEntry.profileData = normalizedPayload.profileData
+            currentEntry.evidence = collected.evidence
+            currentEntry.sourceStats = normalizeSourceStats(collected.sourceStats)
+            currentEntry.lastUpdated = Date.now()
+            currentEntry.messagesSinceUpdate = remainingMessagesSinceUpdate
+            currentEntry.generationStatus = 'idle'
+            currentEntry.lastGenerationError = null
+            profiles[userId] = currentEntry
+            this._saveGroupProfilesDebounced(groupId)
+            storeLog('info', 'profile-updated', {
+                groupId,
+                userId: String(userId),
+                summaryLength: normalizedPayload.profileSummary.length,
+                sourceStats: currentEntry.sourceStats
+            })
         } catch (e) {
+            await applyGenerationFailure(trimString(logger.getErrorMessage(e), 200) || 'generate_failed')
             storeLog('error', 'profile-generate-failed', {
                 groupId,
                 userId: String(userId),
@@ -270,40 +556,58 @@ class UserProfileService {
         }
     }
 
-    /**
-     * 获取活跃用户的画像列表（供 aiHandler 注入 system prompt）
-     */
     async getActiveProfiles(groupId, activeUserIds) {
         if (!activeUserIds || activeUserIds.length === 0) return []
         if (String(groupId).startsWith('private_')) return []
         const safeGroupId = this._validateGroupId(groupId)
         const profiles = await this._loadGroupProfiles(safeGroupId)
         return activeUserIds
-            .map(uid => profiles[String(uid)])
-            .filter(Boolean)
+            .map(uid => normalizeProfileEntry(profiles[String(uid)], String(uid)))
+            .filter(entry => !!summarizeProfileText(entry))
     }
 
-    /**
-     * 删除某用户画像（重置）
-     */
     async deleteProfile(groupId, userId) {
         const safeGroupId = this._validateGroupId(groupId)
         const profiles = await this._loadGroupProfiles(safeGroupId)
-        if (profiles[String(userId)]) {
-            delete profiles[String(userId)].profile
-            delete profiles[String(userId)].lastUpdated
-            profiles[String(userId)].messagesSinceUpdate = 0
+        const normalizedUserId = String(userId)
+        if (profiles[normalizedUserId]) {
+            const entry = normalizeProfileEntry(profiles[normalizedUserId], normalizedUserId)
+            entry.profile = null
+            entry.profileSummary = null
+            entry.profileData = null
+            entry.profileVersion = null
+            entry.lastUpdated = null
+            entry.messagesSinceUpdate = 0
+            entry.generationStatus = 'idle'
+            entry.lastGenerationError = null
+            entry.evidence = []
+            entry.sourceStats = normalizeSourceStats({})
+            profiles[normalizedUserId] = entry
             this._saveGroupProfilesDebounced(safeGroupId)
         }
     }
 
-    /**
-     * 获取某群所有画像（供 WebUI 展示）
-     */
     async getAllProfiles(groupId) {
         const safeGroupId = this._validateGroupId(groupId)
         return await this._loadGroupProfiles(safeGroupId)
     }
+
+    summarizeProfileText(entry) {
+        return summarizeProfileText(entry)
+    }
+
+    buildPromptProfileLine(entry) {
+        return buildPromptProfileLine(entry)
+    }
 }
 
-module.exports = new UserProfileService()
+const service = new UserProfileService()
+
+module.exports = service
+module.exports.UserProfileService = UserProfileService
+module.exports.normalizeProfileEntry = normalizeProfileEntry
+module.exports.shouldGenerateProfile = shouldGenerateProfile
+module.exports.summarizeProfileText = summarizeProfileText
+module.exports.buildPromptProfileLine = buildPromptProfileLine
+module.exports.normalizeGeneratedPayload = normalizeGeneratedPayload
+module.exports.PROFILE_SCHEMA_VERSION = PROFILE_SCHEMA_VERSION
