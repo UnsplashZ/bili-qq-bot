@@ -25,7 +25,7 @@ const {
 } = require('../services/ai/identityPolicyService');
 const { getRagSearchOptions } = require('../services/ai/retrievalAugmentService');
 const { buildReplyRuntime } = require('../services/ai/replyRuntimeService');
-const { generateReply } = require('../services/ai/replyOrchestratorService');
+const { runAgent: runAgentService } = require('../services/ai/agentRunService');
 
 class AiHandler {
     logAiEvent(level, traceId, message, fields = {}) {
@@ -125,50 +125,75 @@ class AiHandler {
         return getRagSearchOptions(intentType, currentUserId, ragMode);
     }
 
-    async getReply(message, userId, groupId, traceId = null, pipelineInput = null) {
-        try {
-            const runtime = buildReplyRuntime({
-                groupId,
-                traceId,
-                config,
-                globalBot: global.bot,
-                mcpManager,
-                aiContextService,
-                vectorMemory,
-                userProfileService,
-                axios,
-                toolExecutionGuard,
-                addMessageToContext: this.addMessageToContext.bind(this),
-                logger: (level, msg, fields) => this.logAiEvent(level, traceId, msg, fields)
-            });
+    _buildRuntime(groupId, traceId) {
+        return buildReplyRuntime({
+            groupId,
+            traceId,
+            config,
+            globalBot: global.bot,
+            mcpManager,
+            aiContextService,
+            vectorMemory,
+            userProfileService,
+            axios,
+            toolExecutionGuard,
+            addMessageToContext: this.addMessageToContext.bind(this),
+            logger: (level, msg, fields) => this.logAiEvent(level, traceId, msg, fields)
+        })
+    }
 
-            return await generateReply({
-                message,
-                userId,
-                groupId,
-                traceId,
-                pipelineInput,
-                runtime
-            });
+    async runAgent(agentInput) {
+        const traceId = agentInput?.traceId || null
+        const groupId = agentInput?.groupId || agentInput?.contextKey || agentInput?.userId || null
+
+        try {
+            const runtime = this._buildRuntime(groupId, traceId)
+            return await runAgentService({ agentInput, runtime })
         } catch (error) {
-            const errorMessage = String(error?.message || '');
+            const errorMessage = String(error?.message || '')
             if (error?.code === 'ECONNABORTED' || errorMessage.includes('timeout')) {
                 this.logAiEvent('error', traceId, 'api-timeout', {
                     error: errorMessage
-                });
-                return '抱歉，AI响应超时。请稍后重试。';
+                })
+                return {
+                    finalReply: '抱歉，AI响应超时。请稍后重试。',
+                    state: 'failed',
+                    errors: [errorMessage]
+                }
             }
             if (error?.response) {
                 this.logAiEvent('error', traceId, 'api-error', {
                     status: error.response.status
-                });
+                })
             } else {
                 this.logAiEvent('error', traceId, 'api-request-failed', {
                     error: errorMessage
-                });
+                })
             }
-            return null;
+            return {
+                finalReply: null,
+                state: 'failed',
+                errors: [errorMessage]
+            }
         }
+    }
+
+    async getReply(message, userId, groupId, traceId = null, pipelineInput = null) {
+        const agentInput = {
+            traceId,
+            rawMessage: message,
+            groupId,
+            userId,
+            userName: null,
+            messageId: null,
+            messageMeta: pipelineInput?.messageMeta || {},
+            source: String(groupId || '').startsWith('private_') ? 'private' : 'group',
+            contextKey: groupId || userId,
+            pipelineInput,
+            ws: null
+        }
+        const result = await this.runAgent(agentInput)
+        return result.finalReply
     }
 
     shouldReply(message, isAt, groupId) {

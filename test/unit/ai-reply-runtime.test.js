@@ -26,10 +26,15 @@ function run() {
                 aiProfileEnabled: true,
                 aiPromptAssemblerEnabled: false,
                 aiAdminClaimRequiresTool: true,
-                aiStructuredContextEnabled: true
+                aiStructuredContextEnabled: true,
+                aiBusyWindowSeconds: 60,
+                aiBusyMessageCount: 4,
+                aiMaxRepliesPerWindow: 2,
+                aiProbability: 0.5
             })[key],
             getRootAdminQQ: () => '793122294',
-            isRagEnabledForGroup: () => true
+            isRagEnabledForGroup: () => true,
+            isAiEnabledForGroup: () => true
         },
         globalBot: { selfId: '1099804769' },
         mcpManager: {
@@ -52,6 +57,12 @@ function run() {
     assert.strictEqual(runtime.proxyConfig.host, '127.0.0.1')
     assert.strictEqual(runtime.promptAssemblerEnabled, false)
     assert.strictEqual(runtime.structuredContextEnabled, true)
+    assert.strictEqual(runtime.config.aiChatApiKey, 'test-key')
+    assert.strictEqual(typeof runtime.replyGateService.evaluate, 'function')
+    assert.strictEqual(typeof runtime.classifyResponseMode, 'function')
+    assert.strictEqual(typeof runtime.selectContext, 'function')
+    assert.strictEqual(typeof runtime.generateLegacyReply, 'function')
+    assert.strictEqual(typeof runtime.generateLegacyReplyResult, 'function')
     assert.deepStrictEqual(runtime.buildBotFacts('1065812436', { currentMentionsBot: true, isReplyToBot: false }), {
         botId: '1099804769',
         botName: '',
@@ -65,7 +76,10 @@ function run() {
     assert.strictEqual(typeof runtime.computeDynamicTimeout, 'function')
     assert.strictEqual(typeof runtime.runChatLoop, 'function')
     assert.strictEqual(typeof runtime.buildNonStructuredMessages, 'function')
-    console.log('✓ buildReplyRuntime 会提供完整运行时字段、LLM 依赖闭环与 proxy wiring')
+    assert.strictEqual(typeof runtime.botControl.read, 'function')
+    assert.strictEqual(typeof runtime.botControl.write, 'function')
+    assert.deepStrictEqual(runtime.botControl.listActions(), ['subscription.read', 'subscription.write', 'approval.read', 'approval.write', 'runtime.read', 'config.read', 'config.write', 'context.write'])
+    console.log('✓ buildReplyRuntime 会提供完整运行时字段、LLM 依赖闭环、proxy wiring 与 bot-control 读写入口')
 }
 
 try {

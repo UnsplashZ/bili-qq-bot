@@ -59,10 +59,12 @@ async function runChatLoop({
     let loopCount = 0
     let emptyContentRetries = 0
     let hasToolResult = false
+    const steps = []
     const MAX_LOOPS = 10
     const MAX_EMPTY_RETRIES = 2
 
     while (loopCount < MAX_LOOPS) {
+        steps.push({ type: 'llm_request', loop: loopCount + 1, toolCount: tools.length })
         const payload = { model, messages: currentMessages, temperature }
         if (tools.length > 0) payload.tools = tools
         let response
@@ -79,35 +81,41 @@ async function runChatLoop({
                     toolCount: tools.length,
                     error: String(error.message || '')
                 })
-                return { reply: '抱歉，AI响应超时。请稍后重试。', hasToolResult, rawMessages: currentMessages }
+                steps.push({ type: 'error', kind: 'api-timeout' })
+                return { reply: '抱歉，AI响应超时。请稍后重试。', hasToolResult, rawMessages: currentMessages, steps }
             }
             if (error.response) {
                 log('error', 'api-error', {
                     status: error.response.status
                 })
-                return { reply: null, hasToolResult, rawMessages: currentMessages }
+                steps.push({ type: 'error', kind: 'api-error', status: error.response.status })
+                return { reply: null, hasToolResult, rawMessages: currentMessages, steps }
             }
             log('error', 'api-request-failed', {
                 error: String(error.message || '')
             })
-            return { reply: null, hasToolResult, rawMessages: currentMessages }
+            steps.push({ type: 'error', kind: 'api-request-failed' })
+            return { reply: null, hasToolResult, rawMessages: currentMessages, steps }
         }
 
         if (!response.data || !Array.isArray(response.data.choices) || response.data.choices.length === 0) {
             log('error', 'api-response-invalid', {})
-            return { reply: null, hasToolResult, rawMessages: currentMessages }
+            steps.push({ type: 'error', kind: 'api-response-invalid' })
+            return { reply: null, hasToolResult, rawMessages: currentMessages, steps }
         }
 
         const messageData = response.data.choices[0].message
         currentMessages.push(messageData)
 
         if (messageData.tool_calls && messageData.tool_calls.length > 0) {
+            steps.push({ type: 'tool_batch', count: messageData.tool_calls.length, loop: loopCount + 1 })
             log('info', 'tool-batch', {
                 count: messageData.tool_calls.length
             })
 
             for (const toolCall of messageData.tool_calls) {
                 const functionName = toolCall.function.name
+                steps.push({ type: 'tool_start', functionName, toolCallId: toolCall.id })
                 log('info', 'tool-start', {
                     functionName
                 })
@@ -119,6 +127,7 @@ async function runChatLoop({
                         functionName,
                         error: String(error.message || '')
                     })
+                    steps.push({ type: 'tool_args_parse_failed', functionName })
                 }
 
                 let toolContent = ''
@@ -129,6 +138,7 @@ async function runChatLoop({
                         reason: guarded.reason,
                         error: String(guarded.error?.message || guarded.error || '')
                     })
+                    steps.push({ type: 'tool_failed', functionName, reason: guarded.reason || 'unknown' })
                     toolContent = `Error executing tool ${functionName}: ${guarded.error.message}`
                 } else {
                     hasToolResult = true
@@ -146,6 +156,7 @@ async function runChatLoop({
                     log('info', 'tool-done', {
                         functionName
                     })
+                    steps.push({ type: 'tool_done', functionName })
                 }
 
                 currentMessages.push({
@@ -166,22 +177,26 @@ async function runChatLoop({
                     retry: emptyContentRetries,
                     maxRetries: MAX_EMPTY_RETRIES
                 })
+                steps.push({ type: 'reply_empty_retry', retry: emptyContentRetries })
                 currentMessages.push({ role: 'user', content: '请根据上述工具调用的结果，回答我的问题。' })
                 loopCount++
                 continue
             }
             log('warn', 'reply-empty', {})
-            return { reply: null, hasToolResult, rawMessages: currentMessages }
+            steps.push({ type: 'reply_empty' })
+            return { reply: null, hasToolResult, rawMessages: currentMessages, steps }
         }
 
         log('info', 'reply-ready', { hasToolResult })
-        return { reply: messageData.content, hasToolResult, rawMessages: currentMessages }
+        steps.push({ type: 'reply_ready', hasToolResult })
+        return { reply: messageData.content, hasToolResult, rawMessages: currentMessages, steps }
     }
 
     log('warn', 'tool-loop-exhausted', {
         maxLoops: MAX_LOOPS
     })
-    return { reply: 'Unable to complete request (max steps reached).', hasToolResult, rawMessages: currentMessages }
+    steps.push({ type: 'tool_loop_exhausted', maxLoops: MAX_LOOPS })
+    return { reply: 'Unable to complete request (max steps reached).', hasToolResult, rawMessages: currentMessages, steps }
 }
 
 module.exports = {

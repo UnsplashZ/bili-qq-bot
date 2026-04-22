@@ -40,7 +40,11 @@ async function testToolLoopSuccess() {
     })
     assert.strictEqual(result.reply, '已根据执行结果处理。')
     assert.strictEqual(result.hasToolResult, true)
-    console.log('✓ runChatLoop 在 tool success 时返回 reply')
+    assert.ok(Array.isArray(result.steps))
+    assert.ok(result.steps.some(step => step.type === 'tool_start' && step.functionName === 'kick_user'))
+    assert.ok(result.steps.some(step => step.type === 'tool_done' && step.functionName === 'kick_user'))
+    assert.ok(result.steps.some(step => step.type === 'reply_ready'))
+    console.log('✓ runChatLoop 在 tool success 时返回 reply，并记录 Phase 1 steps 元数据')
 }
 
 async function testApiValidationAndArgsFallback() {
@@ -98,6 +102,7 @@ async function testTimeoutAndNetworkMapping() {
         log: () => {}
     })
     assert.strictEqual(timeoutResult.reply, '抱歉，AI响应超时。请稍后重试。')
+    assert.ok(timeoutResult.steps.some(step => step.kind === 'api-timeout'))
 
     let requestFailedLogged = false
     const networkResult = await llmChatService.runChatLoop({
@@ -128,7 +133,8 @@ async function testTimeoutAndNetworkMapping() {
     })
     assert.strictEqual(networkResult.reply, null)
     assert.strictEqual(requestFailedLogged, true)
-    console.log('✓ runChatLoop 会保留超时文案与普通网络失败返回 null 的现有语义')
+    assert.ok(networkResult.steps.some(step => step.kind === 'api-request-failed'))
+    console.log('✓ runChatLoop 会保留超时文案与普通网络失败返回 null 的现有语义，并记录错误步骤')
 }
 
 async function testHybridSearchAppend() {

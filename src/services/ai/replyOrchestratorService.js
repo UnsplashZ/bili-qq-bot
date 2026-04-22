@@ -1,6 +1,35 @@
 'use strict'
 
-async function generateReply({ message, userId, groupId, traceId = null, pipelineInput = null, runtime }) {
+function buildLegacyExecutionErrors(chatResult) {
+    if (!Array.isArray(chatResult?.steps)) {
+        return []
+    }
+
+    return chatResult.steps
+        .filter(step => step.type === 'error')
+        .map(step => step.status ? `${step.kind}:${step.status}` : step.kind)
+}
+
+function buildLegacyToolCalls(chatResult) {
+    if (!Array.isArray(chatResult?.rawMessages)) {
+        return []
+    }
+
+    return chatResult.rawMessages.flatMap(message => {
+        if (!Array.isArray(message?.tool_calls) || message.tool_calls.length === 0) {
+            return []
+        }
+
+        return message.tool_calls.map(toolCall => ({
+            id: toolCall.id || null,
+            type: toolCall.type || 'function',
+            functionName: toolCall.function?.name || null,
+            arguments: toolCall.function?.arguments || null
+        }))
+    })
+}
+
+async function generateReplyResult({ message, userId, groupId, traceId = null, pipelineInput = null, runtime }) {
     if (!runtime.apiKey) {
         runtime.log('warn', 'reply-skipped', {
             reason: 'missing_api_key'
@@ -153,7 +182,14 @@ async function generateReply({ message, userId, groupId, traceId = null, pipelin
     })
 
     if (!chatResult.reply) {
-        return null
+        return {
+            finalReply: null,
+            hasToolResult: chatResult.hasToolResult === true,
+            steps: chatResult.steps || [],
+            errors: buildLegacyExecutionErrors(chatResult),
+            toolCalls: buildLegacyToolCalls(chatResult),
+            rawMessages: chatResult.rawMessages || []
+        }
     }
 
     const guardedReply = runtime.applyAdminActionGuard(
@@ -176,9 +212,24 @@ async function generateReply({ message, userId, groupId, traceId = null, pipelin
         hasToolResult: chatResult.hasToolResult
     })
 
-    return guardedReply
+    return {
+        finalReply: guardedReply,
+        hasToolResult: chatResult.hasToolResult === true,
+        steps: chatResult.steps || [],
+        errors: buildLegacyExecutionErrors(chatResult),
+        toolCalls: buildLegacyToolCalls(chatResult),
+        rawMessages: chatResult.rawMessages || []
+    }
+}
+
+async function generateReply(args) {
+    const result = await generateReplyResult(args)
+    return result?.finalReply || null
 }
 
 module.exports = {
-    generateReply
+    generateReply,
+    generateReplyResult,
+    buildLegacyExecutionErrors,
+    buildLegacyToolCalls
 }

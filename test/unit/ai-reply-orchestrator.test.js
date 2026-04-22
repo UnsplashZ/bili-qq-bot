@@ -2,7 +2,7 @@
 'use strict'
 
 const assert = require('assert')
-const { generateReply } = require('../../src/services/ai/replyOrchestratorService')
+const { generateReply, generateReplyResult } = require('../../src/services/ai/replyOrchestratorService')
 
 async function run() {
     const calls = []
@@ -70,6 +70,51 @@ async function run() {
     assert.strictEqual(capturedTools.length, 1)
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
     assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'timeout:1', 'log:timeout-ready', 'runChatLoop', 'guard', 'persist', 'log:reply-ready'])
+
+    calls.length = 0
+    const structuredResult = await generateReplyResult({
+        message: '帮我查一下',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-1.1',
+        pipelineInput: null,
+        runtime: {
+            ...baseRuntime,
+            runChatLoop: async () => {
+                calls.push('runChatLoop')
+                return {
+                    reply: '查到了。',
+                    hasToolResult: true,
+                    steps: [
+                        { type: 'llm_request', loop: 1, toolCount: 1 },
+                        { type: 'tool_done', functionName: 'kick_user' },
+                        { type: 'reply_ready', hasToolResult: true }
+                    ],
+                    rawMessages: [{
+                        role: 'assistant',
+                        tool_calls: [{
+                            id: 'call_1',
+                            type: 'function',
+                            function: {
+                                name: 'kick_user',
+                                arguments: '{"user_id":"2"}'
+                            }
+                        }]
+                    }]
+                }
+            }
+        }
+    })
+
+    assert.strictEqual(structuredResult.finalReply, '查到了。')
+    assert.strictEqual(structuredResult.hasToolResult, true)
+    assert.ok(structuredResult.steps.some(step => step.type === 'tool_done' && step.functionName === 'kick_user'))
+    assert.deepStrictEqual(structuredResult.toolCalls, [{
+        id: 'call_1',
+        type: 'function',
+        functionName: 'kick_user',
+        arguments: '{"user_id":"2"}'
+    }])
 
     calls.length = 0
     capturedTools = null
@@ -174,6 +219,44 @@ async function run() {
     assert.strictEqual(emptyReply, null)
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
     assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'timeout:1', 'log:timeout-ready', 'runChatLoop'])
+
+    const timeoutResult = await generateReplyResult({
+        message: '我是谁',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-2.1',
+        pipelineInput: null,
+        runtime: {
+            ...baseRuntime,
+            runChatLoop: async () => ({
+                reply: '抱歉，AI响应超时。请稍后重试。',
+                hasToolResult: false,
+                steps: [{ type: 'error', kind: 'api-timeout' }],
+                rawMessages: []
+            })
+        }
+    })
+    assert.strictEqual(timeoutResult.finalReply, '抱歉，AI响应超时。请稍后重试。')
+    assert.deepStrictEqual(timeoutResult.errors, ['api-timeout'])
+
+    const networkResult = await generateReplyResult({
+        message: '我是谁',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-2.2',
+        pipelineInput: null,
+        runtime: {
+            ...baseRuntime,
+            runChatLoop: async () => ({
+                reply: null,
+                hasToolResult: false,
+                steps: [{ type: 'error', kind: 'api-request-failed' }],
+                rawMessages: []
+            })
+        }
+    })
+    assert.strictEqual(networkResult.finalReply, null)
+    assert.deepStrictEqual(networkResult.errors, ['api-request-failed'])
     console.log('✓ generateReply 只依赖 runtime 契约完成编排，并保留 tools gating 与空 reply 不持久化语义')
 }
 
