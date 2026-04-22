@@ -1,16 +1,39 @@
-# React + Vite
+# Bili QQ Bot WebUI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+这是主 Bot 内置管理面板的前端工程，基于 React、Vite 和 Tailwind CSS。生产构建输出到 `dashboard/dist`，由主进程的 Express 服务托管。
 
-Currently, two official plugins are available:
+## 开发
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+cd dashboard
+npm install
+npm run dev
+```
 
-## React Compiler
+开发服务器默认运行在 `http://localhost:5173`，API 请求代理到主 Bot 服务（默认 `http://localhost:3000`）。开发前需要先在项目根目录启动主服务：
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+cd ..
+npm start
+```
 
-## Expanding the ESLint configuration
+## 构建
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+cd dashboard
+npm run build
+```
+
+构建产物会写入 `dashboard/dist`。主服务启动后会在 Dashboard 端口托管这些静态文件，默认访问地址为 `http://localhost:3000`。
+
+## 主要页面
+
+- `src/pages/Dashboard.jsx`：运行状态与资源概览
+- `src/pages/Groups.jsx`：群组配置、订阅、AI 与视频下载策略
+- `src/pages/Settings.jsx`：全局配置、B 站登录、MCP、AI 参数
+- `src/pages/Logs.jsx`：实时日志与历史缓冲
+- `src/pages/Login.jsx`：管理面板登录
+
+## 登录与配置
+
+Dashboard 登录密码配置在主项目 `config/.env` 的 `DASHBOARD_PASSWORD`，默认值为 `admin`。公网访问时请配置 `DASHBOARD_ALLOWED_ORIGINS`，避免未授权来源访问管理接口。

@@ -25,11 +25,12 @@
 ## 核心特性
 
 *   🚀 **全类型解析**：精准识别并解析以下内容
-    *   视频 (BV/av)、番剧 (ss/ep)、直播间 (live)
+    *   视频 (BV/av)、番剧/影视 (ss/ep/md)、直播间 (live)
     *   专栏文章 (cv) - 统一渲染为紧凑预览卡，支持封面、标题、三行摘要、作者装扮与统计信息
     *   动态 (t.bilibili.com) - 支持长文、多图、转发动态，完美还原装扮卡片与粉丝编号
     *   用户主页 (space) - 展示用户数据，自动抓取并展示最新一条动态
     *   Opus 图文 (opus) - 自动区分普通动态与“文章型 opus”，文章型 opus 按专栏语义解析并渲染
+    *   收藏夹、音频/歌单、话题、合集/系列、文集、笔记、课堂视频等扩展类型
     *   小程序/短链 (b23.tv) - 自动还原目标链接
 
 *   🎨 **高颜值预览**
@@ -52,7 +53,7 @@
     *   支持多 P 视频续下：`/下载 P{n}`，并支持订阅推送视频下载扇出
     *   支持全局与分群配置：开关、默认分辨率、最大时长、自动清理
 
-*   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、直播、番剧更新
+*   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、视频、专栏、直播与番剧更新
 
 *   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、AI/RAG/画像开关、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
 
@@ -238,6 +239,15 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `aiVectorBatchLoadSize` | 向量批量加载大小 (预留) | `1000` |
 | `aiEnableVectorCache` | 启用向量搜索缓存 | `true` |
 | `aiEnableSmartTrim` | 启用智能记忆保留策略 | `true` |
+| `aiReplyGateEnabled` | 启用 AI 回复门控（综合 @、回复、称呼、忙碌窗口等判断是否回复） | `true` |
+| `aiContextSelectorEnabled` | 启用结构化上下文选择 | `true` |
+| `aiResponseModeEnabled` | 启用响应模式分类（问答/工具调用准备等） | `true` |
+| `aiPromptAssemblerEnabled` | 启用结构化提示词组装 | `true` |
+| `aiReplyScoreThreshold` | 普通场景 AI 回复分数阈值 | `45` |
+| `aiBusyReplyScoreThreshold` | 忙碌群聊场景 AI 回复分数阈值 | `80` |
+| `aiReplyCooldownMs` | AI 回复冷却时间（毫秒） | `15000` |
+| `aiMaxRepliesPerWindow` | 回复窗口内最多回复次数 | `3` |
+| `aiBotName` / `aiBotAliases` | 群内机器人名称与别名，用于触发和身份判断 | `""` / `[]` |
 | `aiProfileMinMessages` | 首次生成画像所需最小发言数 | `30` |
 | `aiProfileUpdateInterval` | 画像增量更新触发间隔（新增发言数） | `50` |
 | `aiProfileMaxLength` | 单条画像最大长度（字） | `200` |
@@ -251,7 +261,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `videoDownloadAutoClean` | 视频文件发送后自动清理 | `true` |
 | `videoDownloadCleanTimeout` | 下载目录兜底清理超时（小时） | `6` |
 | `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
-| `labelConfig` | 标签显示配置 | `{"video": true, ...}` |
+| `labelConfig` | 标签显示配置（视频、番剧、动态、专栏、直播及扩展类型） | `{"video": true, ...}` |
 | `showId` | 是否在卡片中显示 UID | `true` |
 | `groupConfigs` | 群级配置覆盖 (每个群可独立配置) | `{}` |
 </details>
@@ -268,7 +278,7 @@ Root 可使用私聊能力，但私聊仅支持聊天/AI/链接解析/下载；`
 | 指令 | 说明 | 作用域 | 权限 |
 | :--- | :--- | :--- | :--- |
 | `/菜单` / `/帮助` | 查看用户帮助菜单 | 当前群 | 所有人 |
-| `/设置 帮助` | 查看管理配置面板 | 当前群 | 所有人 |
+| `/设置 帮助` | 查看管理配置面板 | 当前群 | 群管/Root |
 | `/AI 帮助` | 查看AI配置面板 | 当前群 | 所有人 |
 | `/订阅列表` | 查看本群当前的订阅列表 (用户与番剧) | 当前群 | 所有人 |
 
@@ -314,7 +324,7 @@ AI相关配置通过独立的 `/AI` 指令体系管理。
 | 指令 | 参数 | 说明 | 作用域 | 权限 |
 | :--- | :--- | :--- | :--- | :--- |
 | `/AI 帮助` | 无 | 显示AI配置菜单 | - | 所有人 |
-| `/AI 上下文 <条数>` | `<1-50>` | 设置本群AI上下文消息数（默认10） | **当前群** | 群管/Root |
+| `/AI 上下文 <条数>` | `<1-100>` | 设置本群AI上下文消息数（默认10） | **当前群** | 群管/Root |
 | `/AI 概率 <0-1>` | `<0.0-1.0>` | 设置本群AI随机回复概率（默认0.1） | **当前群** | 群管/Root |
 | `/AI 新对话 [群号]` | `[群号]` | 重置AI对话记忆 | **指定群** | 群管/Root |
 | `/AI 向量阈值 <0-1>` | `<0.0-1.0>` | 设置记忆相似度阈值（默认0.4） | **全局** | Root |
@@ -545,21 +555,21 @@ npm run build   # 生产构建，输出至 dashboard/dist
     *   `services/`: B站 API, 绘图服务, 订阅服务
         *   `biliApi.js`: Bilibili API 调用 (通过 Python 子进程)
         *   `previewLab/`: 本地预览实验台共享内核（输入解析、目标获取、会话落盘、Web 调试页）
-        *   `imageGenerator/`: **Puppeteer 图片生成服务** (模块化架构，17 个文件)
+        *   `imageGenerator/`: **Puppeteer 图片生成服务** (模块化渲染与生成架构)
             *   `index.js`: 主入口，导出单例 ImageGenerator 类
             *   `core/`: 核心模块
                 *   `browser.js`: Puppeteer 浏览器管理 (单例模式)
                 *   `theme.js`: 主题系统 (深色/浅色模式，配色计算)
                 *   `formatters.js`: 格式化工具 (时间、数字、HTML 转义)
             *   `renderers/`: 内容渲染器 (纯函数，HTML 生成)
-                *   `video.js`, `bangumi.js`, `article.js`, `live.js`, `user.js`, `dynamic.js`: 各类型内容渲染
+                *   `video.js`, `bangumi.js`, `article.js`, `live.js`, `user.js`, `dynamic.js`, `generic.js`: 各类型内容渲染与扩展类型通用渲染
                 *   `icons.js`: SVG 图标常量
                 *   `components/`: 可复用组件
                     *   `richtext.js`: 富文本解析 (@用户、表情、话题)
                     *   `vote.js`: 投票卡片组件
                     *   `media.js`: 媒体 (图片/视频) 组件
             *   `generators/`: 图片生成器 (整合渲染器与浏览器)
-                *   `previewCard.js`: 预览卡片生成 (6 种内容类型)
+                *   `previewCard.js`: 预览卡片生成（基础类型与扩展类型统一入口）
                 *   `subscriptionList.js`: 订阅列表生成
                 *   `helpCard.js`: 帮助卡片生成 (用户/管理员菜单)
         *   `subscriptionService.js`: 订阅轮询与推送系统
