@@ -16,6 +16,7 @@ const { replyGateService } = require('../../src/services/ai/replyGateService')
 const originals = {
     shouldReply: aiHandler.shouldReply,
     getReply: aiHandler.getReply,
+    runAgent: aiHandler.runAgent,
     addMessageToContext: aiHandler.addMessageToContext,
     gateEvaluate: replyGateService.evaluate,
     gateRecordBotReply: replyGateService.recordBotReply,
@@ -35,6 +36,7 @@ const originals = {
 function restore() {
     aiHandler.shouldReply = originals.shouldReply
     aiHandler.getReply = originals.getReply
+    aiHandler.runAgent = originals.runAgent
     aiHandler.addMessageToContext = originals.addMessageToContext
     replyGateService.evaluate = originals.gateEvaluate
     replyGateService.recordBotReply = originals.gateRecordBotReply
@@ -75,10 +77,10 @@ async function testDuplicateMessageIdOnlyRepliesOnce() {
     })
     replyGateService.recordBotReply = () => {}
 
-    let getReplyCalled = 0
-    aiHandler.getReply = async () => {
-        getReplyCalled += 1
-        return 'ok'
+    let runAgentCalled = 0
+    aiHandler.runAgent = async () => {
+        runAgentCalled += 1
+        return { finalReply: 'ok' }
     }
 
     let sendCount = 0
@@ -101,7 +103,7 @@ async function testDuplicateMessageIdOnlyRepliesOnce() {
     await messageHandler.handleMessage({}, payload)
     await messageHandler.handleMessage({}, payload)
 
-    assert.strictEqual(getReplyCalled, 1, '重复消息不应重复调用 AI')
+    assert.strictEqual(runAgentCalled, 1, '重复消息不应重复调用 AI')
     assert.strictEqual(sendCount, 1, '重复消息不应重复回复')
     console.log('✓ 重复 message_id 仅回复一次')
 }

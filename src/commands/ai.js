@@ -2,7 +2,8 @@ const aiHandler = require('../handlers/aiHandler');
 const config = require('../config');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
-const { normalizeAiContextLimit, normalizeAiConfigField, AiConfigValidationError } = require('../services/ai/validation');
+const { AiConfigValidationError } = require('../services/ai/validation');
+const { updateGroupAiConfig } = require('../services/ai/groupConfigFacade');
 
 function commandLog(level, message, fields = {}) {
     logger.logEvent(level, 'BOT', 'cmd:ai', message, fields);
@@ -45,7 +46,13 @@ class AiCommand {
 
                 let value;
                 try {
-                    value = normalizeAiContextLimit(parts[2], { min: 1, max: 100 });
+                    const result = updateGroupAiConfig(config, groupId, {
+                        aiContextLimit: parts[2]
+                    }, {
+                        fields: ['aiContextLimit'],
+                        contextLimitRange: { min: 1, max: 100 }
+                    });
+                    value = result.groupConfig.aiContextLimit;
                 } catch (e) {
                     const hint = e instanceof AiConfigValidationError
                         ? '格式错误。用法: /AI 上下文 <1-100>\n示例: /AI 上下文 15'
@@ -54,7 +61,6 @@ class AiCommand {
                     return true;
                 }
 
-                config.setGroupConfig(groupId, 'aiContextLimit', value);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已设置本群AI上下文限制为: ${value} 条消息` } }]);
                 return true;
             }
@@ -68,13 +74,17 @@ class AiCommand {
 
                 let value;
                 try {
-                    value = normalizeAiConfigField('aiProbability', parts[2]);
+                    const result = updateGroupAiConfig(config, groupId, {
+                        aiProbability: parts[2]
+                    }, {
+                        fields: ['aiProbability']
+                    });
+                    value = result.groupConfig.aiProbability;
                 } catch (e) {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '格式错误。用法: /AI 概率 <0-1>\n示例: /AI 概率 0.3' } }]);
                     return true;
                 }
 
-                config.setGroupConfig(groupId, 'aiProbability', value);
                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已设置本群AI回复概率为: ${value} (${(value * 100).toFixed(0)}%)` } }]);
                 return true;
             }

@@ -1,6 +1,16 @@
 const express = require('express')
 const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
+const {
+    AiConfigValidationError
+} = require('../../../../services/ai/validation')
+const {
+    GROUP_AI_SWITCH_FIELDS,
+    pickGroupAiConfigUpdates,
+    readGroupAiConfigSnapshot,
+    updateGroupAiConfig,
+    resetGroupAiConfig
+} = require('../../../../services/ai/groupConfigFacade')
 const { assertWebuiManageableGroup } = require('../shared/group-guard')
 
 const router = express.Router()
@@ -14,27 +24,10 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
 
-        sysConfig.ensureGroupConfig(groupId)
-
-        const groupConfig = sysConfig.groupConfigs[groupId]
-
-        res.json({
-            aiEnabled:
-                groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
-            aiRagEnabled:
-                groupConfig.aiRagEnabled !== undefined
-                    ? groupConfig.aiRagEnabled
-                    : null,
-            aiProfileEnabled:
-                groupConfig.aiProfileEnabled !== undefined
-                    ? groupConfig.aiProfileEnabled
-                    : null,
-            global: {
-                aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled,
-                aiProfileEnabled: sysConfig.aiProfileEnabled
-            }
-        })
+        res.json(readGroupAiConfigSnapshot(sysConfig, groupId, {
+            fields: GROUP_AI_SWITCH_FIELDS,
+            includeGlobal: true
+        }))
     } catch (error) {
         logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-fetch-failed', {
             groupId: req.params.groupId,
@@ -52,82 +45,39 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
         })
         if (!guarded) return
         const groupId = guarded.groupId
-        const { aiEnabled, aiRagEnabled, aiProfileEnabled } = req.body
+        const updates = pickGroupAiConfigUpdates(req.body, GROUP_AI_SWITCH_FIELDS)
 
-        if (
-            aiEnabled === undefined &&
-            aiRagEnabled === undefined &&
-            aiProfileEnabled === undefined
-        ) {
-            return res.status(400).json({
-                error: 'At least one of aiEnabled, aiRagEnabled, or aiProfileEnabled must be provided'
+        try {
+            const result = updateGroupAiConfig(sysConfig, groupId, updates, {
+                fields: GROUP_AI_SWITCH_FIELDS,
+                includeGlobal: true,
+                requireAtLeastOne: true,
+                requireAtLeastOneMessage: 'At least one of aiEnabled, aiRagEnabled, or aiProfileEnabled must be provided'
             })
-        }
 
-        sysConfig.ensureGroupConfig(groupId)
+            logger.logEvent('info', 'DASH', req.logScope || '', 'ai-config-updated', {
+                groupId
+            })
 
-        const groupConfig = sysConfig.groupConfigs[groupId]
-
-        if (aiEnabled !== undefined) {
-            if (aiEnabled === null) {
-                delete groupConfig.aiEnabled
-            } else if (typeof aiEnabled === 'boolean') {
-                groupConfig.aiEnabled = aiEnabled
-            } else {
-                return res.status(400).json({
-                    error: 'aiEnabled must be a boolean or null'
-                })
+            res.json({
+                message: 'AI configuration updated successfully',
+                ...result.snapshot
+            })
+        } catch (error) {
+            if (error instanceof AiConfigValidationError) {
+                if (error.field === 'aiEnabled') {
+                    return res.status(400).json({ error: 'aiEnabled must be a boolean or null' })
+                }
+                if (error.field === 'aiRagEnabled') {
+                    return res.status(400).json({ error: 'aiRagEnabled must be a boolean or null' })
+                }
+                if (error.field === 'aiProfileEnabled') {
+                    return res.status(400).json({ error: 'aiProfileEnabled must be a boolean or null' })
+                }
+                return res.status(400).json({ error: error.message, field: error.field })
             }
+            throw error
         }
-
-        if (aiRagEnabled !== undefined) {
-            if (aiRagEnabled === null) {
-                delete groupConfig.aiRagEnabled
-            } else if (typeof aiRagEnabled === 'boolean') {
-                groupConfig.aiRagEnabled = aiRagEnabled
-            } else {
-                return res.status(400).json({
-                    error: 'aiRagEnabled must be a boolean or null'
-                })
-            }
-        }
-
-        if (aiProfileEnabled !== undefined) {
-            if (aiProfileEnabled === null) {
-                delete groupConfig.aiProfileEnabled
-            } else if (typeof aiProfileEnabled === 'boolean') {
-                groupConfig.aiProfileEnabled = aiProfileEnabled
-            } else {
-                return res.status(400).json({
-                    error: 'aiProfileEnabled must be a boolean or null'
-                })
-            }
-        }
-
-        sysConfig.save()
-
-        logger.logEvent('info', 'DASH', req.logScope || '', 'ai-config-updated', {
-            groupId
-        })
-
-        res.json({
-            message: 'AI configuration updated successfully',
-            aiEnabled:
-                groupConfig.aiEnabled !== undefined ? groupConfig.aiEnabled : null,
-            aiRagEnabled:
-                groupConfig.aiRagEnabled !== undefined
-                    ? groupConfig.aiRagEnabled
-                    : null,
-            aiProfileEnabled:
-                groupConfig.aiProfileEnabled !== undefined
-                    ? groupConfig.aiProfileEnabled
-                    : null,
-            global: {
-                aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled,
-                aiProfileEnabled: sysConfig.aiProfileEnabled
-            }
-        })
     } catch (error) {
         logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-update-failed', {
             groupId: req.params.groupId,
@@ -146,15 +96,10 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
 
-        sysConfig.ensureGroupConfig(groupId)
-
-        const groupConfig = sysConfig.groupConfigs[groupId]
-
-        delete groupConfig.aiEnabled
-        delete groupConfig.aiRagEnabled
-        delete groupConfig.aiProfileEnabled
-
-        sysConfig.save()
+        const snapshot = resetGroupAiConfig(sysConfig, groupId, {
+            fields: GROUP_AI_SWITCH_FIELDS,
+            includeGlobal: true
+        })
 
         logger.logEvent('info', 'DASH', req.logScope || '', 'ai-config-reset', {
             groupId
@@ -162,11 +107,7 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
 
         res.json({
             message: 'AI configuration reset to global defaults',
-            global: {
-                aiEnabled: sysConfig.aiEnabled,
-                aiRagEnabled: sysConfig.aiRagEnabled,
-                aiProfileEnabled: sysConfig.aiProfileEnabled
-            }
+            ...snapshot
         })
     } catch (error) {
         logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-reset-failed', {

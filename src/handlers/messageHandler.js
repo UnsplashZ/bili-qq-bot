@@ -13,6 +13,7 @@ const aiIdempotency = require('../services/ai/idempotency');
 const { replyGateService } = require('../services/ai/replyGateService');
 const { selectContext } = require('../services/ai/contextSelectorService');
 const { classifyResponseMode } = require('../services/ai/responseModeService');
+const { resolveBotControlActionInput } = require('../services/ai/botControlActionResolutionService');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -85,6 +86,48 @@ class MessageHandler {
             botNameHit,
             source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group'
         };
+    }
+
+    buildAgentInput({ ws, rawMessage, groupId, userId, userName, messageId, messageMeta, traceContext, pipelineInput = null }) {
+        return {
+            traceId: traceContext.scope,
+            rawMessage,
+            groupId,
+            userId,
+            userName,
+            messageId,
+            messageMeta,
+            source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group',
+            contextKey: groupId || userId,
+            pipelineInput,
+            ws
+        }
+    }
+
+    resolveBotControlIngress({ ws, rawMessage, groupId, userId, userName, messageId, messageMeta, traceContext, pipelineInput = null }) {
+        const agentInput = this.buildAgentInput({
+            ws,
+            rawMessage,
+            groupId,
+            userId,
+            userName,
+            messageId,
+            messageMeta,
+            traceContext,
+            pipelineInput
+        })
+        const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
+        const resolution = resolveBotControlActionInput({
+            agentInput,
+            runtime
+        })
+
+        return {
+            agentInput,
+            runtime,
+            resolution,
+            isBotControl: resolution.candidate != null
+        }
     }
 
     /**
@@ -276,7 +319,20 @@ class MessageHandler {
         const sender = messageData.sender || {};
         const userName = sender.card || sender.nickname || `用户${userId}`;
         const messageMeta = this.extractMessageMeta(messageData, groupId, userId, userName);
-        if (rawMessage && !rawMessage.trim().startsWith('/')) {
+        const shouldTrackAsChatMessage = rawMessage && !rawMessage.trim().startsWith('/')
+        const botControlIngress = shouldTrackAsChatMessage
+            ? this.resolveBotControlIngress({
+                ws,
+                rawMessage,
+                groupId,
+                userId,
+                userName,
+                messageId,
+                messageMeta,
+                traceContext
+            })
+            : { agentInput: null, runtime: null, resolution: { candidate: null, source: 'absent' }, isBotControl: false }
+        if (!botControlIngress.isBotControl && shouldTrackAsChatMessage) {
             // 与向量记忆保持一致：存储前保留 @QQ 信息并清洗其他 CQ 码
             const cleanForContext = this.normalizeMessageForStorage(rawMessage);
             if (cleanForContext) {
@@ -286,7 +342,7 @@ class MessageHandler {
 
         // 3. Vector Memory Storage (Store all non-command user messages)
         // Store after URL expansion to include full links
-        if (groupId && rawMessage && !rawMessage.trim().startsWith('/')) {
+        if (!botControlIngress.isBotControl && groupId && shouldTrackAsChatMessage) {
              const cleanMsg = this.normalizeMessageForStorage(rawMessage);
              if (cleanMsg) {
                  vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
@@ -413,12 +469,75 @@ class MessageHandler {
             shouldReply = aiHandler.shouldReply(rawMessage, isAt, groupId)
         }
 
+        if (!shouldReply && botControlIngress.isBotControl) {
+            shouldReply = true
+            aiPipelineInput = {
+                ...(aiPipelineInput || {}),
+                botControlAction: botControlIngress.resolution.candidate,
+                gateDecision: {
+                    shouldReply: true,
+                    triggerLevel: 'structured_action',
+                    reasons: [`bot_control_${botControlIngress.resolution.source}`]
+                },
+                responseMode: {
+                    mode: 'answer_only',
+                    reasons: [`bot_control_${botControlIngress.resolution.source}`]
+                }
+            }
+            logger.logEvent('info', 'AI', traceContext.scope, 'AI ingress admitted bot-control trigger', {
+                source: botControlIngress.resolution.source,
+                action: botControlIngress.resolution.candidate.action
+            })
+        }
+
         if (shouldReply) {
-            const reply = await aiHandler.getReply(rawMessage, userId, groupId, traceContext.scope, aiPipelineInput);
+            const agentInput = this.buildAgentInput({
+                ws,
+                rawMessage,
+                groupId,
+                userId,
+                userName,
+                messageId,
+                messageMeta,
+                traceContext,
+                pipelineInput: aiPipelineInput
+            })
+            const agentResult = await aiHandler.runAgent(agentInput)
+            const reply = agentResult.finalReply
             if (reply) {
-                this.sendGroupMessage(ws, groupId, [
-                    { type: 'text', data: { text: reply } }
-                ]);
+                let sentMessageId = null
+                try {
+                    const sendResponse = await this.sendGroupMessageWithResponse(ws, groupId, [
+                        { type: 'text', data: { text: reply } }
+                    ], userId)
+                    if (sendResponse?.data?.message_id != null) {
+                        sentMessageId = String(sendResponse.data.message_id)
+                    }
+                } catch (error) {
+                    logger.logEvent('warn', 'BOT', traceContext.scope, 'ai-reply-send-with-response-failed', {
+                        groupId,
+                        userId,
+                        error: logger.getErrorMessage(error)
+                    })
+                    this.sendGroupMessage(ws, groupId, [
+                        { type: 'text', data: { text: reply } }
+                    ], userId)
+                }
+
+                const latestLocalAction = Array.isArray(agentResult?.localActions)
+                    ? agentResult.localActions[agentResult.localActions.length - 1] || null
+                    : null
+                if (sentMessageId
+                    && latestLocalAction?.action === 'subscription.read'
+                    && latestLocalAction?.result?.data?.operation === 'search_user') {
+                    const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
+                    if (runtime?.botControl && typeof runtime.botControl.setCandidateSelectionSnapshotBotMessageId === 'function') {
+                        runtime.botControl.setCandidateSelectionSnapshotBotMessageId(sentMessageId, {
+                            actorUserId: userId,
+                            userId
+                        })
+                    }
+                }
                 if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
                     replyGateService.recordBotReply(groupId, userId)
                 }
@@ -452,6 +571,37 @@ class MessageHandler {
                 reason: 'missing_target'
             });
         }
+    }
+
+    async sendGroupMessageWithResponse(ws, groupId, messageChain, userId = null) {
+        const safeMessageChain = notificationService.processMessageChain(messageChain, 'MessageHandler');
+
+        if (typeof groupId === 'string' && groupId.startsWith('private_')) {
+            const realUserId = groupId.replace('private_', '');
+            if (!realUserId) {
+                return null;
+            }
+            return notificationService.callAction(ws, 'send_private_msg', {
+                user_id: realUserId,
+                message: safeMessageChain
+            }, 'MessageHandler', 10000);
+        }
+
+        if (groupId) {
+            return notificationService.callAction(ws, 'send_group_msg', {
+                group_id: groupId,
+                message: safeMessageChain
+            }, 'MessageHandler', 10000);
+        }
+
+        if (userId) {
+            return notificationService.callAction(ws, 'send_private_msg', {
+                user_id: userId,
+                message: safeMessageChain
+            }, 'MessageHandler', 10000);
+        }
+
+        return null;
     }
 
     async handleGroupIncrease(ws, payload) {

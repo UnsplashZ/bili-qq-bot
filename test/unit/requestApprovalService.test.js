@@ -19,6 +19,7 @@ function resetServiceState() {
     service.pendingByKey.clear()
     service.queue = []
     service.keyByNotifyMessageId.clear()
+    service.keyByShortId.clear()
     service.inflightKeys.clear()
     service.recentlyHandled.clear()
 }
@@ -125,6 +126,10 @@ async function run() {
     })
     assert.strictEqual(consumedWithoutTarget, false, '无引用无编号时不应消费审批消息')
 
+    const listedPending = service.listPendingApprovals()
+    assert.strictEqual(listedPending.pendingCount, 1, '公开只读接口应返回剩余待审批数量')
+    assert.strictEqual(listedPending.items[0].requestType, 'friend', '公开只读接口应返回待审批明细')
+
     // 用编号审批 friend 申请（兜底路径）
     const pendingFriend = Array.from(service.pendingByKey.values()).find(item => item.flag === 'flag_friend_1')
     assert.ok(pendingFriend && pendingFriend.shortId, 'friend 待审批项应具备 shortId')
@@ -142,6 +147,31 @@ async function run() {
     )
     assert.ok(approveFriendCall, '应通过 shortId 同意剩余 friend 申请')
     assert.strictEqual(service.pendingByKey.size, 0, '所有请求应处理完毕')
+
+    await service.handleRequestEvent({}, {
+        post_type: 'request',
+        request_type: 'friend',
+        flag: 'flag_friend_2',
+        user_id: '30003',
+        comment: '二次校验'
+    })
+    const pendingFriend2 = Array.from(service.pendingByKey.values()).find(item => item.flag === 'flag_friend_2')
+    const exactDecisionResult = await service.handleExactApprovalDecision({}, {
+        decision: 'approve',
+        shortId: pendingFriend2.shortId
+    })
+    assert.strictEqual(exactDecisionResult.ok, true, '精确编号审批接口应成功执行')
+    assert.strictEqual(exactDecisionResult.mutation, true, '精确编号审批接口成功时应标记 mutation')
+    assert.strictEqual(exactDecisionResult.status, 'executed', '精确编号审批接口应返回 executed 状态')
+    assert.strictEqual(exactDecisionResult.target.shortId, pendingFriend2.shortId, '精确编号审批接口应返回命中的 shortId')
+
+    const missingTargetResult = await service.handleExactApprovalDecision({}, {
+        decision: 'reject',
+        shortId: 'REQ-NOTFOUND'
+    })
+    assert.strictEqual(missingTargetResult.ok, false, '不存在的 shortId 不应执行审批')
+    assert.strictEqual(missingTargetResult.mutation, false, '不存在的 shortId 不应产生 mutation')
+    assert.strictEqual(missingTargetResult.status, 'invalid_short_id', '不存在的 shortId 应返回 invalid_short_id')
 
     // 非审批文本不应被消费
     const ignored = await service.tryHandleAdminDecision({}, {
