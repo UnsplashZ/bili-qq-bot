@@ -1,6 +1,7 @@
 import logging
+import inspect
 
-from bilibili_api import user
+from bilibili_api import search, user
 
 from ..auth.credential_store import load_credential
 from ..logging_utils import service_log
@@ -8,6 +9,52 @@ from .focus_service import build_avatar_focus
 from .opus_additional_service import enrich_opus_modules
 
 logger = logging.getLogger(__name__)
+
+
+def _get_search_users_auth_param_name():
+    try:
+        parameters = inspect.signature(search.search_by_type).parameters
+    except (TypeError, ValueError):
+        return None
+
+    if "credential" in parameters:
+        return "credential"
+    if "auth" in parameters:
+        return "auth"
+    return None
+
+
+def _normalize_positive_int(value, default_value, min_value=1, max_value=None):
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = default_value
+
+    if normalized < min_value:
+        normalized = min_value
+    if max_value is not None and normalized > max_value:
+        normalized = max_value
+
+    return normalized
+
+
+def _normalize_official_verify(official_verify):
+    if not isinstance(official_verify, dict):
+        return -1, ""
+
+    try:
+        verify_type = int(official_verify.get("type", -1))
+    except (TypeError, ValueError):
+        verify_type = -1
+
+    verify_desc = official_verify.get("desc")
+    if verify_desc is None:
+        verify_desc = ""
+    elif not isinstance(verify_desc, str):
+        verify_desc = str(verify_desc)
+
+    return verify_type, verify_desc
+
 
 async def get_user_card(uid, group_id=None):
     try:
@@ -99,6 +146,89 @@ async def get_user_info(uid, group_id=None):
         return {"status": "success", "type": "user", "data": data}
     except Exception as e:
         service_log(logger, "error", "fetch-user-info-failed", uid=uid, error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
+async def search_users(keyword, group_id=None, page=1, page_size=5):
+    try:
+        normalized_keyword = str(keyword or "").strip()
+        if not normalized_keyword:
+            return {"status": "error", "message": "缺少参数: keyword"}
+
+        normalized_page = _normalize_positive_int(page, 1, min_value=1)
+        normalized_page_size = _normalize_positive_int(page_size, 5, min_value=1, max_value=10)
+
+        service_log(
+            logger,
+            "info",
+            "search-users",
+            keyword=normalized_keyword,
+            groupId=group_id,
+            page=normalized_page,
+            pageSize=normalized_page_size,
+        )
+
+        search_kwargs = {
+            "page": normalized_page,
+            "page_size": normalized_page_size,
+        }
+        auth_param_name = _get_search_users_auth_param_name()
+        if auth_param_name:
+            search_kwargs[auth_param_name] = load_credential(group_id)
+        else:
+            # The installed bilibili_api in this environment exposes
+            # search.search_by_type without credential/auth support, so
+            # user search cannot be group-scoped at this call site.
+            pass
+        result = await search.search_by_type(
+            normalized_keyword,
+            search.SearchObjectType.USER,
+            **search_kwargs,
+        )
+
+        raw_candidates = result.get("result") if isinstance(result, dict) else []
+        candidates = []
+        for item in raw_candidates if isinstance(raw_candidates, list) else []:
+            if not isinstance(item, dict):
+                continue
+
+            try:
+                official_verify_type, official_verify_desc = _normalize_official_verify(item.get("official_verify"))
+                candidates.append(
+                    {
+                        "uid": item.get("mid"),
+                        "name": item.get("uname", ""),
+                        "sign": item.get("usign", ""),
+                        "avatar": item.get("upic", ""),
+                        "fans": item.get("fans", 0),
+                        "videos": item.get("videos", 0),
+                        "room_id": item.get("room_id") or 0,
+                        "level": item.get("level", 0),
+                        "official_verify_type": official_verify_type,
+                        "official_verify_desc": official_verify_desc,
+                        "is_live": bool(item.get("is_live")),
+                        "is_upuser": bool(item.get("is_upuser")),
+                    }
+                )
+            except Exception as candidate_error:
+                service_log(logger, "warning", "search-users-skip-invalid-candidate", keyword=normalized_keyword, error=str(candidate_error))
+                continue
+
+        total = result.get("numResults", len(candidates)) if isinstance(result, dict) else len(candidates)
+        service_log(logger, "info", "search-users-ready", keyword=normalized_keyword, total=total, returned=len(candidates))
+        return {
+            "status": "success",
+            "type": "user_search",
+            "data": {
+                "query": normalized_keyword,
+                "page": normalized_page,
+                "page_size": normalized_page_size,
+                "total": total,
+                "candidates": candidates,
+            },
+        }
+    except Exception as e:
+        service_log(logger, "error", "search-users-failed", keyword=keyword, groupId=group_id, error=str(e))
         return {"status": "error", "message": str(e)}
 
 

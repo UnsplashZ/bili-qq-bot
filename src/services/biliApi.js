@@ -168,6 +168,17 @@ class BiliApi {
         );
     }
 
+    async searchUsers(keyword, groupId, options = {}) {
+        const page = Number.isFinite(Number(options.page)) ? Number(options.page) : 1
+        const pageSize = Number.isFinite(Number(options.pageSize)) ? Number(options.pageSize) : 5
+        return serviceManager.sendCommand('user_search', {
+            keyword,
+            page,
+            page_size: pageSize,
+            group_id: groupId
+        })
+    }
+
     async getEpInfo(epId, groupId) {
         return this._withCache('ep', epId, groupId, () =>
             serviceManager.sendCommand('ep', { ep_id: epId, group_id: groupId })

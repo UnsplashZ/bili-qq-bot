@@ -1,5 +1,6 @@
 const subscriptionManager = require('./subscription/subscriptionManager');
 const updateChecker = require('./subscription/updateChecker');
+const biliApi = require('./biliApi');
 const logger = require('../utils/logger');
 const SUBSCRIPTION_SCOPE = logger.createScope('svc', 'subscription')
 
@@ -71,6 +72,10 @@ class SubscriptionService {
 
     async getSubscriptionsByGroup(groupId) {
         return await subscriptionManager.getSubscriptionsByGroup(groupId);
+    }
+
+    async searchUsers(keyword, groupId, options = {}) {
+        return await biliApi.searchUsers(keyword, groupId, options)
     }
 
     async getFollowingsForGroup(groupId) {
