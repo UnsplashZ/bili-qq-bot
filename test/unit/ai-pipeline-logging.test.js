@@ -16,6 +16,7 @@ const { replyGateService } = require('../../src/services/ai/replyGateService')
 
 const originals = {
     getReply: aiHandler.getReply,
+    runAgent: aiHandler.runAgent,
     addMessageToContext: aiHandler.addMessageToContext,
     ensureGroupConfig: config.ensureGroupConfig,
     isGroupEnabled: config.isGroupEnabled,
@@ -36,6 +37,7 @@ const originals = {
 
 function restore() {
     aiHandler.getReply = originals.getReply
+    aiHandler.runAgent = originals.runAgent
     aiHandler.addMessageToContext = originals.addMessageToContext
     config.ensureGroupConfig = originals.ensureGroupConfig
     config.isGroupEnabled = originals.isGroupEnabled
@@ -90,7 +92,7 @@ async function run() {
             reasons: ['busy_mode', 'recent_bot_interaction']
         })
         replyGateService.recordBotReply = () => {}
-        aiHandler.getReply = async () => 'ok'
+        aiHandler.runAgent = async () => ({ finalReply: 'ok' })
         messageHandler.sendGroupMessage = () => {}
 
         await messageHandler.handleMessage({}, {
