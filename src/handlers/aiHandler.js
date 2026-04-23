@@ -142,11 +142,21 @@ class AiHandler {
         })
     }
 
+    _buildLegacyReplyRuntimeView(runtime) {
+        if (!runtime || typeof runtime !== 'object') {
+            return runtime
+        }
+
+        const legacyRuntime = { ...runtime }
+        delete legacyRuntime.generateAgentReply
+        delete legacyRuntime.generateAgentReplyResult
+        return legacyRuntime
+    }
+
     async _runLegacyAgent(agentInput, runtime) {
         return runAgentService({
             agentInput,
-            runtime,
-            preferLegacyReplyPipeline: true
+            runtime: this._buildLegacyReplyRuntimeView(runtime)
         })
     }
 

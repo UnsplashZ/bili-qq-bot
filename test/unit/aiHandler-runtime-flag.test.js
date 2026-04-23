@@ -85,9 +85,32 @@ async function testEnabledFlagRoutesToV2Path() {
     console.log('✓ aiHandler 在 flag=true 时会切到预留的 v2 runtime 分支')
 }
 
+async function testLegacyRuntimeViewHidesAgentNativeReplySurface() {
+    const baseRuntime = {
+        keep: 'ok',
+        generateLegacyReply: async () => 'legacy',
+        generateLegacyReplyResult: async () => ({ finalReply: 'legacy-result' }),
+        generateAgentReply: async () => 'agent',
+        generateAgentReplyResult: async () => ({ finalReply: 'agent-result' })
+    }
+
+    const runtime = aiHandler._buildLegacyReplyRuntimeView(baseRuntime)
+
+    assert.notStrictEqual(runtime, baseRuntime)
+    assert.strictEqual(runtime.keep, 'ok')
+    assert.strictEqual(runtime.generateLegacyReply, baseRuntime.generateLegacyReply)
+    assert.strictEqual(runtime.generateLegacyReplyResult, baseRuntime.generateLegacyReplyResult)
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateAgentReply'), false)
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateAgentReplyResult'), false)
+    assert.strictEqual(baseRuntime.generateAgentReply, baseRuntime.generateAgentReply)
+    assert.strictEqual(baseRuntime.generateAgentReplyResult, baseRuntime.generateAgentReplyResult)
+    console.log('✓ aiHandler legacy runtime view 会隐藏 agent-native reply surface')
+}
+
 async function run() {
     await testDefaultFlagKeepsLegacyPath()
     await testEnabledFlagRoutesToV2Path()
+    await testLegacyRuntimeViewHidesAgentNativeReplySurface()
 }
 
 run()

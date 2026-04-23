@@ -176,11 +176,7 @@ async function executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPi
     return normalizeLegacyExecutionResult(legacyReplyResult)
 }
 
-async function executeReplyPipeline({ runtime, effectiveAgentInput, legacyPipelineInput, runResult, preferLegacyReplyPipeline = false }) {
-    if (preferLegacyReplyPipeline) {
-        return executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput })
-    }
-
+async function executeReplyPipeline({ runtime, effectiveAgentInput, legacyPipelineInput, runResult }) {
     if (typeof runtime.generateAgentReplyResult !== 'function') {
         return executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput })
     }
@@ -207,7 +203,7 @@ async function executeReplyPipeline({ runtime, effectiveAgentInput, legacyPipeli
     }
 }
 
-async function runAgent({ agentInput, runtime, preferLegacyReplyPipeline = false }) {
+async function runAgent({ agentInput, runtime }) {
     const resolvedActionInput = resolveBotControlActionInput({ agentInput, runtime })
     const effectiveAgentInput = resolvedActionInput.effectiveAgentInput
     const runResult = createEmptyRunResult({
@@ -311,8 +307,7 @@ async function runAgent({ agentInput, runtime, preferLegacyReplyPipeline = false
         runtime,
         effectiveAgentInput,
         legacyPipelineInput,
-        runResult,
-        preferLegacyReplyPipeline
+        runResult
     })
 
     runResult.state = replyResult.finalReply ? RUN_STATES.FINALIZED : RUN_STATES.FAILED
