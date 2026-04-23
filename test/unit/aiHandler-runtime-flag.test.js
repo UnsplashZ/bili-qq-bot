@@ -88,7 +88,6 @@ async function testEnabledFlagRoutesToV2Path() {
 async function testLegacyRuntimeViewHidesAgentNativeReplyResultSurface() {
     const baseRuntime = {
         keep: 'ok',
-        generateLegacyReply: async () => 'legacy',
         generateLegacyReplyResult: async () => ({ finalReply: 'legacy-result' }),
         generateAgentReplyResult: async () => ({ finalReply: 'agent-result' })
     }
@@ -97,7 +96,7 @@ async function testLegacyRuntimeViewHidesAgentNativeReplyResultSurface() {
 
     assert.notStrictEqual(runtime, baseRuntime)
     assert.strictEqual(runtime.keep, 'ok')
-    assert.strictEqual(runtime.generateLegacyReply, baseRuntime.generateLegacyReply)
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateLegacyReply'), false)
     assert.strictEqual(runtime.generateLegacyReplyResult, baseRuntime.generateLegacyReplyResult)
     assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateAgentReplyResult'), false)
     assert.strictEqual(baseRuntime.generateAgentReplyResult, baseRuntime.generateAgentReplyResult)

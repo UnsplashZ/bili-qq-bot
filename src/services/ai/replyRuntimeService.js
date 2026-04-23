@@ -11,7 +11,7 @@ const { buildBotFacts } = require('./botFactsService')
 const { replyGateService } = require('./replyGateService')
 const { classifyResponseModeHint } = require('./agent/responseModeClassifier')
 const { selectContext } = require('./contextSelectorService')
-const { generateReply, generateReplyResult } = require('./replyOrchestratorService')
+const { generateReplyResult } = require('./replyOrchestratorService')
 const { createBotControlRuntime } = require('./botControl')
 const { AIToolRegistry } = require('./tools/registry')
 const { createLocalToolAdapter } = require('./tools/localToolAdapter')
@@ -207,15 +207,6 @@ function buildReplyRuntime({ groupId, traceId, config, globalBot, mcpManager, ai
         log: logger,
         formatRelativeTime
     }
-
-    runtime.generateLegacyReply = ({ message, userId, groupId, traceId, pipelineInput }) => generateReply({
-        message,
-        userId,
-        groupId,
-        traceId,
-        pipelineInput,
-        runtime
-    })
 
     runtime.generateLegacyReplyResult = ({ message, userId, groupId, traceId, pipelineInput }) => generateReplyResult({
         message,

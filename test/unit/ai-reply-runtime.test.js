@@ -77,7 +77,7 @@ function run() {
     assert.strictEqual(runtime.classifyResponseModeHint, classifyResponseModeHint)
     assert.strictEqual(runtime.classifyResponseMode, classifyResponseModeHint)
     assert.strictEqual(typeof runtime.selectContext, 'function')
-    assert.strictEqual(typeof runtime.generateLegacyReply, 'function')
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateLegacyReply'), false)
     assert.strictEqual(typeof runtime.generateLegacyReplyResult, 'function')
     assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateAgentReply'), false)
     assert.strictEqual(typeof runtime.generateAgentReplyResult, 'function')
