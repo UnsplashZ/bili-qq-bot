@@ -303,6 +303,80 @@ async function testFallsBackToLegacyReplyOnlyAfterPrimaryRuntimeHardFailure() {
     assert.ok(result.steps.some(step => step.type === 'reply_pipeline_fallback' && step.reason === 'runtime_v2_boom'))
 }
 
+async function testSupportsLegacyReplyCompatibilityWhenReplyResultSurfaceIsMissing() {
+    const calls = []
+    const runtime = {
+        config: {
+            isRootAdmin: () => false,
+            isGroupAdmin: () => true
+        },
+        replyGateService: {
+            evaluate: () => ({
+                shouldReply: true,
+                triggerLevel: 'followup',
+                reasons: ['hit']
+            })
+        },
+        classifyResponseMode: () => ({
+            mode: 'answer_only',
+            reasons: ['default']
+        }),
+        contextLimit: 20,
+        ragMode: 'strict',
+        profileEnabled: true,
+        getContext: () => [{ role: 'user', content: '你好', speakerId: '2' }],
+        selectContext: ({ currentTurn }) => ({
+            currentTurn,
+            threadMessages: [],
+            backgroundSummary: '',
+            stats: {}
+        }),
+        detectIdentityIntent: () => 'general',
+        collectAugments: async () => ({
+            memories: [],
+            profileText: ''
+        }),
+        buildBotFacts: () => ({ botId: '1' }),
+        generateLegacyReply: async ({ message, userId, groupId, traceId, pipelineInput }) => {
+            calls.push({ message, userId, groupId, traceId, pipelineInput })
+            return 'legacy string fallback ok'
+        }
+    }
+
+    const result = await runAgent({
+        agentInput: {
+            traceId: 'trace-2c',
+            groupId: '1000',
+            userId: '2',
+            rawMessage: '帮我处理一下',
+            source: 'group',
+            contextKey: '1000',
+            messageMeta: {
+                source: 'group',
+                currentMentionsBot: false,
+                isReplyToBot: false
+            }
+        },
+        runtime
+    })
+
+    assert.strictEqual(calls.length, 1)
+    assert.deepStrictEqual(calls[0], {
+        message: '帮我处理一下',
+        userId: '2',
+        groupId: '1000',
+        traceId: 'trace-2c',
+        pipelineInput: calls[0].pipelineInput
+    })
+    assert.strictEqual(calls[0].pipelineInput.gateDecision.triggerLevel, 'followup')
+    assert.strictEqual(calls[0].pipelineInput.responseMode.mode, 'answer_only')
+    assert.strictEqual(result.state, RUN_STATES.FINALIZED)
+    assert.strictEqual(result.finalReply, 'legacy string fallback ok')
+    assert.strictEqual(result.hasToolResult, false)
+    assert.deepStrictEqual(result.errors, [])
+    assert.deepStrictEqual(result.toolCalls, [])
+}
+
 async function testRunAgentIgnoresLegacyPreferenceFlagAndUsesRuntimeCapabilitySurface() {
     const calls = []
     const runtime = {
@@ -3076,6 +3150,7 @@ async function run() {
     await testChainsDecisionContextPlanAndPrimaryAgentReply()
     await testMergesStructuredLegacyExecutionResult()
     await testFallsBackToLegacyReplyOnlyAfterPrimaryRuntimeHardFailure()
+    await testSupportsLegacyReplyCompatibilityWhenReplyResultSurfaceIsMissing()
     await testRunAgentIgnoresLegacyPreferenceFlagAndUsesRuntimeCapabilitySurface()
     await testStructuredContextResetReturnsPendingConfirmationWithoutLegacyReply()
     await testStructuredSubscriptionConfirmationExecutesMutation()
