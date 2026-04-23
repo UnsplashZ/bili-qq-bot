@@ -66,7 +66,7 @@ async function testAbortWhenNoResponse() {
     assert.strictEqual(result.steps[0].type, 'decision')
 }
 
-async function testChainsDecisionContextPlanAndLegacyReply() {
+async function testChainsDecisionContextPlanAndPrimaryAgentReply() {
     const calls = []
     const runtime = {
         config: {
@@ -121,12 +121,20 @@ async function testChainsDecisionContextPlanAndLegacyReply() {
             calls.push('botFacts')
             return { botId: '1' }
         },
-        generateLegacyReply: async ({ pipelineInput }) => {
-            calls.push('legacyReply')
+        generateAgentReplyResult: async ({ pipelineInput }) => {
+            calls.push('agentReplyResult')
             assert.strictEqual(pipelineInput.gateDecision.triggerLevel, 'followup')
             assert.strictEqual(pipelineInput.responseMode.mode, 'answer_only')
             assert.ok(pipelineInput.selectedContext)
-            return '好的'
+            assert.strictEqual(pipelineInput.agentSignals.gate.triggerLevel, 'followup')
+            assert.strictEqual(pipelineInput.agentSignals.responseMode.mode, 'answer_only')
+            assert.strictEqual(pipelineInput.agentContextShape.message.text, '你好')
+            assert.strictEqual(pipelineInput.agentContextShape.actor.groupId, '1000')
+            assert.strictEqual(pipelineInput.agentContextShape.tools.visibleCount, 0)
+            return { finalReply: '好的' }
+        },
+        generateLegacyReply: async () => {
+            throw new Error('primary v2 path should not use legacy bridge when agent runtime succeeds')
         }
     }
 
@@ -151,7 +159,7 @@ async function testChainsDecisionContextPlanAndLegacyReply() {
     assert.strictEqual(result.finalReply, '好的')
     assert.strictEqual(result.agentPlan.planType, 'tool_assisted_answer')
     assert.deepStrictEqual(result.localActions, [])
-    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReply'])
+    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'agentReplyResult'])
 }
 
 async function testMergesStructuredLegacyExecutionResult() {
@@ -187,7 +195,7 @@ async function testMergesStructuredLegacyExecutionResult() {
             profileText: ''
         }),
         buildBotFacts: () => ({ botId: '1' }),
-        generateLegacyReplyResult: async () => ({
+        generateAgentReplyResult: async () => ({
             finalReply: '好的，已处理。',
             hasToolResult: true,
             steps: [
@@ -199,7 +207,7 @@ async function testMergesStructuredLegacyExecutionResult() {
             toolCalls: [{ id: 'call_1', functionName: 'kick_user', arguments: '{}' }]
         }),
         generateLegacyReply: async () => {
-            throw new Error('should prefer structured legacy result')
+            throw new Error('should not prefer legacy bridge when primary runtime result exists')
         }
     }
 
@@ -227,6 +235,72 @@ async function testMergesStructuredLegacyExecutionResult() {
     assert.ok(result.steps.some(step => step.type === 'tool_done' && step.functionName === 'kick_user'))
     assert.deepStrictEqual(result.errors, ['tool-warning'])
     assert.deepStrictEqual(result.toolCalls, [{ id: 'call_1', functionName: 'kick_user', arguments: '{}' }])
+}
+
+async function testFallsBackToLegacyReplyOnlyAfterPrimaryRuntimeHardFailure() {
+    const runtime = {
+        config: {
+            isRootAdmin: () => false,
+            isGroupAdmin: () => true
+        },
+        replyGateService: {
+            evaluate: () => ({
+                shouldReply: true,
+                triggerLevel: 'followup',
+                reasons: ['hit']
+            })
+        },
+        classifyResponseMode: () => ({
+            mode: 'answer_only',
+            reasons: ['default']
+        }),
+        contextLimit: 20,
+        ragMode: 'strict',
+        profileEnabled: true,
+        getContext: () => [{ role: 'user', content: '你好', speakerId: '2' }],
+        selectContext: ({ currentTurn }) => ({
+            currentTurn,
+            threadMessages: [],
+            backgroundSummary: '',
+            stats: {}
+        }),
+        detectIdentityIntent: () => 'general',
+        collectAugments: async () => ({
+            memories: [],
+            profileText: ''
+        }),
+        buildBotFacts: () => ({ botId: '1' }),
+        generateAgentReplyResult: async () => {
+            throw new Error('runtime_v2_boom')
+        },
+        generateLegacyReplyResult: async () => ({
+            finalReply: 'legacy fallback ok',
+            hasToolResult: false,
+            steps: [{ type: 'reply_ready', hasToolResult: false }],
+            errors: [],
+            toolCalls: []
+        })
+    }
+
+    const result = await runAgent({
+        agentInput: {
+            traceId: 'trace-2b',
+            groupId: '1000',
+            userId: '2',
+            rawMessage: '帮我处理一下',
+            source: 'group',
+            contextKey: '1000',
+            messageMeta: {
+                source: 'group',
+                currentMentionsBot: false,
+                isReplyToBot: false
+            }
+        },
+        runtime
+    })
+
+    assert.strictEqual(result.finalReply, 'legacy fallback ok')
+    assert.ok(result.steps.some(step => step.type === 'reply_pipeline_fallback' && step.reason === 'runtime_v2_boom'))
 }
 
 async function testStructuredContextResetReturnsPendingConfirmationWithoutLegacyReply() {
@@ -965,7 +1039,7 @@ async function testDifferentActorCannotConsumePendingConfirmationFollowup() {
     assert.strictEqual(rejectCalled, false)
     assert.strictEqual(result.state, RUN_STATES.FINALIZED)
     assert.strictEqual(result.finalReply, '普通聊天回复')
-    assert.deepStrictEqual(calls, ['pending:3', 'gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReply'])
+    assert.deepStrictEqual(calls, ['pending:3', 'gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'pending:3', 'botFacts', 'legacyReply'])
 }
 
 async function testNoPendingConfirmationKeepsConfirmTextOnNormalChatPath() {
@@ -2934,8 +3008,9 @@ async function testOrdinaryChatPathRemainsUnchangedForNonAdminActor() {
 
 async function run() {
     await testAbortWhenNoResponse()
-    await testChainsDecisionContextPlanAndLegacyReply()
+    await testChainsDecisionContextPlanAndPrimaryAgentReply()
     await testMergesStructuredLegacyExecutionResult()
+    await testFallsBackToLegacyReplyOnlyAfterPrimaryRuntimeHardFailure()
     await testStructuredContextResetReturnsPendingConfirmationWithoutLegacyReply()
     await testStructuredSubscriptionConfirmationExecutesMutation()
     await testRecognizedConfigReadPhraseUsesExistingBotControlPath()

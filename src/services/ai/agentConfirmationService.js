@@ -1,62 +1,18 @@
 'use strict'
 
 const { CONFIRMATION_STATES } = require('./agentTypes')
-
-function normalizeValue(value) {
-    return String(value || '').trim()
-}
-
-function cloneSnapshot(snapshot) {
-    return snapshot == null ? null : JSON.parse(JSON.stringify(snapshot))
-}
+const { WORKFLOW_KINDS } = require('./workflow/workflowTypes')
+const { WorkflowStateService, normalizeValue, cloneValue } = require('./workflow/workflowStateService')
 
 class AgentConfirmationService {
-    constructor({ now = () => Date.now(), random = () => Math.random() } = {}) {
-        this.now = now
-        this.random = random
-        this.pendingConfirmations = new Map()
-    }
-
-    _getGroupConfirmations(groupId) {
-        const scopedGroupId = normalizeValue(groupId)
-
-        if (!scopedGroupId) {
-            return null
-        }
-
-        return this.pendingConfirmations.get(scopedGroupId) || null
-    }
-
-    _getOrCreateGroupConfirmations(groupId) {
-        const scopedGroupId = normalizeValue(groupId)
-
-        if (!scopedGroupId) {
-            return null
-        }
-
-        let groupConfirmations = this.pendingConfirmations.get(scopedGroupId)
-
-        if (!groupConfirmations) {
-            groupConfirmations = new Map()
-            this.pendingConfirmations.set(scopedGroupId, groupConfirmations)
-        }
-
-        return groupConfirmations
-    }
-
-    _deleteGroupConfirmation(groupId, actorUserId) {
-        const scopedGroupId = normalizeValue(groupId)
-        const scopedActorUserId = normalizeValue(actorUserId)
-        const groupConfirmations = this._getGroupConfirmations(scopedGroupId)
-
-        if (!groupConfirmations) {
-            return
-        }
-
-        groupConfirmations.delete(scopedActorUserId)
-        if (groupConfirmations.size === 0) {
-            this.pendingConfirmations.delete(scopedGroupId)
-        }
+    constructor({
+        now = () => Date.now(),
+        random = () => Math.random(),
+        workflowStateService
+    } = {}) {
+        this.now = typeof now === 'function' ? now : () => Date.now()
+        this.random = typeof random === 'function' ? random : () => Math.random()
+        this.workflowStateService = workflowStateService || new WorkflowStateService({ now: this.now })
     }
 
     createPendingConfirmation({ groupId, actorUserId, action, snapshot, summary = '' } = {}) {
@@ -77,8 +33,11 @@ class AgentConfirmationService {
             throw new Error('Confirmation snapshot is required')
         }
 
-        const groupConfirmations = this._getOrCreateGroupConfirmations(scopedGroupId)
-        const existingRecord = groupConfirmations.get(scopedActorUserId)
+        const existingRecord = this.workflowStateService.getPendingRecord({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION
+        })
 
         if (existingRecord) {
             return {
@@ -86,7 +45,7 @@ class AgentConfirmationService {
                 status: 'pending_confirmation_exists',
                 code: 'pending_confirmation_exists',
                 message: '请先处理当前待确认操作。',
-                confirmation: cloneSnapshot(existingRecord)
+                confirmation: cloneValue(existingRecord)
             }
         }
 
@@ -99,18 +58,23 @@ class AgentConfirmationService {
             summary: normalizeValue(summary),
             state: CONFIRMATION_STATES.PENDING,
             createdAt: this.now(),
-            snapshot: cloneSnapshot(snapshot)
+            snapshot: cloneValue(snapshot)
         }
 
-        groupConfirmations.set(scopedActorUserId, record)
-        return cloneSnapshot(record)
+        return this.workflowStateService.setRecord({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION,
+            record
+        })
     }
 
     getPendingConfirmation({ groupId, actorUserId, confirmationId } = {}) {
-        const scopedGroupId = normalizeValue(groupId)
-        const scopedActorUserId = normalizeValue(actorUserId)
-        const groupConfirmations = this._getGroupConfirmations(scopedGroupId)
-        const record = groupConfirmations?.get(scopedActorUserId) || null
+        const record = this.workflowStateService.getPendingRecord({
+            groupId,
+            actorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION
+        })
 
         if (!record) {
             return null
@@ -119,23 +83,31 @@ class AgentConfirmationService {
             return null
         }
 
-        return cloneSnapshot(record)
+        return record
     }
 
     confirm({ groupId, actorUserId, confirmationId } = {}) {
         const scopedGroupId = normalizeValue(groupId)
         const scopedActorUserId = normalizeValue(actorUserId)
         const normalizedConfirmationId = normalizeValue(confirmationId)
-        const groupConfirmations = this._getGroupConfirmations(scopedGroupId)
-        const record = groupConfirmations?.get(scopedActorUserId) || null
+        const record = this.getPendingConfirmation({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            confirmationId: normalizedConfirmationId
+        })
 
-        if (!record || record.confirmationId !== normalizedConfirmationId) {
+        if (!record) {
             throw new Error('Pending confirmation not found for current group actor')
         }
 
-        this._deleteGroupConfirmation(scopedGroupId, scopedActorUserId)
+        this.workflowStateService.deleteRecord({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION
+        })
+
         return {
-            ...cloneSnapshot(record),
+            ...cloneValue(record),
             state: CONFIRMATION_STATES.CONFIRMED,
             confirmedAt: this.now()
         }
@@ -145,16 +117,24 @@ class AgentConfirmationService {
         const scopedGroupId = normalizeValue(groupId)
         const scopedActorUserId = normalizeValue(actorUserId)
         const normalizedConfirmationId = normalizeValue(confirmationId)
-        const groupConfirmations = this._getGroupConfirmations(scopedGroupId)
-        const record = groupConfirmations?.get(scopedActorUserId) || null
+        const record = this.getPendingConfirmation({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            confirmationId: normalizedConfirmationId
+        })
 
-        if (!record || record.confirmationId !== normalizedConfirmationId) {
+        if (!record) {
             throw new Error('Pending confirmation not found for current group actor')
         }
 
-        this._deleteGroupConfirmation(scopedGroupId, scopedActorUserId)
+        this.workflowStateService.deleteRecord({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION
+        })
+
         return {
-            ...cloneSnapshot(record),
+            ...cloneValue(record),
             state: CONFIRMATION_STATES.REJECTED,
             rejectedAt: this.now()
         }

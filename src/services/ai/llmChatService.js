@@ -53,6 +53,7 @@ async function runChatLoop({
     toolExecutionGuardExecute,
     vectorSearch,
     proxyConfig,
+    toolExecutionContext,
     log
 }) {
     const currentMessages = [...messages]
@@ -131,7 +132,7 @@ async function runChatLoop({
                 }
 
                 let toolContent = ''
-                const guarded = await toolExecutionGuardExecute(functionName, ({ signal }) => executeTool(functionName, args, { signal }))
+                const guarded = await toolExecutionGuardExecute(functionName, ({ signal }) => executeTool(functionName, args, { signal }, toolExecutionContext))
                 if (!guarded.ok) {
                     log('warn', 'tool-failed', {
                         functionName,

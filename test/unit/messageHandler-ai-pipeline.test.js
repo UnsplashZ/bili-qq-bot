@@ -12,6 +12,7 @@ const vectorMemoryService = require('../../src/services/vectorMemoryService')
 const userProfileService = require('../../src/services/userProfileService')
 const aiContextService = require('../../src/services/aiContextService')
 const linkService = require('../../src/services/link')
+const requestApprovalService = require('../../src/services/requestApprovalService')
 const { replyGateService } = require('../../src/services/ai/replyGateService')
 const { runAgent: runAgentService } = require('../../src/services/ai/agentRunService')
 
@@ -37,6 +38,7 @@ const originals = {
     gateRecordBotReply: replyGateService.recordBotReply,
     prepareIncomingMessageLinks: linkService.prepareIncomingMessageLinks,
     isCached: linkService.isCached,
+    tryHandleAdminDecision: requestApprovalService.tryHandleAdminDecision,
     sendGroupMessage: messageHandler.sendGroupMessage,
     sendGroupMessageWithResponse: messageHandler.sendGroupMessageWithResponse
 }
@@ -63,6 +65,7 @@ function restore() {
     replyGateService.recordBotReply = originals.gateRecordBotReply
     linkService.prepareIncomingMessageLinks = originals.prepareIncomingMessageLinks
     linkService.isCached = originals.isCached
+    requestApprovalService.tryHandleAdminDecision = originals.tryHandleAdminDecision
     messageHandler.sendGroupMessage = originals.sendGroupMessage
     messageHandler.sendGroupMessageWithResponse = originals.sendGroupMessageWithResponse
 }
@@ -962,6 +965,36 @@ async function testLinkStillWinsBeforeBotControlIngress() {
     console.log('✓ link 仍然优先于 bot-control ingress')
 }
 
+async function testRootPrivateApprovalInterceptStillWinsBeforeAiRuntime() {
+    useDefaultRuntimeStubs()
+    config.isRootAdmin = () => true
+    requestApprovalService.tryHandleAdminDecision = async (_ws, messageData) => {
+        assert.strictEqual(messageData.message_type, 'private')
+        assert.strictEqual(String(messageData.user_id), '2')
+        return true
+    }
+    commandManager.dispatch = async () => {
+        throw new Error('approval intercept should return before command dispatch')
+    }
+
+    let runAgentCalled = false
+    aiHandler.runAgent = async () => {
+        runAgentCalled = true
+        return { finalReply: 'should not happen' }
+    }
+
+    await messageHandler.handleMessage({}, buildDefaultMessageData({
+        message_type: 'private',
+        group_id: null,
+        message_id: 808,
+        raw_message: '是',
+        message: [{ type: 'text', data: { text: '是' } }]
+    }))
+
+    assert.strictEqual(runAgentCalled, false, 'root private approval intercept 命中后不应进入 AI runtime')
+    console.log('✓ root private approval intercept 仍然优先于 AI runtime')
+}
+
 async function run() {
     await testPipelinePayloadPassedToAiHandler()
     await testProfileRefreshNoLongerDependsOnBotReply()
@@ -981,6 +1014,7 @@ async function run() {
     await testInitialBotControlRequiresAtBotOrReplyToBot()
     await testIngressAdminReadPermissionBoundaryStillApplies()
     await testLinkStillWinsBeforeBotControlIngress()
+    await testRootPrivateApprovalInterceptStillWinsBeforeAiRuntime()
 }
 
 run()

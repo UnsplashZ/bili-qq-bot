@@ -142,13 +142,28 @@ class AiHandler {
         })
     }
 
+    async _runLegacyAgent(agentInput, runtime) {
+        return runAgentService({
+            agentInput,
+            runtime,
+            preferLegacyReplyPipeline: true
+        })
+    }
+
+    async _runAgentRuntimeV2(agentInput, runtime) {
+        return runAgentService({ agentInput, runtime })
+    }
+
     async runAgent(agentInput) {
         const traceId = agentInput?.traceId || null
         const groupId = agentInput?.groupId || agentInput?.contextKey || agentInput?.userId || null
 
         try {
             const runtime = this._buildRuntime(groupId, traceId)
-            return await runAgentService({ agentInput, runtime })
+            if (config.isAiAgentRuntimeV2Enabled()) {
+                return await this._runAgentRuntimeV2(agentInput, runtime)
+            }
+            return await this._runLegacyAgent(agentInput, runtime)
         } catch (error) {
             const errorMessage = String(error?.message || '')
             if (error?.code === 'ECONNABORTED' || errorMessage.includes('timeout')) {

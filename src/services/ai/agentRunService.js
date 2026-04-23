@@ -7,6 +7,7 @@ const { buildAgentContext } = require('./agentContextBuilderService')
 const { planAgentRun } = require('./agentPlannerService')
 const { resolveBotControlActionInput } = require('./botControlActionResolutionService')
 const { executeLocalBotControlAction } = require('./localBotControlExecutionHelper')
+const { finalizeAgentRunResult } = require('./agent/finalizer')
 
 function createRunId() {
     return `agent_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`
@@ -53,6 +54,25 @@ function shouldClearCandidateSelectionSnapshot({ resolvedActionInput, runResult 
 
     return resolvedActionInput?.source === 'pending_followup'
         && resolvedActionInput?.pendingConfirmation?.action === 'subscription.write'
+}
+
+function buildLegacyPipelineInput({ agentDecision, agentContext, messageMeta }) {
+    return {
+        gateDecision: agentDecision.gateDecision,
+        selectedContext: agentContext.selectedContext,
+        responseMode: agentDecision.responseMode,
+        messageMeta,
+        agentSignals: agentDecision.runtimeSignals || null,
+        agentContextShape: {
+            message: agentContext.message,
+            actor: agentContext.actor,
+            permissions: agentContext.permissions,
+            history: agentContext.history,
+            workflows: agentContext.workflows,
+            tools: agentContext.tools,
+            runtimeSignals: agentContext.runtimeSignals
+        }
+    }
 }
 
 async function executeStructuredBotControlAction({ agentDecision, agentPlan, runtime, runResult, agentInput }) {
@@ -110,11 +130,8 @@ async function executeStructuredBotControlAction({ agentDecision, agentPlan, run
             state: RUN_STATES.FINALIZED,
             action: candidateAction.action
         })
-        runResult.finalReply = executionResult.finalReply
         runResult.hasMutation = executionResult.hasMutation
-        runResult.hasToolResult = false
-        runResult.stepCount = runResult.steps.length
-        return runResult
+        return finalizeAgentRunResult({ runResult })
     }
 
     if (executionResult.outcome === 'pending_confirmation') {
@@ -125,7 +142,6 @@ async function executeStructuredBotControlAction({ agentDecision, agentPlan, run
             action: candidateAction.action,
             confirmationId: localActionRecord.confirmation?.confirmationId || null
         })
-        runResult.finalReply = executionResult.finalReply
         runResult.hasMutation = executionResult.hasMutation
     } else {
         runResult.state = RUN_STATES.FINALIZED
@@ -134,16 +150,64 @@ async function executeStructuredBotControlAction({ agentDecision, agentPlan, run
             state: RUN_STATES.FINALIZED,
             action: candidateAction.action
         })
-        runResult.finalReply = executionResult.finalReply
         runResult.hasMutation = executionResult.hasMutation
     }
 
-    runResult.hasToolResult = false
-    runResult.stepCount = runResult.steps.length
-    return runResult
+    return finalizeAgentRunResult({ runResult })
 }
 
-async function runAgent({ agentInput, runtime }) {
+async function executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput }) {
+    const legacyReplyResult = runtime.generateLegacyReplyResult
+        ? await runtime.generateLegacyReplyResult({
+            message: effectiveAgentInput.rawMessage,
+            userId: effectiveAgentInput.userId,
+            groupId: effectiveAgentInput.groupId,
+            traceId: effectiveAgentInput.traceId,
+            pipelineInput: legacyPipelineInput
+        })
+        : await runtime.generateLegacyReply({
+            message: effectiveAgentInput.rawMessage,
+            userId: effectiveAgentInput.userId,
+            groupId: effectiveAgentInput.groupId,
+            traceId: effectiveAgentInput.traceId,
+            pipelineInput: legacyPipelineInput
+        })
+
+    return normalizeLegacyExecutionResult(legacyReplyResult)
+}
+
+async function executeReplyPipeline({ runtime, effectiveAgentInput, legacyPipelineInput, runResult, preferLegacyReplyPipeline = false }) {
+    if (preferLegacyReplyPipeline) {
+        return executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput })
+    }
+
+    if (typeof runtime.generateAgentReplyResult !== 'function') {
+        return executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput })
+    }
+
+    try {
+        const replyResult = await runtime.generateAgentReplyResult({
+            message: effectiveAgentInput.rawMessage,
+            userId: effectiveAgentInput.userId,
+            groupId: effectiveAgentInput.groupId,
+            traceId: effectiveAgentInput.traceId,
+            pipelineInput: legacyPipelineInput
+        })
+
+        return normalizeLegacyExecutionResult(replyResult)
+    } catch (error) {
+        runResult.steps.push({
+            type: 'reply_pipeline_fallback',
+            from: 'runtime_v2',
+            to: 'legacy',
+            reason: String(error?.message || 'agent_reply_result_failed')
+        })
+
+        return executeLegacyReplyBridge({ runtime, effectiveAgentInput, legacyPipelineInput })
+    }
+}
+
+async function runAgent({ agentInput, runtime, preferLegacyReplyPipeline = false }) {
     const resolvedActionInput = resolveBotControlActionInput({ agentInput, runtime })
     const effectiveAgentInput = resolvedActionInput.effectiveAgentInput
     const runResult = createEmptyRunResult({
@@ -237,53 +301,34 @@ async function runAgent({ agentInput, runtime }) {
         runResult.state = RUN_STATES.WAITING_CONFIRMATION
     }
 
-    const legacyReplyResult = runtime.generateLegacyReplyResult
-        ? await runtime.generateLegacyReplyResult({
-            message: effectiveAgentInput.rawMessage,
-            userId: effectiveAgentInput.userId,
-            groupId: effectiveAgentInput.groupId,
-            traceId: effectiveAgentInput.traceId,
-            pipelineInput: {
-                gateDecision: agentDecision.gateDecision,
-                selectedContext: agentContext.selectedContext,
-                responseMode: agentDecision.responseMode,
-                messageMeta: effectiveAgentInput.messageMeta
-            }
-        })
-        : await runtime.generateLegacyReply({
-            message: effectiveAgentInput.rawMessage,
-            userId: effectiveAgentInput.userId,
-            groupId: effectiveAgentInput.groupId,
-            traceId: effectiveAgentInput.traceId,
-            pipelineInput: {
-                gateDecision: agentDecision.gateDecision,
-                selectedContext: agentContext.selectedContext,
-                responseMode: agentDecision.responseMode,
-                messageMeta: effectiveAgentInput.messageMeta
-            }
-        })
+    const legacyPipelineInput = buildLegacyPipelineInput({
+        agentDecision,
+        agentContext,
+        messageMeta: effectiveAgentInput.messageMeta
+    })
 
-    const replyResult = normalizeLegacyExecutionResult(legacyReplyResult)
-
-    runResult.steps.push(...replyResult.steps)
-    runResult.toolCalls.push(...replyResult.toolCalls)
-    runResult.errors.push(...replyResult.errors)
+    const replyResult = await executeReplyPipeline({
+        runtime,
+        effectiveAgentInput,
+        legacyPipelineInput,
+        runResult,
+        preferLegacyReplyPipeline
+    })
 
     runResult.state = replyResult.finalReply ? RUN_STATES.FINALIZED : RUN_STATES.FAILED
     runResult.agentDecision = agentDecision
     runResult.agentContext = agentContext
     runResult.agentPlan = agentPlan
-    runResult.finalReply = replyResult.finalReply
-    runResult.hasToolResult = replyResult.hasToolResult
-    runResult.stepCount = runResult.steps.length
 
-    return runResult
+    return finalizeAgentRunResult({ runResult, replyResult })
 }
 
 module.exports = {
     resolveEffectiveAgentInput,
     runAgent,
     createRunId,
+    buildLegacyPipelineInput,
     normalizeLegacyExecutionResult,
-    shouldClearCandidateSelectionSnapshot
+    shouldClearCandidateSelectionSnapshot,
+    executeReplyPipeline
 }

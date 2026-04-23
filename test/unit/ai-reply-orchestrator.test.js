@@ -25,6 +25,25 @@ async function run() {
         promptAssemblerEnabled: true,
         structuredContextEnabled: true,
         tools: [{ type: 'function', function: { name: 'kick_user', parameters: { type: 'object', properties: {} } } }],
+        resolveLegacyTools: ({ structuredSelectedContext, responseMode }) => {
+            calls.push(`resolveLegacyTools:${structuredSelectedContext ? 'selected' : 'none'}:${responseMode?.mode || 'answer_only'}`)
+            const toolsAllowed = !structuredSelectedContext || responseMode?.mode === 'action_ready'
+            return {
+                toolsAllowed,
+                visibilityContext: {
+                    groupId: '1065812436',
+                    traceId: 'trace-1',
+                    allowLocalTools: false,
+                    allowMcpTools: true,
+                    clientSurface: 'legacy_reply_runtime',
+                    legacyStructuredContext: structuredSelectedContext ? 'selected' : 'none',
+                    legacyResponseMode: responseMode?.mode || 'answer_only'
+                },
+                tools: toolsAllowed
+                    ? [{ type: 'function', function: { name: 'helper_selected_tool', parameters: { type: 'object', properties: {} } } }]
+                    : []
+            }
+        },
         getContext: () => [{ role: 'user', content: '我是谁', speakerId: '2402855757', speakerName: '张三', timestamp: Date.now() }],
         detectIdentityIntent: () => { calls.push('detectIntent'); return 'self_identity' },
         collectAugments: async () => { calls.push('collectAugments'); return { memories: [], profileText: '', ragEnabled: true, hybridSearchOptions: {} } },
@@ -48,6 +67,7 @@ async function run() {
 
     let capturedTools = null
     let capturedMessages = null
+    let capturedToolExecutionContext = null
     const reply = await generateReply({
         message: '我是谁',
         userId: '2402855757',
@@ -56,10 +76,11 @@ async function run() {
         pipelineInput: null,
         runtime: {
             ...baseRuntime,
-            runChatLoop: async ({ tools, messages }) => {
+            runChatLoop: async ({ tools, messages, toolExecutionContext }) => {
                 calls.push('runChatLoop')
                 capturedTools = tools
                 capturedMessages = messages
+                capturedToolExecutionContext = toolExecutionContext
                 return { reply: '你是张三。', hasToolResult: false }
             }
         }
@@ -68,8 +89,18 @@ async function run() {
     assert.strictEqual(reply, '你是张三。')
     assert.strictEqual(Array.isArray(capturedTools), true)
     assert.strictEqual(capturedTools.length, 1)
+    assert.strictEqual(capturedTools[0].function.name, 'helper_selected_tool')
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
-    assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'timeout:1', 'log:timeout-ready', 'runChatLoop', 'guard', 'persist', 'log:reply-ready'])
+    assert.deepStrictEqual(capturedToolExecutionContext, {
+        groupId: '1065812436',
+        traceId: 'trace-1',
+        allowLocalTools: false,
+        allowMcpTools: true,
+        clientSurface: 'legacy_reply_runtime',
+        legacyStructuredContext: 'none',
+        legacyResponseMode: 'answer_only'
+    })
+    assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'resolveLegacyTools:none:answer_only', 'timeout:1', 'log:timeout-ready', 'runChatLoop', 'guard', 'persist', 'log:reply-ready'])
 
     calls.length = 0
     const structuredResult = await generateReplyResult({
@@ -165,6 +196,7 @@ async function run() {
     assert.deepStrictEqual(capturedTools, [])
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: '[BOT_FACTS]\nbot_name=测试助手' }, { role: 'user', content: 'y' }])
     assert.ok(calls.includes('log:tool-withheld'))
+    assert.ok(calls.includes('resolveLegacyTools:selected:confirm_needed'))
 
     calls.length = 0
     capturedTools = null
@@ -197,6 +229,7 @@ async function run() {
     assert.strictEqual(legacyReply, '继续走旧链路。')
     assert.strictEqual(Array.isArray(capturedTools), true)
     assert.strictEqual(capturedTools.length, 1)
+    assert.strictEqual(capturedTools[0].function.name, 'helper_selected_tool')
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
 
     calls.length = 0
@@ -218,7 +251,27 @@ async function run() {
 
     assert.strictEqual(emptyReply, null)
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
-    assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'timeout:1', 'log:timeout-ready', 'runChatLoop'])
+    assert.deepStrictEqual(calls, ['detectIntent', 'collectAugments', 'assemblePrompt', 'resolveLegacyTools:none:answer_only', 'timeout:1', 'log:timeout-ready', 'runChatLoop'])
+
+    calls.length = 0
+    capturedTools = null
+    await generateReply({
+        message: '兼容旧 runtime',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-2.05',
+        pipelineInput: null,
+        runtime: {
+            ...baseRuntime,
+            resolveLegacyTools: undefined,
+            tools: [{ type: 'function', function: { name: 'fallback_runtime_tools', parameters: { type: 'object', properties: {} } } }],
+            runChatLoop: async ({ tools }) => {
+                capturedTools = tools
+                return { reply: '兼容成功。', hasToolResult: false }
+            }
+        }
+    })
+    assert.strictEqual(capturedTools[0].function.name, 'fallback_runtime_tools')
 
     const timeoutResult = await generateReplyResult({
         message: '我是谁',

@@ -119,6 +119,10 @@ config.isRagEnabledForGroup = function(groupId) {
     return aiConfig.isRagEnabledForGroup(groupId, config)
 }
 
+config.isAiAgentRuntimeV2Enabled = function() {
+    return aiConfig.isAiAgentRuntimeV2Enabled(config)
+}
+
 config.isVideoDownloadEnabledForGroup = function(groupId) {
     return aiConfig.isVideoDownloadEnabledForGroup(groupId, config)
 }

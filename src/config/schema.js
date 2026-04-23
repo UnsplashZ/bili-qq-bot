@@ -143,6 +143,7 @@ const META = {
 
     aiEnabled: { env: 'AI_ENABLED', def: true, type: 'bool' },
     aiRagEnabled: { env: 'AI_RAG_ENABLED', def: true, type: 'bool' },
+    aiAgentRuntimeV2: { env: 'AI_AGENT_RUNTIME_V2', def: false, type: 'bool' },
 
     aiChatApiUrl: {
         env: 'AI_CHAT_API_URL',

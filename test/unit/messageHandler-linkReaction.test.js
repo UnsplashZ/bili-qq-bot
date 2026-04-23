@@ -75,6 +75,7 @@ const _originals = {
     handleIncomingMessageLinks: linkService.handleIncomingMessageLinks,
     isCached: linkService.isCached,
     dispatch: commandManager.dispatch,
+    runAgent: aiHandler.runAgent,
     shouldReply: aiHandler.shouldReply,
     gateEvaluate: replyGateService.evaluate,
     gateRecordBotReply: replyGateService.recordBotReply,
@@ -99,6 +100,7 @@ async function test(name, fn) {
         linkService.handleIncomingMessageLinks = _originals.handleIncomingMessageLinks
         linkService.isCached = _originals.isCached
         commandManager.dispatch = _originals.dispatch
+        aiHandler.runAgent = _originals.runAgent
         aiHandler.shouldReply = _originals.shouldReply
         replyGateService.evaluate = _originals.gateEvaluate
         replyGateService.recordBotReply = _originals.gateRecordBotReply
@@ -145,6 +147,11 @@ async function runTests() {
             descriptors: [{ cacheKey: 'video|BV456|123456', match: 'BV456', type: 'video', id: 'BV456' }]
         })
         linkService.isCached = () => false
+        let runAgentCalled = false
+        aiHandler.runAgent = async () => {
+            runAgentCalled = true
+            return { finalReply: 'should not happen' }
+        }
         linkService.handleIncomingMessageLinks = async () => ({
             allCached: false,
             foundCount: 1,
@@ -163,6 +170,7 @@ async function runTests() {
         assert.strictEqual(emojiActions[1].params.set, false)
         assert.strictEqual(emojiActions[2].params.emoji_id, '128076')
         assert.strictEqual(emojiActions[2].params.set, true)
+        assert.strictEqual(runAgentCalled, false, 'link-only message 不应调用 aiHandler.runAgent')
     })
 
     // === 场景 4: 有未缓存链接但失败 → 思考→撤销思考→流泪 ===

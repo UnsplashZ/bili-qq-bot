@@ -200,6 +200,10 @@ function isRagEnabledForGroup(groupId, config) {
     return true
 }
 
+function isAiAgentRuntimeV2Enabled(config) {
+    return config.aiAgentRuntimeV2 === true
+}
+
 function isVideoDownloadEnabledForGroup(groupId, config) {
     const groupConfig = config.groupConfigs[String(groupId)]
     if (groupConfig && 'videoDownloadEnabled' in groupConfig) {
@@ -227,6 +231,7 @@ function getVideoDownloadMaxDurationForGroup(groupId, config) {
 module.exports = {
     buildAiEditorSnapshot,
     buildDashboardConfigSnapshot,
+    isAiAgentRuntimeV2Enabled,
     isAiEnabledForGroup,
     isRagEnabledForGroup,
     isVideoDownloadEnabledForGroup,

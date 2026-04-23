@@ -2,7 +2,7 @@
 'use strict'
 
 const assert = require('assert')
-const { normalizeLocalBotControlActionRecord } = require('../../src/services/ai/localBotControlExecutionHelper')
+const { normalizeLocalBotControlActionRecord, executeLocalBotControlAction } = require('../../src/services/ai/localBotControlExecutionHelper')
 
 function testFailedWriteActionUsesFailedStatusAndKeepsFailureData() {
     const localAction = normalizeLocalBotControlActionRecord({
@@ -89,10 +89,48 @@ function testPendingAndRejectedSemanticsStayUnchanged() {
     assert.strictEqual(rejectedAction.result.data, null)
 }
 
-function run() {
+async function testExecutionHelperStopsRenderingUserVisibleReplies() {
+    const execution = await executeLocalBotControlAction({
+        botControl: {
+            read: async () => ({
+                ok: true,
+                action: 'config.read',
+                namespace: 'config',
+                operation: 'read',
+                scope: 'current_group',
+                groupId: '1000',
+                data: {
+                    effective: {
+                        aiEnabled: true
+                    }
+                }
+            })
+        },
+        candidateAction: {
+            action: 'config.read',
+            input: {}
+        },
+        agentInput: {
+            groupId: '1000',
+            userId: '2'
+        }
+    })
+
+    assert.strictEqual('finalReply' in execution, false)
+    assert.strictEqual(execution.outcome, 'executed')
+    assert.strictEqual(execution.localActionRecord.action, 'config.read')
+}
+
+async function run() {
     testFailedWriteActionUsesFailedStatusAndKeepsFailureData()
     testPendingAndRejectedSemanticsStayUnchanged()
-    console.log('✓ localBotControlExecutionHelper records failed local actions without mislabeling them as executed')
+    await testExecutionHelperStopsRenderingUserVisibleReplies()
+    console.log('✓ localBotControlExecutionHelper records local actions while leaving user-visible rendering to the finalizer')
 }
 
 run()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error)
+        process.exit(1)
+    })

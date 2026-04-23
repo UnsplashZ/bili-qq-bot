@@ -73,6 +73,50 @@ function run() {
     assert.strictEqual(decision.taskMode, TASK_MODES.CONFIRM)
     assert.strictEqual(decision.confirmationState, CONFIRMATION_STATES.REQUIRED)
     assert.deepStrictEqual(decision.reasons, ['at_bot', 'mutation_candidate'])
+    assert.deepStrictEqual(decision.response, {
+        shouldRespond: true,
+        triggerLevel: 'direct',
+        reasons: ['at_bot', 'mutation_candidate']
+    })
+    assert.deepStrictEqual(decision.execution, {
+        taskMode: TASK_MODES.CONFIRM,
+        riskLevel: 'medium',
+        confirmationState: CONFIRMATION_STATES.REQUIRED,
+        toolPolicy: {
+            allowMcpTools: true,
+            allowBotControl: false,
+            allowedActionNamespaces: []
+        }
+    })
+    assert.deepStrictEqual(decision.permissions, {
+        facts: decision.permissionFacts,
+        structured: null
+    })
+    assert.deepStrictEqual(decision.runtimeSignals, {
+        gate: {
+            shouldReply: true,
+            triggerLevel: 'direct',
+            score: null,
+            busyMode: false,
+            reasons: ['at_bot']
+        },
+        responseMode: {
+            mode: 'confirm_needed',
+            reasons: ['mutation_candidate']
+        },
+        executionConstraints: {
+            source: 'group',
+            riskLevel: 'medium',
+            confirmationState: CONFIRMATION_STATES.REQUIRED
+        }
+    })
+    assert.deepStrictEqual(decision.signals, {
+        replyGate: decision.runtimeSignals.gate,
+        executionConstraints: decision.runtimeSignals.executionConstraints
+    })
+    assert.deepStrictEqual(decision.hints, {
+        responseMode: decision.runtimeSignals.responseMode
+    })
 
     const noReply = evaluateAgentDecision({
         agentInput: {
@@ -132,6 +176,10 @@ function run() {
     assert.strictEqual(structuredDecision.structuredPermission.permissionClass, 'admin_write')
     assert.strictEqual(structuredDecision.structuredPermission.allowed, true)
     assert.strictEqual(structuredDecision.structuredAction.kind, 'supported')
+    assert.strictEqual(structuredDecision.response.shouldRespond, true)
+    assert.strictEqual(structuredDecision.runtimeSignals.gate.triggerLevel, 'structured_action')
+    assert.strictEqual(structuredDecision.hints.responseMode.mode, 'action_ready')
+    assert.strictEqual(structuredDecision.permissions.structured.permissionClass, 'admin_write')
     assert.deepStrictEqual(structuredDecision.structuredAction.snapshot, {
         action: 'subscription.write',
         groupId: '1000',

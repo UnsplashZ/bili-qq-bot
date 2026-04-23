@@ -38,8 +38,19 @@ function run() {
         },
         globalBot: { selfId: '1099804769' },
         mcpManager: {
-            getOpenAITools: () => [],
-            executeTool: async () => ({ content: [{ text: 'ok' }] })
+            getOpenAITools: () => [{
+                type: 'function',
+                function: {
+                    name: 'mcp.test_lookup',
+                    description: 'Test MCP lookup',
+                    parameters: { type: 'object', properties: {}, additionalProperties: true }
+                }
+            }],
+            executeTool: async (name, args, requestOptions = {}) => ({
+                name,
+                args,
+                signalAborted: requestOptions.signal?.aborted === true
+            })
         },
         aiContextService: { getContext: () => [], addMessageToContext: () => {} },
         vectorMemory: { search: async () => [], addMemory: async () => {} },
@@ -63,6 +74,8 @@ function run() {
     assert.strictEqual(typeof runtime.selectContext, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReply, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReplyResult, 'function')
+    assert.strictEqual(typeof runtime.generateAgentReply, 'function')
+    assert.strictEqual(typeof runtime.generateAgentReplyResult, 'function')
     assert.deepStrictEqual(runtime.buildBotFacts('1065812436', { currentMentionsBot: true, isReplyToBot: false }), {
         botId: '1099804769',
         botName: '',
@@ -78,13 +91,118 @@ function run() {
     assert.strictEqual(typeof runtime.buildNonStructuredMessages, 'function')
     assert.strictEqual(typeof runtime.botControl.read, 'function')
     assert.strictEqual(typeof runtime.botControl.write, 'function')
+    assert.strictEqual(typeof runtime.toolRegistry.getTool, 'function')
+    assert.strictEqual(typeof runtime.listToolsForModel, 'function')
+    assert.strictEqual(typeof runtime.resolveLegacyTools, 'function')
+    assert.strictEqual(typeof runtime.executeTool, 'function')
+    assert.deepStrictEqual(runtime.tools.map(tool => tool.function.name), ['mcp.test_lookup'])
+    assert.deepStrictEqual(runtime.resolveLegacyTools({}).tools.map(tool => tool.function.name), ['mcp.test_lookup'])
+    assert.deepStrictEqual(runtime.resolveLegacyTools({
+        structuredSelectedContext: { currentTurn: { role: 'user', content: '处理一下' } },
+        responseMode: { mode: 'confirm_needed', reasons: ['ambiguous_action'] }
+    }), {
+        toolsAllowed: false,
+        visibilityContext: {
+            groupId: '1065812436',
+            traceId: 'trace-1',
+            allowLocalTools: false,
+            allowMcpTools: true,
+            clientSurface: 'legacy_reply_runtime',
+            legacyStructuredContext: 'selected',
+            legacyResponseMode: 'confirm_needed'
+        },
+        tools: []
+    })
+    assert.deepStrictEqual(runtime.resolveLegacyTools({
+        structuredSelectedContext: { currentTurn: { role: 'user', content: '处理一下' } },
+        responseMode: { mode: 'action_ready', reasons: [] }
+    }).tools.map(tool => tool.function.name), ['mcp.test_lookup'])
+    assert.deepStrictEqual(runtime.listToolsForModel({ allowLocalTools: true }).map(tool => tool.function.name), [
+        'subscription.search_user',
+        'subscription.list_current_group',
+        'subscription.add_user',
+        'subscription.remove_user',
+        'context.reset_current_group',
+        'config.get_ai_status',
+        'config.set_ai_enabled',
+        'config.set_rag_enabled',
+        'runtime.get_status',
+        'mcp.test_lookup'
+    ])
     assert.deepStrictEqual(runtime.botControl.listActions(), ['subscription.read', 'subscription.write', 'approval.read', 'approval.write', 'runtime.read', 'config.read', 'config.write', 'context.write'])
-    console.log('✓ buildReplyRuntime 会提供完整运行时字段、LLM 依赖闭环、proxy wiring 与 bot-control 读写入口')
+    console.log('✓ buildReplyRuntime 会提供完整运行时字段、统一工具注册表、LLM 依赖闭环、proxy wiring 与 bot-control 读写入口')
+}
+
+async function verifyUnifiedToolExecution() {
+    const runtime = buildReplyRuntime({
+        groupId: '1065812436',
+        traceId: 'trace-2',
+        config: {
+            aiChatApiKey: 'test-key',
+            aiChatApiUrl: 'http://test.local',
+            aiChatModel: 'test-model',
+            aiChatSystemPrompt: '你是测试助手',
+            getGroupConfig: () => 0,
+            getRootAdminQQ: () => '793122294',
+            isRagEnabledForGroup: () => true,
+            isAiEnabledForGroup: () => true
+        },
+        globalBot: { selfId: '1099804769' },
+        mcpManager: {
+            getOpenAITools: () => [{
+                type: 'function',
+                function: {
+                    name: 'mcp.test_lookup',
+                    description: 'Test MCP lookup',
+                    parameters: { type: 'object', properties: { q: { type: 'string' } }, additionalProperties: false }
+                }
+            }],
+            executeTool: async (name, args, requestOptions = {}, context = {}) => ({
+                name,
+                args,
+                signalAborted: requestOptions.signal?.aborted === true,
+                sawSignal: typeof requestOptions.signal === 'object',
+                context
+            })
+        },
+        aiContextService: { getContext: () => [], addMessageToContext: () => {} },
+        vectorMemory: { search: async () => [], addMemory: async () => {} },
+        userProfileService: { getActiveProfiles: async () => [] },
+        axios,
+        toolExecutionGuard,
+        logger: () => {}
+    })
+
+    const result = await runtime.executeTool(
+        'mcp.test_lookup',
+        { q: 'hello' },
+        { signal: new AbortController().signal },
+        { legacyStructuredContext: 'selected', legacyResponseMode: 'action_ready' }
+    )
+    assert.deepStrictEqual(result, {
+        name: 'mcp.test_lookup',
+        args: { q: 'hello' },
+        signalAborted: false,
+        sawSignal: true,
+        context: {}
+    })
+
+    await assert.rejects(
+        () => runtime.executeTool('runtime.get_status', {}, {}),
+        /not allowed in current context/
+    )
+}
+
+async function main() {
+    run()
+    await verifyUnifiedToolExecution()
 }
 
 try {
-    run()
-    process.exit(0)
+    main().then(() => process.exit(0)).catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
 } catch (error) {
     console.error(error)
     process.exit(1)

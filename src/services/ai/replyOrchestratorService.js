@@ -145,8 +145,14 @@ async function generateReplyResult({ message, userId, groupId, traceId = null, p
             userId
         })
 
-    const toolsAllowed = !structuredSelectedContext || responseMode.mode === 'action_ready'
-    const tools = toolsAllowed ? runtime.tools : []
+    const legacyToolResolution = typeof runtime.resolveLegacyTools === 'function'
+        ? runtime.resolveLegacyTools({ structuredSelectedContext, responseMode })
+        : {
+            toolsAllowed: !structuredSelectedContext || responseMode.mode === 'action_ready',
+            tools: (!structuredSelectedContext || responseMode.mode === 'action_ready') ? (runtime.tools || []) : []
+        }
+    const toolsAllowed = legacyToolResolution.toolsAllowed !== false
+    const tools = Array.isArray(legacyToolResolution.tools) ? legacyToolResolution.tools : []
     if (!toolsAllowed) {
         runtime.log('debug', 'tool-withheld', {
             responseMode: responseMode.mode
@@ -178,7 +184,8 @@ async function generateReplyResult({ message, userId, groupId, traceId = null, p
         intentType,
         ragMode: runtime.ragMode,
         hybridSearchOptions: augmentResult.hybridSearchOptions,
-        proxyConfig: runtime.proxyConfig
+        proxyConfig: runtime.proxyConfig,
+        toolExecutionContext: legacyToolResolution.visibilityContext || runtime.toolContext || {}
     })
 
     if (!chatResult.reply) {
