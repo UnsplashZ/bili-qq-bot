@@ -145,14 +145,22 @@ async function generateReplyResult({ message, userId, groupId, traceId = null, p
             userId
         })
 
-    const legacyToolResolution = typeof runtime.resolveLegacyTools === 'function'
-        ? runtime.resolveLegacyTools({ structuredSelectedContext, responseMode })
-        : {
-            toolsAllowed: !structuredSelectedContext || responseMode.mode === 'action_ready',
-            tools: (!structuredSelectedContext || responseMode.mode === 'action_ready') ? (runtime.tools || []) : []
-        }
-    const toolsAllowed = legacyToolResolution.toolsAllowed !== false
-    const tools = Array.isArray(legacyToolResolution.tools) ? legacyToolResolution.tools : []
+    const useAgentReplyPath = pipelineInput?.replyPath === 'agent_v2'
+        && !!pipelineInput?.agentContextShape?.tools?.visibilityContext
+    const toolResolution = useAgentReplyPath && typeof runtime.resolveAgentTools === 'function'
+        ? runtime.resolveAgentTools({
+            pipelineInput,
+            structuredSelectedContext,
+            responseMode
+        })
+        : typeof runtime.resolveLegacyTools === 'function'
+            ? runtime.resolveLegacyTools({ structuredSelectedContext, responseMode })
+            : {
+                toolsAllowed: !structuredSelectedContext || responseMode.mode === 'action_ready',
+                tools: (!structuredSelectedContext || responseMode.mode === 'action_ready') ? (runtime.tools || []) : []
+            }
+    const toolsAllowed = toolResolution.toolsAllowed !== false
+    const tools = Array.isArray(toolResolution.tools) ? toolResolution.tools : []
     if (!toolsAllowed) {
         runtime.log('debug', 'tool-withheld', {
             responseMode: responseMode.mode
@@ -185,7 +193,7 @@ async function generateReplyResult({ message, userId, groupId, traceId = null, p
         ragMode: runtime.ragMode,
         hybridSearchOptions: augmentResult.hybridSearchOptions,
         proxyConfig: runtime.proxyConfig,
-        toolExecutionContext: legacyToolResolution.visibilityContext || runtime.toolContext || {}
+        toolExecutionContext: toolResolution.visibilityContext || runtime.toolContext || {}
     })
 
     if (!chatResult.reply) {

@@ -233,6 +233,102 @@ async function run() {
     assert.deepStrictEqual(capturedMessages, [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }])
 
     calls.length = 0
+    capturedTools = null
+    capturedToolExecutionContext = null
+    const v2Reply = await generateReply({
+        message: '那就处理一下吧',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-1.7',
+        pipelineInput: {
+            selectedContext: {
+                currentTurn: { role: 'user', content: '那就处理一下吧', speakerId: '2402855757', speakerName: '张三', timestamp: Date.now() },
+                threadMessages: [],
+                backgroundSummary: ''
+            },
+            responseMode: { mode: 'confirm_needed', reasons: ['ambiguous_action'] },
+            replyPath: 'agent_v2',
+            agentContextShape: {
+                tools: {
+                    visibilityContext: {
+                        groupId: '1065812436',
+                        traceId: 'trace-1.7',
+                        allowLocalTools: false,
+                        allowMcpTools: true,
+                        clientSurface: 'agent_reply_runtime_v2'
+                    }
+                }
+            }
+        },
+        runtime: {
+            ...baseRuntime,
+            resolveAgentTools: ({ pipelineInput }) => {
+                calls.push(`resolveAgentTools:${pipelineInput.replyPath}:${pipelineInput.agentContextShape.tools.visibilityContext.clientSurface}:${pipelineInput.agentContextShape.tools.visibilityContext.allowLocalTools}:${pipelineInput.agentContextShape.tools.visibilityContext.allowMcpTools}`)
+                return {
+                    toolsAllowed: true,
+                    visibilityContext: pipelineInput.agentContextShape.tools.visibilityContext,
+                    tools: [
+                        { type: 'function', function: { name: 'agent_visible_mcp_tool', parameters: { type: 'object', properties: {} } } }
+                    ]
+                }
+            },
+            runChatLoop: async ({ tools, toolExecutionContext }) => {
+                calls.push('runChatLoop')
+                capturedTools = tools
+                capturedToolExecutionContext = toolExecutionContext
+                return { reply: 'v2 继续执行。', hasToolResult: false }
+            }
+        }
+    })
+
+    assert.strictEqual(v2Reply, 'v2 继续执行。')
+    assert.deepStrictEqual(capturedTools, [
+        { type: 'function', function: { name: 'agent_visible_mcp_tool', parameters: { type: 'object', properties: {} } } }
+    ])
+    assert.deepStrictEqual(capturedToolExecutionContext, {
+        groupId: '1065812436',
+        traceId: 'trace-1.7',
+        allowLocalTools: false,
+        allowMcpTools: true,
+        clientSurface: 'agent_reply_runtime_v2'
+    })
+    assert.ok(calls.includes('resolveAgentTools:agent_v2:agent_reply_runtime_v2:false:true'))
+    assert.ok(!calls.some(entry => entry === 'resolveLegacyTools:selected:confirm_needed'))
+
+    calls.length = 0
+    capturedTools = null
+    await generateReply({
+        message: '那就处理一下吧',
+        userId: '2402855757',
+        groupId: '1065812436',
+        traceId: 'trace-1.75',
+        pipelineInput: {
+            selectedContext: {
+                currentTurn: { role: 'user', content: '那就处理一下吧', speakerId: '2402855757', speakerName: '张三', timestamp: Date.now() },
+                threadMessages: [],
+                backgroundSummary: ''
+            },
+            responseMode: { mode: 'confirm_needed', reasons: ['ambiguous_action'] },
+            replyPath: 'agent_v2'
+        },
+        runtime: {
+            ...baseRuntime,
+            listToolsForModel: () => {
+                calls.push('listToolsForModel:should_not_run')
+                return [{ type: 'function', function: { name: 'unexpected_tool', parameters: { type: 'object', properties: {} } } }]
+            },
+            runChatLoop: async ({ tools }) => {
+                calls.push('runChatLoop')
+                capturedTools = tools
+                return { reply: '缺少策略时回退 legacy gating。', hasToolResult: false }
+            }
+        }
+    })
+    assert.deepStrictEqual(capturedTools, [])
+    assert.ok(!calls.includes('listToolsForModel:should_not_run'))
+    assert.ok(calls.includes('resolveLegacyTools:selected:confirm_needed'))
+
+    calls.length = 0
     const emptyReply = await generateReply({
         message: '我是谁',
         userId: '2402855757',

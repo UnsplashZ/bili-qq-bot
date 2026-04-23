@@ -99,6 +99,7 @@ function run() {
     assert.strictEqual(typeof runtime.toolRegistry.getTool, 'function')
     assert.strictEqual(typeof runtime.listToolsForModel, 'function')
     assert.strictEqual(typeof runtime.resolveLegacyTools, 'function')
+    assert.strictEqual(typeof runtime.resolveAgentTools, 'function')
     assert.strictEqual(typeof runtime.executeTool, 'function')
     assert.deepStrictEqual(runtime.tools.map(tool => tool.function.name), ['mcp.test_lookup'])
     assert.deepStrictEqual(runtime.resolveLegacyTools({}).tools.map(tool => tool.function.name), ['mcp.test_lookup'])
@@ -122,6 +123,36 @@ function run() {
         structuredSelectedContext: { currentTurn: { role: 'user', content: '处理一下' } },
         responseMode: { mode: 'action_ready', reasons: [] }
     }).tools.map(tool => tool.function.name), ['mcp.test_lookup'])
+    assert.deepStrictEqual(runtime.resolveAgentTools({
+        pipelineInput: {
+            agentContextShape: {
+                tools: {
+                    visibilityContext: {
+                        allowLocalTools: true,
+                        allowMcpTools: true,
+                        clientSurface: 'legacy_reply_runtime'
+                    }
+                }
+            }
+        }
+    }), {
+        toolsAllowed: true,
+        visibilityContext: {
+            groupId: '1065812436',
+            traceId: 'trace-1',
+            allowLocalTools: false,
+            allowMcpTools: true,
+            clientSurface: 'agent_reply_runtime_v2'
+        },
+        tools: [{
+            type: 'function',
+            function: {
+                name: 'mcp.test_lookup',
+                description: 'Test MCP lookup',
+                parameters: { type: 'object', properties: {}, additionalProperties: true }
+            }
+        }]
+    })
     assert.deepStrictEqual(runtime.listToolsForModel({ allowLocalTools: true }).map(tool => tool.function.name), [
         'subscription.search_user',
         'subscription.list_current_group',
