@@ -3,8 +3,13 @@
 
 const assert = require('assert')
 const {
-    recognizeNaturalLanguageBotControlAction
+    recognizeNaturalLanguageBotControlAction,
+    recognizeBotControlShortcut
 } = require('../../src/services/ai/naturalLanguageBotControlRecognitionService')
+
+const {
+    recognizeBotControlShortcut: recognizeBotControlShortcutFromHelper
+} = require('../../src/services/ai/botControl/naturalLanguageShortcutParser')
 
 const groupAtBotMeta = Object.freeze({
     source: 'group',
@@ -13,6 +18,17 @@ const groupAtBotMeta = Object.freeze({
 })
 
 function run() {
+    assert.deepStrictEqual(recognizeNaturalLanguageBotControlAction('查看AI配置', {
+        messageMeta: groupAtBotMeta
+    }), recognizeBotControlShortcut('查看AI配置', {
+        messageMeta: groupAtBotMeta
+    }))
+    assert.deepStrictEqual(recognizeNaturalLanguageBotControlAction('查看AI配置', {
+        messageMeta: groupAtBotMeta
+    }), recognizeBotControlShortcutFromHelper('查看AI配置', {
+        messageMeta: groupAtBotMeta
+    }))
+
     assert.deepStrictEqual(recognizeNaturalLanguageBotControlAction('reset current group context', {
         messageMeta: groupAtBotMeta
     }), {
@@ -185,7 +201,7 @@ function run() {
         }
     }), null)
 
-    console.log('✓ naturalLanguageBotControlRecognitionService 仅在 @bot/reply bot 入口下识别窄范围 bot-control 短语')
+    console.log('✓ naturalLanguageBotControlRecognitionService 作为兼容层保留窄范围 bot-control shortcut 识别')
 }
 
 try {

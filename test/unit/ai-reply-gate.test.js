@@ -55,6 +55,21 @@ function testAtBotAlwaysPasses() {
     console.log('✓ @bot 会直接通过 reply gate')
 }
 
+function testEvaluateAdmissionAliasesEvaluate() {
+    installConfig()
+    const clock = { current: 1000 }
+    const service = createService(clock)
+    const input = {
+        groupId: '1000',
+        userId: '2000',
+        rawMessage: '这个为什么会超时？',
+        messageMeta: { source: 'group' }
+    }
+
+    assert.deepStrictEqual(service.evaluateAdmission(input), service.evaluate(input))
+    console.log('✓ replyGateService 将 reply gate 暴露为 admission 兼容别名')
+}
+
 function testPrivateChatAlwaysPasses() {
     installConfig()
     const clock = { current: 1000 }
@@ -148,6 +163,7 @@ function testChineseQuestionWithoutPunctuationStillScoresAsQuestion() {
 
 function run() {
     testAtBotAlwaysPasses()
+    testEvaluateAdmissionAliasesEvaluate()
     testPrivateChatAlwaysPasses()
     testShortNoiseFailsInBusyMode()
     testRecentBotInteractionCanPassFollowUp()

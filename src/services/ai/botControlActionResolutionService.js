@@ -1,6 +1,6 @@
 'use strict'
 
-const { recognizeNaturalLanguageBotControlAction } = require('./naturalLanguageBotControlRecognitionService')
+const { recognizeBotControlShortcut } = require('./botControl/naturalLanguageShortcutParser')
 const { recognizePendingBotControlFollowup } = require('./pendingBotControlFollowupRecognitionService')
 const { recognizeCandidateSelectionFollowup } = require('./candidateSelectionFollowupRecognitionService')
 
@@ -117,7 +117,7 @@ function resolveBotControlActionInput({ agentInput = {}, runtime } = {}) {
         }
     }
 
-    const naturalLanguageCandidate = recognizeNaturalLanguageBotControlAction(agentInput.rawMessage, {
+    const naturalLanguageCandidate = recognizeBotControlShortcut(agentInput.rawMessage, {
         messageMeta: agentInput.messageMeta
     })
 

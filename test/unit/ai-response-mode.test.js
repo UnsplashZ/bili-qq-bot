@@ -4,8 +4,25 @@
 const assert = require('assert')
 
 const {
-    classifyResponseMode
+    classifyResponseMode,
+    classifyResponseModeHint
 } = require('../../src/services/ai/responseModeService')
+
+const {
+    classifyResponseModeHint: classifyResponseModeHintFromHelper
+} = require('../../src/services/ai/agent/responseModeClassifier')
+
+function testCompatibilityShimDelegatesToHelper() {
+    const input = {
+        rawMessage: '帮我把这个关掉',
+        messageMeta: { source: 'group' },
+        triggerLevel: 'direct'
+    }
+
+    assert.deepStrictEqual(classifyResponseMode(input), classifyResponseModeHint(input))
+    assert.deepStrictEqual(classifyResponseMode(input), classifyResponseModeHintFromHelper(input))
+    console.log('✓ responseModeService 作为兼容层委托给 agent response mode helper')
+}
 
 function testPlainQuestionBecomesAnswerOnly() {
     const result = classifyResponseMode({
@@ -52,6 +69,7 @@ function testNonDirectGroupActionDoesNotBecomeReady() {
 }
 
 function run() {
+    testCompatibilityShimDelegatesToHelper()
     testPlainQuestionBecomesAnswerOnly()
     testCasualBanterBecomesChat()
     testAmbiguousActionNeedsConfirm()

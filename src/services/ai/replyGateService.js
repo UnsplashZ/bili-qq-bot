@@ -132,6 +132,10 @@ class ReplyGateService {
         }
     }
 
+    evaluateAdmission(input) {
+        return this.evaluate(input)
+    }
+
     recordBotReply(groupId, userId) {
         const now = this.now()
         const busyWindowSeconds = config.getGroupConfig(groupId, 'aiBusyWindowSeconds')
