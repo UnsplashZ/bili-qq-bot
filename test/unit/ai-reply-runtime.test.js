@@ -5,6 +5,7 @@ const assert = require('assert')
 const axios = require('axios')
 const { toolExecutionGuard } = require('../../src/services/ai/toolExecutionGuard')
 const { buildReplyRuntime } = require('../../src/services/ai/replyRuntimeService')
+const { classifyResponseModeHint } = require('../../src/services/ai/agent/responseModeClassifier')
 
 function run() {
     const runtime = buildReplyRuntime({
@@ -70,7 +71,9 @@ function run() {
     assert.strictEqual(runtime.structuredContextEnabled, true)
     assert.strictEqual(runtime.config.aiChatApiKey, 'test-key')
     assert.strictEqual(typeof runtime.replyGateService.evaluate, 'function')
+    assert.strictEqual(typeof runtime.replyGateService.evaluateAdmission, 'function')
     assert.strictEqual(typeof runtime.classifyResponseMode, 'function')
+    assert.strictEqual(runtime.classifyResponseMode, classifyResponseModeHint)
     assert.strictEqual(typeof runtime.selectContext, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReply, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReplyResult, 'function')

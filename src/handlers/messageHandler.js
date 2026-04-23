@@ -12,7 +12,7 @@ const requestApprovalService = require('../services/requestApprovalService');
 const aiIdempotency = require('../services/ai/idempotency');
 const { replyGateService } = require('../services/ai/replyGateService');
 const { selectContext } = require('../services/ai/contextSelectorService');
-const { classifyResponseMode } = require('../services/ai/responseModeService');
+const { classifyResponseModeHint } = require('../services/ai/agent/responseModeClassifier');
 const { resolveBotControlActionInput } = require('../services/ai/botControlActionResolutionService');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
@@ -419,7 +419,7 @@ class MessageHandler {
         let aiPipelineInput = null
 
         if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
-            const gateDecision = replyGateService.evaluate({
+            const gateDecision = replyGateService.evaluateAdmission({
                 groupId,
                 userId,
                 rawMessage,
@@ -451,7 +451,7 @@ class MessageHandler {
                     stats: selectedContext.stats
                 })
                 const responseMode = config.getGroupConfig(groupId, 'aiResponseModeEnabled') !== false
-                    ? classifyResponseMode({
+                    ? classifyResponseModeHint({
                         rawMessage,
                         messageMeta,
                         triggerLevel: gateDecision.triggerLevel

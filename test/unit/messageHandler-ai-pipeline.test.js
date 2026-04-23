@@ -15,6 +15,7 @@ const linkService = require('../../src/services/link')
 const requestApprovalService = require('../../src/services/requestApprovalService')
 const { replyGateService } = require('../../src/services/ai/replyGateService')
 const { runAgent: runAgentService } = require('../../src/services/ai/agentRunService')
+const { classifyResponseModeHint } = require('../../src/services/ai/agent/responseModeClassifier')
 
 const originals = {
     getReply: aiHandler.getReply,
@@ -35,6 +36,7 @@ const originals = {
     maybeScheduleProfileUpdate: userProfileService.maybeScheduleProfileUpdate,
     getContext: aiContextService.getContext,
     gateEvaluate: replyGateService.evaluate,
+    gateEvaluateAdmission: replyGateService.evaluateAdmission,
     gateRecordBotReply: replyGateService.recordBotReply,
     prepareIncomingMessageLinks: linkService.prepareIncomingMessageLinks,
     isCached: linkService.isCached,
@@ -62,6 +64,7 @@ function restore() {
     userProfileService.maybeScheduleProfileUpdate = originals.maybeScheduleProfileUpdate
     aiContextService.getContext = originals.getContext
     replyGateService.evaluate = originals.gateEvaluate
+    replyGateService.evaluateAdmission = originals.gateEvaluateAdmission
     replyGateService.recordBotReply = originals.gateRecordBotReply
     linkService.prepareIncomingMessageLinks = originals.prepareIncomingMessageLinks
     linkService.isCached = originals.isCached
@@ -124,6 +127,13 @@ function useDefaultRuntimeStubs({ gateDecision, dispatchResult = false, descript
     aiHandler.addMessageToContext = () => {}
     aiContextService.getContext = () => []
     replyGateService.evaluate = () => gateDecision || {
+        shouldReply: false,
+        triggerLevel: 'none',
+        busyMode: false,
+        score: 0,
+        reasons: ['test']
+    }
+    replyGateService.evaluateAdmission = () => gateDecision || {
         shouldReply: false,
         triggerLevel: 'none',
         busyMode: false,
@@ -244,6 +254,61 @@ async function testPipelinePayloadPassedToAiHandler() {
     assert.ok(Array.isArray(capturedAgentInput.pipelineInput.selectedContext.threadMessages))
     assert.strictEqual(capturedAgentInput.traceId, 'msg:1000:2:123')
     console.log('✓ messageHandler 会把结构化 AI 管线输入组装为 agentInput 并传给 aiHandler.runAgent')
+}
+
+async function testPipelineUsesAdmissionAliasAndHelperSurface() {
+    useDefaultRuntimeStubs({
+        gateDecision: {
+            shouldReply: true,
+            triggerLevel: 'direct',
+            busyMode: false,
+            score: 120,
+            reasons: ['at_bot']
+        }
+    })
+    aiContextService.getContext = () => ([
+        { role: 'user', speakerId: '2', speakerName: '测试用户', content: '前情', timestamp: 1000 },
+        { role: 'user', speakerId: '2', speakerName: '测试用户', content: '帮我把AI关掉', timestamp: 2000 }
+    ])
+
+    let admissionCalls = 0
+    replyGateService.evaluate = () => {
+        throw new Error('messageHandler should use evaluateAdmission alias instead of evaluate')
+    }
+    replyGateService.evaluateAdmission = () => {
+        admissionCalls += 1
+        return {
+            shouldReply: true,
+            triggerLevel: 'direct',
+            busyMode: false,
+            score: 120,
+            reasons: ['at_bot']
+        }
+    }
+
+    let capturedAgentInput = null
+    aiHandler.runAgent = async (agentInput) => {
+        capturedAgentInput = agentInput
+        return { finalReply: null }
+    }
+
+    await messageHandler.handleMessage({}, buildDefaultMessageData({
+        message_id: 124,
+        raw_message: '[CQ:at,qq=1]帮我把AI关掉',
+        message: [
+            { type: 'at', data: { qq: '1' } },
+            { type: 'text', data: { text: '帮我把AI关掉' } }
+        ]
+    }))
+
+    assert.strictEqual(admissionCalls, 1)
+    assert.ok(capturedAgentInput)
+    assert.deepStrictEqual(capturedAgentInput.pipelineInput.responseMode, classifyResponseModeHint({
+        rawMessage: '[CQ:at,qq=1]帮我把AI关掉',
+        messageMeta: capturedAgentInput.messageMeta,
+        triggerLevel: 'direct'
+    }))
+    console.log('✓ messageHandler 通过 admission alias 与 response mode helper 保持原有 AI 管线行为')
 }
 
 async function testProfileRefreshNoLongerDependsOnBotReply() {
@@ -997,6 +1062,7 @@ async function testRootPrivateApprovalInterceptStillWinsBeforeAiRuntime() {
 
 async function run() {
     await testPipelinePayloadPassedToAiHandler()
+    await testPipelineUsesAdmissionAliasAndHelperSurface()
     await testProfileRefreshNoLongerDependsOnBotReply()
     await testConfirmationFollowupSkipsNormalMemoryWrites()
     await testCandidateSelectionFollowupSkipsNormalMemoryWrites()

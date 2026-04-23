@@ -22,6 +22,7 @@ const { replyGateService } = require(path.join(__dirname, '../../src/services/ai
 const aiHandler = require(path.join(__dirname, '../../src/handlers/aiHandler'))
 aiHandler.addMessageToContext = () => {}
 replyGateService.evaluate = () => ({ shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] })
+replyGateService.evaluateAdmission = replyGateService.evaluate
 replyGateService.recordBotReply = () => {}
 
 const vectorMemoryService = require(path.join(__dirname, '../../src/services/vectorMemoryService'))
@@ -78,6 +79,7 @@ const _originals = {
     runAgent: aiHandler.runAgent,
     shouldReply: aiHandler.shouldReply,
     gateEvaluate: replyGateService.evaluate,
+    gateEvaluateAdmission: replyGateService.evaluateAdmission,
     gateRecordBotReply: replyGateService.recordBotReply,
 }
 
@@ -103,6 +105,7 @@ async function test(name, fn) {
         aiHandler.runAgent = _originals.runAgent
         aiHandler.shouldReply = _originals.shouldReply
         replyGateService.evaluate = _originals.gateEvaluate
+        replyGateService.evaluateAdmission = _originals.gateEvaluateAdmission
         replyGateService.recordBotReply = _originals.gateRecordBotReply
         aiIdempotency.reset()
     }
@@ -323,12 +326,15 @@ async function runTests() {
         })
         let aiCalled = false
         replyGateService.evaluate = () => {
+            throw new Error('messageHandler should not use replyGateService.evaluate directly')
+        }
+        replyGateService.evaluateAdmission = () => {
             aiCalled = true
             return { shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] }
         }
         const ws = makeMockWs()
         await handler.handleMessage(ws, makeMessageData('你好'))
-        assert.ok(aiCalled, 'replyGateService.evaluate 应该被调用')
+        assert.ok(aiCalled, 'replyGateService.evaluateAdmission 应该被调用')
     })
 
     console.log(`\n结果: ${passed} passed, ${failed} failed\n`)

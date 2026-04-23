@@ -9,7 +9,7 @@ const { normalizeId } = require('./messageSanitizerService')
 const { assemblePrompt } = require('./promptAssemblerService')
 const { buildBotFacts } = require('./botFactsService')
 const { replyGateService } = require('./replyGateService')
-const { classifyResponseMode } = require('./responseModeService')
+const { classifyResponseModeHint } = require('./agent/responseModeClassifier')
 const { selectContext } = require('./contextSelectorService')
 const { generateReply, generateReplyResult } = require('./replyOrchestratorService')
 const { createBotControlRuntime } = require('./botControl')
@@ -98,7 +98,7 @@ function buildReplyRuntime({ groupId, traceId, config, globalBot, mcpManager, ai
     const runtime = {
         config,
         replyGateService,
-        classifyResponseMode,
+        classifyResponseMode: classifyResponseModeHint,
         apiKey: config.aiChatApiKey || config.aiApiKey,
         apiUrl: config.aiChatApiUrl || config.aiApiUrl,
         model: config.aiChatModel || config.aiModel,

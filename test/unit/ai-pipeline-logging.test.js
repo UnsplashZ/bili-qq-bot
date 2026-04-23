@@ -31,6 +31,7 @@ const originals = {
     maybeUpdateProfile: userProfileService.maybeUpdateProfile,
     getContext: aiContextService.getContext,
     gateEvaluate: replyGateService.evaluate,
+    gateEvaluateAdmission: replyGateService.evaluateAdmission,
     gateRecordBotReply: replyGateService.recordBotReply,
     sendGroupMessage: messageHandler.sendGroupMessage
 }
@@ -52,6 +53,7 @@ function restore() {
     userProfileService.maybeUpdateProfile = originals.maybeUpdateProfile
     aiContextService.getContext = originals.getContext
     replyGateService.evaluate = originals.gateEvaluate
+    replyGateService.evaluateAdmission = originals.gateEvaluateAdmission
     replyGateService.recordBotReply = originals.gateRecordBotReply
     messageHandler.sendGroupMessage = originals.sendGroupMessage
 }
@@ -91,6 +93,7 @@ async function run() {
             score: 85,
             reasons: ['busy_mode', 'recent_bot_interaction']
         })
+        replyGateService.evaluateAdmission = replyGateService.evaluate
         replyGateService.recordBotReply = () => {}
         aiHandler.runAgent = async () => ({ finalReply: 'ok' })
         messageHandler.sendGroupMessage = () => {}

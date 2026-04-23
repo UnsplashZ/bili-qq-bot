@@ -19,6 +19,7 @@ const originals = {
     runAgent: aiHandler.runAgent,
     addMessageToContext: aiHandler.addMessageToContext,
     gateEvaluate: replyGateService.evaluate,
+    gateEvaluateAdmission: replyGateService.evaluateAdmission,
     gateRecordBotReply: replyGateService.recordBotReply,
     ensureGroupConfig: config.ensureGroupConfig,
     isGroupEnabled: config.isGroupEnabled,
@@ -39,6 +40,7 @@ function restore() {
     aiHandler.runAgent = originals.runAgent
     aiHandler.addMessageToContext = originals.addMessageToContext
     replyGateService.evaluate = originals.gateEvaluate
+    replyGateService.evaluateAdmission = originals.gateEvaluateAdmission
     replyGateService.recordBotReply = originals.gateRecordBotReply
     config.ensureGroupConfig = originals.ensureGroupConfig
     config.isGroupEnabled = originals.isGroupEnabled
@@ -75,6 +77,7 @@ async function testDuplicateMessageIdOnlyRepliesOnce() {
         score: 100,
         reasons: ['test']
     })
+    replyGateService.evaluateAdmission = replyGateService.evaluate
     replyGateService.recordBotReply = () => {}
 
     let runAgentCalled = 0
@@ -128,6 +131,7 @@ async function testNonArrayMessageWillNotCrash() {
         score: 0,
         reasons: ['test']
     })
+    replyGateService.evaluateAdmission = replyGateService.evaluate
     replyGateService.recordBotReply = () => {}
     messageHandler.sendGroupMessage = () => {}
 
