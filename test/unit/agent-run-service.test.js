@@ -133,8 +133,8 @@ async function testChainsDecisionContextPlanAndPrimaryAgentReply() {
             assert.strictEqual(pipelineInput.agentContextShape.tools.visibleCount, 0)
             return { finalReply: '好的' }
         },
-        generateLegacyReply: async () => {
-            throw new Error('primary v2 path should not use legacy bridge when agent runtime succeeds')
+        generateLegacyReplyResult: async () => {
+            throw new Error('primary v2 path should not use legacy reply result bridge when agent runtime succeeds')
         }
     }
 
@@ -206,8 +206,8 @@ async function testMergesStructuredLegacyExecutionResult() {
             errors: ['tool-warning'],
             toolCalls: [{ id: 'call_1', functionName: 'kick_user', arguments: '{}' }]
         }),
-        generateLegacyReply: async () => {
-            throw new Error('should not prefer legacy bridge when primary runtime result exists')
+        generateLegacyReplyResult: async () => {
+            throw new Error('should not prefer legacy reply result bridge when primary runtime result exists')
         }
     }
 
@@ -1077,8 +1077,8 @@ async function testDifferentActorCannotConsumePendingConfirmationFollowup() {
             calls.push('botFacts')
             return { botId: '1' }
         },
-        generateLegacyReply: async () => {
-            calls.push('legacyReply')
+        generateLegacyReplyResult: async () => {
+            calls.push('legacyReplyResult')
             return '普通聊天回复'
         }
     }
@@ -1104,7 +1104,7 @@ async function testDifferentActorCannotConsumePendingConfirmationFollowup() {
     assert.strictEqual(rejectCalled, false)
     assert.strictEqual(result.state, RUN_STATES.FINALIZED)
     assert.strictEqual(result.finalReply, '普通聊天回复')
-    assert.deepStrictEqual(calls, ['pending:3', 'gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'pending:3', 'botFacts', 'legacyReply'])
+    assert.deepStrictEqual(calls, ['pending:3', 'gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'pending:3', 'botFacts', 'legacyReplyResult'])
 }
 
 async function testNoPendingConfirmationKeepsConfirmTextOnNormalChatPath() {
@@ -1171,8 +1171,8 @@ async function testNoPendingConfirmationKeepsConfirmTextOnNormalChatPath() {
             calls.push('botFacts')
             return { botId: '1' }
         },
-        generateLegacyReply: async () => {
-            calls.push('legacyReply')
+        generateLegacyReplyResult: async () => {
+            calls.push('legacyReplyResult')
             return '普通聊天回复'
         }
     }
@@ -1196,7 +1196,7 @@ async function testNoPendingConfirmationKeepsConfirmTextOnNormalChatPath() {
 
     assert.strictEqual(result.state, RUN_STATES.FINALIZED)
     assert.strictEqual(result.finalReply, '普通聊天回复')
-    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReply'])
+    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReplyResult'])
 }
 
 async function testExplicitStructuredActionOverridesPendingFollowupPhrase() {
@@ -3034,8 +3034,8 @@ async function testOrdinaryChatPathRemainsUnchangedForNonAdminActor() {
             calls.push('botFacts')
             return { botId: '1' }
         },
-        generateLegacyReply: async () => {
-            calls.push('legacyReply')
+        generateLegacyReplyResult: async () => {
+            calls.push('legacyReplyResult')
             return '普通聊天回复'
         },
         botControl: {
@@ -3068,7 +3068,7 @@ async function testOrdinaryChatPathRemainsUnchangedForNonAdminActor() {
     assert.strictEqual(result.state, RUN_STATES.FINALIZED)
     assert.strictEqual(result.finalReply, '普通聊天回复')
     assert.strictEqual(result.localActions.length, 0)
-    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReply'])
+    assert.deepStrictEqual(calls, ['gate', 'mode', 'context:1000', 'select', 'intent', 'augment', 'botFacts', 'legacyReplyResult'])
 }
 
 async function run() {
