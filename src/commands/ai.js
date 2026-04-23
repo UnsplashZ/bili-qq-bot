@@ -3,7 +3,7 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const { AiConfigValidationError } = require('../services/ai/validation');
-const { updateGroupAiConfig } = require('../services/ai/groupConfigFacade');
+const { updateAiConfigSnapshot } = require('../services/ai/facades/aiConfigFacade');
 
 function commandLog(level, message, fields = {}) {
     logger.logEvent(level, 'BOT', 'cmd:ai', message, fields);
@@ -46,7 +46,7 @@ class AiCommand {
 
                 let value;
                 try {
-                    const result = updateGroupAiConfig(config, groupId, {
+                    const result = updateAiConfigSnapshot(config, groupId, {
                         aiContextLimit: parts[2]
                     }, {
                         fields: ['aiContextLimit'],
@@ -74,7 +74,7 @@ class AiCommand {
 
                 let value;
                 try {
-                    const result = updateGroupAiConfig(config, groupId, {
+                    const result = updateAiConfigSnapshot(config, groupId, {
                         aiProbability: parts[2]
                     }, {
                         fields: ['aiProbability']

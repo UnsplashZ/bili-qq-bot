@@ -6,11 +6,13 @@ const {
 } = require('../../../../services/ai/validation')
 const {
     GROUP_AI_SWITCH_FIELDS,
-    pickGroupAiConfigUpdates,
-    readGroupAiConfigSnapshot,
-    updateGroupAiConfig,
-    resetGroupAiConfig
+    pickGroupAiConfigUpdates
 } = require('../../../../services/ai/groupConfigFacade')
+const {
+    readAiConfigSnapshot,
+    resetAiConfigSnapshot,
+    updateAiConfigSnapshot
+} = require('../../../../services/ai/facades/aiConfigFacade')
 const { assertWebuiManageableGroup } = require('../shared/group-guard')
 
 const router = express.Router()
@@ -24,10 +26,12 @@ router.get('/groups/:groupId/ai-config', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
 
-        res.json(readGroupAiConfigSnapshot(sysConfig, groupId, {
+        const snapshot = readAiConfigSnapshot(sysConfig, groupId, {
             fields: GROUP_AI_SWITCH_FIELDS,
             includeGlobal: true
-        }))
+        })
+
+        res.json(snapshot.overrides)
     } catch (error) {
         logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-fetch-failed', {
             groupId: req.params.groupId,
@@ -48,7 +52,7 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
         const updates = pickGroupAiConfigUpdates(req.body, GROUP_AI_SWITCH_FIELDS)
 
         try {
-            const result = updateGroupAiConfig(sysConfig, groupId, updates, {
+            const result = updateAiConfigSnapshot(sysConfig, groupId, updates, {
                 fields: GROUP_AI_SWITCH_FIELDS,
                 includeGlobal: true,
                 requireAtLeastOne: true,
@@ -61,7 +65,7 @@ router.put('/groups/:groupId/ai-config', async (req, res) => {
 
             res.json({
                 message: 'AI configuration updated successfully',
-                ...result.snapshot
+                ...result.overrides
             })
         } catch (error) {
             if (error instanceof AiConfigValidationError) {
@@ -96,7 +100,7 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
 
-        const snapshot = resetGroupAiConfig(sysConfig, groupId, {
+        const snapshot = resetAiConfigSnapshot(sysConfig, groupId, {
             fields: GROUP_AI_SWITCH_FIELDS,
             includeGlobal: true
         })
@@ -107,7 +111,7 @@ router.delete('/groups/:groupId/ai-config', async (req, res) => {
 
         res.json({
             message: 'AI configuration reset to global defaults',
-            ...snapshot
+            ...snapshot.overrides
         })
     } catch (error) {
         logger.logEvent('error', 'DASH', req.logScope || '', 'ai-config-reset-failed', {

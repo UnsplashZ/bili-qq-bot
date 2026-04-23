@@ -12,10 +12,11 @@ const {
 } = require('../../../../services/ai/validation')
 const {
     GROUP_AI_RUNTIME_FIELDS,
-    applyGroupAiConfigPatch,
-    normalizeGroupAiConfigPatch,
     pickGroupAiConfigUpdates
 } = require('../../../../services/ai/groupConfigFacade')
+const {
+    updateAiConfigSnapshot
+} = require('../../../../services/ai/facades/aiConfigFacade')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -150,12 +151,31 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' })
         }
 
+        if (!sysConfig.groupConfigs) {
+            sysConfig.groupConfigs = {}
+        }
+
+        const workingGroupConfigs = {
+            ...sysConfig.groupConfigs
+        }
+        if (Object.prototype.hasOwnProperty.call(sysConfig.groupConfigs, groupIdStr)) {
+            workingGroupConfigs[groupIdStr] = {
+                ...sysConfig.groupConfigs[groupIdStr]
+            }
+        }
+        const aiConfigContext = {
+            ...sysConfig,
+            groupConfigs: workingGroupConfigs
+        }
+
         const aiUpdates = pickGroupAiConfigUpdates(updates, GROUP_AI_RUNTIME_FIELDS)
-        let normalizedAiUpdates = {}
+        let normalizedAiResult = null
         try {
-            normalizedAiUpdates = normalizeGroupAiConfigPatch(aiUpdates, {
+            normalizedAiResult = updateAiConfigSnapshot(aiConfigContext, groupId, aiUpdates, {
                 fields: GROUP_AI_RUNTIME_FIELDS,
-                contextLimitRange: { min: 1, max: 100 }
+                contextLimitRange: { min: 1, max: 100 },
+                save: false,
+                initialize: false
             })
         } catch (e) {
             if (e instanceof AiConfigValidationError) {
@@ -247,11 +267,8 @@ router.post('/groups/:id/config', async (req, res) => {
             }
         }
 
-        if (!sysConfig.groupConfigs) {
-            sysConfig.groupConfigs = {}
-        }
-
         const cleanedUpdates = { ...updates }
+        const normalizedAiUpdates = normalizedAiResult?.normalizedPatch || {}
         for (const field of Object.keys(normalizedAiUpdates)) {
             delete cleanedUpdates[field]
         }
@@ -260,16 +277,13 @@ router.post('/groups/:id/config', async (req, res) => {
             updates.subscriptionAtAllRules === null
         ) {
             delete cleanedUpdates.subscriptionAtAllRules
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules
+            if (aiConfigContext.groupConfigs[groupIdStr]) {
+                delete aiConfigContext.groupConfigs[groupIdStr].subscriptionAtAllRules
             }
         }
 
-        const groupConfig = {
-            ...(sysConfig.groupConfigs[groupIdStr] || {}),
-            ...cleanedUpdates
-        }
-        applyGroupAiConfigPatch(groupConfig, normalizedAiUpdates)
+        const groupConfig = normalizedAiResult?.groupConfig || aiConfigContext.groupConfigs[groupIdStr] || {}
+        Object.assign(groupConfig, cleanedUpdates)
         sysConfig.groupConfigs[groupIdStr] = groupConfig
 
         sysConfig.save()

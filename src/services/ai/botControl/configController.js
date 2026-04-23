@@ -1,10 +1,12 @@
 'use strict'
 
 const {
-    normalizeGroupAiConfigPatch,
-    readGroupAiConfigSnapshot,
-    updateGroupAiConfig
+    normalizeGroupAiConfigPatch
 } = require('../groupConfigFacade')
+const {
+    readAiConfigSnapshot,
+    updateAiConfigSnapshot
+} = require('../facades/aiConfigFacade')
 const { resolveManagedGroupId } = require('./subscriptionController')
 
 const BOT_CONTROL_CONFIG_FIELDS = Object.freeze([
@@ -77,19 +79,13 @@ function buildConfigWriteSnapshot({ groupId, input = {}, contextLimitRange } = {
     }
 }
 
-function buildEffectiveConfig(config, groupId) {
-    const effective = {}
-
-    for (const field of BOT_CONTROL_CONFIG_FIELDS) {
-        effective[field] = typeof config.getGroupConfig === 'function'
-            ? config.getGroupConfig(groupId, field)
-            : config[field]
-    }
-
-    return effective
-}
-
 function buildConfigReadResult({ action, groupId, config }) {
+    const snapshot = readAiConfigSnapshot(config, groupId, {
+        fields: BOT_CONTROL_CONFIG_FIELDS,
+        includeGlobal: true,
+        includeEffective: true
+    })
+
     return {
         ok: true,
         action,
@@ -97,12 +93,9 @@ function buildConfigReadResult({ action, groupId, config }) {
         scope: 'current_group',
         groupId,
         data: {
-            fields: BOT_CONTROL_CONFIG_FIELDS,
-            overrides: readGroupAiConfigSnapshot(config, groupId, {
-                fields: BOT_CONTROL_CONFIG_FIELDS,
-                includeGlobal: true
-            }),
-            effective: buildEffectiveConfig(config, groupId)
+            fields: snapshot.fields,
+            overrides: snapshot.overrides,
+            effective: snapshot.effective
         }
     }
 }
@@ -135,9 +128,10 @@ class ConfigController {
             contextLimitRange: this.contextLimitRange
         })
 
-        const result = updateGroupAiConfig(this.config, snapshot.groupId, snapshot.input.updates, {
+        const result = updateAiConfigSnapshot(this.config, snapshot.groupId, snapshot.input.updates, {
             fields: BOT_CONTROL_CONFIG_FIELDS,
             includeGlobal: true,
+            includeEffective: true,
             contextLimitRange: this.contextLimitRange
         })
 
@@ -152,8 +146,8 @@ class ConfigController {
                 operation: snapshot.input.operation,
                 updatedFields: Object.keys(result.normalizedPatch),
                 updates: result.normalizedPatch,
-                overrides: result.snapshot,
-                effective: buildEffectiveConfig(this.config, snapshot.groupId)
+                overrides: result.overrides,
+                effective: result.effective
             }
         }
     }

@@ -26,6 +26,7 @@ const originals = {
     performSave: config._performSave,
     aiCommandSend: aiCommand.sendGroupMessage,
     settingsSend: settingsCommand.sendGroupMessage,
+    groupConfigs: JSON.parse(JSON.stringify(config.groupConfigs || {})),
     previewGradientColor1: config.previewGradientColor1,
     previewGradientColor2: config.previewGradientColor2,
     env: {
@@ -77,6 +78,7 @@ function restore() {
     config._performSave = async () => {}
     config.previewGradientColor1 = originals.previewGradientColor1
     config.previewGradientColor2 = originals.previewGradientColor2
+    config.groupConfigs = JSON.parse(JSON.stringify(originals.groupConfigs))
     config.save = originals.save
     config._performSave = originals.performSave
     aiCommand.sendGroupMessage = originals.aiCommandSend
@@ -194,6 +196,34 @@ async function testAiCommandRejectsDirtyProbabilityInput() {
 
     assert.ok(aiReplies.some(text => text.includes('格式错误')))
     console.log('✓ /AI 概率 拒绝脏输入（严格数值解析）')
+}
+
+async function testAiCommandPersistsProbabilityThroughSharedFacade() {
+    config.isGroupAdmin = () => true
+    config.isRootAdmin = () => true
+    config.groupConfigs = {}
+    let saveCalls = 0
+    config.save = () => {
+        saveCalls += 1
+    }
+    config._performSave = async () => {}
+
+    const aiReplies = []
+    aiCommand.sendGroupMessage = (_ws, _groupId, chain) => {
+        aiReplies.push(chain?.[0]?.data?.text || '')
+    }
+
+    await aiCommand.handle({
+        ws: {},
+        groupId: '1000',
+        userId: '42',
+        rawMessage: '/AI 概率 0.3'
+    })
+
+    assert.strictEqual(saveCalls, 2)
+    assert.strictEqual(config.groupConfigs['1000'].aiProbability, 0.3)
+    assert.ok(aiReplies.some(text => text.includes('已设置本群AI回复概率为: 0.3 (30%)')))
+    console.log('✓ /AI 概率 通过共享 facade 持久化群配置')
 }
 
 async function testApiRejectsUnknownAiField() {
@@ -507,6 +537,7 @@ async function testApiConfigRejectsInvalidPreviewGradientFields() {
 async function run() {
     await testCommandsUseSameContextLimitRange()
     await testAiCommandRejectsDirtyProbabilityInput()
+    await testAiCommandPersistsProbabilityThroughSharedFacade()
     await testApiRejectsUnknownAiField()
     await testApiConfigReturnsTimeoutDefaultsWithoutOverrides()
     await testApiConfigReturnsPreviewGradientDefaultsWithoutOverrides()
