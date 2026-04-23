@@ -103,10 +103,6 @@ function matchesSnapshotScope({ snapshot, actorUserId, messageMeta } = {}) {
         return false
     }
 
-    if (messageMeta?.isReplyToBot !== true) {
-        return false
-    }
-
     if (!replyToMessageId || !botMessageId || replyToMessageId !== botMessageId) {
         return false
     }

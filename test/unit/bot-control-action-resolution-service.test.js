@@ -345,6 +345,33 @@ function testCandidateSelectionFollowupRequiresSameActorExactBotReplyAndUnexpire
     })
 }
 
+function testCandidateSelectionFollowupAcceptsExactReplyTargetWithoutIsReplyToBotMetadata() {
+    const result = resolveBotControlActionInput({
+        agentInput: {
+            rawMessage: '1',
+            userId: '2',
+            messageMeta: {
+                replyToMessageId: 'bot-msg-1'
+            }
+        },
+        runtime: {
+            botControl: {
+                getPendingConfirmation: () => null,
+                getCandidateSelectionSnapshot: () => buildCandidateSelectionSnapshot()
+            }
+        }
+    })
+
+    assert.strictEqual(result.source, 'candidate_selection_followup')
+    assert.deepStrictEqual(result.effectiveAgentInput.pipelineInput.botControlAction, {
+        action: 'subscription.write',
+        input: {
+            operation: 'add_user',
+            uid: '546195'
+        }
+    })
+}
+
 function testCandidateSelectionFollowupRejectsWrongActor() {
     const result = resolveBotControlActionInput({
         agentInput: {
@@ -529,6 +556,7 @@ function run() {
     testNaturalLanguageApprovalWriteUsesExactReplyOrShortIdOnly()
     testNaturalLanguageFuzzySubscribeUsesSearchCandidate()
     testCandidateSelectionFollowupRequiresSameActorExactBotReplyAndUnexpiredSnapshot()
+    testCandidateSelectionFollowupAcceptsExactReplyTargetWithoutIsReplyToBotMetadata()
     testCandidateSelectionFollowupRejectsWrongActor()
     testCandidateSelectionFollowupRejectsWrongReplyTarget()
     testCandidateSelectionFollowupReturnsExpiredInvalidActionAndClearsSnapshot()
