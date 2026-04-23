@@ -162,7 +162,7 @@ function attachDecisionShape(decision) {
     }
 }
 
-function evaluateAgentDecision({ agentInput, config, replyGateService, classifyResponseMode }) {
+function evaluateAgentDecision({ agentInput, config, replyGateService, classifyResponseModeHint, classifyResponseMode }) {
     const effectiveAgentInput = resolveBotControlActionInput({ agentInput }).effectiveAgentInput
     const { groupId, userId, rawMessage, messageMeta, pipelineInput } = effectiveAgentInput
     const permissionFacts = buildPermissionFacts({ agentInput: effectiveAgentInput, config })
@@ -212,14 +212,20 @@ function evaluateAgentDecision({ agentInput, config, replyGateService, classifyR
         })
     }
 
-    const gateDecision = pipelineInput?.gateDecision || replyGateService.evaluate({
+    const evaluateAdmission = typeof replyGateService?.evaluateAdmission === 'function'
+        ? replyGateService.evaluateAdmission.bind(replyGateService)
+        : replyGateService.evaluate.bind(replyGateService)
+    const classifyResponseModeDecision = typeof classifyResponseModeHint === 'function'
+        ? classifyResponseModeHint
+        : classifyResponseMode
+    const gateDecision = pipelineInput?.gateDecision || evaluateAdmission({
         groupId,
         userId,
         rawMessage,
         messageMeta
     })
 
-    const responseMode = pipelineInput?.responseMode || classifyResponseMode({
+    const responseMode = pipelineInput?.responseMode || classifyResponseModeDecision({
         rawMessage,
         messageMeta,
         triggerLevel: gateDecision.triggerLevel

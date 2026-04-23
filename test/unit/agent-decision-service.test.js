@@ -37,8 +37,10 @@ function run() {
     assert.strictEqual(mapResponseModeToTaskMode({ mode: 'chat' }), TASK_MODES.CHAT)
     assert.strictEqual(mapResponseModeToTaskMode({ mode: 'confirm_needed' }), TASK_MODES.CONFIRM)
 
-    let gateCalled = false
-    let modeCalled = false
+    let admissionCalled = false
+    let legacyGateCalled = false
+    let narrowModeCalled = false
+    let legacyModeCalled = false
     const decision = evaluateAgentDecision({
         agentInput: {
             groupId: '1000',
@@ -48,27 +50,44 @@ function run() {
         },
         config,
         replyGateService: {
-            evaluate: () => {
-                gateCalled = true
+            evaluateAdmission: () => {
+                admissionCalled = true
                 return {
                     shouldReply: true,
                     triggerLevel: 'direct',
                     reasons: ['at_bot']
                 }
+            },
+            evaluate: () => {
+                legacyGateCalled = true
+                return {
+                    shouldReply: false,
+                    triggerLevel: 'none',
+                    reasons: ['legacy_gate_should_not_run']
+                }
             }
         },
-        classifyResponseMode: ({ triggerLevel }) => {
-            modeCalled = true
+        classifyResponseModeHint: ({ triggerLevel }) => {
+            narrowModeCalled = true
             assert.strictEqual(triggerLevel, 'direct')
             return {
                 mode: 'confirm_needed',
                 reasons: ['mutation_candidate']
             }
+        },
+        classifyResponseMode: () => {
+            legacyModeCalled = true
+            return {
+                mode: 'answer_only',
+                reasons: ['legacy_mode_should_not_run']
+            }
         }
     })
 
-    assert.strictEqual(gateCalled, true)
-    assert.strictEqual(modeCalled, true)
+    assert.strictEqual(admissionCalled, true)
+    assert.strictEqual(legacyGateCalled, false)
+    assert.strictEqual(narrowModeCalled, true)
+    assert.strictEqual(legacyModeCalled, false)
     assert.strictEqual(decision.shouldRespond, true)
     assert.strictEqual(decision.taskMode, TASK_MODES.CONFIRM)
     assert.strictEqual(decision.confirmationState, CONFIRMATION_STATES.REQUIRED)
@@ -142,6 +161,41 @@ function run() {
     assert.strictEqual(noReply.shouldRespond, false)
     assert.strictEqual(noReply.confirmationState, CONFIRMATION_STATES.NOT_REQUIRED)
 
+    let fallbackGateCalled = false
+    let fallbackModeCalled = false
+    const fallbackDecision = evaluateAgentDecision({
+        agentInput: {
+            groupId: '1000',
+            userId: '3',
+            rawMessage: '这是为什么？',
+            messageMeta: { source: 'group' }
+        },
+        config,
+        replyGateService: {
+            evaluate: () => {
+                fallbackGateCalled = true
+                return {
+                    shouldReply: true,
+                    triggerLevel: 'followup',
+                    reasons: ['recent_bot_interaction']
+                }
+            }
+        },
+        classifyResponseMode: ({ triggerLevel }) => {
+            fallbackModeCalled = true
+            assert.strictEqual(triggerLevel, 'followup')
+            return {
+                mode: 'answer_only',
+                reasons: ['question_like']
+            }
+        }
+    })
+
+    assert.strictEqual(fallbackGateCalled, true)
+    assert.strictEqual(fallbackModeCalled, true)
+    assert.strictEqual(fallbackDecision.shouldRespond, true)
+    assert.strictEqual(fallbackDecision.taskMode, TASK_MODES.ANSWER)
+
     const structuredDecision = evaluateAgentDecision({
         agentInput: {
             groupId: '1000',
@@ -188,6 +242,33 @@ function run() {
             uid: '42'
         }
     })
+
+    const invalidStructuredDecision = evaluateAgentDecision({
+        agentInput: {
+            groupId: '1000',
+            userId: '2',
+            rawMessage: 'ignored',
+            source: 'group',
+            messageMeta: { source: 'group' },
+            pipelineInput: {
+                botControlAction: {
+                    action: 'confirmation.reject',
+                    input: {}
+                }
+            }
+        },
+        config,
+        replyGateService: {},
+        classifyResponseMode: null
+    })
+
+    assert.strictEqual(invalidStructuredDecision.shouldRespond, true)
+    assert.strictEqual(invalidStructuredDecision.taskMode, TASK_MODES.ACT)
+    assert.strictEqual(invalidStructuredDecision.confirmationState, CONFIRMATION_STATES.REQUIRED)
+    assert.strictEqual(invalidStructuredDecision.structuredAction.kind, 'invalid')
+    assert.strictEqual(invalidStructuredDecision.structuredPermission, null)
+    assert.deepStrictEqual(invalidStructuredDecision.reasons, ['invalid_structured_bot_control_action'])
+    assert.strictEqual(invalidStructuredDecision.runtimeSignals.gate.triggerLevel, 'structured_action')
 
     const recognizedDecision = evaluateAgentDecision({
         agentInput: {

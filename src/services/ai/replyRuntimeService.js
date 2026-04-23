@@ -98,6 +98,7 @@ function buildReplyRuntime({ groupId, traceId, config, globalBot, mcpManager, ai
     const runtime = {
         config,
         replyGateService,
+        classifyResponseModeHint,
         classifyResponseMode: classifyResponseModeHint,
         apiKey: config.aiChatApiKey || config.aiApiKey,
         apiUrl: config.aiChatApiUrl || config.aiApiUrl,
