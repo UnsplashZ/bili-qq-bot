@@ -205,7 +205,7 @@ function createBotControlRuntime({ groupId, registry, ...deps } = {}) {
                 return createConfirmationResponse({
                     action,
                     namespace: 'context',
-                    summary: 'reset current group conversation context',
+                    summary: '重置当前群聊上下文',
                     snapshot,
                     context
                 })
@@ -223,8 +223,8 @@ function createBotControlRuntime({ groupId, registry, ...deps } = {}) {
                     input
                 })
                 const summary = snapshot.input.operation === 'add_user'
-                    ? `add uid ${snapshot.input.uid} to current group subscriptions`
-                    : `remove uid ${snapshot.input.uid} from current group subscriptions`
+                    ? `将 UID ${snapshot.input.uid} 添加到当前群订阅`
+                    : `将 UID ${snapshot.input.uid} 从当前群订阅中移除`
 
                 return createConfirmationResponse({
                     action,
@@ -293,6 +293,25 @@ function createBotControlRuntime({ groupId, registry, ...deps } = {}) {
             return candidateSelectionStateService.clearSnapshot({
                 groupId: scopedGroupId,
                 actorUserId
+            })
+        },
+        setPendingConfirmationBotMessageId(botMessageIdOrOptions, context = {}) {
+            const isOptionsObject = botMessageIdOrOptions && typeof botMessageIdOrOptions === 'object' && !Array.isArray(botMessageIdOrOptions)
+            const botMessageId = isOptionsObject
+                ? botMessageIdOrOptions.botMessageId
+                : botMessageIdOrOptions
+            const actorUserId = isOptionsObject
+                ? String(botMessageIdOrOptions.actorUserId || resolveActorUserId(context)).trim()
+                : String(context?.actorUserId || resolveActorUserId(context)).trim()
+            const confirmationId = isOptionsObject
+                ? String(botMessageIdOrOptions.confirmationId || '').trim()
+                : String(context?.confirmationId || '').trim()
+
+            return confirmationService.setPendingConfirmationBotMessageId({
+                groupId: scopedGroupId,
+                actorUserId,
+                confirmationId,
+                botMessageId
             })
         },
         async confirm(confirmationId, context = {}) {

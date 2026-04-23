@@ -62,7 +62,7 @@ function testPendingAndRejectedSemanticsStayUnchanged() {
             confirmation: {
                 confirmationId: 'confirm-1',
                 state: 'pending',
-                summary: 'reset current group conversation context'
+                summary: '重置当前群聊上下文'
             }
         },
         pendingConfirmation: null
@@ -78,7 +78,7 @@ function testPendingAndRejectedSemanticsStayUnchanged() {
             ok: true,
             confirmationId: 'confirm-1',
             state: 'rejected',
-            summary: 'reset current group conversation context'
+            summary: '重置当前群聊上下文'
         },
         pendingConfirmation: null
     })

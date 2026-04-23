@@ -120,7 +120,7 @@ async function testAgentConfirmationServicePreservesPendingConfirmRejectSemantic
         groupId: '1000',
         actorUserId: '2',
         action: 'subscription.write',
-        summary: 'add uid 42 to current group subscriptions',
+        summary: '将 UID 42 添加到当前群订阅',
         snapshot: {
             action: 'subscription.write',
             input: { operation: 'add_user', uid: '42' }
@@ -132,13 +132,13 @@ async function testAgentConfirmationServicePreservesPendingConfirmRejectSemantic
         groupId: '1000',
         actorUserId: '2',
         confirmationId: created.confirmationId
-    }).summary, 'add uid 42 to current group subscriptions')
+    }).summary, '将 UID 42 添加到当前群订阅')
 
     const duplicate = confirmationService.createPendingConfirmation({
         groupId: '1000',
         actorUserId: '2',
         action: 'context.write',
-        summary: 'reset current group conversation context',
+        summary: '重置当前群聊上下文',
         snapshot: {
             action: 'context.write',
             input: { operation: 'reset' }
@@ -147,6 +147,25 @@ async function testAgentConfirmationServicePreservesPendingConfirmRejectSemantic
 
     assert.strictEqual(duplicate.ok, false)
     assert.strictEqual(duplicate.code, 'pending_confirmation_exists')
+    assert.deepStrictEqual(confirmationService.setPendingConfirmationBotMessageId({
+        groupId: '1000',
+        actorUserId: '2',
+        confirmationId: created.confirmationId,
+        botMessageId: 'bot-confirm-1'
+    }), {
+        confirmationId: '1710000000000_123456789',
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 42 添加到当前群订阅',
+        state: CONFIRMATION_STATES.PENDING,
+        createdAt: 1710000000000,
+        snapshot: {
+            action: 'subscription.write',
+            input: { operation: 'add_user', uid: '42' }
+        },
+        botMessageId: 'bot-confirm-1'
+    })
     assert.strictEqual(confirmationService.getPendingConfirmation({
         groupId: '1000',
         actorUserId: '3',
@@ -242,6 +261,89 @@ async function testCandidateSelectionStateServicePreservesSnapshotSemantics() {
     }), false)
 }
 
+async function testConfirmationBotMessageIdBackfillIgnoresLateSendForReplacedConfirmation() {
+    let now = 1710000000000
+    const confirmationService = new AgentConfirmationService({
+        now: () => now,
+        random: () => (now === 1710000000000 ? 0.111111111 : 0.222222222)
+    })
+
+    const firstConfirmation = confirmationService.createPendingConfirmation({
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 42 添加到当前群订阅',
+        snapshot: {
+            action: 'subscription.write',
+            input: { operation: 'add_user', uid: '42' }
+        }
+    })
+
+    const resolvedConfirmation = confirmationService.reject({
+        groupId: '1000',
+        actorUserId: '2',
+        confirmationId: firstConfirmation.confirmationId
+    })
+
+    assert.strictEqual(resolvedConfirmation.confirmationId, firstConfirmation.confirmationId)
+    assert.strictEqual(confirmationService.getPendingConfirmation({
+        groupId: '1000',
+        actorUserId: '2',
+        confirmationId: firstConfirmation.confirmationId
+    }), null)
+
+    now += 10
+
+    const secondConfirmation = confirmationService.createPendingConfirmation({
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 84 添加到当前群订阅',
+        snapshot: {
+            action: 'subscription.write',
+            input: { operation: 'add_user', uid: '84' }
+        }
+    })
+
+    const lateBackfillResult = confirmationService.setPendingConfirmationBotMessageId({
+        groupId: '1000',
+        actorUserId: '2',
+        confirmationId: firstConfirmation.confirmationId,
+        botMessageId: 'late-bot-msg-1'
+    })
+
+    assert.deepStrictEqual(lateBackfillResult, {
+        confirmationId: secondConfirmation.confirmationId,
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 84 添加到当前群订阅',
+        state: CONFIRMATION_STATES.PENDING,
+        createdAt: 1710000000010,
+        snapshot: {
+            action: 'subscription.write',
+            input: { operation: 'add_user', uid: '84' }
+        }
+    })
+    assert.deepStrictEqual(confirmationService.getPendingConfirmation({
+        groupId: '1000',
+        actorUserId: '2',
+        confirmationId: secondConfirmation.confirmationId
+    }), {
+        confirmationId: secondConfirmation.confirmationId,
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 84 添加到当前群订阅',
+        state: CONFIRMATION_STATES.PENDING,
+        createdAt: 1710000000010,
+        snapshot: {
+            action: 'subscription.write',
+            input: { operation: 'add_user', uid: '84' }
+        }
+    })
+}
+
 async function testWrappersCanShareWorkflowStateWithoutCrossKindCollisions() {
     let now = 1710000000000
     const workflowStateService = new WorkflowStateService({ now: () => now })
@@ -259,7 +361,7 @@ async function testWrappersCanShareWorkflowStateWithoutCrossKindCollisions() {
         groupId: '1000',
         actorUserId: '2',
         action: 'context.write',
-        summary: 'reset current group conversation context',
+        summary: '重置当前群聊上下文',
         snapshot: {
             action: 'context.write',
             input: { operation: 'reset' }
@@ -303,6 +405,7 @@ async function run() {
     await testWorkflowStateServiceHandlesExpiryAndCleanup()
     await testAgentConfirmationServicePreservesPendingConfirmRejectSemantics()
     await testCandidateSelectionStateServicePreservesSnapshotSemantics()
+    await testConfirmationBotMessageIdBackfillIgnoresLateSendForReplacedConfirmation()
     await testWrappersCanShareWorkflowStateWithoutCrossKindCollisions()
     console.log('✓ ai workflow state foundation preserves confirmation and candidate selection semantics')
 }

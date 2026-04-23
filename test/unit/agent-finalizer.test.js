@@ -9,7 +9,7 @@ function testRendersPendingWorkflowPromptFromLocalActionRecord() {
         action: 'context.write',
         status: 'pending_confirmation',
         confirmation: {
-            summary: 'reset current group conversation context'
+            summary: '重置当前群聊上下文'
         },
         result: {
             ok: true,
@@ -18,7 +18,7 @@ function testRendersPendingWorkflowPromptFromLocalActionRecord() {
         }
     })
 
-    assert.strictEqual(reply, '这个操作需要确认。确认后将执行：reset current group conversation context。')
+    assert.strictEqual(reply, '这个操作需要确认。确认后将执行：重置当前群聊上下文。')
 }
 
 function testRendersExecutedLocalActionSummaryFromLocalActionRecord() {

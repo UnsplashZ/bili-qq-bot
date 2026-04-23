@@ -537,6 +537,55 @@ async function testReplyToBotConfirmationAdmitsBotControlIngress() {
     console.log('✓ reply bot 的确认消息会在入口直接放行到 bot-control flow')
 }
 
+async function testExactReplyTargetConfirmationAdmitsBotControlIngressWithoutIsReplyToBotMetadata() {
+    useDefaultRuntimeStubs({
+        runtime: createDefaultBotControlRuntime({
+            botControl: {
+                getPendingConfirmation: ({ actorUserId }) => {
+                    assert.strictEqual(actorUserId, '2')
+                    return {
+                        confirmationId: 'confirm-1b',
+                        action: 'subscription.write',
+                        botMessageId: 'bot-confirm-1',
+                        snapshot: {
+                            input: {
+                                operation: 'add_user',
+                                uid: '42'
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    })
+
+    let capturedAgentInput = null
+    aiHandler.runAgent = async (agentInput) => {
+        capturedAgentInput = agentInput
+        return { finalReply: null }
+    }
+
+    await messageHandler.handleMessage({}, buildDefaultMessageData({
+        message_id: 8012,
+        raw_message: '[CQ:reply,id=bot-confirm-1]确认',
+        message: [
+            { type: 'reply', data: { id: 'bot-confirm-1' } },
+            { type: 'text', data: { text: '确认' } }
+        ]
+    }))
+
+    assert.ok(capturedAgentInput)
+    assert.deepStrictEqual(capturedAgentInput.pipelineInput.botControlAction, {
+        action: 'subscription.write',
+        input: {
+            operation: 'add_user',
+            uid: '42',
+            confirmationId: 'confirm-1b'
+        }
+    })
+    console.log('✓ 精确 reply 目标命中的确认消息即使缺少 isReplyToBot 也会进入 bot-control flow')
+}
+
 async function testReplyToBotRejectAdmitsBotControlIngress() {
     useDefaultRuntimeStubs({
         runtime: createDefaultBotControlRuntime({
@@ -1030,6 +1079,51 @@ async function testLinkStillWinsBeforeBotControlIngress() {
     console.log('✓ link 仍然优先于 bot-control ingress')
 }
 
+async function testConfirmationPromptReplyStoresPendingConfirmationBotMessageId() {
+    const sent = captureOutgoingReplies({ messageId: 'bot-confirm-store-1' })
+    let storedBotMessageId = null
+    useDefaultRuntimeStubs({
+        runtime: createDefaultBotControlRuntime({
+            botControl: {
+                setPendingConfirmationBotMessageId: (botMessageId, context = {}) => {
+                    storedBotMessageId = { botMessageId, context }
+                }
+            }
+        })
+    })
+    aiHandler.runAgent = async () => ({
+        finalReply: '这个操作需要确认。确认后将执行：将 UID 42 添加到当前群订阅。',
+        localActions: [{
+            action: 'subscription.write',
+            status: 'pending_confirmation',
+            confirmation: {
+                confirmationId: 'confirm-store-1',
+                required: true
+            }
+        }]
+    })
+
+    await messageHandler.handleMessage({}, buildDefaultMessageData({
+        message_id: 809,
+        raw_message: '[CQ:at,qq=1]订阅测试UP',
+        message: [
+            { type: 'at', data: { qq: '1' } },
+            { type: 'text', data: { text: '订阅测试UP' } }
+        ]
+    }))
+
+    assert.strictEqual(sent.length, 1)
+    assert.deepStrictEqual(storedBotMessageId, {
+        botMessageId: 'bot-confirm-store-1',
+        context: {
+            actorUserId: '2',
+            userId: '2',
+            confirmationId: 'confirm-store-1'
+        }
+    })
+    console.log('✓ confirmation prompt 发送后会回写 pending confirmation 的 botMessageId')
+}
+
 async function testRootPrivateApprovalInterceptStillWinsBeforeAiRuntime() {
     useDefaultRuntimeStubs()
     config.isRootAdmin = () => true
@@ -1070,6 +1164,7 @@ async function run() {
     await testOrdinaryChatStillWritesNormalMemory()
     await testCommandStillWinsBeforeAiRuntime()
     await testReplyToBotConfirmationAdmitsBotControlIngress()
+    await testExactReplyTargetConfirmationAdmitsBotControlIngressWithoutIsReplyToBotMetadata()
     await testReplyToBotRejectAdmitsBotControlIngress()
     await testBareConfirmationDoesNotTriggerBotControl()
     await testWrongActorCannotConsumePendingConfirmationAtIngress()
@@ -1080,6 +1175,7 @@ async function run() {
     await testInitialBotControlRequiresAtBotOrReplyToBot()
     await testIngressAdminReadPermissionBoundaryStillApplies()
     await testLinkStillWinsBeforeBotControlIngress()
+    await testConfirmationPromptReplyStoresPendingConfirmationBotMessageId()
     await testRootPrivateApprovalInterceptStillWinsBeforeAiRuntime()
 }
 

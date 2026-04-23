@@ -4,6 +4,10 @@ const { CONFIRMATION_STATES } = require('./agentTypes')
 const { WORKFLOW_KINDS } = require('./workflow/workflowTypes')
 const { WorkflowStateService, normalizeValue, cloneValue } = require('./workflow/workflowStateService')
 
+function normalizeMessageId(messageId) {
+    return String(messageId || '').trim()
+}
+
 class AgentConfirmationService {
     constructor({
         now = () => Date.now(),
@@ -84,6 +88,36 @@ class AgentConfirmationService {
         }
 
         return record
+    }
+
+    setPendingConfirmationBotMessageId({ groupId, actorUserId, confirmationId, botMessageId } = {}) {
+        const scopedGroupId = normalizeValue(groupId)
+        const scopedActorUserId = normalizeValue(actorUserId)
+        const normalizedConfirmationId = normalizeValue(confirmationId)
+        const normalizedBotMessageId = normalizeMessageId(botMessageId)
+
+        if (!scopedGroupId || !scopedActorUserId || !normalizedConfirmationId || !normalizedBotMessageId) {
+            return null
+        }
+
+        return this.workflowStateService.updateRecord({
+            groupId: scopedGroupId,
+            actorUserId: scopedActorUserId,
+            kind: WORKFLOW_KINDS.CONFIRMATION,
+            updater: (record) => {
+                if (record?.state !== CONFIRMATION_STATES.PENDING) {
+                    return record
+                }
+                if (record.confirmationId !== normalizedConfirmationId) {
+                    return record
+                }
+
+                return {
+                    ...record,
+                    botMessageId: normalizedBotMessageId
+                }
+            }
+        })
     }
 
     confirm({ groupId, actorUserId, confirmationId } = {}) {

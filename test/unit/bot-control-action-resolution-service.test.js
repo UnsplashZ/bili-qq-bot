@@ -108,6 +108,105 @@ function testPendingFollowupOnlyActivatesWhenPendingConfirmationExists() {
     assert.strictEqual(noPendingResult.candidate, null)
 }
 
+function testPendingFollowupAcceptsExactReplyTargetWithoutIsReplyToBotMetadata() {
+    const result = resolveBotControlActionInput({
+        agentInput: {
+            rawMessage: '确认',
+            userId: '2',
+            messageMeta: {
+                source: 'group',
+                replyToMessageId: 'bot-confirm-1'
+            }
+        },
+        runtime: {
+            botControl: {
+                getPendingConfirmation: () => ({
+                    confirmationId: 'confirm-2b',
+                    action: 'subscription.write',
+                    botMessageId: 'bot-confirm-1',
+                    snapshot: {
+                        action: 'subscription.write',
+                        input: {
+                            operation: 'add_user',
+                            uid: '42'
+                        }
+                    }
+                }),
+                getCandidateSelectionSnapshot: () => null
+            }
+        }
+    })
+
+    assert.strictEqual(result.source, 'pending_followup')
+    assert.deepStrictEqual(result.effectiveAgentInput.pipelineInput.botControlAction, {
+        action: 'subscription.write',
+        input: {
+            operation: 'add_user',
+            uid: '42',
+            confirmationId: 'confirm-2b'
+        }
+    })
+}
+
+function testPendingFollowupRejectsWrongActorEvenWithExactReplyTarget() {
+    const result = resolveBotControlActionInput({
+        agentInput: {
+            rawMessage: '确认',
+            userId: '3',
+            messageMeta: {
+                source: 'group',
+                replyToMessageId: 'bot-confirm-1'
+            }
+        },
+        runtime: {
+            botControl: {
+                getPendingConfirmation: ({ actorUserId } = {}) => {
+                    assert.strictEqual(actorUserId, '3')
+                    return null
+                },
+                getCandidateSelectionSnapshot: () => null
+            }
+        }
+    })
+
+    assert.strictEqual(result.source, 'absent')
+    assert.strictEqual(result.candidate, null)
+}
+
+function testPendingFollowupRejectsWrongReplyTargetWhenBoundBotMessageExists() {
+    const result = resolveBotControlActionInput({
+        agentInput: {
+            rawMessage: '确认',
+            userId: '2',
+            messageMeta: {
+                source: 'group',
+                isReplyToBot: true,
+                replyToMessageId: 'bot-confirm-other'
+            }
+        },
+        runtime: {
+            botControl: {
+                getPendingConfirmation: () => ({
+                    confirmationId: 'confirm-2c',
+                    action: 'subscription.write',
+                    botMessageId: 'bot-confirm-1',
+                    snapshot: {
+                        action: 'subscription.write',
+                        input: {
+                            operation: 'add_user',
+                            uid: '42'
+                        }
+                    }
+                }),
+                getCandidateSelectionSnapshot: () => null
+            }
+        }
+    })
+
+    assert.strictEqual(result.source, 'absent')
+    assert.strictEqual(result.candidate, null)
+}
+
 function testNaturalLanguageCandidateWinsWhenPendingConfirmationDoesNotRecognizeFollowup() {
     const result = resolveBotControlActionInput({
         agentInput: {
@@ -551,6 +650,9 @@ function testInvalidCandidateSelectionFollowupReturnsDeterministicInvalidAction(
 function run() {
     testExplicitCandidateWinsOverPendingFollowupAndNaturalLanguage()
     testPendingFollowupOnlyActivatesWhenPendingConfirmationExists()
+    testPendingFollowupAcceptsExactReplyTargetWithoutIsReplyToBotMetadata()
+    testPendingFollowupRejectsWrongActorEvenWithExactReplyTarget()
+    testPendingFollowupRejectsWrongReplyTargetWhenBoundBotMessageExists()
     testNaturalLanguageCandidateWinsWhenPendingConfirmationDoesNotRecognizeFollowup()
     testNaturalLanguageConfigActionsUseStructuredConfigPath()
     testNaturalLanguageApprovalWriteUsesExactReplyOrShortIdOnly()

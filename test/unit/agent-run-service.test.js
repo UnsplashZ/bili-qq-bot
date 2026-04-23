@@ -472,7 +472,7 @@ async function testStructuredContextResetReturnsPendingConfirmationWithoutLegacy
                     confirmation: {
                         confirmationId: 'confirm-1',
                         state: 'pending',
-                        summary: 'reset current group conversation context'
+                        summary: '重置当前群聊上下文'
                     }
                 }
             }
@@ -504,7 +504,7 @@ async function testStructuredContextResetReturnsPendingConfirmationWithoutLegacy
 
     assert.strictEqual(legacyCalled, false)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：reset current group conversation context。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：重置当前群聊上下文。')
     assert.strictEqual(result.hasMutation, false)
     assert.strictEqual(result.agentPlan.planType, 'structured_bot_control')
     assert.strictEqual(result.localActions.length, 1)
@@ -520,7 +520,7 @@ async function testStructuredContextResetReturnsPendingConfirmationWithoutLegacy
         confirmation: {
             confirmationId: 'confirm-1',
             state: 'pending',
-            summary: 'reset current group conversation context',
+            summary: '重置当前群聊上下文',
             createdAt: null,
             required: true
         }
@@ -740,7 +740,7 @@ async function testRecognizedConfigWritePhraseStillRequiresConfirmation() {
                     confirmation: {
                         confirmationId: 'confirm-config-text-1',
                         state: 'pending',
-                        summary: 'update current group AI config: aiEnabled=false'
+                        summary: '更新当前群 AI 配置：aiEnabled=false'
                     }
                 }
             }
@@ -767,7 +767,7 @@ async function testRecognizedConfigWritePhraseStillRequiresConfirmation() {
     assert.strictEqual(legacyCalled, false)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
     assert.strictEqual(result.agentPlan.planType, 'structured_bot_control')
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：update current group AI config: aiEnabled=false。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：更新当前群 AI 配置：aiEnabled=false。')
     assert.strictEqual(result.hasMutation, false)
     assertLocalActionShape(result.localActions[0], {
         action: 'config.write',
@@ -786,7 +786,7 @@ async function testRecognizedConfigWritePhraseStillRequiresConfirmation() {
         confirmation: {
             confirmationId: 'confirm-config-text-1',
             state: 'pending',
-            summary: 'update current group AI config: aiEnabled=false',
+            summary: '更新当前群 AI 配置：aiEnabled=false',
             createdAt: null,
             required: true
         }
@@ -823,7 +823,7 @@ async function testRecognizedResetPhraseUsesExistingBotControlPath() {
                     confirmation: {
                         confirmationId: 'confirm-text-1',
                         state: 'pending',
-                        summary: 'reset current group conversation context'
+                        summary: '重置当前群聊上下文'
                     }
                 }
             }
@@ -851,7 +851,7 @@ async function testRecognizedResetPhraseUsesExistingBotControlPath() {
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
     assert.strictEqual(result.agentPlan.planType, 'structured_bot_control')
     assert.strictEqual(result.localActions.length, 1)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：reset current group conversation context。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：重置当前群聊上下文。')
     assert.strictEqual(result.finalReply.includes('已'), false)
     assert.strictEqual(result.hasMutation, false)
     assertLocalActionShape(result.localActions[0], {
@@ -866,7 +866,7 @@ async function testRecognizedResetPhraseUsesExistingBotControlPath() {
         confirmation: {
             confirmationId: 'confirm-text-1',
             state: 'pending',
-            summary: 'reset current group conversation context',
+            summary: '重置当前群聊上下文',
             createdAt: null,
             required: true
         }
@@ -892,7 +892,7 @@ async function testPendingConfirmPhraseExecutesSavedSnapshotThroughStructuredPat
             getPendingConfirmation: () => ({
                 confirmationId: 'confirm-followup-1',
                 action: 'subscription.write',
-                summary: 'add uid 42 to current group subscriptions',
+                summary: '将 UID 42 添加到当前群订阅',
                 createdAt: 1234567890,
                 snapshot: {
                     action: 'subscription.write',
@@ -971,7 +971,7 @@ async function testPendingConfirmPhraseExecutesSavedSnapshotThroughStructuredPat
         confirmation: {
             confirmationId: 'confirm-followup-1',
             state: 'confirmed',
-            summary: 'add uid 42 to current group subscriptions',
+            summary: '将 UID 42 添加到当前群订阅',
             createdAt: 1234567890,
             confirmedAt: null,
             required: false
@@ -1315,7 +1315,7 @@ async function testExplicitStructuredActionOverridesPendingFollowupPhrase() {
                     confirmation: {
                         confirmationId: 'confirm-explicit-1',
                         state: 'pending',
-                        summary: 'reset current group conversation context'
+                        summary: '重置当前群聊上下文'
                     }
                 }
             },
@@ -1350,7 +1350,7 @@ async function testExplicitStructuredActionOverridesPendingFollowupPhrase() {
 
     assert.strictEqual(rejectCalled, false)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：reset current group conversation context。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：重置当前群聊上下文。')
     assertLocalActionShape(result.localActions[0], {
         action: 'context.write',
         status: 'pending_confirmation'
@@ -1564,7 +1564,7 @@ async function testSearchCandidateSelectionFollowupReusesWriteConfirmationFlow()
                     confirmation: {
                         confirmationId: 'confirm-candidate-1',
                         state: 'pending',
-                        summary: 'add uid 987654 to current group subscriptions'
+                        summary: '将 UID 987654 添加到当前群订阅'
                     }
                 }
             }
@@ -1621,7 +1621,7 @@ async function testSearchCandidateSelectionFollowupReusesWriteConfirmationFlow()
 
     assert.strictEqual(legacyCalled, false)
     assert.strictEqual(followupResult.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(followupResult.finalReply, '这个操作需要确认。确认后将执行：add uid 987654 to current group subscriptions。')
+    assert.strictEqual(followupResult.finalReply, '这个操作需要确认。确认后将执行：将 UID 987654 添加到当前群订阅。')
     assert.strictEqual(followupResult.agentPlan.planType, 'structured_bot_control')
     assert.strictEqual(followupResult.agentPlan.requiresConfirmation, true)
     assertLocalActionShape(followupResult.localActions[0], {
@@ -1639,7 +1639,7 @@ async function testSearchCandidateSelectionFollowupReusesWriteConfirmationFlow()
         confirmation: {
             confirmationId: 'confirm-candidate-1',
             state: 'pending',
-            summary: 'add uid 987654 to current group subscriptions',
+            summary: '将 UID 987654 添加到当前群订阅',
             createdAt: null,
             required: true
         }
@@ -1667,7 +1667,7 @@ async function testConfirmationFollowupStillBeatsCandidateSelectionAtExecutionTi
             getPendingConfirmation: () => ({
                 confirmationId: 'confirm-existing-1',
                 action: 'subscription.write',
-                summary: 'add uid 42 to current group subscriptions',
+                summary: '将 UID 42 添加到当前群订阅',
                 createdAt: 1234567890,
                 snapshot: {
                     action: 'subscription.write',
@@ -1920,7 +1920,7 @@ async function testCandidateSelectionClearsSnapshotAfterResolutionIntoConfirmati
                     confirmation: {
                         confirmationId: 'confirm-candidate-clear-1',
                         state: 'pending',
-                        summary: 'add uid 987654 to current group subscriptions'
+                        summary: '将 UID 987654 添加到当前群订阅'
                     }
                 }
             }
@@ -1951,7 +1951,7 @@ async function testCandidateSelectionClearsSnapshotAfterResolutionIntoConfirmati
     assert.strictEqual(legacyCalled, false)
     assert.strictEqual(clearCalls, 1)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：add uid 987654 to current group subscriptions。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：将 UID 987654 添加到当前群订阅。')
 }
 
 async function testCandidateSelectionUsesSavedSnapshotWithoutFreshSearchReinterpretation() {
@@ -2005,7 +2005,7 @@ async function testCandidateSelectionUsesSavedSnapshotWithoutFreshSearchReinterp
                     confirmation: {
                         confirmationId: 'confirm-candidate-2',
                         state: 'pending',
-                        summary: 'add uid 546195 to current group subscriptions'
+                        summary: '将 UID 546195 添加到当前群订阅'
                     }
                 }
             }
@@ -2036,7 +2036,7 @@ async function testCandidateSelectionUsesSavedSnapshotWithoutFreshSearchReinterp
     assert.strictEqual(legacyCalled, false)
     assert.strictEqual(readCalled, false)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：add uid 546195 to current group subscriptions。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：将 UID 546195 添加到当前群订阅。')
 }
 
 async function testExactUidSubscribeClearsStaleCandidateSnapshotWhenConfirmationStarts() {
@@ -2083,7 +2083,7 @@ async function testExactUidSubscribeClearsStaleCandidateSnapshotWhenConfirmation
                     confirmation: {
                         confirmationId: 'confirm-exact-uid-1',
                         state: 'pending',
-                        summary: 'add uid 42 to current group subscriptions'
+                        summary: '将 UID 42 添加到当前群订阅'
                     }
                 }
             }
@@ -2108,7 +2108,7 @@ async function testExactUidSubscribeClearsStaleCandidateSnapshotWhenConfirmation
 
     assert.strictEqual(clearCalls, 1)
     assert.strictEqual(result.state, RUN_STATES.WAITING_CONFIRMATION)
-    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：add uid 42 to current group subscriptions。')
+    assert.strictEqual(result.finalReply, '这个操作需要确认。确认后将执行：将 UID 42 添加到当前群订阅。')
 }
 
 async function testRejectingPendingSubscriptionClearsStaleCandidateSnapshot() {
@@ -2130,7 +2130,7 @@ async function testRejectingPendingSubscriptionClearsStaleCandidateSnapshot() {
             getPendingConfirmation: () => ({
                 confirmationId: 'confirm-existing-reject-1',
                 action: 'subscription.write',
-                summary: 'add uid 42 to current group subscriptions',
+                summary: '将 UID 42 添加到当前群订阅',
                 createdAt: 1234567890,
                 snapshot: {
                     action: 'subscription.write',
@@ -2157,7 +2157,7 @@ async function testRejectingPendingSubscriptionClearsStaleCandidateSnapshot() {
                     ok: true,
                     confirmationId,
                     state: 'rejected',
-                    summary: 'add uid 42 to current group subscriptions',
+                    summary: '将 UID 42 添加到当前群订阅',
                     createdAt: 1234567890,
                     rejectedAt: 1234567999
                 }
@@ -2412,7 +2412,7 @@ async function testStructuredSubscriptionAddNoOpReturnsTruthfulReply() {
     const pendingConfirmation = {
         confirmationId: 'confirm-noop-add-1',
         action: 'subscription.write',
-        summary: 'add uid 42 to current group subscriptions',
+        summary: '将 UID 42 添加到当前群订阅',
         createdAt: 1710000000000,
         snapshot: {
             action: 'subscription.write',
@@ -2530,7 +2530,7 @@ async function testStructuredSubscriptionAddNoOpReturnsTruthfulReply() {
         confirmation: {
             confirmationId: 'confirm-noop-add-1',
             state: 'confirmed',
-            summary: 'add uid 42 to current group subscriptions',
+            summary: '将 UID 42 添加到当前群订阅',
             createdAt: 1710000000000,
             confirmedAt: null,
             required: false
@@ -2543,7 +2543,7 @@ async function testStructuredSubscriptionRemoveNoOpReturnsTruthfulReply() {
     const pendingConfirmation = {
         confirmationId: 'confirm-noop-remove-1',
         action: 'subscription.write',
-        summary: 'remove uid 99 from current group subscriptions',
+        summary: '将 UID 99 从当前群订阅中移除',
         createdAt: 1710000001000,
         snapshot: {
             action: 'subscription.write',
@@ -2661,7 +2661,7 @@ async function testStructuredSubscriptionRemoveNoOpReturnsTruthfulReply() {
         confirmation: {
             confirmationId: 'confirm-noop-remove-1',
             state: 'confirmed',
-            summary: 'remove uid 99 from current group subscriptions',
+            summary: '将 UID 99 从当前群订阅中移除',
             createdAt: 1710000001000,
             confirmedAt: null,
             required: false

@@ -538,6 +538,17 @@ class MessageHandler {
                         })
                     }
                 }
+                if (sentMessageId
+                    && latestLocalAction?.status === 'pending_confirmation') {
+                    const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
+                    if (runtime?.botControl && typeof runtime.botControl.setPendingConfirmationBotMessageId === 'function') {
+                        runtime.botControl.setPendingConfirmationBotMessageId(sentMessageId, {
+                            actorUserId: userId,
+                            userId,
+                            confirmationId: latestLocalAction?.confirmation?.confirmationId || null
+                        })
+                    }
+                }
                 if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
                     replyGateService.recordBotReply(groupId, userId)
                 }

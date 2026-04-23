@@ -10,11 +10,21 @@ function normalizeMessage(rawMessage) {
     return String(rawMessage || '').replace(/\[CQ:[^\]]+\]/g, ' ').trim().toLowerCase()
 }
 
-function isPendingFollowupTriggerAllowed(messageMeta = {}) {
+function normalizeMessageId(messageId) {
+    return String(messageId || '').trim()
+}
+
+function isPendingFollowupTriggerAllowed(messageMeta = {}, pendingConfirmation = {}) {
     const source = String(messageMeta?.source || '').trim()
+    const replyToMessageId = normalizeMessageId(messageMeta?.replyToMessageId)
+    const botMessageId = normalizeMessageId(pendingConfirmation?.botMessageId)
 
     if (source === 'private') {
         return true
+    }
+
+    if (botMessageId) {
+        return replyToMessageId === botMessageId
     }
 
     return messageMeta?.isReplyToBot === true
@@ -50,7 +60,7 @@ function recognizePendingBotControlFollowup({ rawMessage, pendingConfirmation, m
     const action = String(pendingConfirmation?.action || '').trim()
     const normalizedMessage = normalizeMessage(rawMessage)
 
-    if (!confirmationId || !action || !normalizedMessage || !isPendingFollowupTriggerAllowed(messageMeta)) {
+    if (!confirmationId || !action || !normalizedMessage || !isPendingFollowupTriggerAllowed(messageMeta, pendingConfirmation)) {
         return null
     }
 

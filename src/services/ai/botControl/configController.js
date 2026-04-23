@@ -102,8 +102,8 @@ function buildConfigReadResult({ action, groupId, config }) {
 
 function buildWriteSummary(snapshot) {
     const entries = Object.entries(snapshot?.input?.updates || {})
-    const formatted = entries.map(([field, value]) => `${field}=${value === null ? 'inherit' : value}`)
-    return `update current group AI config: ${formatted.join(', ')}`
+    const formatted = entries.map(([field, value]) => `${field}=${value === null ? '继承' : value}`)
+    return `更新当前群 AI 配置：${formatted.join('，')}`
 }
 
 class ConfigController {

@@ -114,6 +114,9 @@ function createTestRuntime({ groupId = '1000', overrides = {} } = {}) {
         setCandidateSelectionSnapshotBotMessageId(botMessageIdOrOptions, context = actorContext()) {
             return rawRuntime.setCandidateSelectionSnapshotBotMessageId(botMessageIdOrOptions, context)
         },
+        setPendingConfirmationBotMessageId(botMessageIdOrOptions, context = actorContext()) {
+            return rawRuntime.setPendingConfirmationBotMessageId(botMessageIdOrOptions, context)
+        },
         clearCandidateSelectionSnapshot(options = {}, context = actorContext()) {
             return rawRuntime.clearCandidateSelectionSnapshot(options, context)
         }
@@ -886,7 +889,7 @@ async function testSubscriptionReadSearchUserSavesActorScopedCandidateSelectionS
         groupId: '1000',
         actorUserId: TEST_ACTOR_USER_ID,
         action: 'subscription.write',
-        summary: 'add uid 999 to current group subscriptions',
+        summary: '将 UID 999 添加到当前群订阅',
         snapshot: {
             action: 'subscription.write',
             groupId: '1000',
@@ -954,6 +957,55 @@ async function testSubscriptionReadSearchUserSavesActorScopedCandidateSelectionS
     assert.strictEqual(runtime.clearCandidateSelectionSnapshot({}, actorContext('3')), true)
     assert.strictEqual(runtime.getCandidateSelectionSnapshot({}, actorContext('3')), null)
     assert.strictEqual(runtime.getPendingConfirmation(pendingConfirmation.confirmationId).confirmationId, pendingConfirmation.confirmationId)
+}
+
+async function testPendingConfirmationBotMessageBackfillRequiresMatchingConfirmationId() {
+    let now = 1710000000000
+    const confirmationService = new AgentConfirmationService({
+        now: () => now,
+        random: () => (now === 1710000000000 ? 0.111111111 : 0.222222222)
+    })
+    const { runtime } = createTestRuntime({
+        overrides: {
+            confirmationService
+        }
+    })
+
+    const firstPending = await runtime.write('subscription.write', {
+        operation: 'add_user',
+        uid: '42'
+    }, actorContext('2'))
+
+    runtime.reject(firstPending.confirmation.confirmationId, actorContext('2'))
+    now += 10
+
+    const secondPending = await runtime.write('subscription.write', {
+        operation: 'add_user',
+        uid: '84'
+    }, actorContext('2'))
+
+    assert.deepStrictEqual(runtime.setPendingConfirmationBotMessageId({
+        confirmationId: firstPending.confirmation.confirmationId,
+        botMessageId: 'late-bot-msg-1'
+    }, actorContext('2')), {
+        confirmationId: secondPending.confirmation.confirmationId,
+        groupId: '1000',
+        actorUserId: '2',
+        action: 'subscription.write',
+        summary: '将 UID 84 添加到当前群订阅',
+        state: 'pending',
+        createdAt: 1710000000010,
+        snapshot: {
+            action: 'subscription.write',
+            groupId: '1000',
+            input: {
+                operation: 'add_user',
+                uid: '84'
+            }
+        }
+    })
+    assert.strictEqual(runtime.getPendingConfirmation(secondPending.confirmation.confirmationId, actorContext('2')).botMessageId, undefined)
+    assert.strictEqual(runtime.getPendingConfirmation(firstPending.confirmation.confirmationId, actorContext('2')), null)
 }
 
 async function testApprovalReadListsPendingItemsInRootPrivateScope() {
@@ -1148,6 +1200,7 @@ async function run() {
     await testSubscriptionWriteRejectsCrossGroupAttempt()
     await testConfirmationSnapshotExecutesWithoutReparsingUserText()
     await testSubscriptionReadSearchUserSavesActorScopedCandidateSelectionSnapshot()
+    await testPendingConfirmationBotMessageBackfillRequiresMatchingConfirmationId()
     await testApprovalReadListsPendingItemsInRootPrivateScope()
     await testApprovalWriteRequiresRootPrivateScopeAndExactTarget()
     await testApprovalWriteSupportsReplyExactTarget()
