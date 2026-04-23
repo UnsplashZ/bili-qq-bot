@@ -148,7 +148,6 @@ class AiHandler {
         }
 
         const legacyRuntime = { ...runtime }
-        delete legacyRuntime.generateAgentReply
         delete legacyRuntime.generateAgentReplyResult
         return legacyRuntime
     }

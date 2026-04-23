@@ -79,7 +79,7 @@ function run() {
     assert.strictEqual(typeof runtime.selectContext, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReply, 'function')
     assert.strictEqual(typeof runtime.generateLegacyReplyResult, 'function')
-    assert.strictEqual(typeof runtime.generateAgentReply, 'function')
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(runtime, 'generateAgentReply'), false)
     assert.strictEqual(typeof runtime.generateAgentReplyResult, 'function')
     assert.deepStrictEqual(runtime.buildBotFacts('1065812436', { currentMentionsBot: true, isReplyToBot: false }), {
         botId: '1099804769',

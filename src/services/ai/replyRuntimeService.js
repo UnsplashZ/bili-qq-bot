@@ -226,15 +226,6 @@ function buildReplyRuntime({ groupId, traceId, config, globalBot, mcpManager, ai
         runtime
     })
 
-    runtime.generateAgentReply = ({ message, userId, groupId, traceId, pipelineInput }) => generateReply({
-        message,
-        userId,
-        groupId,
-        traceId,
-        pipelineInput: normalizeAgentPipelineInput(toolContext, pipelineInput),
-        runtime
-    })
-
     runtime.generateAgentReplyResult = ({ message, userId, groupId, traceId, pipelineInput }) => generateReplyResult({
         message,
         userId,
