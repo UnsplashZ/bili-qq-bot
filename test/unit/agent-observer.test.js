@@ -251,6 +251,7 @@ async function run() {
         assert.strictEqual(promptPayload.messageTraits.mentionedBot, true)
         assert.strictEqual(llmResult.policyDecision.accepted, false)
         assert.strictEqual(llmResult.policyDecision.reason, 'observe_only_enabled')
+        assert.strictEqual(llmResult.execution.executed, false)
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('llm-decision')))
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('policy-decision')))
 
@@ -301,6 +302,65 @@ async function run() {
         assert.strictEqual(budgetCalls, 1)
         assert.strictEqual(budgetResult.llmDecision.status, 'skipped')
         assert.strictEqual(budgetResult.llmDecision.reason, 'group_budget_exceeded')
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        const sentPayloads = []
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => ({
+            model: 'test-model',
+            usage: { total_tokens: 1 },
+            content: JSON.stringify({
+                action: 'short_reply',
+                confidence: 0.92,
+                reason: '用户明确提问',
+                topic: 'bot_identity',
+                replyStyle: 'friendly_brief',
+                replyDraft: '我在，这条是受控 live 回复。',
+                memoryHints: [],
+                toolIntent: null
+            })
+        })
+        const liveResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sentPayloads.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，你在吗？',
+            messageData: makeMessageData('小助手，你在吗？', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，你在吗？' } }
+                ],
+                message_id: 'live1'
+            }),
+            traceContext: { scope: 'test:llm-live' }
+        })
+        assert.strictEqual(liveResult.policyDecision.accepted, true)
+        assert.strictEqual(liveResult.execution.executed, true)
+        assert.strictEqual(sentPayloads.length, 1)
+        assert.strictEqual(sentPayloads[0].action, 'send_group_msg')
+        assert.strictEqual(sentPayloads[0].params.group_id, '1000')
+        assert.strictEqual(sentPayloads[0].params.message[0].data.text, '我在，这条是受控 live 回复。')
+        assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('reply-sent')))
 
         prepareRuntime()
         const handler = require(path.join(__dirname, '../../src/handlers/messageHandler'))

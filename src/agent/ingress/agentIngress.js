@@ -10,6 +10,7 @@ const { decideWithLlm } = require('../cognition/agentDecisionService')
 const { validateDecisionPolicy } = require('../cognition/decisionPolicyValidator')
 const { checkBudget } = require('../runtime/budgetGuard')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
+const { executeReply } = require('../runtime/replyExecutor')
 
 async function observe(context) {
     const agentConfig = normalizeAgentConfig()
@@ -62,19 +63,6 @@ async function observe(context) {
             llmDecision,
             messageTraits: scoreResult.traits || {}
         })
-        const result = {
-            skipped: false,
-            message: agentMessage,
-            session: sessionContext,
-            topic: memoryObservation.topicSnapshot,
-            score: scoreResult,
-            decision,
-            messageTraits: scoreResult.traits,
-            budgetDecision,
-            llmDecision,
-            policyDecision
-        }
-
         logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'observe-decision', {
             groupId,
             userId: agentMessage.userId,
@@ -108,6 +96,28 @@ async function observe(context) {
             reason: policyDecision.reason
         })
 
+        const execution = await executeReply({
+            ws: context.ws,
+            groupId,
+            userId: agentMessage.userId,
+            llmDecision,
+            policyDecision,
+            traceContext: context.traceContext
+        })
+        const result = {
+            skipped: false,
+            message: agentMessage,
+            session: sessionContext,
+            topic: memoryObservation.topicSnapshot,
+            score: scoreResult,
+            decision,
+            messageTraits: scoreResult.traits,
+            budgetDecision,
+            llmDecision,
+            policyDecision,
+            execution
+        }
+
         if (agentConfig.logTrajectory) {
             await recordTrajectory({
                 type: 'observe_decision',
@@ -122,6 +132,7 @@ async function observe(context) {
                 budgetDecision,
                 llmDecision,
                 policyDecision,
+                execution,
                 score: scoreResult,
                 actor: {
                     isRoot: actor.isRoot,

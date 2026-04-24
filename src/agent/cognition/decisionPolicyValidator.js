@@ -29,6 +29,16 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits }) {
         }
     }
 
+    if (agentConfig.decisionMode !== 'llm_live') {
+        return {
+            accepted: false,
+            finalAction: 'observe_only',
+            reason: 'decision_mode_not_live',
+            llmAction: decision.action,
+            wouldSend: false
+        }
+    }
+
     if (!['short_reply', 'ask_clarify'].includes(decision.action)) {
         return {
             accepted: false,
