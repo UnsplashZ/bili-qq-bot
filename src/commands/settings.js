@@ -5,7 +5,6 @@ const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const subscriptionService = require('../services/subscriptionService');
 const imageGenerator = require('../services/imageGenerator');
-const { normalizeAiContextLimit, normalizeAiConfigField, AiConfigValidationError } = require('../services/ai/validation');
 
 function commandLog(level, message, fields = {}) {
     logger.logEvent(level, 'BOT', 'cmd:settings', message, fields);
@@ -70,7 +69,7 @@ class SettingsCommand {
             if (isPrivateGroup) {
                 this.sendGroupMessage(ws, groupId, [{
                     type: 'text',
-                    data: { text: '私聊仅支持聊天/AI/链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
+                    data: { text: '私聊仅支持链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
                 }]);
                 return true;
             }
@@ -474,60 +473,7 @@ class SettingsCommand {
                  return true;
             }
 
-            // 11. AI上下文 (/设置 AI上下文 <条数>)
-            if (subCommand === 'AI上下文') {
-                 if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
-                     return true;
-                }
-                 try {
-                     const value = normalizeAiContextLimit(parts[2], { min: 1, max: 100 });
-                     if (groupId) {
-                        config.setGroupConfig(groupId, 'aiContextLimit', value);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 AI 上下文限制已设置为 ${value} 条。` } }]);
-                     } else {
-                        config.aiContextLimit = value;
-                        config.save();
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局 AI 上下文限制已设置为 ${value} 条。` } }]);
-                     }
-                 } catch (e) {
-                      const hint = e instanceof AiConfigValidationError
-                          ? '请输入有效的条数（1-100）。'
-                          : '设置 AI 上下文失败，请稍后重试。';
-                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: hint } }]);
-                 }
-                 return true;
-            }
-            
-            // 12. AI概率 (/设置 AI概率 <数值>)
-            if (subCommand === 'AI概率') {
-                 if (!config.isRootAdmin(userId)) {
-                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '权限不足：此命令仅限全局管理员 (Root) 使用。' } }]);
-                     return true;
-                 }
-                 let value;
-                 try {
-                     value = normalizeAiConfigField('aiProbability', parts[2]);
-                 } catch (e) {
-                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的概率 (0.0 - 1.0)。' } }]);
-                      return true;
-                 }
-                 if (value >= 0 && value <= 1) {
-                     if (groupId) {
-                        config.setGroupConfig(groupId, 'aiProbability', value);
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 AI 随机回复概率已设置为 ${value} (${(value*100).toFixed(0)}%)。` } }]);
-                     } else {
-                        config.aiProbability = value;
-                        config.save();
-                        this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局 AI 随机回复概率已设置为 ${value} (${(value*100).toFixed(0)}%)。` } }]);
-                     }
-                 } else {
-                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的概率 (0.0 - 1.0)。' } }]);
-                 }
-                 return true;
-            }
-
-            // 13. 深色模式 (/设置 深色模式 <开|关|定时>)
+            // 11. 深色模式 (/设置 深色模式 <开|关|定时>)
             if (subCommand === '深色模式') {
                 const mode = parts[2];
                 if (['开', '关', '定时'].includes(mode)) {

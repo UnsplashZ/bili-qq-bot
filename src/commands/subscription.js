@@ -34,7 +34,7 @@ class SubscriptionCommand {
             if (isSubscriptionMgmtCommand) {
                 this.sendGroupMessage(ws, groupId, [{
                     type: 'text',
-                    data: { text: '私聊仅支持聊天/AI/链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
+                    data: { text: '私聊仅支持链接解析/下载，不支持群配置与订阅管理。请在目标群聊或 WebUI 操作。' }
                 }]);
                 return true;
             }

@@ -15,19 +15,7 @@ const path = require('path')
 // --- Mock: link facade dependencies ---
 const linkHandler = require(path.join(__dirname, '../../src/handlers/linkHandler'))
 const linkService = require(path.join(__dirname, '../../src/services/link'))
-const aiIdempotency = require(path.join(__dirname, '../../src/services/ai/idempotency'))
-const { replyGateService } = require(path.join(__dirname, '../../src/services/ai/replyGateService'))
-
 // --- Mock: 其他依赖（防止副作用）---
-const aiHandler = require(path.join(__dirname, '../../src/handlers/aiHandler'))
-aiHandler.addMessageToContext = () => {}
-replyGateService.evaluate = () => ({ shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] })
-replyGateService.evaluateAdmission = replyGateService.evaluate
-replyGateService.recordBotReply = () => {}
-
-const vectorMemoryService = require(path.join(__dirname, '../../src/services/vectorMemoryService'))
-vectorMemoryService.addMemory = async () => {}
-
 const commandManager = require(path.join(__dirname, '../../src/commands'))
 const defaultDispatch = async () => false  // 没有命令匹配
 commandManager.dispatch = defaultDispatch
@@ -76,11 +64,6 @@ const _originals = {
     handleIncomingMessageLinks: linkService.handleIncomingMessageLinks,
     isCached: linkService.isCached,
     dispatch: commandManager.dispatch,
-    runAgent: aiHandler.runAgent,
-    shouldReply: aiHandler.shouldReply,
-    gateEvaluate: replyGateService.evaluate,
-    gateEvaluateAdmission: replyGateService.evaluateAdmission,
-    gateRecordBotReply: replyGateService.recordBotReply,
 }
 
 // ---- 测试运行器 ----
@@ -102,12 +85,6 @@ async function test(name, fn) {
         linkService.handleIncomingMessageLinks = _originals.handleIncomingMessageLinks
         linkService.isCached = _originals.isCached
         commandManager.dispatch = _originals.dispatch
-        aiHandler.runAgent = _originals.runAgent
-        aiHandler.shouldReply = _originals.shouldReply
-        replyGateService.evaluate = _originals.gateEvaluate
-        replyGateService.evaluateAdmission = _originals.gateEvaluateAdmission
-        replyGateService.recordBotReply = _originals.gateRecordBotReply
-        aiIdempotency.reset()
     }
 }
 
@@ -150,11 +127,6 @@ async function runTests() {
             descriptors: [{ cacheKey: 'video|BV456|123456', match: 'BV456', type: 'video', id: 'BV456' }]
         })
         linkService.isCached = () => false
-        let runAgentCalled = false
-        aiHandler.runAgent = async () => {
-            runAgentCalled = true
-            return { finalReply: 'should not happen' }
-        }
         linkService.handleIncomingMessageLinks = async () => ({
             allCached: false,
             foundCount: 1,
@@ -173,7 +145,6 @@ async function runTests() {
         assert.strictEqual(emojiActions[1].params.set, false)
         assert.strictEqual(emojiActions[2].params.emoji_id, '128076')
         assert.strictEqual(emojiActions[2].params.set, true)
-        assert.strictEqual(runAgentCalled, false, 'link-only message 不应调用 aiHandler.runAgent')
     })
 
     // === 场景 4: 有未缓存链接但失败 → 思考→撤销思考→流泪 ===
@@ -317,25 +288,6 @@ async function runTests() {
         assert.strictEqual(ws._getEmojiActions().length, 0)
     })
 
-    // === 场景 9: 无链接时 AI 仍可处理（回归测试）===
-    await test('无链接时不影响 AI 处理路径（shouldReply 被调用）', async () => {
-        linkService.prepareIncomingMessageLinks = async ({ rawMessage }) => ({
-            rawMessage,
-            safeRawMessage: rawMessage,
-            descriptors: []
-        })
-        let aiCalled = false
-        replyGateService.evaluate = () => {
-            throw new Error('messageHandler should not use replyGateService.evaluate directly')
-        }
-        replyGateService.evaluateAdmission = () => {
-            aiCalled = true
-            return { shouldReply: false, triggerLevel: 'ambient', busyMode: false, score: 0, reasons: ['test'] }
-        }
-        const ws = makeMockWs()
-        await handler.handleMessage(ws, makeMessageData('你好'))
-        assert.ok(aiCalled, 'replyGateService.evaluateAdmission 应该被调用')
-    })
 
     console.log(`\n结果: ${passed} passed, ${failed} failed\n`)
     if (failed > 0) process.exit(1)

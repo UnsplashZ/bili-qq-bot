@@ -12,7 +12,6 @@ const cacheManager = require('../../src/utils/cacheManager')
 const { checkSizeAndTrim } = require('../../src/utils/storageUtils')
 const requestApprovalService = require('../../src/services/requestApprovalService')
 const notificationService = require('../../src/services/notificationService')
-const userProfileService = require('../../src/services/userProfileService')
 
 const originals = {
     setTimeout: global.setTimeout,
@@ -23,8 +22,6 @@ const originals = {
     dataCacheTTL: config.dataCacheTTL,
     getRootAdminQQ: config.getRootAdminQQ,
     callAction: notificationService.callAction,
-    profileDataDir: userProfileService.dataDir,
-    profileResolvedDataDir: userProfileService._resolvedDataDir
 }
 
 function restore() {
@@ -37,10 +34,6 @@ function restore() {
     config.dataCacheTTL = originals.dataCacheTTL
     config.getRootAdminQQ = originals.getRootAdminQQ
     notificationService.callAction = originals.callAction
-    userProfileService.dataDir = originals.profileDataDir
-    userProfileService._resolvedDataDir = originals.profileResolvedDataDir
-    userProfileService.profiles.clear()
-    userProfileService.saveTimers.clear()
     requestApprovalService.pendingByKey.clear()
     requestApprovalService.queue = []
     requestApprovalService.keyByNotifyMessageId.clear()
@@ -53,7 +46,6 @@ async function run() {
     const logs = []
     const off = logger.onLog((entry) => logs.push(entry.message))
     const tempCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-cache-log-'))
-    const tempProfileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-profile-log-'))
 
     try {
         global.setTimeout = (fn) => {
@@ -65,8 +57,6 @@ async function run() {
         config.dataCacheTTL = 1
         cacheManager.cacheDir = tempCacheDir
         cacheManager.initPromise = fs.promises.mkdir(tempCacheDir, { recursive: true })
-        userProfileService.dataDir = tempProfileDir
-        userProfileService._resolvedDataDir = path.resolve(tempProfileDir)
         config.getRootAdminQQ = () => '10000'
         notificationService.callAction = async () => ({
             status: 'ok',
@@ -92,8 +82,6 @@ async function run() {
             comment: 'hello'
         })
 
-        await userProfileService.recordMessage('20001', '30002', '测试用户')
-
         assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:config]') && line.includes('config-save-queued')))
         console.log('✓ config.save 会输出 STORE 摘要日志')
         assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:storage]') && line.includes('trim-complete')))
@@ -102,13 +90,10 @@ async function run() {
         console.log('✓ cacheManager 过期清理会输出 STORE 摘要日志')
         assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:approval]') && line.includes('request-queued') && line.includes('requestType=friend')))
         console.log('✓ requestApprovalService 会输出 STORE 摘要日志')
-        assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:profile]') && line.includes('profile-save-queued') && line.includes('groupId=20001')))
-        console.log('✓ userProfileService 会输出 STORE 摘要日志')
     } finally {
         off()
         restore()
         fs.rmSync(tempCacheDir, { recursive: true, force: true })
-        fs.rmSync(tempProfileDir, { recursive: true, force: true })
     }
 }
 

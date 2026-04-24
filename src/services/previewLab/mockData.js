@@ -11,7 +11,6 @@ const SUPPORTED_MOCK_TYPES = [
     'dynamic',
     'help_user',
     'help_admin',
-    'ai_help',
     'subscription_list'
 ]
 
@@ -615,8 +614,7 @@ function buildBangumiPayload(structureOptions = {}) {
 function buildHelpPayload(type) {
     const titleMap = {
         help_user: '用户帮助结构预览',
-        help_admin: '管理帮助结构预览',
-        ai_help: 'AI 帮助结构预览'
+        help_admin: '管理帮助结构预览'
     }
     return {
         status: 'success',
@@ -686,7 +684,6 @@ function buildMockPreviewTarget(mockType, structureOptions = {}) {
             break
         case 'help_user':
         case 'help_admin':
-        case 'ai_help':
             info = buildHelpPayload(mockType)
             break
         case 'subscription_list':

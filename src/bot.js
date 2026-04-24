@@ -4,7 +4,6 @@ const logger = require('./utils/logger');
 const messageHandler = require('./handlers/messageHandler');
 const subscriptionService = require('./services/subscriptionService');
 const imageGenerator = require('./services/imageGenerator');
-const mcpManager = require('./services/mcpManager');
 const ServiceManager = require('./services/ServiceManager');
 const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
@@ -352,14 +351,6 @@ async function gracefulShutdown(exitCode = 0) {
         });
     }
 
-    try {
-        await mcpManager.cleanup();
-    } catch (e) {
-        botLog('error', 'mcp-cleanup-failed', {
-            error: logger.getErrorMessage(e)
-        });
-    }
-
     if (ws) {
         try {
             ws.close();
@@ -398,11 +389,6 @@ async function initializeBot() {
         ServiceManager.onCriticalError = (message) => {
             updateChecker.notifyAdmin(message);
         };
-
-        await mcpManager.init();
-        botLog('info', 'startup-step', {
-            step: 'mcp-manager'
-        });
 
         await dashboardServer.start(config.dashboardPort);
         botLog('info', 'startup-step', {

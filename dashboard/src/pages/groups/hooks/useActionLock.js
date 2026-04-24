@@ -3,14 +3,12 @@ import { useCallback, useRef, useState } from 'react';
 const INITIAL_ACTION_LOADING = {
   blacklist: false,
   admins: false,
-  aiConfig: false,
   videoConfig: false
 };
 
 const INITIAL_ACTION_LOCKS = {
   blacklist: false,
   admins: false,
-  aiConfig: false,
   videoConfig: false
 };
 

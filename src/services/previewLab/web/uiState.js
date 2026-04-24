@@ -16,7 +16,6 @@
     { value: 'bangumi', label: '番剧/电影' },
     { value: 'help_user', label: '帮助菜单' },
     { value: 'help_admin', label: '管理菜单' },
-    { value: 'ai_help', label: 'AI 帮助菜单' },
     { value: 'subscription_list', label: '订阅列表' }
   ]
 

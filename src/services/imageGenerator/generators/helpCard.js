@@ -258,8 +258,8 @@ async function generateHelpCard(type = 'user', groupId) {
                 <div class="section-title">用户指令</div>
                 <div class="cmd-list">
                     <div class="cmd-item">
-                        <span class="cmd-code">@Bot &lt;内容&gt;</span>
-                        <span class="cmd-desc">与 AI 进行对话</span>
+                        <span class="cmd-code">发送 B 站链接</span>
+                        <span class="cmd-desc">解析视频/动态/直播等内容</span>
                     </div>
                     <div class="cmd-item">
                         <span class="cmd-code">/订阅列表</span>
@@ -306,8 +306,8 @@ async function generateHelpCard(type = 'user', groupId) {
                         <span class="cmd-desc">显示管理配置面板</span>
                     </div>
                     <div class="cmd-item">
-                        <span class="cmd-code">/AI 帮助</span>
-                        <span class="cmd-desc">显示AI配置面板</span>
+                        <span class="cmd-code">/管理 帮助</span>
+                        <span class="cmd-desc">显示管理指令说明</span>
                     </div>
                 </div>
             </div>

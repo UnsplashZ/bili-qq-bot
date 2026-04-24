@@ -53,10 +53,6 @@ function resolveFollowerName(follower, uid) {
     return name || `User_${uid}`
 }
 
-function isValidProfileGroupId(groupId) {
-    return typeof groupId === 'string' && /^\d+$/.test(groupId)
-}
-
 module.exports = {
     normalizeGroupId,
     isPrivateVirtualGroupId,
@@ -65,6 +61,5 @@ module.exports = {
     normalizeBlacklist,
     normalizeSyncGroupNames,
     extractFollowerUid,
-    resolveFollowerName,
-    isValidProfileGroupId
+    resolveFollowerName
 }

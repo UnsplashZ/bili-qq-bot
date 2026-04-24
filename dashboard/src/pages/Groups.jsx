@@ -9,7 +9,6 @@ import AddSubscriptionModal from './groups/components/AddSubscriptionModal';
 import GeneralTab from './groups/components/tabs/GeneralTab';
 import SubscriptionsTab from './groups/components/tabs/SubscriptionsTab';
 import PermissionsTab from './groups/components/tabs/PermissionsTab';
-import AiTab from './groups/components/tabs/AiTab';
 import SyncTab from './groups/components/tabs/SyncTab';
 import VideoDownloadTab from './groups/components/tabs/VideoDownloadTab';
 import { AT_ALL_CATEGORY_ITEMS } from './groups/constants/atAll';
@@ -20,7 +19,6 @@ import useGroupSyncConfig from './groups/hooks/useGroupSyncConfig';
 import useSubscriptions from './groups/hooks/useSubscriptions';
 import useGroupForm from './groups/hooks/useGroupForm';
 import useGroupPermissions from './groups/hooks/useGroupPermissions';
-import useGroupAiConfig from './groups/hooks/useGroupAiConfig';
 import useGroupVideoDownloadConfig from './groups/hooks/useGroupVideoDownloadConfig';
 
 const SUB_TYPES = [
@@ -61,7 +59,6 @@ function Groups() {
     saving,
     handleSave,
     globalConfig,
-    globalConfigLoading,
     toggleSyncGroup,
     toggleAtAllSource,
     toggleAtAllCategory,
@@ -113,13 +110,6 @@ function Groups() {
     show
   });
 
-  const { handleAiToggle, handleAiReset } = useGroupAiConfig({
-    selectedGroupId,
-    setGroups,
-    runLockedAction,
-    show
-  });
-
   const {
     videoDownloadConfig,
     setVideoDownloadConfig,
@@ -132,8 +122,7 @@ function Groups() {
     show
   });
 
-  const categories = GROUP_TAB_CATEGORIES;
-  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex((category) => category.name === '视频下载');
+  const VIDEO_DOWNLOAD_TAB_INDEX = GROUP_TAB_CATEGORIES.findIndex((category) => category.name === '视频下载');
 
   useEffect(() => {
     if (!selectedGroupId) return;
@@ -141,7 +130,7 @@ function Groups() {
     if (selectedTabIndex === 1) {
       fetchSubscriptions(selectedGroupId);
     }
-    if (selectedTabIndex === 4) {
+    if (GROUP_TAB_CATEGORIES[selectedTabIndex]?.name === '关注同步') {
       fetchBiliGroups(selectedGroupId);
       fetchAtAllTargets(selectedGroupId);
       checkGlobalBiliStatus();
@@ -197,7 +186,7 @@ function Groups() {
                     </button>
                   </div>
                   <Tab.List className="flex gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/20 pb-1">
-                    {categories.map((category) => (
+                    {GROUP_TAB_CATEGORIES.map((category) => (
                       <Tab
                         key={category.name}
                         className={({ selected }) => clsx(
@@ -237,15 +226,6 @@ function Groups() {
                     onRemoveBlacklist={handleRemoveBlacklist}
                     formData={formData}
                     actionLoading={actionLoading}
-                  />
-                  <AiTab
-                    formData={formData}
-                    setFormData={setFormData}
-                    globalConfig={globalConfig}
-                    globalConfigLoading={globalConfigLoading}
-                    actionLoading={actionLoading}
-                    onAiToggle={handleAiToggle}
-                    onAiReset={handleAiReset}
                   />
                   <SyncTab
                     formData={formData}

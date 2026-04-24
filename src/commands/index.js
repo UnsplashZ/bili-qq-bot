@@ -1,5 +1,4 @@
 const subscriptionCommand = require('./subscription');
-const aiCommand = require('./ai');
 const settingsCommand = require('./settings');
 const adminCommand = require('./admin');
 const helpCommand = require('./help');
@@ -10,7 +9,6 @@ class CommandManager {
     constructor() {
         this.commands = [
             subscriptionCommand,
-            aiCommand,
             settingsCommand,
             adminCommand,
             helpCommand,

@@ -68,15 +68,15 @@ async function run() {
         assert.ok(token)
 
         const updateRes = await request(app)
-            .put('/api/groups/1000/ai-config')
+            .post('/api/config')
             .set('Authorization', `Bearer ${token}`)
-            .send({ aiEnabled: true })
+            .send({ showId: false })
 
         assert.strictEqual(updateRes.status, 200)
 
         assert.ok(logs.some(line => line.includes('INF HTTP') && line.includes('[req:') && line.includes('recv')))
         assert.ok(logs.some(line => line.includes('INF AUTH') && line.includes('[req:') && line.includes('login-succeeded')))
-        assert.ok(logs.some(line => line.includes('INF DASH') && line.includes('[req:') && line.includes('ai-config-updated')))
+        assert.ok(logs.some(line => line.includes('INF DASH') && line.includes('[req:') && line.includes('config-updated')))
         assert.ok(!logs.some(line => line.includes('[Config]')))
         console.log('✓ dashboard API 会输出 HTTP/AUTH/DASH 摘要日志')
     } finally {

@@ -5,14 +5,8 @@ import { createDefaultGroupFormData, mapGroupConfigToFormData } from '../utils/g
 import { validateNightMode } from '../utils/validators';
 
 const DEFAULT_GLOBAL_CONFIG = {
-  aiProbability: 0.1,
-  aiContextLimit: 10,
-  aiTemperature: 1.0,
   rootAdminQQ: undefined,
-  showId: true,
-  aiEnabled: true,
-  aiRagEnabled: true,
-  aiProfileEnabled: false
+  showId: true
 };
 
 const useGroupForm = ({
@@ -34,14 +28,8 @@ const useGroupForm = ({
         const res = await api.get('/api/config');
         if (res.data) {
           setGlobalConfig({
-            aiProbability: res.data.aiProbability ?? 0.1,
-            aiContextLimit: res.data.aiContextLimit || 10,
-            aiTemperature: res.data.aiTemperature ?? 1.0,
             rootAdminQQ: res.data.rootAdminQQ,
-            showId: res.data.showId ?? true,
-            aiEnabled: res.data.aiEnabled ?? true,
-            aiRagEnabled: res.data.aiRagEnabled ?? true,
-            aiProfileEnabled: res.data.aiProfileEnabled ?? false
+            showId: res.data.showId ?? true
           });
         }
       } catch (err) {

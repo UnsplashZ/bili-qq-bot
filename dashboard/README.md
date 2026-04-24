@@ -2,6 +2,8 @@
 
 这是主 Bot 内置管理面板的前端工程，基于 React、Vite 和 Tailwind CSS。生产构建输出到 `dashboard/dist`，由主进程的 Express 服务托管。
 
+当前 WebUI 只覆盖运行状态、群组、订阅、视频下载、日志、B 站登录和系统设置；旧 AI/MCP 配置入口已移除。
+
 ## 开发
 
 ```bash
@@ -29,8 +31,8 @@ npm run build
 ## 主要页面
 
 - `src/pages/Dashboard.jsx`：运行状态与资源概览
-- `src/pages/Groups.jsx`：群组配置、订阅、AI 与视频下载策略
-- `src/pages/Settings.jsx`：全局配置、B 站登录、MCP、AI 参数
+- `src/pages/Groups.jsx`：群组配置、订阅与视频下载策略
+- `src/pages/Settings.jsx`：全局配置、B 站登录与视频下载策略
 - `src/pages/Logs.jsx`：实时日志与历史缓冲
 - `src/pages/Login.jsx`：管理面板登录
 

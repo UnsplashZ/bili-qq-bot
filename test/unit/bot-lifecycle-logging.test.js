@@ -12,7 +12,6 @@ const deps = [
     '../../src/handlers/messageHandler',
     '../../src/services/subscriptionService',
     '../../src/services/imageGenerator',
-    '../../src/services/mcpManager',
     '../../src/services/ServiceManager',
     '../../src/services/subscription/updateChecker',
     '../../src/dashboard/server',
@@ -55,10 +54,6 @@ async function run() {
             stop() {}
         })
         mockModule(require.resolve('../../src/services/imageGenerator'), {
-            cleanup: async () => {}
-        })
-        mockModule(require.resolve('../../src/services/mcpManager'), {
-            init: async () => {},
             cleanup: async () => {}
         })
         mockModule(require.resolve('../../src/services/ServiceManager'), {

@@ -260,31 +260,6 @@ async function testRunPreviewDebugSessionSupportsStructureModeSpecialGenerators(
     assert.strictEqual(result.artifactsSummary.renderHtml, '')
     assert.strictEqual(result.artifactsSummary.debugMeta.resolvedTypeConfig.label, '管理面板')
 
-    const aiHelpResult = await runPreviewDebugSession('', {
-        mode: 'structure',
-        mockType: 'ai_help',
-        outputDir,
-        outName: 'ai-help-structure'
-    }, {
-        buildMockPreviewTarget: () => ({
-            status: 'success',
-            mockType: 'ai_help',
-            cardType: 'ai_help',
-            canonicalUrl: 'preview-lab://structure/ai_help',
-            info: {
-                status: 'success',
-                type: 'ai_help',
-                data: { title: 'ai-help' }
-            }
-        }),
-        generatePreviewLabAIHelpCard: async () => Buffer.from('ai-help').toString('base64'),
-        generateAIHelpCard: async () => {
-            throw new Error('should not use production ai help generator')
-        }
-    })
-
-    assert.strictEqual(aiHelpResult.manifest.mockType, 'ai_help')
-    assert.strictEqual(aiHelpResult.artifactsSummary.debugMeta.resolvedTypeConfig.label, 'AI 配置')
 }
 
 async function testRunPreviewDebugSessionThrowsOnFailedTarget() {

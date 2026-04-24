@@ -4,7 +4,7 @@ import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp } from 'lucide-react'
 import { useLogsStream } from './logs/useLogsStream';
 import { getBottomThreshold, getFloatingButtonMode, getScrollTargetMode, isNearBottom } from './logs/scrollBehavior';
 
-const CHANNEL_OPTIONS = ['BOT', 'LINK', 'AI', 'SUB', 'SEND', 'DASH', 'AUTH', 'STORE', 'MCP', 'RPC', 'PY', 'HTTP', 'SERVICE'];
+const CHANNEL_OPTIONS = ['BOT', 'LINK', 'SUB', 'SEND', 'DASH', 'AUTH', 'STORE', 'RPC', 'PY', 'HTTP', 'SERVICE'];
 const LEVEL_OPTIONS = [
   { value: 'trace', label: 'TRC+' },
   { value: 'debug', label: 'DBG+' },

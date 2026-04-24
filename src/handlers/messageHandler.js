@@ -1,7 +1,3 @@
-const aiHandler = require('./aiHandler');
-const vectorMemoryService = require('../services/vectorMemoryService');
-const userProfileService = require('../services/userProfileService');
-const aiContextService = require('../services/aiContextService');
 const logger = require('../utils/logger');
 const notificationService = require('../services/notificationService');
 const config = require('../config');
@@ -9,11 +5,6 @@ const linkService = require('../services/link');
 const commandManager = require('../commands');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 const requestApprovalService = require('../services/requestApprovalService');
-const aiIdempotency = require('../services/ai/idempotency');
-const { replyGateService } = require('../services/ai/replyGateService');
-const { selectContext } = require('../services/ai/contextSelectorService');
-const { classifyResponseModeHint } = require('../services/ai/agent/responseModeClassifier');
-const { resolveBotControlActionInput } = require('../services/ai/botControlActionResolutionService');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -26,110 +17,6 @@ const LINK_EMOJI = {
 }
 
 class MessageHandler {
-    // 入库前统一清洗：保留 @QQ 可追踪信息，移除其他 CQ 码
-    normalizeMessageForStorage(rawMessage) {
-        if (!rawMessage || typeof rawMessage !== 'string') return '';
-        return rawMessage
-            .replace(/\[CQ:at,qq=(\d+)\]/g, '<AT:$1>')
-            .replace(/\[CQ:at,qq=all\]/g, '<AT:all>')
-            .replace(/\[CQ:[^\]]+\]/g, '')
-            .trim();
-    }
-
-    extractMessageMeta(messageData, groupId, userId, userName) {
-        const segments = Array.isArray(messageData?.message) ? messageData.message : [];
-        const mentionIds = [];
-        let replyToMessageId = null;
-        let replyToSpeakerId = null;
-
-        for (const seg of segments) {
-            if (seg?.type === 'at' && seg.data?.qq != null) {
-                mentionIds.push(String(seg.data.qq));
-            }
-            if (!replyToMessageId && seg?.type === 'reply' && seg.data?.id != null) {
-                replyToMessageId = String(seg.data.id);
-                const replySpeaker = seg.data.qq ?? seg.data.user_id ?? seg.data.sender_id ?? seg.data.uid;
-                if (replySpeaker != null) {
-                    replyToSpeakerId = String(replySpeaker);
-                }
-            }
-        }
-
-        const uniqueMentions = [...new Set(mentionIds)];
-        const selfId = messageData?.self_id != null ? String(messageData.self_id) : null;
-        const currentMentionsBot = !!(selfId && uniqueMentions.includes(selfId));
-        const rawMessage = typeof messageData?.raw_message === 'string' ? messageData.raw_message : '';
-        const botNames = [];
-        const configuredBotName = String(config.getGroupConfig(groupId, 'aiBotName') || '').trim();
-        if (configuredBotName) botNames.push(configuredBotName);
-        const configuredBotAliases = config.getGroupConfig(groupId, 'aiBotAliases');
-        if (Array.isArray(configuredBotAliases)) {
-            for (const alias of configuredBotAliases) {
-                if (typeof alias !== 'string') continue;
-                const trimmed = alias.trim();
-                if (trimmed) botNames.push(trimmed);
-            }
-        }
-
-        const normalizedBotNames = [...new Set(botNames)];
-        const botNameHit = normalizedBotNames.find(name => rawMessage.includes(name)) || null;
-
-        return {
-            speakerId: userId ? String(userId) : null,
-            speakerName: userName || null,
-            mentionIds: uniqueMentions,
-            isAtBot: currentMentionsBot,
-            currentMentionsBot,
-            replyToMessageId,
-            replyToSpeakerId,
-            isReplyToBot: !!(selfId && replyToSpeakerId && replyToSpeakerId === selfId),
-            botNameHit,
-            source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group'
-        };
-    }
-
-    buildAgentInput({ ws, rawMessage, groupId, userId, userName, messageId, messageMeta, traceContext, pipelineInput = null }) {
-        return {
-            traceId: traceContext.scope,
-            rawMessage,
-            groupId,
-            userId,
-            userName,
-            messageId,
-            messageMeta,
-            source: (typeof groupId === 'string' && groupId.startsWith('private_')) ? 'private' : 'group',
-            contextKey: groupId || userId,
-            pipelineInput,
-            ws
-        }
-    }
-
-    resolveBotControlIngress({ ws, rawMessage, groupId, userId, userName, messageId, messageMeta, traceContext, pipelineInput = null }) {
-        const agentInput = this.buildAgentInput({
-            ws,
-            rawMessage,
-            groupId,
-            userId,
-            userName,
-            messageId,
-            messageMeta,
-            traceContext,
-            pipelineInput
-        })
-        const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
-        const resolution = resolveBotControlActionInput({
-            agentInput,
-            runtime
-        })
-
-        return {
-            agentInput,
-            runtime,
-            resolution,
-            isBotControl: resolution.candidate != null
-        }
-    }
-
     /**
      * Send a private message to a user
      * @param {WebSocket} ws - WebSocket connection
@@ -233,17 +120,6 @@ class MessageHandler {
             scope: messageData.traceContext?.scope || logger.createMessageScope(groupId || 'unknown', userId || 'unknown', messageId || Date.now()),
             receivedLogged: Boolean(messageData.traceContext?.receivedLogged)
         };
-        if (messageId) {
-            const scopeId = groupId || `private_${userId || 'unknown'}`;
-            const dedupKey = `${scopeId}:${userId || 'unknown'}:${messageId}`;
-            if (!aiIdempotency.markIfNew(dedupKey)) {
-                logger.logEvent('info', 'BOT', traceContext.scope, 'duplicate-ignored', {
-                    dedupKey
-                });
-                return;
-            }
-        }
-
         if (!traceContext.receivedLogged) {
             logger.logEvent('info', 'BOT', traceContext.scope, 'recv', {
                 groupId,
@@ -315,59 +191,6 @@ class MessageHandler {
         })
         rawMessage = preparedLinks.rawMessage
 
-        // Record message for AI context
-        const sender = messageData.sender || {};
-        const userName = sender.card || sender.nickname || `用户${userId}`;
-        const messageMeta = this.extractMessageMeta(messageData, groupId, userId, userName);
-        const shouldTrackAsChatMessage = rawMessage && !rawMessage.trim().startsWith('/')
-        const botControlIngress = shouldTrackAsChatMessage
-            ? this.resolveBotControlIngress({
-                ws,
-                rawMessage,
-                groupId,
-                userId,
-                userName,
-                messageId,
-                messageMeta,
-                traceContext
-            })
-            : { agentInput: null, runtime: null, resolution: { candidate: null, source: 'absent' }, isBotControl: false }
-        if (!botControlIngress.isBotControl && shouldTrackAsChatMessage) {
-            // 与向量记忆保持一致：存储前保留 @QQ 信息并清洗其他 CQ 码
-            const cleanForContext = this.normalizeMessageForStorage(rawMessage);
-            if (cleanForContext) {
-                aiHandler.addMessageToContext(groupId || userId, 'user', cleanForContext, userId, userName, messageMeta);
-            }
-        }
-
-        // 3. Vector Memory Storage (Store all non-command user messages)
-        // Store after URL expansion to include full links
-        if (!botControlIngress.isBotControl && groupId && shouldTrackAsChatMessage) {
-             const cleanMsg = this.normalizeMessageForStorage(rawMessage);
-             if (cleanMsg) {
-                 vectorMemoryService.addMemory(groupId, cleanMsg, 'user', userId, userName).catch(e => {
-                     logger.logEvent('error', 'BOT', traceContext.scope, 'vector-memory-save-failed', {
-                        groupId,
-                        userId,
-                        error: logger.getErrorMessage(e)
-                     });
-                 });
-                 // Record metadata and independently trigger profile refresh without depending on bot reply.
-                 Promise.resolve()
-                     .then(async () => {
-                         await userProfileService.recordMessage(groupId, userId, userName)
-                         await userProfileService.maybeScheduleProfileUpdate(groupId, userId, userName, aiContextService, vectorMemoryService)
-                     })
-                     .catch(e => {
-                         logger.logEvent('error', 'BOT', traceContext.scope, 'profile-record-failed', {
-                            groupId,
-                            userId,
-                            error: logger.getErrorMessage(e)
-                         });
-                     });
-             }
-        }
-
         // ========== Command Dispatch ==========
         const commandContext = {
             ws,
@@ -410,149 +233,6 @@ class MessageHandler {
             }
 
             return
-        }
-
-        // Check for AI Reply
-        const isAt = messageMeta.isAtBot;
-
-        let shouldReply = false
-        let aiPipelineInput = null
-
-        if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
-            const gateDecision = replyGateService.evaluateAdmission({
-                groupId,
-                userId,
-                rawMessage,
-                messageMeta
-            })
-            logger.logEvent('info', 'AI', traceContext.scope, 'AI gate decision', {
-                shouldReply: gateDecision.shouldReply,
-                score: gateDecision.score,
-                busyMode: gateDecision.busyMode,
-                triggerLevel: gateDecision.triggerLevel,
-                reasons: gateDecision.reasons
-            })
-            shouldReply = gateDecision.shouldReply
-
-            if (shouldReply) {
-                const contextKey = groupId || userId
-                const fullContext = aiContextService.getContext(contextKey)
-                const currentTurn = fullContext[fullContext.length - 1] || null
-                const selectedContext = config.getGroupConfig(groupId, 'aiContextSelectorEnabled') !== false
-                    ? selectContext({
-                        context: fullContext.slice(0, -1),
-                        currentTurn,
-                        messageMeta
-                    })
-                    : { currentTurn, threadMessages: [], backgroundSummary: '', stats: {} }
-                logger.logEvent('info', 'AI', traceContext.scope, 'AI context selected', {
-                    selectedCount: selectedContext.threadMessages.length,
-                    hasSummary: !!selectedContext.backgroundSummary,
-                    stats: selectedContext.stats
-                })
-                const responseMode = config.getGroupConfig(groupId, 'aiResponseModeEnabled') !== false
-                    ? classifyResponseModeHint({
-                        rawMessage,
-                        messageMeta,
-                        triggerLevel: gateDecision.triggerLevel
-                    })
-                    : { mode: 'answer_only', reasons: ['feature_disabled'] }
-                logger.logEvent('info', 'AI', traceContext.scope, 'AI response mode', responseMode)
-
-                aiPipelineInput = {
-                    gateDecision,
-                    selectedContext,
-                    responseMode
-                }
-            }
-        } else {
-            shouldReply = aiHandler.shouldReply(rawMessage, isAt, groupId)
-        }
-
-        if (!shouldReply && botControlIngress.isBotControl) {
-            shouldReply = true
-            aiPipelineInput = {
-                ...(aiPipelineInput || {}),
-                botControlAction: botControlIngress.resolution.candidate,
-                gateDecision: {
-                    shouldReply: true,
-                    triggerLevel: 'structured_action',
-                    reasons: [`bot_control_${botControlIngress.resolution.source}`]
-                },
-                responseMode: {
-                    mode: 'answer_only',
-                    reasons: [`bot_control_${botControlIngress.resolution.source}`]
-                }
-            }
-            logger.logEvent('info', 'AI', traceContext.scope, 'AI ingress admitted bot-control trigger', {
-                source: botControlIngress.resolution.source,
-                action: botControlIngress.resolution.candidate.action
-            })
-        }
-
-        if (shouldReply) {
-            const agentInput = this.buildAgentInput({
-                ws,
-                rawMessage,
-                groupId,
-                userId,
-                userName,
-                messageId,
-                messageMeta,
-                traceContext,
-                pipelineInput: aiPipelineInput
-            })
-            const agentResult = await aiHandler.runAgent(agentInput)
-            const reply = agentResult.finalReply
-            if (reply) {
-                let sentMessageId = null
-                try {
-                    const sendResponse = await this.sendGroupMessageWithResponse(ws, groupId, [
-                        { type: 'text', data: { text: reply } }
-                    ], userId)
-                    if (sendResponse?.data?.message_id != null) {
-                        sentMessageId = String(sendResponse.data.message_id)
-                    }
-                } catch (error) {
-                    logger.logEvent('warn', 'BOT', traceContext.scope, 'ai-reply-send-with-response-failed', {
-                        groupId,
-                        userId,
-                        error: logger.getErrorMessage(error)
-                    })
-                    this.sendGroupMessage(ws, groupId, [
-                        { type: 'text', data: { text: reply } }
-                    ], userId)
-                }
-
-                const latestLocalAction = Array.isArray(agentResult?.localActions)
-                    ? agentResult.localActions[agentResult.localActions.length - 1] || null
-                    : null
-                if (sentMessageId
-                    && latestLocalAction?.action === 'subscription.read'
-                    && latestLocalAction?.result?.data?.operation === 'search_user') {
-                    const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
-                    if (runtime?.botControl && typeof runtime.botControl.setCandidateSelectionSnapshotBotMessageId === 'function') {
-                        runtime.botControl.setCandidateSelectionSnapshotBotMessageId(sentMessageId, {
-                            actorUserId: userId,
-                            userId
-                        })
-                    }
-                }
-                if (sentMessageId
-                    && latestLocalAction?.status === 'pending_confirmation') {
-                    const runtime = aiHandler._buildRuntime(groupId, traceContext.scope)
-                    if (runtime?.botControl && typeof runtime.botControl.setPendingConfirmationBotMessageId === 'function') {
-                        runtime.botControl.setPendingConfirmationBotMessageId(sentMessageId, {
-                            actorUserId: userId,
-                            userId,
-                            confirmationId: latestLocalAction?.confirmation?.confirmationId || null
-                        })
-                    }
-                }
-                if (config.getGroupConfig(groupId, 'aiReplyGateEnabled') !== false) {
-                    replyGateService.recordBotReply(groupId, userId)
-                }
-            }
         }
     }
 

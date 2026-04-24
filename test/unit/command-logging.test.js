@@ -6,7 +6,6 @@ const assert = require('assert')
 const logger = require('../../src/utils/logger')
 const downloadCommand = require('../../src/commands/download')
 const helpCommand = require('../../src/commands/help')
-const aiCommand = require('../../src/commands/ai')
 const settingsCommand = require('../../src/commands/settings')
 const subscriptionCommand = require('../../src/commands/subscription')
 const adminCommand = require('../../src/commands/admin')
@@ -18,7 +17,6 @@ const subscriptionService = require('../../src/services/subscriptionService')
 
 const originals = {
     helpCard: imageGenerator.generateHelpCard,
-    aiHelpCard: imageGenerator.generateAIHelpCard,
     getLastDownloadInfo: videoDownloadService.getLastDownloadInfo,
     getVideoInfo: biliApi.getVideoInfo,
     downloadAndSend: videoDownloadService.downloadAndSend,
@@ -26,13 +24,13 @@ const originals = {
     isGroupAdmin: config.isGroupAdmin,
     isRootAdmin: config.isRootAdmin,
     addUserSubscription: subscriptionService.addUserSubscription,
+    videoDownloadEnabled: config.videoDownloadEnabled,
     setInterval: global.setInterval,
     clearInterval: global.clearInterval
 }
 
 function restore() {
     imageGenerator.generateHelpCard = originals.helpCard
-    imageGenerator.generateAIHelpCard = originals.aiHelpCard
     videoDownloadService.getLastDownloadInfo = originals.getLastDownloadInfo
     biliApi.getVideoInfo = originals.getVideoInfo
     videoDownloadService.downloadAndSend = originals.downloadAndSend
@@ -40,6 +38,7 @@ function restore() {
     config.isGroupAdmin = originals.isGroupAdmin
     config.isRootAdmin = originals.isRootAdmin
     subscriptionService.addUserSubscription = originals.addUserSubscription
+    config.videoDownloadEnabled = originals.videoDownloadEnabled
     global.setInterval = originals.setInterval
     global.clearInterval = originals.clearInterval
     settingsCommand.loginPending.clear()
@@ -63,16 +62,8 @@ async function run() {
             rawMessage: '/帮助'
         })
 
-        imageGenerator.generateAIHelpCard = async () => {
-            throw new Error('ai help boom')
-        }
-        await aiCommand.handle({
-            ws: {},
-            groupId: '1000',
-            userId: '42',
-            rawMessage: '/AI 帮助'
-        })
 
+        config.videoDownloadEnabled = true
         videoDownloadService.getLastDownloadInfo = () => ({ bvid: 'BV1ZHiyBkExG', totalPages: 2 })
         biliApi.getVideoInfo = async () => ({ status: 'success', data: { title: 'demo' } })
         videoDownloadService.downloadAndSend = async () => {
@@ -110,21 +101,18 @@ async function run() {
         await new Promise(resolve => setImmediate(resolve))
 
         helpCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
-        aiCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
         settingsCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
         subscriptionCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
         adminCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
         downloadCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }])
 
         assert.ok(logs.some(line => line.includes('ERR BOT') && line.includes('[cmd:help]') && line.includes('help-card-generate-failed')))
-        assert.ok(logs.some(line => line.includes('ERR BOT') && line.includes('[cmd:ai]') && line.includes('ai-help-card-generate-failed')))
         assert.ok(logs.some(line => line.includes('ERR BOT') && line.includes('[cmd:download]') && line.includes('download-dispatch-failed')))
         assert.ok(logs.some(line => line.includes('ERR BOT') && line.includes('[cmd:settings]') && line.includes('login-poll-failed')))
         assert.ok(logs.some(line => line.includes('ERR BOT') && line.includes('[cmd:subscription]') && line.includes('user-subscribe-failed')))
         assert.ok(logs.some(line => line.includes('WRN BOT') && line.includes('[cmd:admin]') && line.includes('send-skipped')))
         assert.ok(!logs.some(line => line.includes('[DownloadCommand]')))
         assert.ok(!logs.some(line => line.includes('[HelpCommand]')))
-        assert.ok(!logs.some(line => line.includes('[AiCommand]')))
         assert.ok(!logs.some(line => line.includes('[SettingsCommand]')))
         assert.ok(!logs.some(line => line.includes('[SubscriptionCommand]')))
         assert.ok(!logs.some(line => line.includes('[AdminCommand]')))
