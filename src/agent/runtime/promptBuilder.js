@@ -50,7 +50,9 @@ function buildMemoryContext(longTermMemories = []) {
     if (memories.length === 0) return ''
     const lines = memories.map((memory, index) => {
         const content = sanitizeMemoryContent(memory.content)
-        return `${index + 1}. [${memory.scope}/${memory.type} confidence=${memory.confidence}] ${content}`
+        const sourceIds = Array.isArray(memory.sourceMessageIds) ? memory.sourceMessageIds.slice(0, 3).join(',') : ''
+        const source = sourceIds ? ` source=${sourceIds}` : ''
+        return `${index + 1}. [id=${memory.id} ${memory.scope}/${memory.type} confidence=${memory.confidence}${source}] ${content}`
     })
     return [
         '<memory-context>',

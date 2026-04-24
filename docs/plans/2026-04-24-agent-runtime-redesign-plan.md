@@ -613,8 +613,9 @@ WebUI 不应提供 MCP 配置入口。
 
 - Phase 3.1 先使用 `data/agent/memory/memories.json` 文件存储长期记忆，不引入向量库。
 - 保存 LLM 输出的 `memoryHints`，包含 scope/type/content/confidence/sourceMessageIds/createdAt/updatedAt/expiresAt。
-- 记忆注入 prompt 前使用 `<memory-context>` fencing，避免被当成新用户输入。
+- 记忆注入 prompt 前使用 `<memory-context>` fencing，并包含 id/confidence/sourceMessageIds，避免被当成新用户输入且支持解释来源。
 - 对记忆内容做敏感字段过滤和 prompt-injection 文本转义。
+- 提供 Root 命令 `/记忆 列表|删除|清理`，用于查看和清理错误记忆。
 - 后续 Phase 3.2 再评估 SQLite、话题摘要定期固化和更强检索能力。
 
 验收：

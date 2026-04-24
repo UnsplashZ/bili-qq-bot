@@ -194,6 +194,43 @@ async function retrieveRelevantMemories({ groupId, userId, text, limit = 5 }) {
         .map((item) => item.memory)
 }
 
+async function listMemories({ groupId = '', userId = '', limit = 10 } = {}) {
+    await load()
+    const timestamp = Date.now()
+    return memories
+        .filter((memory) => !isExpired(memory, timestamp))
+        .filter((memory) => !groupId || memory.groupId === groupId || memory.scope === 'global')
+        .filter((memory) => !userId || memory.userId === userId)
+        .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
+        .slice(0, limit)
+}
+
+async function deleteMemory(memoryId) {
+    const id = String(memoryId || '').trim()
+    if (!id) return false
+    await load()
+    const before = memories.length
+    memories = memories.filter((memory) => memory.id !== id)
+    if (memories.length === before) return false
+    await save()
+    return true
+}
+
+async function clearMemories({ groupId = '', userId = '' } = {}) {
+    await load()
+    const before = memories.length
+    memories = memories.filter((memory) => {
+        if (groupId && memory.groupId !== groupId) return true
+        if (userId && memory.userId !== userId) return true
+        return false
+    })
+    const removed = before - memories.length
+    if (removed > 0) {
+        await save()
+    }
+    return removed
+}
+
 function resetForTest(nextMemoryFile = MEMORY_FILE) {
     memoryFile = nextMemoryFile
     loaded = true
@@ -205,6 +242,9 @@ module.exports = {
     load,
     storeMemoryHints,
     retrieveRelevantMemories,
+    listMemories,
+    deleteMemory,
+    clearMemories,
     resetForTest,
     sanitizeContent
 }
