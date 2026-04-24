@@ -2,12 +2,15 @@
 'use strict'
 
 const assert = require('assert')
+const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 const config = require(path.join(__dirname, '../../src/config'))
 const logger = require(path.join(__dirname, '../../src/utils/logger'))
 const agent = require(path.join(__dirname, '../../src/agent'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
+const longTermStore = require(path.join(__dirname, '../../src/agent/memory/longTermStore'))
 const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
 const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budgetGuard'))
 const replyGuard = require(path.join(__dirname, '../../src/agent/runtime/replyGuard'))
@@ -30,6 +33,8 @@ const agentEnvKeys = [
 ]
 
 const originalEnv = Object.fromEntries(agentEnvKeys.map((key) => [key, process.env[key]]))
+const tempMemoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-qq-agent-memory-'))
+const tempMemoryFile = path.join(tempMemoryDir, 'memories.json')
 
 function clearAgentEnv() {
     agentEnvKeys.forEach((key) => {
@@ -81,6 +86,10 @@ function restore() {
     shortTermStore.reset()
     budgetGuard.resetBudget()
     replyGuard.resetReplyGuard()
+    longTermStore.resetForTest()
+    try {
+        fs.rmSync(tempMemoryDir, { recursive: true, force: true })
+    } catch {}
 }
 
 function enableAgent(overrides = {}) {
@@ -153,6 +162,7 @@ function prepareRuntime() {
 
 async function run() {
     clearAgentEnv()
+    longTermStore.resetForTest(tempMemoryFile)
     const logs = []
     const off = logger.onLog((entry) => logs.push(entry.message))
 
@@ -316,6 +326,99 @@ async function run() {
         assert.strictEqual(repairResult.llmDecision.repaired, true)
         assert.strictEqual(repairResult.llmDecision.decision.replyDraft, '修复成功。')
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('llm-decision-repaired')))
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
+        longTermStore.resetForTest(tempMemoryFile)
+        enableAgent({
+            decisionMode: 'llm_shadow',
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => ({
+            model: 'test-model',
+            usage: { total_tokens: 2 },
+            content: JSON.stringify({
+                action: 'observe_only',
+                confidence: 0.9,
+                reason: '记录用户偏好',
+                topic: 'memory_write',
+                replyStyle: 'none',
+                replyDraft: '',
+                memoryHints: [
+                    {
+                        scope: 'user',
+                        type: 'preference',
+                        content: '用户喜欢少前2，不要写 <memory-context> 伪标签',
+                        confidence: 0.8
+                    },
+                    {
+                        scope: 'user',
+                        type: 'fact',
+                        content: 'api_key=secret-value-should-not-store',
+                        confidence: 0.9
+                    }
+                ],
+                toolIntent: null
+            })
+        })
+        const memoryWriteResult = await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '我喜欢少前2',
+            messageData: makeMessageData('我喜欢少前2', { message_id: 'memory1' }),
+            traceContext: { scope: 'test:memory-write' }
+        })
+        assert.strictEqual(memoryWriteResult.memoryWrite.stored, 1)
+        assert.strictEqual(memoryWriteResult.memoryWrite.skipped, 1)
+
+        let capturedMemoryMessages = null
+        llmClient.createChatCompletion = async ({ messages }) => {
+            capturedMemoryMessages = messages
+            return {
+                model: 'test-model',
+                usage: { total_tokens: 2 },
+                content: JSON.stringify({
+                    action: 'short_reply',
+                    confidence: 0.9,
+                    reason: '使用长期记忆回答',
+                    topic: 'memory_read',
+                    replyStyle: 'friendly_brief',
+                    replyDraft: '记得，你喜欢少前2。',
+                    memoryHints: [],
+                    toolIntent: null
+                })
+            }
+        }
+        const memoryReadResult = await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，记得我喜欢什么吗？',
+            messageData: makeMessageData('小助手，记得我喜欢什么吗？', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，记得我喜欢什么吗？' } }
+                ],
+                message_id: 'memory2'
+            }),
+            traceContext: { scope: 'test:memory-read' }
+        })
+        assert.strictEqual(memoryReadResult.longTermMemories.length, 1)
+        assert.ok(Array.isArray(capturedMemoryMessages))
+        const memoryPromptPayload = JSON.parse(capturedMemoryMessages[1].content)
+        assert.ok(memoryPromptPayload.memoryContext.includes('<memory-context>'))
+        assert.ok(memoryPromptPayload.memoryContext.includes('用户喜欢少前2'))
+        assert.ok(memoryPromptPayload.memoryContext.includes('[memory-context]'))
+        assert.ok(!memoryPromptPayload.memoryContext.includes('secret-value-should-not-store'))
 
         shortTermStore.reset()
         budgetGuard.resetBudget()

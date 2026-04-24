@@ -41,7 +41,7 @@ function buildRepairMessages({ messages, invalidContent, errorMessage }) {
     ]
 }
 
-async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
+async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const skipReason = validateLlmConfig(agentConfig)
     if (skipReason) {
         return {
@@ -64,6 +64,7 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, sco
         const messages = buildDecisionMessages({
             agentMessage,
             memoryObservation,
+            longTermMemories,
             scoreResult,
             ruleDecision,
             sessionContext,

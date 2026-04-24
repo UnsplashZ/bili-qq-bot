@@ -4,6 +4,7 @@ const { normalizeMessage } = require('./messageNormalizer')
 const { resolveActor } = require('../session/actorResolver')
 const { runWithAgentSession } = require('../session/agentSessionContext')
 const shortTermStore = require('../memory/shortTermStore')
+const longTermStore = require('../memory/longTermStore')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
 const { decideWithLlm } = require('../cognition/agentDecisionService')
@@ -51,14 +52,26 @@ async function observe(context) {
             userId: agentMessage.userId,
             timestamp: agentMessage.timestamp
         })
+        const longTermMemories = await longTermStore.retrieveRelevantMemories({
+            groupId,
+            userId: agentMessage.userId,
+            text: agentMessage.normalizedText || agentMessage.rawText
+        })
         const llmDecision = await decideWithLlm({
             agentConfig,
             agentMessage,
             memoryObservation,
+            longTermMemories,
             scoreResult,
             ruleDecision: decision,
             sessionContext,
             budgetDecision
+        })
+        const memoryWrite = await longTermStore.storeMemoryHints({
+            hints: llmDecision.decision?.memoryHints || [],
+            sessionContext,
+            agentMessage,
+            decision: llmDecision.decision
         })
         const policyDecision = validateDecisionPolicy({
             agentConfig,
@@ -120,6 +133,8 @@ async function observe(context) {
             score: scoreResult,
             decision,
             messageTraits: scoreResult.traits,
+            longTermMemories,
+            memoryWrite,
             budgetDecision,
             llmDecision,
             policyDecision,
@@ -137,6 +152,8 @@ async function observe(context) {
                 rawTextPreview: agentMessage.rawText,
                 decision,
                 messageTraits: scoreResult.traits,
+                longTermMemories,
+                memoryWrite,
                 budgetDecision,
                 llmDecision,
                 policyDecision,

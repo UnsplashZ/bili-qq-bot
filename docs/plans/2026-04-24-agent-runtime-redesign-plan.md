@@ -611,11 +611,11 @@ WebUI 不应提供 MCP 配置入口。
 
 范围：
 
-- SQLite 长期记忆。
-- 话题摘要定期固化。
-- 用户偏好、关系、事实、episode 分表或分 type 存储。
-- 记忆提取和遗忘机制。
+- Phase 3.1 先使用 `data/agent/memory/memories.json` 文件存储长期记忆，不引入向量库。
+- 保存 LLM 输出的 `memoryHints`，包含 scope/type/content/confidence/sourceMessageIds/createdAt/updatedAt/expiresAt。
 - 记忆注入 prompt 前使用 `<memory-context>` fencing，避免被当成新用户输入。
+- 对记忆内容做敏感字段过滤和 prompt-injection 文本转义。
+- 后续 Phase 3.2 再评估 SQLite、话题摘要定期固化和更强检索能力。
 
 验收：
 
