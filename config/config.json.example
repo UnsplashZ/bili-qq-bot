@@ -27,6 +27,23 @@
     "cheese_video": true
   },
   "showId": true,
+  "agent": {
+    "enabled": false,
+    "observeOnly": true,
+    "logTrajectory": true,
+    "defaultGroupEnabled": false,
+    "aliases": [],
+    "shortTerm": {
+      "maxRecentMessagesPerGroup": 100,
+      "topicIdleMs": 1800000,
+      "crowdedMessagesPerMinute": 8
+    },
+    "replyPolicy": {
+      "minReplyScore": 0.72,
+      "cooldownMs": 30000
+    },
+    "groups": {}
+  },
   "groupConfigs": {
     "_example_group_id": {
       "_comment": "群级配置示例，每个群可以有独立配置",

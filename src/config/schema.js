@@ -41,6 +41,24 @@ const DEFAULT_LABEL_CONFIG = {
     variety: true
 }
 
+const DEFAULT_AGENT_CONFIG = {
+    enabled: false,
+    observeOnly: true,
+    logTrajectory: true,
+    defaultGroupEnabled: false,
+    aliases: [],
+    shortTerm: {
+        maxRecentMessagesPerGroup: 100,
+        topicIdleMs: 30 * 60 * 1000,
+        crowdedMessagesPerMinute: 8
+    },
+    replyPolicy: {
+        minReplyScore: 0.72,
+        cooldownMs: 30 * 1000
+    },
+    groups: {}
+}
+
 const parsers = {
     string: (val) => String(val),
     int: (val) => {
@@ -154,7 +172,8 @@ const META = {
             return overrides.labelConfig
         }
     },
-    groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true }
+    groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true },
+    agent: { env: null, def: DEFAULT_AGENT_CONFIG, type: 'object', lazyInit: true }
 }
 
 module.exports = {
@@ -163,5 +182,6 @@ module.exports = {
     parseValue,
     SUBSCRIPTION_AT_ALL_SOURCE_KEYS,
     SUBSCRIPTION_AT_ALL_CATEGORY_KEYS,
-    DEFAULT_LABEL_CONFIG
+    DEFAULT_LABEL_CONFIG,
+    DEFAULT_AGENT_CONFIG
 }
