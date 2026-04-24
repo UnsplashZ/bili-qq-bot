@@ -1,5 +1,6 @@
 const logger = require('../../utils/logger')
 const notificationService = require('../../services/notificationService')
+const { recordReply } = require('./replyGuard')
 
 function buildTextMessage(text) {
     const safeText = String(text || '').trim()
@@ -34,7 +35,7 @@ async function executeReply({ ws, groupId, userId, llmDecision, policyDecision, 
         return { executed: false, reason: policyDecision?.reason || 'policy_not_accepted' }
     }
 
-    const replyDraft = llmDecision?.decision?.replyDraft || ''
+    const replyDraft = policyDecision?.replyDraft || llmDecision?.decision?.replyDraft || ''
     const messageChain = buildTextMessage(replyDraft)
     if (messageChain.length === 0) {
         return { executed: false, reason: 'empty_reply_draft' }
@@ -66,6 +67,7 @@ async function executeReply({ ws, groupId, userId, llmDecision, policyDecision, 
             action: policyDecision.finalAction,
             confidence: llmDecision.decision.confidence.toFixed(2)
         })
+        recordReply({ groupId, replyDraft })
         return { executed: true, reason: 'sent', action: policyDecision.finalAction }
     } catch (error) {
         logger.logEvent('warn', 'AGENT', scope, 'reply-failed', {

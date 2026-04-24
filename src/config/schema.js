@@ -56,7 +56,7 @@ const DEFAULT_AGENT_CONFIG = {
     },
     replyPolicy: {
         minReplyScore: 0.72,
-        cooldownMs: 30 * 1000
+        cooldownMs: 5 * 1000
     },
     llm: {
         enabled: false,

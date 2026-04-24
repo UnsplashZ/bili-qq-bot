@@ -603,6 +603,8 @@ WebUI 不应提供 MCP 配置入口。
 - 被明确询问时能结合短期话题上下文回答。
 - 发送失败不会阻断消息链路。
 
+当前状态：已实现 `ReplyRuntime`、`short_reply` / `full_reply` / `ask_clarify` 发送闸门、confidence 校验、全局/群级 `sendEnabled`、5 秒发送冷却和重复回复拦截；LLM JSON 解析失败会自动进行一次修复重试；仍保持工具调用关闭，`tool_plan` 留到 Phase 4。
+
 ### Phase 3：长期记忆
 
 目标：降低群聊混乱和重复自我介绍。

@@ -10,6 +10,7 @@ const agent = require(path.join(__dirname, '../../src/agent'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
 const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
 const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budgetGuard'))
+const replyGuard = require(path.join(__dirname, '../../src/agent/runtime/replyGuard'))
 const commandManager = require(path.join(__dirname, '../../src/commands'))
 const linkService = require(path.join(__dirname, '../../src/services/link'))
 
@@ -79,6 +80,7 @@ function restore() {
     llmClient.createChatCompletion = originals.createChatCompletion
     shortTermStore.reset()
     budgetGuard.resetBudget()
+    replyGuard.resetReplyGuard()
 }
 
 function enableAgent(overrides = {}) {
@@ -95,7 +97,7 @@ function enableAgent(overrides = {}) {
         },
         replyPolicy: {
             minReplyScore: 0.72,
-            cooldownMs: 30000
+            cooldownMs: 5000
         },
         decisionMode: 'rule_only',
         sendEnabled: false,
@@ -257,6 +259,66 @@ async function run() {
 
         shortTermStore.reset()
         budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
+        let repairCalls = 0
+        enableAgent({
+            decisionMode: 'llm_shadow',
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => {
+            repairCalls += 1
+            if (repairCalls === 1) {
+                return {
+                    model: 'test-model',
+                    usage: { total_tokens: 1 },
+                    content: '我觉得应该回复，但这不是 JSON'
+                }
+            }
+            return {
+                model: 'test-model',
+                usage: { total_tokens: 2 },
+                content: JSON.stringify({
+                    action: 'short_reply',
+                    confidence: 0.91,
+                    reason: '修复后输出严格 JSON',
+                    topic: 'json_repair',
+                    replyStyle: 'friendly_brief',
+                    replyDraft: '修复成功。',
+                    memoryHints: [],
+                    toolIntent: null
+                })
+            }
+        }
+        const repairResult = await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，测试 JSON 修复',
+            messageData: makeMessageData('小助手，测试 JSON 修复', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，测试 JSON 修复' } }
+                ],
+                message_id: 'repair1'
+            }),
+            traceContext: { scope: 'test:llm-repair' }
+        })
+        assert.strictEqual(repairCalls, 2)
+        assert.strictEqual(repairResult.llmDecision.status, 'ok')
+        assert.strictEqual(repairResult.llmDecision.repaired, true)
+        assert.strictEqual(repairResult.llmDecision.decision.replyDraft, '修复成功。')
+        assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('llm-decision-repaired')))
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
         let budgetCalls = 0
         enableAgent({
             decisionMode: 'llm_shadow',
@@ -305,6 +367,7 @@ async function run() {
 
         shortTermStore.reset()
         budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
         const sentPayloads = []
         enableAgent({
             observeOnly: false,
@@ -325,12 +388,12 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 1 },
             content: JSON.stringify({
-                action: 'short_reply',
+                action: 'full_reply',
                 confidence: 0.92,
                 reason: '用户明确提问',
                 topic: 'bot_identity',
-                replyStyle: 'friendly_brief',
-                replyDraft: '我在，这条是受控 live 回复。',
+                replyStyle: 'explain',
+                replyDraft: '我在，这条是受控 live 完整回复。',
                 memoryHints: [],
                 toolIntent: null
             })
@@ -355,12 +418,113 @@ async function run() {
             traceContext: { scope: 'test:llm-live' }
         })
         assert.strictEqual(liveResult.policyDecision.accepted, true)
+        assert.strictEqual(liveResult.policyDecision.finalAction, 'full_reply')
         assert.strictEqual(liveResult.execution.executed, true)
         assert.strictEqual(sentPayloads.length, 1)
         assert.strictEqual(sentPayloads[0].action, 'send_group_msg')
         assert.strictEqual(sentPayloads[0].params.group_id, '1000')
-        assert.strictEqual(sentPayloads[0].params.message[0].data.text, '我在，这条是受控 live 回复。')
+        assert.strictEqual(sentPayloads[0].params.message[0].data.text, '我在，这条是受控 live 完整回复。')
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('reply-sent')))
+
+        llmClient.createChatCompletion = async () => ({
+            model: 'test-model',
+            usage: { total_tokens: 1 },
+            content: JSON.stringify({
+                action: 'short_reply',
+                confidence: 0.95,
+                reason: '用户再次明确提问',
+                topic: 'bot_identity',
+                replyStyle: 'friendly_brief',
+                replyDraft: '第二条回复应该被冷却拦截。',
+                memoryHints: [],
+                toolIntent: null
+            })
+        })
+        const cooldownResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sentPayloads.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，再说一句',
+            messageData: makeMessageData('小助手，再说一句', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，再说一句' } }
+                ],
+                message_id: 'live2'
+            }),
+            traceContext: { scope: 'test:llm-live-cooldown' }
+        })
+        assert.strictEqual(cooldownResult.policyDecision.accepted, false)
+        assert.strictEqual(cooldownResult.policyDecision.reason, 'reply_cooldown_active')
+        assert.strictEqual(cooldownResult.execution.executed, false)
+        assert.strictEqual(sentPayloads.length, 1)
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            groups: {
+                1000: {
+                    enabled: true,
+                    sendEnabled: false
+                }
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => ({
+            model: 'test-model',
+            usage: { total_tokens: 1 },
+            content: JSON.stringify({
+                action: 'short_reply',
+                confidence: 0.95,
+                reason: '用户明确提问',
+                topic: 'bot_identity',
+                replyStyle: 'friendly_brief',
+                replyDraft: '这条不应该发送。',
+                memoryHints: [],
+                toolIntent: null
+            })
+        })
+        const groupSendDisabledResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sentPayloads.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，群级关闭发送',
+            messageData: makeMessageData('小助手，群级关闭发送', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，群级关闭发送' } }
+                ],
+                message_id: 'live3'
+            }),
+            traceContext: { scope: 'test:group-send-disabled' }
+        })
+        assert.strictEqual(groupSendDisabledResult.policyDecision.accepted, false)
+        assert.strictEqual(groupSendDisabledResult.policyDecision.reason, 'send_disabled')
+        assert.strictEqual(groupSendDisabledResult.execution.executed, false)
+        assert.strictEqual(sentPayloads.length, 1)
 
         prepareRuntime()
         const handler = require(path.join(__dirname, '../../src/handlers/messageHandler'))

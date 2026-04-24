@@ -1,5 +1,5 @@
 const logger = require('../../utils/logger')
-const { normalizeAgentConfig, isEnabledForGroup } = require('../config/agentConfig')
+const { normalizeAgentConfig, isEnabledForGroup, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const { normalizeMessage } = require('./messageNormalizer')
 const { resolveActor } = require('../session/actorResolver')
 const { runWithAgentSession } = require('../session/agentSessionContext')
@@ -11,14 +11,16 @@ const { validateDecisionPolicy } = require('../cognition/decisionPolicyValidator
 const { checkBudget } = require('../runtime/budgetGuard')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
 const { executeReply } = require('../runtime/replyExecutor')
+const { checkReplyGuard } = require('../runtime/replyGuard')
 
 async function observe(context) {
-    const agentConfig = normalizeAgentConfig()
+    const baseAgentConfig = normalizeAgentConfig()
     const groupId = context.groupId ? String(context.groupId) : ''
 
-    if (!isEnabledForGroup(groupId, agentConfig)) {
+    if (!isEnabledForGroup(groupId, baseAgentConfig)) {
         return { skipped: true, reason: 'agent_disabled' }
     }
+    const agentConfig = getEffectiveAgentConfigForGroup(groupId, baseAgentConfig)
 
     const agentMessage = normalizeMessage({
         rawMessage: context.rawMessage,
@@ -61,7 +63,13 @@ async function observe(context) {
         const policyDecision = validateDecisionPolicy({
             agentConfig,
             llmDecision,
-            messageTraits: scoreResult.traits || {}
+            messageTraits: scoreResult.traits || {},
+            replyGuardDecision: checkReplyGuard({
+                agentConfig,
+                groupId,
+                replyDraft: llmDecision.decision?.replyDraft || '',
+                timestamp: agentMessage.timestamp
+            })
         })
         logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'observe-decision', {
             groupId,
@@ -82,7 +90,7 @@ async function observe(context) {
                 topicId: sessionContext.topicId,
                 action: llmDecision.decision.action,
                 confidence: llmDecision.decision.confidence.toFixed(2),
-                wouldSend: Boolean(!agentConfig.observeOnly && agentConfig.sendEnabled),
+                wouldSend: policyDecision.wouldSend,
                 reason: llmDecision.decision.reason
             })
         }

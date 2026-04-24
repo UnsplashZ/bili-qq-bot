@@ -17,6 +17,30 @@ function validateLlmConfig(agentConfig) {
     return ''
 }
 
+function parseAndNormalizeDecision(content) {
+    const parsed = parseDecisionJson(content)
+    return normalizeDecision(parsed)
+}
+
+function buildRepairMessages({ messages, invalidContent, errorMessage }) {
+    return [
+        ...messages,
+        {
+            role: 'assistant',
+            content: String(invalidContent || '').slice(0, 2000)
+        },
+        {
+            role: 'user',
+            content: [
+                '上一条输出不是可解析的严格 JSON。',
+                `解析错误：${errorMessage}`,
+                '请只根据原任务重新输出一个 JSON 对象，不要 Markdown，不要解释。',
+                '必须包含字段：action, confidence, reason, topic, replyStyle, replyDraft, memoryHints, toolIntent。'
+            ].join('\n')
+        }
+    ]
+}
+
 async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const skipReason = validateLlmConfig(agentConfig)
     if (skipReason) {
@@ -50,15 +74,43 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, sco
             messages,
             traceScope: sessionContext.traceScope
         })
-        const parsed = parseDecisionJson(response.content)
-        const decision = normalizeDecision(parsed)
+        let decision
+        let repaired = false
+        let finalResponse = response
+
+        try {
+            decision = parseAndNormalizeDecision(response.content)
+        } catch (parseError) {
+            logger.logEvent('warn', 'AGENT', sessionContext.traceScope, 'llm-decision-parse-failed', {
+                groupId: sessionContext.groupId,
+                userId: sessionContext.userId,
+                error: logger.getErrorMessage(parseError)
+            })
+            const repairResponse = await llmClient.createChatCompletion({
+                llmConfig: agentConfig.llm,
+                messages: buildRepairMessages({
+                    messages,
+                    invalidContent: response.content,
+                    errorMessage: logger.getErrorMessage(parseError)
+                }),
+                traceScope: sessionContext.traceScope
+            })
+            decision = parseAndNormalizeDecision(repairResponse.content)
+            finalResponse = repairResponse
+            repaired = true
+            logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'llm-decision-repaired', {
+                groupId: sessionContext.groupId,
+                userId: sessionContext.userId
+            })
+        }
 
         return {
             status: 'ok',
             reason: '',
             decision,
-            model: response.model,
-            usage: response.usage
+            model: finalResponse.model,
+            usage: finalResponse.usage,
+            repaired
         }
     } catch (error) {
         logger.logEvent('warn', 'AGENT', sessionContext.traceScope, 'llm-decision-failed', {
@@ -77,5 +129,6 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, sco
 module.exports = {
     decideWithLlm,
     shouldRunLlmDecision,
-    validateLlmConfig
+    validateLlmConfig,
+    buildRepairMessages
 }

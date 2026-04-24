@@ -42,7 +42,7 @@
     },
     "replyPolicy": {
       "minReplyScore": 0.72,
-      "cooldownMs": 30000
+      "cooldownMs": 5000
     },
     "llm": {
       "enabled": false,
@@ -57,7 +57,15 @@
       "maxLlmCallsPerGroupPerMinute": 60,
       "maxLlmCallsPerUserPerMinute": 20
     },
-    "groups": {}
+    "groups": {
+      "_example_group_id": {
+        "enabled": false,
+        "sendEnabled": false,
+        "replyPolicy": {
+          "cooldownMs": 5000
+        }
+      }
+    }
   },
   "groupConfigs": {
     "_example_group_id": {

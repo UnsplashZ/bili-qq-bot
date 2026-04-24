@@ -1,4 +1,4 @@
-function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits }) {
+function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, replyGuardDecision }) {
     if (!llmDecision || llmDecision.status !== 'ok' || !llmDecision.decision) {
         return {
             accepted: false,
@@ -39,7 +39,27 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits }) {
         }
     }
 
-    if (!['short_reply', 'ask_clarify'].includes(decision.action)) {
+    if (decision.action === 'observe_only' || decision.action === 'defer') {
+        return {
+            accepted: false,
+            finalAction: decision.action,
+            reason: `llm_action_${decision.action}`,
+            llmAction: decision.action,
+            wouldSend: false
+        }
+    }
+
+    if (decision.action === 'react_only' || decision.action === 'tool_plan') {
+        return {
+            accepted: false,
+            finalAction: decision.action,
+            reason: 'action_not_enabled_in_phase2',
+            llmAction: decision.action,
+            wouldSend: false
+        }
+    }
+
+    if (!['short_reply', 'full_reply', 'ask_clarify'].includes(decision.action)) {
         return {
             accepted: false,
             finalAction: decision.action,
@@ -79,12 +99,24 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits }) {
         }
     }
 
+    if (replyGuardDecision && replyGuardDecision.allowed === false) {
+        return {
+            accepted: false,
+            finalAction: 'observe_only',
+            reason: replyGuardDecision.reason,
+            llmAction: decision.action,
+            wouldSend: false,
+            replyGuardDecision
+        }
+    }
+
     return {
         accepted: true,
         finalAction: decision.action,
         reason: 'accepted',
         llmAction: decision.action,
-        wouldSend: true
+        wouldSend: true,
+        replyGuardDecision
     }
 }
 

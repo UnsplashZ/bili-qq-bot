@@ -105,8 +105,27 @@ function isEnabledForGroup(groupId, agentConfig = normalizeAgentConfig()) {
     return agentConfig.defaultGroupEnabled
 }
 
+function getEffectiveAgentConfigForGroup(groupId, agentConfig = normalizeAgentConfig()) {
+    const key = String(groupId || '')
+    const groupConfig = agentConfig.groups && agentConfig.groups[key]
+    if (!isPlainObject(groupConfig)) return agentConfig
+
+    const effective = clone(agentConfig)
+    if (typeof groupConfig.observeOnly === 'boolean') {
+        effective.observeOnly = groupConfig.observeOnly
+    }
+    if (typeof groupConfig.sendEnabled === 'boolean') {
+        effective.sendEnabled = groupConfig.sendEnabled
+    }
+    if (isPlainObject(groupConfig.replyPolicy)) {
+        effective.replyPolicy = mergeDefaults(effective.replyPolicy, groupConfig.replyPolicy)
+    }
+    return effective
+}
+
 module.exports = {
     normalizeAgentConfig,
     isEnabledForGroup,
+    getEffectiveAgentConfigForGroup,
     getRawAgentConfig
 }
