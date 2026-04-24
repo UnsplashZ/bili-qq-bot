@@ -49,7 +49,30 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         }
     }
 
+    const directlyAddressed = Boolean(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)
+
     if (decision.action === 'react_only' || decision.action === 'tool_plan') {
+        if (replyGuardDecision && replyGuardDecision.allowed === false) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: replyGuardDecision.reason,
+                llmAction: decision.action,
+                wouldSend: false,
+                replyGuardDecision
+            }
+        }
+        if (directlyAddressed && decision.replyDraft) {
+            return {
+                accepted: true,
+                finalAction: 'short_reply',
+                reason: `${decision.action}_reply_downgraded`,
+                llmAction: decision.action,
+                replyDraft: decision.replyDraft,
+                wouldSend: true,
+                replyGuardDecision
+            }
+        }
         return {
             accepted: false,
             finalAction: decision.action,
@@ -69,7 +92,8 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         }
     }
 
-    if (decision.confidence < 0.85) {
+    const minConfidence = directlyAddressed ? 0 : Number(agentConfig.replyPolicy?.minReplyScore ?? 0.65)
+    if (decision.confidence < minConfidence) {
         return {
             accepted: false,
             finalAction: 'observe_only',
@@ -84,16 +108,6 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
             accepted: false,
             finalAction: 'observe_only',
             reason: 'empty_reply_draft',
-            llmAction: decision.action,
-            wouldSend: false
-        }
-    }
-
-    if (!(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)) {
-        return {
-            accepted: false,
-            finalAction: 'observe_only',
-            reason: 'not_directly_addressed',
             llmAction: decision.action,
             wouldSend: false
         }

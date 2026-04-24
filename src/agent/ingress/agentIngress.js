@@ -6,6 +6,7 @@ const { runWithAgentSession } = require('../session/agentSessionContext')
 const shortTermStore = require('../memory/shortTermStore')
 const longTermStore = require('../memory/longTermStore')
 const { maybeStoreTopicSummary } = require('../memory/topicSummaryRecorder')
+const { extractMemoryHints, mergeMemoryHints } = require('../memory/memoryHintExtractor')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
 const { decideWithLlm } = require('../cognition/agentDecisionService')
@@ -69,8 +70,10 @@ async function observe(context) {
             sessionContext,
             budgetDecision
         })
+        const extractedMemoryHints = extractMemoryHints({ agentMessage })
+        const memoryHints = mergeMemoryHints(llmDecision.decision?.memoryHints || [], extractedMemoryHints)
         const memoryWrite = await longTermStore.storeMemoryHints({
-            hints: llmDecision.decision?.memoryHints || [],
+            hints: memoryHints,
             sessionContext,
             agentMessage,
             decision: llmDecision.decision
@@ -89,7 +92,12 @@ async function observe(context) {
                 agentConfig,
                 groupId,
                 replyDraft: llmDecision.decision?.replyDraft || '',
-                timestamp: agentMessage.timestamp
+                timestamp: agentMessage.timestamp,
+                bypassCooldown: Boolean(
+                    scoreResult.traits?.mentionedBot ||
+                    scoreResult.traits?.replyToBot ||
+                    scoreResult.traits?.aliasMatched
+                )
             })
         })
         logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'observe-decision', {
@@ -142,6 +150,7 @@ async function observe(context) {
             decision,
             messageTraits: scoreResult.traits,
             longTermMemories,
+            extractedMemoryHints,
             memoryWrite,
             topicSummaryWrite,
             budgetDecision,
@@ -162,6 +171,7 @@ async function observe(context) {
                 decision,
                 messageTraits: scoreResult.traits,
                 longTermMemories,
+                extractedMemoryHints,
                 memoryWrite,
                 topicSummaryWrite,
                 budgetDecision,

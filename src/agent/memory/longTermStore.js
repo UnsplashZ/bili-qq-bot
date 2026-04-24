@@ -9,6 +9,8 @@ const MEMORY_FILE = path.join(MEMORY_DIR, 'memories.json')
 const MAX_MEMORY_ITEMS = 500
 const MAX_CONTENT_LENGTH = 240
 const DEFAULT_CONFIDENCE = 0.6
+const EPISODE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const LOW_CONFIDENCE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 let loaded = false
 let memories = []
@@ -35,9 +37,85 @@ function sanitizeContent(value) {
         .replace(/```/g, "'''")
 }
 
+function addMsIso(baseIso, durationMs) {
+    const base = Date.parse(baseIso)
+    return new Date((Number.isFinite(base) ? base : Date.now()) + durationMs).toISOString()
+}
+
 function isSensitiveContent(value) {
     const text = String(value || '')
     return /(sk-[A-Za-z0-9_-]{12,}|api[_-]?key|token|password|密码|密钥|cookie|authorization)/i.test(text)
+}
+
+function inferExpiresAt({ type, confidence, createdAt, explicitExpiresAt }) {
+    if (explicitExpiresAt) return explicitExpiresAt
+    if (type === 'episode') return addMsIso(createdAt, EPISODE_TTL_MS)
+    if (confidence > 0 && confidence < 0.45) return addMsIso(createdAt, LOW_CONFIDENCE_TTL_MS)
+    return null
+}
+
+function calculateImportance({ scope, type, confidence }) {
+    const typeWeight = {
+        preference: 0.85,
+        relation: 0.8,
+        persona: 0.75,
+        fact: 0.65,
+        episode: 0.45
+    }[type] || 0.55
+    const scopeWeight = {
+        user: 0.08,
+        group: 0.06,
+        topic: 0.02,
+        global: 0.04
+    }[scope] || 0
+    return Math.min(1, Math.max(0, typeWeight + scopeWeight + (Number(confidence) || 0) * 0.1))
+}
+
+function parseUidRelation(content) {
+    const match = String(content || '').match(/uid\s*([0-9]{5,})\s*(?:是|=|叫|就是)\s*([\u4e00-\u9fa5A-Za-z0-9_\-]{1,24})/i)
+    if (!match) return null
+    return { uid: match[1], name: match[2] }
+}
+
+function parseNegativeFact(content) {
+    const match = String(content || '').match(/([\u4e00-\u9fa5A-Za-z0-9_\-]{1,24})\s*不是\s*([^，。,.!?！？]{1,40})/)
+    if (!match) return null
+    return { subject: match[1], predicate: String(match[2] || '').trim() }
+}
+
+function sameMemoryScope(left, right) {
+    if (left.scope !== right.scope) return false
+    if (left.groupId !== right.groupId) return false
+    if (left.userId !== right.userId) return false
+    return true
+}
+
+function findConflictIds(item) {
+    const conflicts = []
+    const uidRelation = parseUidRelation(item.content)
+    const negativeFact = parseNegativeFact(item.content)
+
+    for (const memory of memories) {
+        if (memory.id === item.id || !sameMemoryScope(memory, item)) continue
+
+        if (uidRelation) {
+            const existing = parseUidRelation(memory.content)
+            if (existing && existing.uid === uidRelation.uid && existing.name !== uidRelation.name) {
+                conflicts.push(memory.id)
+            }
+            continue
+        }
+
+        if (negativeFact) {
+            const compactExisting = String(memory.content || '').replace(/\s+/g, '')
+            const compactPredicate = negativeFact.predicate.replace(/\s+/g, '')
+            if (compactExisting.includes(`${negativeFact.subject}是${compactPredicate}`)) {
+                conflicts.push(memory.id)
+            }
+        }
+    }
+
+    return conflicts
 }
 
 async function load() {
@@ -102,11 +180,20 @@ function buildMemoryItem({ hint, sessionContext, agentMessage, decision }) {
         type,
         content,
         confidence,
+        importance: calculateImportance({ scope, type, confidence }),
         sourceMessageIds,
         sourceDecision: decision?.action || '',
         createdAt,
         updatedAt: createdAt,
-        expiresAt: normalizedHint.expiresAt || null
+        lastAccessedAt: null,
+        accessCount: 0,
+        supersedes: [],
+        expiresAt: inferExpiresAt({
+            type,
+            confidence,
+            createdAt,
+            explicitExpiresAt: normalizedHint.expiresAt
+        })
     }
 }
 
@@ -139,18 +226,26 @@ async function storeMemoryHints({ hints, sessionContext, agentMessage, decision 
             continue
         }
 
+        const conflictIds = findConflictIds(item)
+        if (conflictIds.length > 0) {
+            memories = memories.filter((memory) => !conflictIds.includes(memory.id))
+            item.supersedes = conflictIds
+        }
+
         const existing = memories.find((memory) => memory.id === item.id)
         if (existing) {
             existing.updatedAt = nowIso()
             existing.confidence = Math.max(existing.confidence || 0, item.confidence)
+            existing.importance = Math.max(existing.importance || 0, item.importance)
             existing.sourceMessageIds = Array.from(new Set([...(existing.sourceMessageIds || []), ...item.sourceMessageIds])).slice(-10)
+            existing.supersedes = Array.from(new Set([...(existing.supersedes || []), ...item.supersedes]))
         } else {
             memories.push(item)
         }
         stored += 1
     }
 
-    memories = memories.filter((memory) => !isExpired(memory)).slice(-MAX_MEMORY_ITEMS)
+    pruneMemories()
     try {
         await save()
     } catch (error) {
@@ -175,13 +270,33 @@ function scoreMemory(memory, { groupId, userId, text }) {
     const matches = words.filter((word) => content.includes(word)).length
     score += Math.min(0.3, matches * 0.08)
     score += Math.min(0.2, Number(memory.confidence) || 0)
+    score += Math.min(0.1, Number(memory.importance) || 0)
     return score
+}
+
+function getRetentionScore(memory) {
+    const updatedAt = Date.parse(memory.updatedAt || memory.createdAt || '')
+    const ageDays = Number.isFinite(updatedAt) ? Math.max(0, (Date.now() - updatedAt) / (24 * 60 * 60 * 1000)) : 999
+    const recency = Math.max(0, 1 - ageDays / 180)
+    return (
+        (Number(memory.importance) || 0) * 0.55 +
+        (Number(memory.confidence) || 0) * 0.25 +
+        Math.min(0.1, (Number(memory.accessCount) || 0) * 0.01) +
+        recency * 0.1
+    )
+}
+
+function pruneMemories() {
+    memories = memories
+        .filter((memory) => !isExpired(memory))
+        .sort((a, b) => getRetentionScore(b) - getRetentionScore(a))
+        .slice(0, MAX_MEMORY_ITEMS)
 }
 
 async function retrieveRelevantMemories({ groupId, userId, text, limit = 5 }) {
     await load()
     const timestamp = Date.now()
-    return memories
+    const selected = memories
         .filter((memory) => !isExpired(memory, timestamp))
         .filter((memory) => {
             if (memory.scope === 'global') return true
@@ -194,6 +309,21 @@ async function retrieveRelevantMemories({ groupId, userId, text, limit = 5 }) {
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
         .map((item) => item.memory)
+    if (selected.length > 0) {
+        const accessedAt = nowIso()
+        selected.forEach((memory) => {
+            memory.lastAccessedAt = accessedAt
+            memory.accessCount = (Number(memory.accessCount) || 0) + 1
+        })
+        try {
+            await save()
+        } catch (error) {
+            logger.logEvent('warn', 'AGENT', '', 'long-memory-access-save-failed', {
+                error: logger.getErrorMessage(error)
+            })
+        }
+    }
+    return selected
 }
 
 async function listMemories({ groupId = '', userId = '', limit = 10 } = {}) {
@@ -230,24 +360,34 @@ async function storeTopicSummary({ sessionContext, topicSnapshot, content, confi
         type: 'episode',
         content: safeContent,
         confidence: Math.min(1, Math.max(0, Number(confidence) || DEFAULT_CONFIDENCE)),
+        importance: calculateImportance({ scope: 'topic', type: 'episode', confidence }),
         sourceMessageIds,
         sourceDecision: 'topic_summary',
         createdAt: timestamp,
         updatedAt: timestamp,
-        expiresAt: null
+        lastAccessedAt: null,
+        accessCount: 0,
+        supersedes: [],
+        expiresAt: inferExpiresAt({
+            type: 'episode',
+            confidence,
+            createdAt: timestamp,
+            explicitExpiresAt: null
+        })
     }
 
     const existing = memories.find((memory) => memory.id === id)
     if (existing) {
         existing.content = item.content
         existing.confidence = Math.max(existing.confidence || 0, item.confidence)
+        existing.importance = Math.max(existing.importance || 0, item.importance)
         existing.sourceMessageIds = Array.from(new Set([...(existing.sourceMessageIds || []), ...sourceMessageIds])).slice(-10)
         existing.updatedAt = timestamp
     } else {
         memories.push(item)
     }
 
-    memories = memories.filter((memory) => !isExpired(memory)).slice(-MAX_MEMORY_ITEMS)
+    pruneMemories()
     await save()
     return { stored: 1, skipped: 0, id }
 }

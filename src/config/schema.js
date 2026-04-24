@@ -61,7 +61,7 @@ const DEFAULT_AGENT_CONFIG = {
         topicSummaryMinIntervalMs: 10 * 60 * 1000
     },
     replyPolicy: {
-        minReplyScore: 0.72,
+        minReplyScore: 0.65,
         cooldownMs: 5 * 1000
     },
     llm: {

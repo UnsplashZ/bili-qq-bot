@@ -111,6 +111,56 @@ async function run() {
         assert.strictEqual(topicMemories.length, 1)
         assert.ok(topicMemories[0].content.includes('少前2活动剧情讨论'))
         assert.ok(topicMemories[0].sourceMessageIds.includes('topic-msg-4'))
+        assert.ok(topicMemories[0].expiresAt)
+
+        longTermStore.resetForTest(tempMemoryFile)
+        await longTermStore.storeMemoryHints({
+            hints: [{
+                scope: 'group',
+                type: 'relation',
+                content: 'uid 2402855757 是 楠哥',
+                confidence: 0.8
+            }],
+            sessionContext: {
+                groupId: '1000',
+                userId: '42',
+                topicId: 'topic-relation',
+                traceScope: 'test:relation-conflict'
+            },
+            agentMessage: { id: 'relation-msg-1' },
+            decision: { action: 'short_reply' }
+        })
+        const conflictWrite = await longTermStore.storeMemoryHints({
+            hints: [{
+                scope: 'group',
+                type: 'relation',
+                content: 'uid 2402855757 是 梦桦楠',
+                confidence: 0.85
+            }],
+            sessionContext: {
+                groupId: '1000',
+                userId: '42',
+                topicId: 'topic-relation',
+                traceScope: 'test:relation-conflict'
+            },
+            agentMessage: { id: 'relation-msg-2' },
+            decision: { action: 'short_reply' }
+        })
+        assert.strictEqual(conflictWrite.stored, 1)
+        const relationMemories = await longTermStore.listMemories({ groupId: '1000' })
+        const uidMemories = relationMemories.filter((memory) => memory.content.includes('uid 2402855757'))
+        assert.strictEqual(uidMemories.length, 1)
+        assert.strictEqual(uidMemories[0].content, 'uid 2402855757 是 梦桦楠')
+        assert.strictEqual(uidMemories[0].supersedes.length, 1)
+
+        const relationRead = await longTermStore.retrieveRelevantMemories({
+            groupId: '1000',
+            userId: '42',
+            text: '梦桦楠是谁'
+        })
+        assert.ok(relationRead.length > 0)
+        assert.ok(relationRead[0].accessCount > 0)
+        assert.ok(relationRead[0].lastAccessedAt)
 
         console.log('✓ Agent 长期记忆检索和话题摘要固化正常')
     } finally {

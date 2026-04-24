@@ -11,6 +11,7 @@ const blacklistRoutes = require('./modules/blacklist')
 const biliRoutes = require('./modules/bili')
 const systemRoutes = require('./modules/system')
 const logsRoutes = require('./modules/logs')
+const agentMemoryRoutes = require('./modules/agent-memory')
 
 const router = express.Router()
 
@@ -43,5 +44,6 @@ router.use(blacklistRoutes)
 router.use(biliRoutes)
 router.use(systemRoutes)
 router.use(logsRoutes)
+router.use(agentMemoryRoutes)
 
 module.exports = router

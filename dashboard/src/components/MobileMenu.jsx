@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Home, Users, Settings, Terminal } from 'lucide-react';
+import { X, Brain, Home, Users, Settings, Terminal } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 const MobileMenuItem = ({ icon, label, href, active, onClick }) => {
@@ -69,6 +69,13 @@ const MobileMenu = ({ isOpen, onClose }) => {
             label="系统设置"
             href="/settings"
             active={path === '/settings'}
+            onClick={onClose}
+          />
+          <MobileMenuItem
+            icon={Brain}
+            label="Agent 记忆"
+            href="/agent-memory"
+            active={path === '/agent-memory'}
             onClick={onClose}
           />
           <MobileMenuItem

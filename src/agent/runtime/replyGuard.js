@@ -22,7 +22,7 @@ function getState(groupId) {
     return state
 }
 
-function checkReplyGuard({ agentConfig, groupId, replyDraft, timestamp = nowMs() }) {
+function checkReplyGuard({ agentConfig, groupId, replyDraft, timestamp = nowMs(), bypassCooldown = false }) {
     const cooldownMs = Math.max(0, Number(agentConfig?.replyPolicy?.cooldownMs) || 0)
     const state = getState(groupId)
     const normalizedDraft = normalizeText(replyDraft)
@@ -31,7 +31,7 @@ function checkReplyGuard({ agentConfig, groupId, replyDraft, timestamp = nowMs()
         return { allowed: false, reason: 'empty_reply_draft' }
     }
 
-    if (cooldownMs > 0 && state.lastReplyAt > 0) {
+    if (!bypassCooldown && cooldownMs > 0 && state.lastReplyAt > 0) {
         const elapsed = timestamp - state.lastReplyAt
         if (elapsed < cooldownMs) {
             return {
