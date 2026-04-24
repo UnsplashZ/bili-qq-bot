@@ -32,6 +32,8 @@
     "observeOnly": true,
     "logTrajectory": true,
     "defaultGroupEnabled": false,
+    "decisionMode": "rule_only",
+    "sendEnabled": false,
     "aliases": [],
     "shortTerm": {
       "maxRecentMessagesPerGroup": 100,
@@ -41,6 +43,13 @@
     "replyPolicy": {
       "minReplyScore": 0.72,
       "cooldownMs": 30000
+    },
+    "llm": {
+      "enabled": false,
+      "apiKeyEnv": "AGENT_API_KEY",
+      "timeoutMs": 12000,
+      "temperature": 0.2,
+      "maxTokens": 500
     },
     "groups": {}
   },

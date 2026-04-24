@@ -6,6 +6,7 @@ const { runWithAgentSession } = require('../session/agentSessionContext')
 const shortTermStore = require('../memory/shortTermStore')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
+const { decideWithLlm } = require('../cognition/agentDecisionService')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
 
 async function observe(context) {
@@ -39,13 +40,22 @@ async function observe(context) {
     return runWithAgentSession(sessionContext, async () => {
         const scoreResult = scoreMessage({ agentMessage, memoryObservation, actor })
         const decision = decideReply({ scoreResult, agentConfig })
+        const llmDecision = await decideWithLlm({
+            agentConfig,
+            agentMessage,
+            memoryObservation,
+            scoreResult,
+            ruleDecision: decision,
+            sessionContext
+        })
         const result = {
             skipped: false,
             message: agentMessage,
             session: sessionContext,
             topic: memoryObservation.topicSnapshot,
             score: scoreResult,
-            decision
+            decision,
+            llmDecision
         }
 
         logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'observe-decision', {
@@ -59,6 +69,18 @@ async function observe(context) {
             penalties: decision.penalties.join(',')
         })
 
+        if (llmDecision.status === 'ok') {
+            logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'llm-decision', {
+                groupId,
+                userId: agentMessage.userId,
+                topicId: sessionContext.topicId,
+                action: llmDecision.decision.action,
+                confidence: llmDecision.decision.confidence.toFixed(2),
+                wouldSend: Boolean(!agentConfig.observeOnly && agentConfig.sendEnabled),
+                reason: llmDecision.decision.reason
+            })
+        }
+
         if (agentConfig.logTrajectory) {
             await recordTrajectory({
                 type: 'observe_decision',
@@ -69,6 +91,7 @@ async function observe(context) {
                 topicId: sessionContext.topicId,
                 rawTextPreview: agentMessage.rawText,
                 decision,
+                llmDecision,
                 score: scoreResult,
                 actor: {
                     isRoot: actor.isRoot,

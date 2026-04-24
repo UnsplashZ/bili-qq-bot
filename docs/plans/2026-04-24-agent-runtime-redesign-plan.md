@@ -159,12 +159,14 @@ flowchart TD
   H --> X
   G -->|否| I[agentIngress.observe]
   I --> J[更新短期记忆/话题]
-  J --> K[relevanceScorer 打分]
-  K --> L{replyDecision}
-  L -->|observe_only| X
-  L -->|react_only| M[表情/轻反馈]
-  L -->|short/full reply| N[LLM 回复]
-  L -->|tool_plan| O[受限工具规划]
+  J --> K[Message Traits / Budget Guard]
+  K -->|budget hard limit| X
+  K --> L[Agent Decision LLM 结构化决策]
+  L --> V[Decision Policy Validator]
+  V -->|observe_only/defer| X
+  V -->|react_only| M[表情/轻反馈]
+  V -->|short/full reply| N[Reply Runtime 发送回复]
+  V -->|tool_plan| O[受限工具规划]
   O --> P[permissionGate + confirmation]
   P --> Q[执行白名单业务工具]
 ```
@@ -267,28 +269,118 @@ flowchart TD
 }
 ```
 
-## 6. 回复准入策略
+## 6. 回复准入与 Agent 自主决策
 
-Agent 不应使用“概率回复”作为核心逻辑，而应先判断“这句话是否值得它参与”。
-
-建议评分：
+回复判断最终应交给 Agent/LLM 自己做语义决策，但不能让 LLM 越过安全边界。推荐采用两层结构：
 
 ```text
-replyScore =
-  mentionScore
-  + replyToBotScore
-  + topicRelevanceScore
-  + relationshipScore
-  + conversationGapScore
-  + valueScore
-  + personaInterestScore
-  - crowdingPenalty
-  - interruptionPenalty
-  - repetitionPenalty
-  - cooldownPenalty
+System Router / Hard Boundary
+  ↓
+Agent Ingress
+  ↓
+Context / Memory / Message Traits
+  ↓
+Budget Guard
+  ↓
+Agent Decision LLM
+  ↓
+Decision Policy Validator
+  ↓
+Reply Runtime / Tool Planner
 ```
 
-推荐动作：
+### 6.1 System Router / Hard Boundary：系统路由和硬边界
+
+硬编码规则不应替 Agent 判断一条自然语言消息是否无聊、垃圾、拥挤或值得回复。它只负责系统路由、权限硬拒绝和成本硬限制。
+
+System Router / Hard Boundary 负责：
+
+- 显式命令继续走 `commandManager`，不交给 Agent。
+- B 站/链接消息继续走 `linkService`，不交给 Agent。
+- 私聊管理员审批、系统通知等确定性事件走专用 handler。
+- 黑名单、群禁用、Agent 未启用：硬拒绝，不进入 Agent。
+- pending confirmation：优先进入确认流程，不让 LLM 重新解释。
+- 预算硬限制：由独立 Budget Guard 控制是否允许本次调用 LLM。
+
+System Router / Hard Boundary 不负责：
+
+- 判断短消息是不是垃圾。
+- 判断群聊拥挤时是否应该沉默。
+- 判断自然语言是否值得回复。
+- 决定回复语气和拟人化参与程度。
+- 判断复杂含义，例如玩笑、暗示、群聊社交上下文。
+
+原则：除明确系统指令、链接处理、权限硬拒绝、预算硬限制外，所有自然语言消息都应进入 Agent；规则只提供上下文特征，不替 Agent 做语义裁决。
+
+### 6.2 Agent Decision LLM：语义参与判断
+
+LLM 负责基于人格、上下文、短期记忆、群聊节奏和用户关系，自主判断是否参与。
+
+核心系统要求：
+
+```text
+你不是每条消息都要回复。
+你是群聊中的一个成员。
+沉默是常见且正确的选择。
+如果消息和你无关、群聊正在多人快速交流，通常观察即可。
+如果用户明确 @ 你、回复你、叫你的名字，通常应该认真判断是否回应。
+如果涉及配置、订阅或管理，不要直接执行，先输出 tool_plan 意图，等待权限和确认系统处理。
+```
+
+LLM 输出必须是结构化 JSON：
+
+```json
+{
+  "action": "observe_only|react_only|short_reply|full_reply|ask_clarify|tool_plan|defer",
+  "confidence": 0.0,
+  "reason": "为什么这样决定",
+  "topic": "当前话题标签",
+  "replyStyle": "none|friendly_brief|explain|clarify|serious",
+  "replyDraft": "可选回复草稿，observe_only/defer 时为空",
+  "memoryHints": [],
+  "toolIntent": null
+}
+```
+
+示例：
+
+```json
+{
+  "action": "short_reply",
+  "confidence": 0.91,
+  "reason": "用户明确 @ 我并要求介绍自己，应当简短回应。",
+  "topic": "bot_identity",
+  "replyStyle": "friendly_brief",
+  "replyDraft": "我是这个群里的 Bilibili 助手，主要负责解析 B 站链接、订阅动态提醒和部分群配置管理。现在还在观察模式，不会主动插话。",
+  "memoryHints": [],
+  "toolIntent": null
+}
+```
+
+### 6.3 Decision Policy Validator：防越权
+
+LLM 可以表达“我想回复/我想调用工具”，但代码必须二次校验。
+
+Validator 负责：
+
+- action 是否在允许集合内。
+- confidence 是否达到发送阈值。
+- 是否仍处于 observeOnly。
+- 是否命中冷却、拥挤、重复回复限制。
+- replyDraft 是否过长、是否为空、是否包含明显风险内容。
+- toolIntent 是否在白名单工具内。
+- actor 是否有权限。
+- medium/high risk 是否需要 pending confirmation。
+
+LLM 永远不能直接决定：
+
+- 自己有权限。
+- 可以跳过确认。
+- 可以修改源码或配置文件。
+- 可以执行 shell。
+- 可以接入 MCP。
+
+### 6.4 推荐动作集合
 
 - `observe_only`: 只记忆，不回复。默认动作。
 - `react_only`: 发一个表情或轻反馈，不展开话题。
@@ -298,12 +390,35 @@ replyScore =
 - `tool_plan`: 用户表达了配置/订阅/管理意图。
 - `defer`: 当前群聊太拥挤或不适合插话，延后观察。
 
-硬触发优先级：
+### 6.5 Message Traits 的定位
 
-1. @Bot、回复 Bot、明确叫 Bot 名字：允许进入较高回复评分，但仍受权限/冷却约束。
-2. 明确系统命令：不进入 Agent，继续走 commandManager。
-3. 链接消息：不进入 Agent，继续走 linkService。
-4. 普通闲聊：除非与当前 topic/persona 强相关，否则 observe_only。
+规则特征仍有价值，但只作为 Agent 的上下文输入，不作为最终语义裁决。
+
+建议把当前 `relevanceScorer` 逐步改成 `messageTraits`：
+
+```text
+messageTraits = {
+  mentionedBot,
+  aliasMatched,
+  replyToBot,
+  questionLike,
+  managementTopic,
+  tooShort,
+  lowInformation,
+  possibleSpam,
+  crowdedChat,
+  cooldownActive,
+  privilegedActor
+}
+```
+
+处理方式：
+
+- 过短、低信息、疑似垃圾消息：进入 Agent，但作为 `tooShort` / `lowInformation` / `possibleSpam` traits 提供给 LLM，由 Agent 判断 `observe_only` / `defer`。
+- 群聊过度拥挤：进入 Agent，但将 `chatPace` / `crowdedChat` 提供给 LLM，由 Agent 判断是否沉默或延迟。
+- 成本限制：由独立 Budget Guard 控制，不和语义判断混在一起。
+
+例如 `@Bot 介绍一下你自己` 不应该由硬编码分数最终拒绝，而应进入 LLM decision，让 Agent 自己判断这是明确请求。
 
 ## 7. 记忆设计
 
@@ -437,7 +552,7 @@ WebUI 不应提供 MCP 配置入口。
 
 - 新增 `src/agent` 基础目录。
 - 在 `messageHandler` 命令和链接之后调用 `agentIngress.observe()`。
-- 实现 `messageNormalizer`、`actorResolver`、`shortTermStore`、`relevanceScorer`。
+- 实现 `messageNormalizer`、`actorResolver`、`shortTermStore`、`topicContextEngine`、`relevanceScorer`。
 - 只输出日志和 trajectory，不发消息、不调用 LLM、不改配置。
 
 验收：
@@ -446,22 +561,47 @@ WebUI 不应提供 MCP 配置入口。
 - 群聊普通消息会记录 observe/score/decision。
 - 默认 decision 基本为 `observe_only`。
 
-### Phase 2：回复准入 + 人格短回复
+当前状态：已实现并已通过本地 Docker + QQ 群真实消息验证。
 
-目标：只在高相关场景下回复。
+### Phase 1.5：LLM 自主决策，只记录不发送
+
+目标：把“该不该回复”的语义判断交给 Agent/LLM，但仍不实际发言。
 
 范围：
 
-- 引入 `llmClient` 和 `promptBuilder`。
-- 支持 @Bot、回复 Bot、昵称触发。
-- 实现冷却、拥挤惩罚、重复惩罚。
-- 只允许 `short_reply` / `full_reply`，不开放工具。
+- 新增 `llmClient`，支持 OpenAI-compatible chat completions。
+- 新增 `promptBuilder`，分段组织 persona、平台礼仪、message traits、短期话题上下文。
+- 新增 `agentDecisionService`，要求 LLM 输出结构化 JSON。
+- 新增 `decisionSchema` / validator，校验 action、confidence、replyDraft、toolIntent。
+- 保留当前 rule scorer 的特征提取能力，但改名或定位为 `messageTraits`；不要用它提前丢弃自然语言消息。
+- trajectory 同时记录 `messageTraits`、`budgetDecision` 和 `llmDecision`。
+- `observeOnly=true` 时，即使 LLM 认为应回复，也只记录 `wouldSend=true` 和 `replyDraft`，不发送。
+
+验收：
+
+- `@Bot 介绍一下你自己` 应得到 LLM action=`short_reply` 或 `full_reply`，但不发出。
+- 普通闲聊如 `hello`、`好想玩原神哇` 大多数应为 `observe_only`。
+- 日志能对比 message traits 与 LLM decision，方便调整 prompt、成本控制和 validator。
+- LLM 输出异常、超时、JSON 解析失败时，回退到 observe_only，不影响原消息链路。
+
+### Phase 2：回复草稿 + 发送闸门
+
+目标：允许 Agent 生成拟人化回复草稿，但先通过 policy validator 控制是否发送。
+
+范围：
+
+- `ReplyRuntime` 读取通过校验的 `replyDraft`。
+- 增加发送阈值，例如 confidence、冷却、群聊拥挤、重复发言限制。
+- 支持 `short_reply` / `full_reply` / `ask_clarify`。
+- 仍不开放工具调用。
+- 支持全局和群级 `sendEnabled`，默认关闭。
 
 验收：
 
 - 不会每条消息都回。
 - 高并发群聊中能稳定沉默。
 - 被明确询问时能结合短期话题上下文回答。
+- 发送失败不会阻断消息链路。
 
 ### Phase 3：长期记忆
 
@@ -473,6 +613,7 @@ WebUI 不应提供 MCP 配置入口。
 - 话题摘要定期固化。
 - 用户偏好、关系、事实、episode 分表或分 type 存储。
 - 记忆提取和遗忘机制。
+- 记忆注入 prompt 前使用 `<memory-context>` fencing，避免被当成新用户输入。
 
 验收：
 
@@ -490,6 +631,7 @@ WebUI 不应提供 MCP 配置入口。
 - `permissionGate`、`riskPolicy`、`confirmationStore`。
 - 订阅、群配置、黑名单等工具。
 - 审计日志。
+- LLM 只能输出 `tool_plan`，实际执行必须由 validator + permissionGate 决定。
 
 验收：
 
@@ -505,6 +647,7 @@ WebUI 不应提供 MCP 配置入口。
 范围：
 
 - Agent 开关。
+- LLM decision 观测页。
 - Persona 参数。
 - 决策日志。
 - 记忆管理。
@@ -526,9 +669,37 @@ Phase 1 配置应尽量少：
     "observeOnly": true,
     "logTrajectory": true,
     "defaultGroupEnabled": false,
+    "aliases": [],
     "shortTerm": {
       "maxRecentMessagesPerGroup": 100,
-      "topicIdleMs": 1800000
+      "topicIdleMs": 1800000,
+      "crowdedMessagesPerMinute": 8
+    },
+    "replyPolicy": {
+      "minReplyScore": 0.72,
+      "cooldownMs": 30000
+    },
+    "groups": {}
+  }
+}
+```
+
+Phase 1.5 增加 LLM decision 配置，但仍不发送：
+
+```json
+{
+  "agent": {
+    "enabled": true,
+    "observeOnly": true,
+    "decisionMode": "llm_shadow",
+    "sendEnabled": false,
+    "llm": {
+      "enabled": true,
+      "provider": "openai-compatible",
+      "baseURL": "https://api.example.com/v1",
+      "model": "model-name",
+      "apiKeyEnv": "AGENT_API_KEY",
+      "timeoutMs": 12000
     }
   }
 }
@@ -537,9 +708,11 @@ Phase 1 配置应尽量少：
 说明：
 
 - `enabled: false`：默认不启用，避免影响当前生产行为。
-- `observeOnly: true`：第一阶段只观察。
+- `observeOnly: true`：观察/影子决策阶段不发送。
+- `sendEnabled: false`：Phase 1.5 即使有 replyDraft 也不发送。
 - `defaultGroupEnabled: false`：每群显式开启。
-- 不在 Phase 1 增加 LLM key。
+- `apiKeyEnv` 只引用环境变量名，不把密钥写入 `config/config.json`。
+- Phase 1 不需要 LLM key；Phase 1.5 才需要 OpenAI-compatible API。
 
 ## 14. 验证计划
 
@@ -562,13 +735,25 @@ Phase 1 配置应尽量少：
 
 ## 16. 推荐下一步
 
-建议下一步只实现 Phase 1：`Agent Ingress + Observer + ShortTermStore + RelevanceScorer`，不接 LLM、不发消息、不开放工具。
+当前 Phase 1 已经落地并在 QQ 群真实消息中验证：消息可以进入 `AGENT observe-decision`，trajectory 能记录 rule score、reason、actor 和 topic；下一步要把 rule score 降级为 message traits。
 
-这样可以在真实群聊流量里观察：
+下一步建议实现 Phase 1.5：`LLM 自主决策，只记录不发送`。
 
-- 哪些消息被判定为和 Bot 相关。
-- 哪些场景应该沉默。
-- 群聊拥挤时打分是否下降。
-- 话题分流是否足够稳定。
+优先实现点：
 
-等 Phase 1 日志质量稳定后，再进入 Phase 2 接 LLM 回复。
+- `runtime/llmClient.js`: OpenAI-compatible 调用封装，支持 timeout 和错误回退。
+- `runtime/promptBuilder.js`: 分段构建 persona、群聊礼仪、message traits、短期上下文。
+- `cognition/agentDecisionService.js`: 调 LLM 输出结构化 decision。
+- `cognition/decisionSchema.js`: 校验 action、confidence、replyDraft、toolIntent。
+- `runtime/trajectoryRecorder.js`: 同时记录 message traits、budget decision 和 llm decision。
+- `agentConfig`: 增加 `decisionMode=rule_only|llm_shadow|llm_live`、`sendEnabled=false`、`llm` 配置。
+
+Phase 1.5 的目标不是让 Bot 开始说话，而是用真实群聊流量验证：
+
+- LLM 是否比手写规则更懂“该不该回”。
+- 普通闲聊是否能保持沉默。
+- @Bot/明确请求是否能给出合理 replyDraft。
+- prompt 是否会让 Agent 过度积极。
+- JSON 输出、超时和异常回退是否稳定。
+
+通过 Phase 1.5 后，再进入 Phase 2：打开受控发送闸门。

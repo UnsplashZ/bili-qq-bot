@@ -46,6 +46,8 @@ const DEFAULT_AGENT_CONFIG = {
     observeOnly: true,
     logTrajectory: true,
     defaultGroupEnabled: false,
+    decisionMode: 'rule_only',
+    sendEnabled: false,
     aliases: [],
     shortTerm: {
         maxRecentMessagesPerGroup: 100,
@@ -55,6 +57,16 @@ const DEFAULT_AGENT_CONFIG = {
     replyPolicy: {
         minReplyScore: 0.72,
         cooldownMs: 30 * 1000
+    },
+    llm: {
+        enabled: false,
+        provider: 'openai-compatible',
+        baseURL: '',
+        model: '',
+        apiKeyEnv: 'AGENT_API_KEY',
+        timeoutMs: 12 * 1000,
+        temperature: 0.2,
+        maxTokens: 500
     },
     groups: {}
 }

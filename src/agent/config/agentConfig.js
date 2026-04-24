@@ -29,6 +29,20 @@ function parseNumber(value, fallback) {
     return Number.isFinite(parsed) ? parsed : fallback
 }
 
+function parseBoolean(value, fallback = false) {
+    if (value === undefined || value === null || value === '') return fallback
+    if (typeof value === 'boolean') return value
+    const normalized = String(value).trim().toLowerCase()
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+    return fallback
+}
+
+function envValue(env, key, fallback) {
+    const value = env[key]
+    return value === undefined || value === null || value === '' ? fallback : value
+}
+
 function getRawAgentConfig() {
     return Object.prototype.hasOwnProperty.call(config._overrides, 'agent')
         ? config._overrides.agent
@@ -42,6 +56,10 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     normalized.observeOnly = normalized.observeOnly !== false
     normalized.logTrajectory = normalized.logTrajectory !== false
     normalized.defaultGroupEnabled = Boolean(normalized.defaultGroupEnabled)
+    normalized.decisionMode = ['rule_only', 'llm_shadow', 'llm_live'].includes(normalized.decisionMode)
+        ? normalized.decisionMode
+        : DEFAULT_AGENT_CONFIG.decisionMode
+    normalized.sendEnabled = Boolean(normalized.sendEnabled)
     normalized.aliases = Array.isArray(normalized.aliases)
         ? normalized.aliases.map((alias) => String(alias).trim()).filter(Boolean)
         : []
@@ -55,6 +73,16 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     const replyPolicy = normalized.replyPolicy
     replyPolicy.minReplyScore = Math.min(1, Math.max(0, parseNumber(replyPolicy.minReplyScore, DEFAULT_AGENT_CONFIG.replyPolicy.minReplyScore)))
     replyPolicy.cooldownMs = Math.max(0, Math.trunc(parseNumber(replyPolicy.cooldownMs, DEFAULT_AGENT_CONFIG.replyPolicy.cooldownMs)))
+
+    const llm = normalized.llm
+    llm.enabled = parseBoolean(process.env.AGENT_LLM_ENABLED, Boolean(llm.enabled))
+    llm.provider = String(envValue(process.env, 'AGENT_LLM_PROVIDER', llm.provider || DEFAULT_AGENT_CONFIG.llm.provider)).trim()
+    llm.baseURL = String(envValue(process.env, 'AGENT_LLM_BASE_URL', llm.baseURL || '')).trim()
+    llm.model = String(envValue(process.env, 'AGENT_LLM_MODEL', llm.model || '')).trim()
+    llm.apiKeyEnv = String(envValue(process.env, 'AGENT_LLM_API_KEY_ENV', llm.apiKeyEnv || DEFAULT_AGENT_CONFIG.llm.apiKeyEnv)).trim()
+    llm.timeoutMs = Math.max(1000, Math.trunc(parseNumber(envValue(process.env, 'AGENT_LLM_TIMEOUT_MS', llm.timeoutMs), DEFAULT_AGENT_CONFIG.llm.timeoutMs)))
+    llm.temperature = Math.min(2, Math.max(0, parseNumber(envValue(process.env, 'AGENT_LLM_TEMPERATURE', llm.temperature), DEFAULT_AGENT_CONFIG.llm.temperature)))
+    llm.maxTokens = Math.max(100, Math.trunc(parseNumber(envValue(process.env, 'AGENT_LLM_MAX_TOKENS', llm.maxTokens), DEFAULT_AGENT_CONFIG.llm.maxTokens)))
 
     return normalized
 }

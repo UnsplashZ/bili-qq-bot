@@ -8,6 +8,7 @@ const config = require(path.join(__dirname, '../../src/config'))
 const logger = require(path.join(__dirname, '../../src/utils/logger'))
 const agent = require(path.join(__dirname, '../../src/agent'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
+const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
 const commandManager = require(path.join(__dirname, '../../src/commands'))
 const linkService = require(path.join(__dirname, '../../src/services/link'))
 
@@ -21,7 +22,8 @@ const originals = {
     groupConfigs: config.groupConfigs,
     commandDispatch: commandManager.dispatch,
     prepareIncomingMessageLinks: linkService.prepareIncomingMessageLinks,
-    agentObserve: agent.agentIngress.observe
+    agentObserve: agent.agentIngress.observe,
+    createChatCompletion: llmClient.createChatCompletion
 }
 
 function restore() {
@@ -39,6 +41,7 @@ function restore() {
     commandManager.dispatch = originals.commandDispatch
     linkService.prepareIncomingMessageLinks = originals.prepareIncomingMessageLinks
     agent.agentIngress.observe = originals.agentObserve
+    llmClient.createChatCompletion = originals.createChatCompletion
     shortTermStore.reset()
 }
 
@@ -57,6 +60,18 @@ function enableAgent(overrides = {}) {
         replyPolicy: {
             minReplyScore: 0.72,
             cooldownMs: 30000
+        },
+        decisionMode: 'rule_only',
+        sendEnabled: false,
+        llm: {
+            enabled: false,
+            provider: 'openai-compatible',
+            baseURL: '',
+            model: '',
+            apiKeyEnv: 'AGENT_API_KEY',
+            timeoutMs: 12000,
+            temperature: 0.2,
+            maxTokens: 500
         },
         groups: {},
         ...overrides
@@ -136,6 +151,57 @@ async function run() {
         assert.ok(decisionResult.score.reasons.includes('bot_management_topic'))
         assert.strictEqual(decisionResult.session.actor.canManageGroupConfig, true)
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('observe-decision')))
+
+        shortTermStore.reset()
+        let capturedMessages = null
+        enableAgent({
+            decisionMode: 'llm_shadow',
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        process.env.AGENT_API_KEY = 'test-key'
+        llmClient.createChatCompletion = async ({ messages }) => {
+            capturedMessages = messages
+            return {
+                model: 'test-model',
+                usage: { total_tokens: 12 },
+                content: JSON.stringify({
+                    action: 'short_reply',
+                    confidence: 0.93,
+                    reason: '用户明确 @ 我并要求介绍自己',
+                    topic: 'bot_identity',
+                    replyStyle: 'friendly_brief',
+                    replyDraft: '我是 Bilibili 助手，目前还在观察模式。',
+                    memoryHints: [],
+                    toolIntent: null
+                })
+            }
+        }
+        const llmResult = await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，介绍一下你自己',
+            messageData: makeMessageData('小助手，介绍一下你自己', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，介绍一下你自己' } }
+                ]
+            }),
+            traceContext: { scope: 'test:llm-shadow' }
+        })
+        assert.strictEqual(llmResult.llmDecision.status, 'ok')
+        assert.strictEqual(llmResult.llmDecision.decision.action, 'short_reply')
+        assert.strictEqual(llmResult.llmDecision.decision.replyDraft, '我是 Bilibili 助手，目前还在观察模式。')
+        assert.ok(Array.isArray(capturedMessages))
+        assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('llm-decision')))
 
         prepareRuntime()
         const handler = require(path.join(__dirname, '../../src/handlers/messageHandler'))
