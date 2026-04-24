@@ -1,4 +1,5 @@
 const logger = require('../../utils/logger')
+const notificationService = require('../../services/notificationService')
 const { normalizeAgentConfig, isEnabledForGroup, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const { normalizeMessage } = require('./messageNormalizer')
 const { resolveActor } = require('../session/actorResolver')
@@ -15,6 +16,60 @@ const { checkBudget } = require('../runtime/budgetGuard')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
 const { executeReply } = require('../runtime/replyExecutor')
 const { checkReplyGuard } = require('../runtime/replyGuard')
+const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
+
+async function sendSystemReply({ context, groupId, userId, decision, traceContext }) {
+    const llmDecision = {
+        status: 'ok',
+        decision
+    }
+    const policyDecision = {
+        accepted: true,
+        finalAction: decision.action,
+        reason: decision.reason,
+        wouldSend: true,
+        replyDraft: decision.replyDraft
+    }
+    return executeReply({
+        ws: context.ws,
+        groupId,
+        userId,
+        llmDecision,
+        policyDecision,
+        traceContext
+    })
+}
+
+function senderIsSelf(messagePayload, selfId) {
+    const normalizedSelfId = String(selfId || '')
+    if (!normalizedSelfId) return false
+    const senderUserId = messagePayload?.sender?.user_id ?? messagePayload?.sender?.userId ?? messagePayload?.user_id
+    return senderUserId !== undefined && senderUserId !== null && String(senderUserId) === normalizedSelfId
+}
+
+async function resolveReplyToSelf({ ws, agentMessage, messageData, traceScope }) {
+    if (!agentMessage.hasReply) return false
+    if (senderIsSelf(messageData?.reply, agentMessage.selfId)) return true
+    if (!agentMessage.replyMessageId || !ws || ws.readyState !== 1) return false
+
+    try {
+        const response = await notificationService.callAction(
+            ws,
+            'get_msg',
+            { message_id: agentMessage.replyMessageId },
+            'AgentReplyResolver',
+            3000
+        )
+        return senderIsSelf(response?.data, agentMessage.selfId)
+    } catch (error) {
+        logger.logEvent('debug', 'AGENT', traceScope || '', 'reply-target-resolve-failed', {
+            messageId: agentMessage.id,
+            replyMessageId: agentMessage.replyMessageId,
+            error: logger.getErrorMessage(error)
+        })
+        return false
+    }
+}
 
 async function observe(context) {
     const baseAgentConfig = normalizeAgentConfig()
@@ -30,6 +85,12 @@ async function observe(context) {
         messageSegments: context.messageData?.message,
         messageData: context.messageData,
         aliases: agentConfig.aliases
+    })
+    agentMessage.replyToSelf = await resolveReplyToSelf({
+        ws: context.ws,
+        agentMessage,
+        messageData: context.messageData,
+        traceScope: context.traceContext?.scope || ''
     })
     const actor = resolveActor({ groupId, userId: context.userId, messageData: context.messageData })
     const memoryObservation = shortTermStore.observe(agentMessage, agentConfig.shortTerm)
@@ -47,6 +108,43 @@ async function observe(context) {
 
     return runWithAgentSession(sessionContext, async () => {
         const scoreResult = scoreMessage({ agentMessage, memoryObservation, actor })
+        const consumedToolConfirmation = await tryConsumeToolConfirmation({
+            agentMessage,
+            agentConfig,
+            sessionContext
+        })
+        if (consumedToolConfirmation) {
+            const execution = await sendSystemReply({
+                context,
+                groupId,
+                userId: agentMessage.userId,
+                decision: consumedToolConfirmation.decisionOverride,
+                traceContext: context.traceContext
+            })
+            const result = {
+                skipped: false,
+                message: agentMessage,
+                session: sessionContext,
+                topic: memoryObservation.topicSnapshot,
+                score: scoreResult,
+                toolConfirmation: consumedToolConfirmation,
+                execution
+            }
+            if (agentConfig.logTrajectory) {
+                await recordTrajectory({
+                    type: 'tool_confirmation',
+                    traceScope: sessionContext.traceScope,
+                    groupId,
+                    userId: agentMessage.userId,
+                    messageId: agentMessage.id,
+                    topicId: sessionContext.topicId,
+                    toolConfirmation: consumedToolConfirmation,
+                    execution
+                })
+            }
+            return result
+        }
+
         const decision = decideReply({ scoreResult, agentConfig })
         const budgetDecision = checkBudget({
             agentConfig,
@@ -71,12 +169,26 @@ async function observe(context) {
             budgetDecision
         })
         const extractedMemoryHints = extractMemoryHints({ agentMessage })
-        const memoryHints = mergeMemoryHints(llmDecision.decision?.memoryHints || [], extractedMemoryHints)
+        const toolPlanResult = await processToolPlan({
+            decision: llmDecision.decision,
+            agentConfig,
+            sessionContext
+        })
+        const effectiveLlmDecision = toolPlanResult?.decisionOverride
+            ? {
+                ...llmDecision,
+                decision: {
+                    ...llmDecision.decision,
+                    ...toolPlanResult.decisionOverride
+                }
+            }
+            : llmDecision
+        const memoryHints = mergeMemoryHints(effectiveLlmDecision.decision?.memoryHints || [], extractedMemoryHints)
         const memoryWrite = await longTermStore.storeMemoryHints({
             hints: memoryHints,
             sessionContext,
             agentMessage,
-            decision: llmDecision.decision
+            decision: effectiveLlmDecision.decision
         })
         const topicSummaryWrite = await maybeStoreTopicSummary({
             agentConfig,
@@ -84,14 +196,62 @@ async function observe(context) {
             sessionContext,
             agentMessage
         })
+        if (toolPlanResult?.decisionOverride) {
+            const execution = await sendSystemReply({
+                context,
+                groupId,
+                userId: agentMessage.userId,
+                decision: toolPlanResult.decisionOverride,
+                traceContext: context.traceContext
+            })
+            const result = {
+                skipped: false,
+                message: agentMessage,
+                session: sessionContext,
+                topic: memoryObservation.topicSnapshot,
+                score: scoreResult,
+                decision,
+                messageTraits: scoreResult.traits,
+                longTermMemories,
+                extractedMemoryHints,
+                memoryWrite,
+                topicSummaryWrite,
+                budgetDecision,
+                llmDecision: effectiveLlmDecision,
+                rawLlmDecision: llmDecision,
+                toolPlanResult,
+                execution
+            }
+            if (agentConfig.logTrajectory) {
+                await recordTrajectory({
+                    type: 'tool_plan_result',
+                    traceScope: sessionContext.traceScope,
+                    groupId,
+                    userId: agentMessage.userId,
+                    messageId: agentMessage.id,
+                    topicId: sessionContext.topicId,
+                    toolPlanResult,
+                    execution,
+                    actor: {
+                        isRoot: actor.isRoot,
+                        isConfiguredGroupAdmin: actor.isConfiguredGroupAdmin,
+                        qqRole: actor.qqRole,
+                        canManageGroupConfig: actor.canManageGroupConfig,
+                        canManageSubscriptions: actor.canManageSubscriptions,
+                        canManageGlobalConfig: actor.canManageGlobalConfig
+                    }
+                })
+            }
+            return result
+        }
         const policyDecision = validateDecisionPolicy({
             agentConfig,
-            llmDecision,
+            llmDecision: effectiveLlmDecision,
             messageTraits: scoreResult.traits || {},
             replyGuardDecision: checkReplyGuard({
                 agentConfig,
                 groupId,
-                replyDraft: llmDecision.decision?.replyDraft || '',
+                replyDraft: effectiveLlmDecision.decision?.replyDraft || '',
                 timestamp: agentMessage.timestamp,
                 bypassCooldown: Boolean(
                     scoreResult.traits?.mentionedBot ||
@@ -112,15 +272,15 @@ async function observe(context) {
             traits: scoreResult.reasons.concat(scoreResult.penalties).join(',')
         })
 
-        if (llmDecision.status === 'ok') {
+        if (effectiveLlmDecision.status === 'ok') {
             logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'llm-decision', {
                 groupId,
                 userId: agentMessage.userId,
                 topicId: sessionContext.topicId,
-                action: llmDecision.decision.action,
-                confidence: llmDecision.decision.confidence.toFixed(2),
+                action: effectiveLlmDecision.decision.action,
+                confidence: effectiveLlmDecision.decision.confidence.toFixed(2),
                 wouldSend: policyDecision.wouldSend,
-                reason: llmDecision.decision.reason
+                reason: effectiveLlmDecision.decision.reason
             })
         }
 
@@ -137,7 +297,7 @@ async function observe(context) {
             ws: context.ws,
             groupId,
             userId: agentMessage.userId,
-            llmDecision,
+            llmDecision: effectiveLlmDecision,
             policyDecision,
             traceContext: context.traceContext
         })
@@ -154,7 +314,9 @@ async function observe(context) {
             memoryWrite,
             topicSummaryWrite,
             budgetDecision,
-            llmDecision,
+            llmDecision: effectiveLlmDecision,
+            rawLlmDecision: llmDecision,
+            toolPlanResult,
             policyDecision,
             execution
         }
@@ -175,7 +337,9 @@ async function observe(context) {
                 memoryWrite,
                 topicSummaryWrite,
                 budgetDecision,
-                llmDecision,
+                llmDecision: effectiveLlmDecision,
+                rawLlmDecision: llmDecision,
+                toolPlanResult,
                 policyDecision,
                 execution,
                 score: scoreResult,
@@ -195,5 +359,6 @@ async function observe(context) {
 }
 
 module.exports = {
-    observe
+    observe,
+    resolveReplyToSelf
 }

@@ -80,6 +80,15 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     replyPolicy.minReplyScore = Math.min(1, Math.max(0, parseNumber(replyPolicy.minReplyScore, DEFAULT_AGENT_CONFIG.replyPolicy.minReplyScore)))
     replyPolicy.cooldownMs = Math.max(0, Math.trunc(parseNumber(replyPolicy.cooldownMs, DEFAULT_AGENT_CONFIG.replyPolicy.cooldownMs)))
 
+    const tools = normalized.tools
+    tools.enabled = Boolean(tools.enabled)
+    tools.confirmationTtlMs = Math.max(10 * 1000, Math.trunc(parseNumber(tools.confirmationTtlMs, DEFAULT_AGENT_CONFIG.tools.confirmationTtlMs)))
+    tools.requireConfirmationFor = Array.isArray(tools.requireConfirmationFor)
+        ? tools.requireConfirmationFor
+            .map((risk) => String(risk).trim())
+            .filter((risk) => ['low', 'medium', 'high'].includes(risk))
+        : [...DEFAULT_AGENT_CONFIG.tools.requireConfirmationFor]
+
     const llm = normalized.llm
     llm.enabled = parseBoolean(process.env.AGENT_LLM_ENABLED, Boolean(llm.enabled))
     llm.provider = String(envValue(process.env, 'AGENT_LLM_PROVIDER', llm.provider || DEFAULT_AGENT_CONFIG.llm.provider)).trim()

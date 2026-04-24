@@ -648,6 +648,8 @@ WebUI 不应提供 MCP 配置入口。
 - 高风险动作必须确认。
 - Agent 不能修改程序本身。
 
+当前状态：已实现 `tool_plan` 最小闭环，包括白名单工具注册、结构化工具意图校验、群/全局权限闸门、确认队列、工具审计日志和 Agent 主流程接入。当前工具覆盖 Agent 群开关、Agent 发言/观察模式、Bot 群功能开关、群/全局黑名单、B 站用户订阅和番剧订阅；所有 medium/high 风险工具默认需要用户回复「确认」后执行。
+
 ### Phase 5：WebUI Agent 管理
 
 目标：可视化观测和配置。
@@ -687,6 +689,11 @@ Phase 1 配置应尽量少：
       "minReplyScore": 0.72,
       "cooldownMs": 30000
     },
+    "tools": {
+      "enabled": false,
+      "confirmationTtlMs": 60000,
+      "requireConfirmationFor": ["medium", "high"]
+    },
     "groups": {}
   }
 }
@@ -720,6 +727,7 @@ Phase 1.5 增加 LLM decision 配置，但仍不发送：
 - `sendEnabled: false`：Phase 1.5 即使有 replyDraft 也不发送。
 - `defaultGroupEnabled: false`：每群显式开启。
 - `apiKeyEnv` 只引用环境变量名，不把密钥写入 `config/config.json`。
+- `tools.enabled: false`：默认不开放自我管理工具；开启后仍只允许白名单工具，且 medium/high 风险动作需要确认。
 - Phase 1 不需要 LLM key；Phase 1.5 才需要 OpenAI-compatible API。
 
 ## 14. 验证计划

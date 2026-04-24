@@ -64,6 +64,11 @@ const DEFAULT_AGENT_CONFIG = {
         minReplyScore: 0.65,
         cooldownMs: 5 * 1000
     },
+    tools: {
+        enabled: false,
+        confirmationTtlMs: 60 * 1000,
+        requireConfirmationFor: ['medium', 'high']
+    },
     llm: {
         enabled: false,
         provider: 'openai-compatible',

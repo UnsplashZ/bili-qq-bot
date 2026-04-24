@@ -11,8 +11,22 @@ function hasAtSelfSegment(segments, selfId) {
     ))
 }
 
-function hasReplySegment(segments) {
-    return segments.some((segment) => segment?.type === 'reply')
+function hasReplySignal({ segments = [], messageData = {} } = {}) {
+    if (segments.some((segment) => segment?.type === 'reply')) return true
+    return Boolean(messageData?.reply)
+}
+
+function extractReplyMessageId({ segments = [], messageData = {} } = {}) {
+    for (const segment of segments) {
+        if (segment?.type !== 'reply') continue
+        const value = segment?.data?.id ?? segment?.data?.message_id ?? segment?.data?.msg_id
+        if (value !== undefined && value !== null && String(value).trim()) {
+            return String(value).trim()
+        }
+    }
+
+    const fallback = messageData?.reply?.id ?? messageData?.reply?.message_id ?? messageData?.reply?.msg_id
+    return fallback !== undefined && fallback !== null ? String(fallback).trim() : ''
 }
 
 function includesAlias(text, aliases = []) {
@@ -32,6 +46,7 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
     const mentionsSelf = hasAtSelfSegment(segments, selfId) || (
         selfId && new RegExp(`\\[CQ:at,qq=${selfId}\\]`).test(rawText)
     )
+    const replyMessageId = extractReplyMessageId({ segments, messageData })
 
     return {
         id: messageId,
@@ -44,7 +59,8 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
         normalizedText: rawText.replace(/\s+/g, ' ').trim(),
         mentionsSelf,
         replyToSelf: false,
-        hasReply: hasReplySegment(segments),
+        hasReply: hasReplySignal({ segments, messageData }),
+        replyMessageId,
         aliasMatched: includesAlias(rawText, aliases),
         timestamp: Number(messageData?.time || 0) > 0 ? Number(messageData.time) * 1000 : Date.now(),
         sender: {
@@ -57,5 +73,6 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
 
 module.exports = {
     normalizeMessage,
-    includesAlias
+    includesAlias,
+    extractReplyMessageId
 }

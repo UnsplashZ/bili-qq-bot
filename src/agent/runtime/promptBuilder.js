@@ -1,3 +1,5 @@
+const { listToolDefinitions } = require('../tools/registry')
+
 function compactText(value, limit = 500) {
     const text = String(value || '').replace(/\s+/g, ' ').trim()
     return text.length > limit ? `${text.slice(0, limit - 3)}...` : text
@@ -26,7 +28,10 @@ function buildDecisionInstruction() {
         replyStyle: 'none|friendly_brief|explain|clarify|serious',
         replyDraft: '如果需要回复，给出草稿；否则为空字符串',
         memoryHints: [],
-        toolIntent: null
+        toolIntent: {
+            name: '仅当 action=tool_plan 时填写工具名',
+            arguments: {}
+        }
     }, null, 2)
 }
 
@@ -93,6 +98,7 @@ function buildDecisionMessages({ agentMessage, memoryObservation, longTermMemori
         },
         memoryContext,
         budgetDecision: budgetDecision || null,
+        availableTools: listToolDefinitions(),
         recentMessages: summarizeRecentMessages(memoryObservation),
         constraints: [
             '默认不要插话。',
@@ -101,7 +107,9 @@ function buildDecisionMessages({ agentMessage, memoryObservation, longTermMemori
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
-            '不要执行任何配置或订阅修改，只能提出 tool_plan。',
+            '涉及配置、订阅、黑名单、开关等管理请求时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
+            'toolIntent.arguments 只能包含工具需要的结构化参数；不要把自然语言解释放进参数。',
+            '不要声称已经执行任何配置或订阅修改；实际执行必须等待权限校验和确认。',
             'observe_only/defer 时 replyDraft 必须为空字符串。',
             'tooShort、lowInformation、crowdedChat 只是上下文特征，不是硬拒绝；你需要自己判断是否沉默。'
         ]
