@@ -7,6 +7,8 @@ const shortTermStore = require('../memory/shortTermStore')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
 const { decideWithLlm } = require('../cognition/agentDecisionService')
+const { validateDecisionPolicy } = require('../cognition/decisionPolicyValidator')
+const { checkBudget } = require('../runtime/budgetGuard')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
 
 async function observe(context) {
@@ -40,13 +42,25 @@ async function observe(context) {
     return runWithAgentSession(sessionContext, async () => {
         const scoreResult = scoreMessage({ agentMessage, memoryObservation, actor })
         const decision = decideReply({ scoreResult, agentConfig })
+        const budgetDecision = checkBudget({
+            agentConfig,
+            groupId,
+            userId: agentMessage.userId,
+            timestamp: agentMessage.timestamp
+        })
         const llmDecision = await decideWithLlm({
             agentConfig,
             agentMessage,
             memoryObservation,
             scoreResult,
             ruleDecision: decision,
-            sessionContext
+            sessionContext,
+            budgetDecision
+        })
+        const policyDecision = validateDecisionPolicy({
+            agentConfig,
+            llmDecision,
+            messageTraits: scoreResult.traits || {}
         })
         const result = {
             skipped: false,
@@ -55,7 +69,10 @@ async function observe(context) {
             topic: memoryObservation.topicSnapshot,
             score: scoreResult,
             decision,
-            llmDecision
+            messageTraits: scoreResult.traits,
+            budgetDecision,
+            llmDecision,
+            policyDecision
         }
 
         logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'observe-decision', {
@@ -66,7 +83,8 @@ async function observe(context) {
             score: decision.score.toFixed(2),
             wouldReply: decision.wouldReply,
             reasons: decision.reasons.join(','),
-            penalties: decision.penalties.join(',')
+            penalties: decision.penalties.join(','),
+            traits: scoreResult.reasons.concat(scoreResult.penalties).join(',')
         })
 
         if (llmDecision.status === 'ok') {
@@ -81,6 +99,15 @@ async function observe(context) {
             })
         }
 
+        logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'policy-decision', {
+            groupId,
+            userId: agentMessage.userId,
+            finalAction: policyDecision.finalAction,
+            accepted: policyDecision.accepted,
+            wouldSend: policyDecision.wouldSend,
+            reason: policyDecision.reason
+        })
+
         if (agentConfig.logTrajectory) {
             await recordTrajectory({
                 type: 'observe_decision',
@@ -91,7 +118,10 @@ async function observe(context) {
                 topicId: sessionContext.topicId,
                 rawTextPreview: agentMessage.rawText,
                 decision,
+                messageTraits: scoreResult.traits,
+                budgetDecision,
                 llmDecision,
+                policyDecision,
                 score: scoreResult,
                 actor: {
                     isRoot: actor.isRoot,

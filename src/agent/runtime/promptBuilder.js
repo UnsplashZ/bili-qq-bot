@@ -39,7 +39,7 @@ function summarizeRecentMessages(memoryObservation) {
     }))
 }
 
-function buildDecisionMessages({ agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext }) {
+function buildDecisionMessages({ agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const userPayload = {
         task: '判断是否应该参与这条 QQ 群聊消息。只输出 JSON。',
         outputSchema: JSON.parse(buildDecisionInstruction()),
@@ -56,21 +56,23 @@ function buildDecisionMessages({ agentMessage, memoryObservation, scoreResult, r
         actor: sessionContext.actor,
         topic: memoryObservation?.topicSnapshot || null,
         chatPace: memoryObservation?.chatPace || null,
-        ruleHints: {
+        messageTraits: scoreResult.traits || scoreResult.components || {},
+        legacyRuleObservation: {
             score: scoreResult.score,
             reasons: scoreResult.reasons,
             penalties: scoreResult.penalties,
-            components: scoreResult.components,
             ruleAction: ruleDecision.action,
             ruleWouldReply: ruleDecision.wouldReply,
             threshold: ruleDecision.threshold
         },
+        budgetDecision: budgetDecision || null,
         recentMessages: summarizeRecentMessages(memoryObservation),
         constraints: [
             '默认不要插话。',
             '明确 @ 你或要求你做自我介绍时，通常应给 short_reply 草稿。',
             '不要执行任何配置或订阅修改，只能提出 tool_plan。',
-            'observe_only/defer 时 replyDraft 必须为空字符串。'
+            'observe_only/defer 时 replyDraft 必须为空字符串。',
+            'tooShort、lowInformation、crowdedChat 只是上下文特征，不是硬拒绝；你需要自己判断是否沉默。'
         ]
     }
 

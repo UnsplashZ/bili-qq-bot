@@ -84,6 +84,12 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     llm.temperature = Math.min(2, Math.max(0, parseNumber(envValue(process.env, 'AGENT_LLM_TEMPERATURE', llm.temperature), DEFAULT_AGENT_CONFIG.llm.temperature)))
     llm.maxTokens = Math.max(100, Math.trunc(parseNumber(envValue(process.env, 'AGENT_LLM_MAX_TOKENS', llm.maxTokens), DEFAULT_AGENT_CONFIG.llm.maxTokens)))
 
+    const budget = normalized.budget
+    budget.enabled = parseBoolean(process.env.AGENT_BUDGET_ENABLED, Boolean(budget.enabled))
+    budget.windowMs = Math.max(1000, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_WINDOW_MS', budget.windowMs), DEFAULT_AGENT_CONFIG.budget.windowMs)))
+    budget.maxLlmCallsPerGroupPerMinute = Math.max(1, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE', budget.maxLlmCallsPerGroupPerMinute), DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerGroupPerMinute)))
+    budget.maxLlmCallsPerUserPerMinute = Math.max(1, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE', budget.maxLlmCallsPerUserPerMinute), DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerUserPerMinute)))
+
     return normalized
 }
 

@@ -17,7 +17,7 @@ function validateLlmConfig(agentConfig) {
     return ''
 }
 
-async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext }) {
+async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const skipReason = validateLlmConfig(agentConfig)
     if (skipReason) {
         return {
@@ -27,13 +27,23 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, sco
         }
     }
 
+    if (budgetDecision && budgetDecision.allowed === false) {
+        return {
+            status: 'skipped',
+            reason: budgetDecision.reason,
+            decision: null,
+            budgetDecision
+        }
+    }
+
     try {
         const messages = buildDecisionMessages({
             agentMessage,
             memoryObservation,
             scoreResult,
             ruleDecision,
-            sessionContext
+            sessionContext,
+            budgetDecision
         })
         const response = await llmClient.createChatCompletion({
             llmConfig: agentConfig.llm,

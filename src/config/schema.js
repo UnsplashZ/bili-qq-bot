@@ -68,6 +68,12 @@ const DEFAULT_AGENT_CONFIG = {
         temperature: 0.2,
         maxTokens: 500
     },
+    budget: {
+        enabled: true,
+        windowMs: 60 * 1000,
+        maxLlmCallsPerGroupPerMinute: 60,
+        maxLlmCallsPerUserPerMinute: 20
+    },
     groups: {}
 }
 

@@ -9,8 +9,42 @@ const logger = require(path.join(__dirname, '../../src/utils/logger'))
 const agent = require(path.join(__dirname, '../../src/agent'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
 const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
+const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budgetGuard'))
 const commandManager = require(path.join(__dirname, '../../src/commands'))
 const linkService = require(path.join(__dirname, '../../src/services/link'))
+
+const agentEnvKeys = [
+    'AGENT_LLM_ENABLED',
+    'AGENT_LLM_PROVIDER',
+    'AGENT_LLM_BASE_URL',
+    'AGENT_LLM_MODEL',
+    'AGENT_LLM_API_KEY_ENV',
+    'AGENT_LLM_TIMEOUT_MS',
+    'AGENT_LLM_TEMPERATURE',
+    'AGENT_LLM_MAX_TOKENS',
+    'AGENT_BUDGET_ENABLED',
+    'AGENT_BUDGET_WINDOW_MS',
+    'AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE',
+    'AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE'
+]
+
+const originalEnv = Object.fromEntries(agentEnvKeys.map((key) => [key, process.env[key]]))
+
+function clearAgentEnv() {
+    agentEnvKeys.forEach((key) => {
+        delete process.env[key]
+    })
+}
+
+function restoreAgentEnv() {
+    agentEnvKeys.forEach((key) => {
+        if (originalEnv[key] === undefined) {
+            delete process.env[key]
+            return
+        }
+        process.env[key] = originalEnv[key]
+    })
+}
 
 const originals = {
     agentConfig: config._overrides.agent,
@@ -27,6 +61,7 @@ const originals = {
 }
 
 function restore() {
+    restoreAgentEnv()
     if (originals.agentConfig === undefined) {
         delete config._overrides.agent
     } else {
@@ -43,6 +78,7 @@ function restore() {
     agent.agentIngress.observe = originals.agentObserve
     llmClient.createChatCompletion = originals.createChatCompletion
     shortTermStore.reset()
+    budgetGuard.resetBudget()
 }
 
 function enableAgent(overrides = {}) {
@@ -72,6 +108,12 @@ function enableAgent(overrides = {}) {
             timeoutMs: 12000,
             temperature: 0.2,
             maxTokens: 500
+        },
+        budget: {
+            enabled: true,
+            windowMs: 60000,
+            maxLlmCallsPerGroupPerMinute: 60,
+            maxLlmCallsPerUserPerMinute: 20
         },
         groups: {},
         ...overrides
@@ -108,11 +150,13 @@ function prepareRuntime() {
 }
 
 async function run() {
+    clearAgentEnv()
     const logs = []
     const off = logger.onLog((entry) => logs.push(entry.message))
 
     try {
         shortTermStore.reset()
+        budgetGuard.resetBudget()
         config._overrides.agent = {
             enabled: false,
             observeOnly: true,
@@ -130,6 +174,7 @@ async function run() {
         assert.deepStrictEqual(disabledResult, { skipped: true, reason: 'agent_disabled' })
 
         shortTermStore.reset()
+        budgetGuard.resetBudget()
         enableAgent()
         const decisionResult = await agent.agentIngress.observe({
             groupId: '1000',
@@ -153,6 +198,7 @@ async function run() {
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('observe-decision')))
 
         shortTermStore.reset()
+        budgetGuard.resetBudget()
         let capturedMessages = null
         enableAgent({
             decisionMode: 'llm_shadow',
@@ -201,7 +247,60 @@ async function run() {
         assert.strictEqual(llmResult.llmDecision.decision.action, 'short_reply')
         assert.strictEqual(llmResult.llmDecision.decision.replyDraft, '我是 Bilibili 助手，目前还在观察模式。')
         assert.ok(Array.isArray(capturedMessages))
+        const promptPayload = JSON.parse(capturedMessages[1].content)
+        assert.strictEqual(promptPayload.messageTraits.mentionedBot, true)
+        assert.strictEqual(llmResult.policyDecision.accepted, false)
+        assert.strictEqual(llmResult.policyDecision.reason, 'observe_only_enabled')
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('llm-decision')))
+        assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('policy-decision')))
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        let budgetCalls = 0
+        enableAgent({
+            decisionMode: 'llm_shadow',
+            budget: {
+                enabled: true,
+                windowMs: 60000,
+                maxLlmCallsPerGroupPerMinute: 1,
+                maxLlmCallsPerUserPerMinute: 1
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => {
+            budgetCalls += 1
+            return {
+                model: 'test-model',
+                usage: { total_tokens: 1 },
+                content: JSON.stringify({ action: 'observe_only', confidence: 0.9, reason: 'ok', topic: 'test', replyStyle: 'none', replyDraft: '', memoryHints: [], toolIntent: null })
+            }
+        }
+        await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '第一条自然语言',
+            messageData: makeMessageData('第一条自然语言', { message_id: 'budget1' }),
+            traceContext: { scope: 'test:budget1' }
+        })
+        const budgetResult = await agent.agentIngress.observe({
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '第二条自然语言',
+            messageData: makeMessageData('第二条自然语言', { message_id: 'budget2' }),
+            traceContext: { scope: 'test:budget2' }
+        })
+        assert.strictEqual(budgetCalls, 1)
+        assert.strictEqual(budgetResult.llmDecision.status, 'skipped')
+        assert.strictEqual(budgetResult.llmDecision.reason, 'group_budget_exceeded')
 
         prepareRuntime()
         const handler = require(path.join(__dirname, '../../src/handlers/messageHandler'))
