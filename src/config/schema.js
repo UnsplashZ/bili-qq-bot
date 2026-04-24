@@ -54,6 +54,12 @@ const DEFAULT_AGENT_CONFIG = {
         topicIdleMs: 30 * 60 * 1000,
         crowdedMessagesPerMinute: 8
     },
+    longTerm: {
+        retrieveLimit: 5,
+        topicSummaryEnabled: true,
+        topicSummaryMinMessages: 6,
+        topicSummaryMinIntervalMs: 10 * 60 * 1000
+    },
     replyPolicy: {
         minReplyScore: 0.72,
         cooldownMs: 5 * 1000

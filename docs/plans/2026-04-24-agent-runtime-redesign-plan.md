@@ -616,7 +616,8 @@ WebUI 不应提供 MCP 配置入口。
 - 记忆注入 prompt 前使用 `<memory-context>` fencing，并包含 id/confidence/sourceMessageIds，避免被当成新用户输入且支持解释来源。
 - 对记忆内容做敏感字段过滤和 prompt-injection 文本转义。
 - 提供 Root 命令 `/记忆 列表|删除|清理`，用于查看和清理错误记忆。
-- 后续 Phase 3.2 再评估 SQLite、话题摘要定期固化和更强检索能力。
+- Phase 3.2 先增强内置检索：中文关键词匹配、可配置检索数量、活跃话题摘要低频固化。
+- 后续再评估 SQLite、FTS5 或向量库，不在当前阶段引入额外运行时依赖。
 
 验收：
 

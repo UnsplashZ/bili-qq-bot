@@ -70,6 +70,12 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     shortTerm.topicIdleMs = Math.max(60 * 1000, Math.trunc(parseNumber(shortTerm.topicIdleMs, DEFAULT_AGENT_CONFIG.shortTerm.topicIdleMs)))
     shortTerm.crowdedMessagesPerMinute = Math.max(1, Math.trunc(parseNumber(shortTerm.crowdedMessagesPerMinute, DEFAULT_AGENT_CONFIG.shortTerm.crowdedMessagesPerMinute)))
 
+    const longTerm = normalized.longTerm
+    longTerm.retrieveLimit = Math.max(1, Math.min(10, Math.trunc(parseNumber(longTerm.retrieveLimit, DEFAULT_AGENT_CONFIG.longTerm.retrieveLimit))))
+    longTerm.topicSummaryEnabled = Boolean(longTerm.topicSummaryEnabled)
+    longTerm.topicSummaryMinMessages = Math.max(2, Math.trunc(parseNumber(longTerm.topicSummaryMinMessages, DEFAULT_AGENT_CONFIG.longTerm.topicSummaryMinMessages)))
+    longTerm.topicSummaryMinIntervalMs = Math.max(60 * 1000, Math.trunc(parseNumber(longTerm.topicSummaryMinIntervalMs, DEFAULT_AGENT_CONFIG.longTerm.topicSummaryMinIntervalMs)))
+
     const replyPolicy = normalized.replyPolicy
     replyPolicy.minReplyScore = Math.min(1, Math.max(0, parseNumber(replyPolicy.minReplyScore, DEFAULT_AGENT_CONFIG.replyPolicy.minReplyScore)))
     replyPolicy.cooldownMs = Math.max(0, Math.trunc(parseNumber(replyPolicy.cooldownMs, DEFAULT_AGENT_CONFIG.replyPolicy.cooldownMs)))

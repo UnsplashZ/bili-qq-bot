@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const logger = require('../../utils/logger')
+const { extractKeywords } = require('./topicContextEngine')
 
 const MEMORY_DIR = path.join(__dirname, '../../../data/agent/memory')
 const MEMORY_FILE = path.join(MEMORY_DIR, 'memories.json')
@@ -168,7 +169,8 @@ function scoreMemory(memory, { groupId, userId, text }) {
     if (memory.userId && memory.userId === userId) score += 0.4
     if (memory.scope === 'group' && memory.groupId === groupId) score += 0.3
 
-    const words = String(text || '').toLowerCase().split(/\s+/).filter((word) => word.length >= 2)
+    const whitespaceWords = String(text || '').toLowerCase().split(/\s+/).filter((word) => word.length >= 2)
+    const words = Array.from(new Set([...whitespaceWords, ...extractKeywords(text)]))
     const content = String(memory.content || '').toLowerCase()
     const matches = words.filter((word) => content.includes(word)).length
     score += Math.min(0.3, matches * 0.08)
@@ -203,6 +205,51 @@ async function listMemories({ groupId = '', userId = '', limit = 10 } = {}) {
         .filter((memory) => !userId || memory.userId === userId)
         .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
         .slice(0, limit)
+}
+
+async function storeTopicSummary({ sessionContext, topicSnapshot, content, confidence = 0.55 }) {
+    const topicId = topicSnapshot?.topicId || sessionContext?.topicId || ''
+    const groupId = sessionContext?.groupId || ''
+    const safeContent = sanitizeContent(content)
+    if (!groupId || !topicId || !safeContent || isSensitiveContent(safeContent)) {
+        return { stored: 0, skipped: 1 }
+    }
+
+    await load()
+    const timestamp = nowIso()
+    const id = `mem_topic_${hash(`${groupId}|${topicId}`)}`
+    const sourceMessageIds = Array.isArray(topicSnapshot?.recentMessageIds)
+        ? topicSnapshot.recentMessageIds.slice(-10).filter(Boolean)
+        : []
+    const item = {
+        id,
+        scope: 'topic',
+        groupId,
+        userId: '',
+        topicId,
+        type: 'episode',
+        content: safeContent,
+        confidence: Math.min(1, Math.max(0, Number(confidence) || DEFAULT_CONFIDENCE)),
+        sourceMessageIds,
+        sourceDecision: 'topic_summary',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        expiresAt: null
+    }
+
+    const existing = memories.find((memory) => memory.id === id)
+    if (existing) {
+        existing.content = item.content
+        existing.confidence = Math.max(existing.confidence || 0, item.confidence)
+        existing.sourceMessageIds = Array.from(new Set([...(existing.sourceMessageIds || []), ...sourceMessageIds])).slice(-10)
+        existing.updatedAt = timestamp
+    } else {
+        memories.push(item)
+    }
+
+    memories = memories.filter((memory) => !isExpired(memory)).slice(-MAX_MEMORY_ITEMS)
+    await save()
+    return { stored: 1, skipped: 0, id }
 }
 
 async function deleteMemory(memoryId) {
@@ -243,6 +290,7 @@ module.exports = {
     storeMemoryHints,
     retrieveRelevantMemories,
     listMemories,
+    storeTopicSummary,
     deleteMemory,
     clearMemories,
     resetForTest,

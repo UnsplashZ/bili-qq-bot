@@ -5,6 +5,7 @@ const { resolveActor } = require('../session/actorResolver')
 const { runWithAgentSession } = require('../session/agentSessionContext')
 const shortTermStore = require('../memory/shortTermStore')
 const longTermStore = require('../memory/longTermStore')
+const { maybeStoreTopicSummary } = require('../memory/topicSummaryRecorder')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
 const { decideWithLlm } = require('../cognition/agentDecisionService')
@@ -55,7 +56,8 @@ async function observe(context) {
         const longTermMemories = await longTermStore.retrieveRelevantMemories({
             groupId,
             userId: agentMessage.userId,
-            text: agentMessage.normalizedText || agentMessage.rawText
+            text: agentMessage.normalizedText || agentMessage.rawText,
+            limit: agentConfig.longTerm?.retrieveLimit || 5
         })
         const llmDecision = await decideWithLlm({
             agentConfig,
@@ -72,6 +74,12 @@ async function observe(context) {
             sessionContext,
             agentMessage,
             decision: llmDecision.decision
+        })
+        const topicSummaryWrite = await maybeStoreTopicSummary({
+            agentConfig,
+            memoryObservation,
+            sessionContext,
+            agentMessage
         })
         const policyDecision = validateDecisionPolicy({
             agentConfig,
@@ -135,6 +143,7 @@ async function observe(context) {
             messageTraits: scoreResult.traits,
             longTermMemories,
             memoryWrite,
+            topicSummaryWrite,
             budgetDecision,
             llmDecision,
             policyDecision,
@@ -154,6 +163,7 @@ async function observe(context) {
                 messageTraits: scoreResult.traits,
                 longTermMemories,
                 memoryWrite,
+                topicSummaryWrite,
                 budgetDecision,
                 llmDecision,
                 policyDecision,
