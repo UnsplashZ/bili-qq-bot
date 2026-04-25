@@ -112,6 +112,16 @@ function summarizeTrajectory(event) {
                 reason: toolSource.reason || toolSource.permission?.reason || '',
                 error: toolSource.error || '',
                 resultMessage: toolSource.result?.message || '',
+                replyDecision: toolSource.toolReplyDecision
+                    ? {
+                        status: toolSource.toolReplyDecision.status || '',
+                        reason: toolSource.toolReplyDecision.reason || '',
+                        action: toolSource.toolReplyDecision.decision?.action || '',
+                        replyDraftPreview: String(toolSource.toolReplyDecision.decision?.replyDraft || '').slice(0, 160),
+                        model: toolSource.toolReplyDecision.model || '',
+                        totalTokens: toolSource.toolReplyDecision.usage?.total_tokens ?? null
+                    }
+                    : null,
                 confirmation: toolConfirmation
                     ? {
                         id: toolConfirmation.id || '',

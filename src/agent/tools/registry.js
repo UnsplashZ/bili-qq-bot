@@ -1,5 +1,7 @@
 const config = require('../../config')
 const subscriptionService = require('../../services/subscriptionService')
+const biliApi = require('../../services/biliApi')
+const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 
 function normalizeBoolean(value) {
     if (typeof value === 'boolean') return value
@@ -53,6 +55,21 @@ function normalizeAgentGroupFlagArgs(args, sessionContext) {
     return { groupId, enabled }
 }
 
+function normalizeGroupQueryArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    if (!groupId) throw new Error('missing_group_id')
+    return { groupId }
+}
+
+function normalizeBiliUserLookupArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const uid = normalizeNumericId(args.uid || args.userId || args.mid)
+    const keyword = String(args.keyword || args.name || args.query || '').trim().slice(0, 80)
+    if (!groupId) throw new Error('missing_group_id')
+    if (!uid && !keyword) throw new Error('missing_uid_or_keyword')
+    return uid ? { groupId, uid, keyword: '' } : { groupId, uid: '', keyword }
+}
+
 function normalizeUserSubscriptionArgs(args, sessionContext) {
     const groupId = normalizeGroupId(args.groupId, sessionContext)
     const uid = normalizeNumericId(args.uid || args.userId)
@@ -78,7 +95,130 @@ function normalizeBlacklistArgs(args, sessionContext) {
     return { scope, groupId, targetUserId }
 }
 
+function formatList(items, mapper, limit = 5) {
+    const list = Array.isArray(items) ? items : []
+    const selected = list.slice(0, limit).map(mapper).filter(Boolean)
+    const suffix = list.length > limit ? ` 等 ${list.length} 项` : ''
+    return selected.length > 0 ? `${selected.join('、')}${suffix}` : '无'
+}
+
+function compactText(value, limit = 80) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    return text.length > limit ? `${text.slice(0, limit - 3)}...` : text
+}
+
+function formatBiliUserInfo(info) {
+    if (!info || info.status !== 'success' || !info.data) {
+        return {
+            message: `查询 B 站用户失败：${info?.message || 'unknown_error'}`,
+            data: null
+        }
+    }
+    const data = info.data
+    const liveRoom = data.live_room && typeof data.live_room === 'object' ? data.live_room : {}
+    const liveText = liveRoom.roomid || liveRoom.room_id
+        ? `；直播间 ${liveRoom.roomid || liveRoom.room_id}${liveRoom.liveStatus || liveRoom.live_status ? '（可能正在直播）' : ''}`
+        : ''
+    return {
+        message: [
+            `B 站用户 ${data.name || data.uid || '未知'}（UID: ${data.uid || '-'}）`,
+            `等级 ${data.level ?? '-'}`,
+            `获赞 ${data.likes ?? '-'}`,
+            `视频播放 ${data.archive_view ?? '-'}`,
+            compactText(data.sign || '无签名', 60)
+        ].join('；') + liveText,
+        data: {
+            uid: String(data.uid || ''),
+            name: data.name || '',
+            level: data.level ?? null,
+            sign: data.sign || '',
+            likes: data.likes ?? null,
+            archiveView: data.archive_view ?? null,
+            liveRoomId: liveRoom.roomid || liveRoom.room_id || null
+        }
+    }
+}
+
+function formatBiliUserSearch(result) {
+    if (!result || result.status !== 'success' || !result.data) {
+        return {
+            message: `搜索 B 站用户失败：${result?.message || 'unknown_error'}`,
+            data: null
+        }
+    }
+    const candidates = Array.isArray(result.data.candidates) ? result.data.candidates : []
+    return {
+        message: [
+            `搜索「${result.data.query || ''}」找到 ${result.data.total ?? candidates.length} 个候选`,
+            formatList(candidates, (item) => `${item.name || item.uid}(UID:${item.uid})`, 5)
+        ].join('：'),
+        data: {
+            query: result.data.query || '',
+            total: result.data.total ?? candidates.length,
+            candidates: candidates.slice(0, 5).map((item) => ({
+                uid: String(item.uid || ''),
+                name: item.name || '',
+                sign: item.sign || '',
+                fans: item.fans ?? null,
+                videos: item.videos ?? null,
+                isLive: Boolean(item.is_live),
+                officialVerifyDesc: item.official_verify_desc || ''
+            }))
+        }
+    }
+}
+
 const toolDefinitions = {
+    'bili.user_lookup': {
+        name: 'bili.user_lookup',
+        description: '按 UID 查询 B 站用户信息，或按关键词搜索 B 站用户候选。',
+        risk: 'low',
+        permission: 'read_bili',
+        normalizeArgs: normalizeBiliUserLookupArgs,
+        summarize: (args) => args.uid
+            ? `查询 B 站用户 ${args.uid}`
+            : `搜索 B 站用户「${args.keyword}」`,
+        execute: async (args) => {
+            if (args.uid) {
+                const info = await biliApi.getUserInfo(args.uid, args.groupId)
+                return formatBiliUserInfo(info)
+            }
+            const result = await biliApi.searchUsers(args.keyword, args.groupId, { pageSize: 5 })
+            return formatBiliUserSearch(result)
+        }
+    },
+    'agent.get_group_config': {
+        name: 'agent.get_group_config',
+        description: '查询当前群的新 Agent 配置状态。',
+        risk: 'low',
+        permission: 'read_group_config',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 的 Agent 配置`,
+        execute: async (args) => {
+            const baseConfig = normalizeAgentConfig()
+            const effective = getEffectiveAgentConfigForGroup(args.groupId, baseConfig)
+            return {
+                message: [
+                    `群 ${args.groupId} Agent 配置：`,
+                    `入口${effective.enabled ? '开启' : '关闭'}`,
+                    `发言${effective.sendEnabled ? '开启' : '关闭'}`,
+                    `观察模式${effective.observeOnly ? '开启' : '关闭'}`,
+                    `模式 ${effective.decisionMode}`,
+                    `冷却 ${effective.replyPolicy?.cooldownMs ?? '-'}ms`
+                ].join('；'),
+                data: {
+                    groupId: args.groupId,
+                    enabled: effective.enabled,
+                    sendEnabled: effective.sendEnabled,
+                    observeOnly: effective.observeOnly,
+                    decisionMode: effective.decisionMode,
+                    cooldownMs: effective.replyPolicy?.cooldownMs ?? null,
+                    minReplyScore: effective.replyPolicy?.minReplyScore ?? null,
+                    toolsEnabled: Boolean(effective.tools?.enabled)
+                }
+            }
+        }
+    },
     'agent.set_group_enabled': {
         name: 'agent.set_group_enabled',
         description: '开启或关闭指定群的新 Agent 观察入口。',
@@ -162,6 +302,31 @@ const toolDefinitions = {
                 config.save()
             }
             return { message: `已将 ${args.targetUserId} 移出${args.scope === 'global' ? '全局' : '本群'}黑名单。` }
+        }
+    },
+    'subscription.list': {
+        name: 'subscription.list',
+        description: '查询当前群的 B 站用户和番剧订阅列表。',
+        risk: 'low',
+        permission: 'read_subscriptions',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 的订阅列表`,
+        execute: async (args) => {
+            const subscriptions = await subscriptionService.getSubscriptionsByGroup(args.groupId)
+            const users = Array.isArray(subscriptions.users) ? subscriptions.users : []
+            const bangumis = Array.isArray(subscriptions.bangumis) ? subscriptions.bangumis : []
+            return {
+                message: [
+                    `群 ${args.groupId} 当前订阅：`,
+                    `用户 ${users.length} 个（${formatList(users, (item) => `${item.name || item.uid}(${item.uid})`)}）`,
+                    `番剧 ${bangumis.length} 个（${formatList(bangumis, (item) => `${item.title || item.seasonId}(${item.seasonId})`)}）`
+                ].join('；'),
+                data: {
+                    groupId: args.groupId,
+                    users: users.map((item) => ({ uid: String(item.uid || ''), name: item.name || '' })),
+                    bangumis: bangumis.map((item) => ({ seasonId: String(item.seasonId || ''), title: item.title || '' }))
+                }
+            }
         }
     },
     'subscription.add_user': {

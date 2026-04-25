@@ -1,6 +1,6 @@
 const logger = require('../../utils/logger')
 const llmClient = require('../runtime/llmClient')
-const { buildDecisionMessages } = require('../runtime/promptBuilder')
+const { buildDecisionMessages, buildToolResultMessages } = require('../runtime/promptBuilder')
 const { parseDecisionJson, normalizeDecision, fallbackDecision } = require('./decisionSchema')
 
 function shouldRunLlmDecision(agentConfig) {
@@ -128,8 +128,83 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
     }
 }
 
+function shouldFinalizeToolOutcome(toolOutcome) {
+    return ['executed', 'failed'].includes(toolOutcome?.status)
+}
+
+function isSendableToolReply(decision) {
+    return ['short_reply', 'full_reply', 'ask_clarify'].includes(decision?.action) &&
+        Boolean(String(decision?.replyDraft || '').trim())
+}
+
+async function finalizeToolResultReply({ agentConfig, agentMessage, sessionContext, toolOutcome }) {
+    if (!shouldFinalizeToolOutcome(toolOutcome)) {
+        return {
+            status: 'skipped',
+            reason: 'tool_outcome_not_finalizable',
+            decision: toolOutcome?.decisionOverride || null
+        }
+    }
+
+    const skipReason = validateLlmConfig(agentConfig)
+    if (skipReason) {
+        return {
+            status: 'skipped',
+            reason: skipReason,
+            decision: toolOutcome.decisionOverride || null
+        }
+    }
+
+    try {
+        const response = await llmClient.createChatCompletion({
+            llmConfig: agentConfig.llm,
+            messages: buildToolResultMessages({
+                agentConfig,
+                agentMessage,
+                sessionContext,
+                toolOutcome
+            }),
+            traceScope: sessionContext.traceScope
+        })
+        const decision = parseAndNormalizeDecision(response.content)
+        if (!isSendableToolReply(decision)) {
+            return {
+                status: 'skipped',
+                reason: 'tool_reply_not_sendable',
+                decision: toolOutcome.decisionOverride || null,
+                model: response.model,
+                usage: response.usage
+            }
+        }
+        return {
+            status: 'ok',
+            reason: '',
+            decision: {
+                ...decision,
+                memoryHints: [],
+                toolIntent: null
+            },
+            model: response.model,
+            usage: response.usage
+        }
+    } catch (error) {
+        logger.logEvent('warn', 'AGENT', sessionContext.traceScope, 'tool-result-reply-failed', {
+            groupId: sessionContext.groupId,
+            userId: sessionContext.userId,
+            toolName: toolOutcome?.plan?.name || '',
+            error: logger.getErrorMessage(error)
+        })
+        return {
+            status: 'error',
+            reason: logger.getErrorMessage(error),
+            decision: toolOutcome.decisionOverride || null
+        }
+    }
+}
+
 module.exports = {
     decideWithLlm,
+    finalizeToolResultReply,
     shouldRunLlmDecision,
     validateLlmConfig,
     buildRepairMessages

@@ -10,7 +10,7 @@ const { maybeStoreTopicSummary } = require('../memory/topicSummaryRecorder')
 const { extractMemoryHints, mergeMemoryHints } = require('../memory/memoryHintExtractor')
 const { scoreMessage } = require('../cognition/relevanceScorer')
 const { decideReply } = require('../cognition/replyDecision')
-const { decideWithLlm } = require('../cognition/agentDecisionService')
+const { decideWithLlm, finalizeToolResultReply } = require('../cognition/agentDecisionService')
 const { validateDecisionPolicy } = require('../cognition/decisionPolicyValidator')
 const { checkBudget } = require('../runtime/budgetGuard')
 const { recordTrajectory } = require('../runtime/trajectoryRecorder')
@@ -38,6 +38,23 @@ async function sendSystemReply({ context, groupId, userId, decision, traceContex
         policyDecision,
         traceContext
     })
+}
+
+async function finalizeToolOutcome({ agentConfig, agentMessage, sessionContext, toolOutcome }) {
+    if (!toolOutcome?.decisionOverride) return toolOutcome
+    const toolReplyDecision = await finalizeToolResultReply({
+        agentConfig,
+        agentMessage,
+        sessionContext,
+        toolOutcome
+    })
+    return {
+        ...toolOutcome,
+        toolReplyDecision,
+        decisionOverride: toolReplyDecision?.status === 'ok'
+            ? toolReplyDecision.decision
+            : toolOutcome.decisionOverride
+    }
 }
 
 function senderIsSelf(messagePayload, selfId) {
@@ -133,11 +150,17 @@ async function observe(context) {
             sessionContext
         })
         if (consumedToolConfirmation) {
+            const finalToolConfirmation = await finalizeToolOutcome({
+                agentConfig,
+                agentMessage,
+                sessionContext,
+                toolOutcome: consumedToolConfirmation
+            })
             const execution = await sendSystemReply({
                 context,
                 groupId,
                 userId: agentMessage.userId,
-                decision: consumedToolConfirmation.decisionOverride,
+                decision: finalToolConfirmation.decisionOverride,
                 traceContext: context.traceContext
             })
             const result = {
@@ -146,7 +169,7 @@ async function observe(context) {
                 session: sessionContext,
                 topic: memoryObservation.topicSnapshot,
                 score: scoreResult,
-                toolConfirmation: consumedToolConfirmation,
+                toolConfirmation: finalToolConfirmation,
                 execution
             }
             if (agentConfig.logTrajectory) {
@@ -157,7 +180,7 @@ async function observe(context) {
                     userId: agentMessage.userId,
                     messageId: agentMessage.id,
                     topicId: sessionContext.topicId,
-                    toolConfirmation: consumedToolConfirmation,
+                    toolConfirmation: finalToolConfirmation,
                     execution
                 })
             }
@@ -188,10 +211,16 @@ async function observe(context) {
             budgetDecision
         })
         const extractedMemoryHints = extractMemoryHints({ agentMessage })
-        const toolPlanResult = await processToolPlan({
+        const rawToolPlanResult = await processToolPlan({
             decision: llmDecision.decision,
             agentConfig,
             sessionContext
+        })
+        const toolPlanResult = await finalizeToolOutcome({
+            agentConfig,
+            agentMessage,
+            sessionContext,
+            toolOutcome: rawToolPlanResult
         })
         const effectiveLlmDecision = toolPlanResult?.decisionOverride
             ? {

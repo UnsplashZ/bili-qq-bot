@@ -50,10 +50,22 @@ function run() {
             },
             result: {
                 message: '已关闭群 1000 的 Agent 发言'
+            },
+            toolReplyDecision: {
+                status: 'ok',
+                model: 'test-model',
+                usage: { total_tokens: 9 },
+                decision: {
+                    action: 'short_reply',
+                    replyDraft: '已处理：本群 Agent 发言已关闭。'
+                }
             }
         }
     })
     assert.strictEqual(matchesFilters(confirmationItem, { action: 'tool_plan' }), true)
+    assert.strictEqual(confirmationItem.tool.replyDecision.status, 'ok')
+    assert.strictEqual(confirmationItem.tool.replyDecision.action, 'short_reply')
+    assert.strictEqual(confirmationItem.tool.replyDecision.replyDraftPreview, '已处理：本群 Agent 发言已关闭。')
 
     const replyItem = summarizeTrajectory({
         type: 'observe_decision',

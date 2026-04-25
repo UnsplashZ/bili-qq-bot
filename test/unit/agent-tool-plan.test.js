@@ -15,6 +15,9 @@ const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budget
 const replyGuard = require(path.join(__dirname, '../../src/agent/runtime/replyGuard'))
 const confirmationStore = require(path.join(__dirname, '../../src/agent/tools/confirmationStore'))
 const notificationService = require(path.join(__dirname, '../../src/services/notificationService'))
+const toolRegistry = require(path.join(__dirname, '../../src/agent/tools/registry'))
+const subscriptionService = require(path.join(__dirname, '../../src/services/subscriptionService'))
+const biliApi = require(path.join(__dirname, '../../src/services/biliApi'))
 const { normalizeMessage } = require(path.join(__dirname, '../../src/agent/ingress/messageNormalizer'))
 const { resolveReplyToSelf } = require(path.join(__dirname, '../../src/agent/ingress/agentIngress'))
 
@@ -29,6 +32,9 @@ const originals = {
     isGroupAdmin: config.isGroupAdmin,
     createChatCompletion: llmClient.createChatCompletion,
     callAction: notificationService.callAction,
+    getSubscriptionsByGroup: subscriptionService.getSubscriptionsByGroup,
+    getUserInfo: biliApi.getUserInfo,
+    searchUsers: biliApi.searchUsers,
     apiKey: process.env.AGENT_API_KEY
 }
 
@@ -44,6 +50,9 @@ function restore() {
     config.isGroupAdmin = originals.isGroupAdmin
     llmClient.createChatCompletion = originals.createChatCompletion
     notificationService.callAction = originals.callAction
+    subscriptionService.getSubscriptionsByGroup = originals.getSubscriptionsByGroup
+    biliApi.getUserInfo = originals.getUserInfo
+    biliApi.searchUsers = originals.searchUsers
     if (originals.apiKey === undefined) {
         delete process.env.AGENT_API_KEY
     } else {
@@ -141,6 +150,73 @@ async function run() {
     config.isGroupAdmin = () => false
     enableAgent()
 
+    const configReadPlan = toolRegistry.normalizeToolIntent({
+        name: 'agent.get_group_config',
+        arguments: { groupId: '1000' }
+    }, { groupId: '1000' })
+    assert.strictEqual(configReadPlan.risk, 'low')
+    assert.strictEqual(configReadPlan.permission, 'read_group_config')
+    const configReadResult = await toolRegistry.executeToolPlan(configReadPlan)
+    assert.ok(configReadResult.message.includes('群 1000 Agent 配置'))
+
+    subscriptionService.getSubscriptionsByGroup = async () => ({
+        users: [{ uid: '2402855757', name: '楠哥' }],
+        bangumis: [{ seasonId: '12345', title: '测试番剧' }]
+    })
+    const subscriptionListPlan = toolRegistry.normalizeToolIntent({
+        name: 'subscription.list',
+        arguments: { groupId: '1000' }
+    }, { groupId: '1000' })
+    assert.strictEqual(subscriptionListPlan.risk, 'low')
+    assert.strictEqual(subscriptionListPlan.permission, 'read_subscriptions')
+    const subscriptionListResult = await toolRegistry.executeToolPlan(subscriptionListPlan)
+    assert.ok(subscriptionListResult.message.includes('用户 1 个'))
+    assert.ok(subscriptionListResult.message.includes('番剧 1 个'))
+
+    biliApi.getUserInfo = async (uid, groupId) => ({
+        status: 'success',
+        type: 'user',
+        data: {
+            uid,
+            name: '楠哥',
+            level: 6,
+            sign: '测试签名',
+            likes: 100,
+            archive_view: 200,
+            live_room: { roomid: 123 }
+        },
+        groupId
+    })
+    const userLookupPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.user_lookup',
+        arguments: { groupId: '1000', uid: '2402855757' }
+    }, { groupId: '1000' })
+    assert.strictEqual(userLookupPlan.risk, 'low')
+    assert.strictEqual(userLookupPlan.permission, 'read_bili')
+    const userLookupResult = await toolRegistry.executeToolPlan(userLookupPlan)
+    assert.ok(userLookupResult.message.includes('楠哥'))
+    assert.strictEqual(userLookupResult.data.uid, '2402855757')
+
+    biliApi.searchUsers = async (keyword, groupId, options) => ({
+        status: 'success',
+        type: 'user_search',
+        data: {
+            query: keyword,
+            page: 1,
+            page_size: options.pageSize,
+            total: 1,
+            candidates: [{ uid: '2402855757', name: '梦桦楠', fans: 1000 }]
+        },
+        groupId
+    })
+    const userSearchPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.user_lookup',
+        arguments: { groupId: '1000', keyword: '梦桦楠' }
+    }, { groupId: '1000' })
+    const userSearchResult = await toolRegistry.executeToolPlan(userSearchPlan)
+    assert.ok(userSearchResult.message.includes('梦桦楠'))
+    assert.strictEqual(userSearchResult.data.candidates[0].uid, '2402855757')
+
     let llmCalls = 0
     llmClient.createChatCompletion = async () => {
         llmCalls += 1
@@ -219,6 +295,24 @@ async function run() {
         { action: 'cancel', hasCode: true }
     )
 
+    llmClient.createChatCompletion = async () => {
+        llmCalls += 1
+        return {
+            model: 'test-model',
+            usage: { total_tokens: 10 },
+            content: JSON.stringify({
+                action: 'short_reply',
+                confidence: 0.96,
+                reason: '根据工具执行结果生成最终回复',
+                topic: 'tool_result',
+                replyStyle: 'serious',
+                replyDraft: '已处理：本群 Agent 发言已关闭。',
+                memoryHints: [],
+                toolIntent: null
+            })
+        }
+    }
+
     const confirmResult = await agent.agentIngress.observe({
         ws,
         groupId: '1000',
@@ -230,9 +324,10 @@ async function run() {
 
     assert.strictEqual(confirmResult.toolConfirmation.status, 'executed')
     assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, false)
-    assert.strictEqual(llmCalls, 2)
+    assert.strictEqual(confirmResult.toolConfirmation.toolReplyDecision.status, 'ok')
+    assert.strictEqual(llmCalls, 3)
     assert.strictEqual(ws.sent.length, 2)
-    assert.ok(ws.sent[1].params.message[0].data.text.includes('已关闭群 1000 的 Agent 发言'))
+    assert.strictEqual(ws.sent[1].params.message[0].data.text, '已处理：本群 Agent 发言已关闭。')
     pendingConfirmations = confirmationStore.listPendingConfirmations({ groupId: '1000', userId: '42' })
     assert.strictEqual(pendingConfirmations.length, 0)
 

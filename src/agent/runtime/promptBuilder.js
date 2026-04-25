@@ -131,8 +131,53 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
     ]
 }
 
+function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, toolOutcome }) {
+    const plan = toolOutcome?.plan || {}
+    const result = toolOutcome?.result || null
+    const userPayload = {
+        task: '根据受限工具执行结果，生成一条给 QQ 群用户看的最终回复。只输出 JSON。',
+        outputSchema: JSON.parse(buildDecisionInstruction()),
+        originalMessage: {
+            groupId: agentMessage?.groupId || sessionContext?.groupId || '',
+            userId: agentMessage?.userId || sessionContext?.userId || '',
+            messageId: agentMessage?.id || sessionContext?.messageId || '',
+            text: compactText(agentMessage?.normalizedText || agentMessage?.rawText || '', 500)
+        },
+        toolOutcome: {
+            status: toolOutcome?.status || '',
+            reason: toolOutcome?.reason || '',
+            error: toolOutcome?.error || '',
+            plan: {
+                name: plan.name || '',
+                risk: plan.risk || '',
+                permission: plan.permission || '',
+                summary: plan.summary || '',
+                args: plan.args || {}
+            },
+            result: result
+                ? {
+                    message: compactText(result.message || '', 300)
+                }
+                : null
+        },
+        constraints: [
+            '必须忠实反映工具执行结果，不得声称执行了不存在的操作。',
+            '不要输出新的 tool_plan，不要要求用户重复确认已经执行完成的操作。',
+            '成功时用 short_reply 简洁说明结果；失败时用 short_reply 说明失败原因和可行下一步。',
+            'replyDraft 必须适合直接发送到 QQ 群，控制在 120 字以内。',
+            'memoryHints 必须为空数组，toolIntent 必须为 null。'
+        ]
+    }
+
+    return [
+        { role: 'system', content: buildSystemPrompt(agentConfig) },
+        { role: 'user', content: JSON.stringify(userPayload, null, 2) }
+    ]
+}
+
 module.exports = {
     buildDecisionMessages,
+    buildToolResultMessages,
     buildSystemPrompt,
     compactText,
     buildMemoryContext

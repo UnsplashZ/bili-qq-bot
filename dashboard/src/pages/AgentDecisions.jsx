@@ -144,6 +144,12 @@ function DecisionCard({ item }) {
                 结果：{item.tool.resultMessage || item.tool.error || item.tool.reason}
               </div>
             )}
+            {item.tool.replyDecision && (
+              <div className="text-xs text-amber-100/90">
+                结果回复：{item.tool.replyDecision.status || '-'} · {item.tool.replyDecision.action || '-'}
+                {item.tool.replyDecision.replyDraftPreview ? ` · ${item.tool.replyDecision.replyDraftPreview}` : ''}
+              </div>
+            )}
           </div>
         )}
         {(item.memoryWrite || item.topicSummaryWrite) && (
