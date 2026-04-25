@@ -1,6 +1,7 @@
 const logger = require('../../utils/logger')
 const notificationService = require('../../services/notificationService')
 const { recordReply } = require('./replyGuard')
+const shortTermStore = require('../memory/shortTermStore')
 
 function buildTextMessage(text) {
     const safeText = String(text || '').trim()
@@ -29,7 +30,7 @@ function sendMessage({ ws, groupId, userId, messageChain }) {
     return false
 }
 
-async function executeReply({ ws, groupId, userId, llmDecision, policyDecision, traceContext = {} }) {
+async function executeReply({ ws, groupId, userId, selfId = '', sourceMessageId = '', llmDecision, policyDecision, traceContext = {} }) {
     const scope = traceContext.scope || ''
     if (!policyDecision?.accepted || !policyDecision?.wouldSend) {
         return { executed: false, reason: policyDecision?.reason || 'policy_not_accepted' }
@@ -68,6 +69,13 @@ async function executeReply({ ws, groupId, userId, llmDecision, policyDecision, 
             confidence: llmDecision.decision.confidence.toFixed(2)
         })
         recordReply({ groupId, replyDraft })
+        shortTermStore.recordAssistantReply({
+            groupId,
+            selfId,
+            replyText: replyDraft,
+            sourceMessageId,
+            timestamp: Date.now()
+        })
         return { executed: true, reason: 'sent', action: policyDecision.finalAction }
     } catch (error) {
         logger.logEvent('warn', 'AGENT', scope, 'reply-failed', {

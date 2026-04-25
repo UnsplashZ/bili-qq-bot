@@ -2,6 +2,7 @@ const config = require('../../config')
 const subscriptionService = require('../../services/subscriptionService')
 const biliApi = require('../../services/biliApi')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
+const longTermStore = require('../memory/longTermStore')
 
 function normalizeBoolean(value) {
     if (typeof value === 'boolean') return value
@@ -61,6 +62,28 @@ function normalizeGroupQueryArgs(args, sessionContext) {
     return { groupId }
 }
 
+function normalizeSubscriptionStatusArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const uid = normalizeNumericId(args.uid || args.userId || args.mid)
+    const seasonId = normalizeNumericId(args.seasonId || args.sid)
+    if (!groupId) throw new Error('missing_group_id')
+    if (!uid && !seasonId) throw new Error('missing_subscription_target')
+    return uid ? { groupId, type: 'user', uid, seasonId: '' } : { groupId, type: 'bangumi', uid: '', seasonId }
+}
+
+function normalizeMemorySummaryArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const query = compactText(args.query || args.topic || args.keyword || '', 80)
+    const limit = Math.min(8, Math.max(1, Number(args.limit) || 5))
+    if (!groupId) throw new Error('missing_group_id')
+    return {
+        groupId,
+        query,
+        limit,
+        viewerUserId: String(sessionContext?.userId || '').trim()
+    }
+}
+
 function normalizeBiliUserLookupArgs(args, sessionContext) {
     const groupId = normalizeGroupId(args.groupId, sessionContext)
     const uid = normalizeNumericId(args.uid || args.userId || args.mid)
@@ -68,6 +91,22 @@ function normalizeBiliUserLookupArgs(args, sessionContext) {
     if (!groupId) throw new Error('missing_group_id')
     if (!uid && !keyword) throw new Error('missing_uid_or_keyword')
     return uid ? { groupId, uid, keyword: '' } : { groupId, uid: '', keyword }
+}
+
+function normalizeBiliVideoLookupArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const rawVideoId = String(args.bvid || args.bv || args.aid || args.av || args.id || '').trim()
+    const matchedVideoId = rawVideoId.match(/BV[0-9A-Za-z]{8,20}/i)?.[0]
+        || rawVideoId.match(/av\d{1,20}/i)?.[0]
+        || rawVideoId
+    const normalized = /^\d+$/.test(matchedVideoId)
+        ? `av${matchedVideoId}`
+        : matchedVideoId.replace(/^bv/i, 'BV').replace(/^AV/i, 'av')
+    if (!groupId) throw new Error('missing_group_id')
+    if (!/^BV[0-9A-Za-z]{8,20}$/i.test(normalized) && !/^av\d{1,20}$/i.test(normalized)) {
+        throw new Error('invalid_video_id')
+    }
+    return { groupId, bvid: normalized }
 }
 
 function normalizeUserSubscriptionArgs(args, sessionContext) {
@@ -139,6 +178,147 @@ function formatBiliUserInfo(info) {
     }
 }
 
+function formatBiliVideoInfo(result) {
+    if (!result || result.status !== 'success' || !result.data) {
+        return {
+            message: `查询 B 站视频失败：${result?.message || 'unknown_error'}`,
+            data: null
+        }
+    }
+    const data = result.data
+    const owner = data.owner && typeof data.owner === 'object' ? data.owner : {}
+    const stat = data.stat && typeof data.stat === 'object' ? data.stat : {}
+    const view = data.view?.count ?? stat.view ?? null
+    const like = data.like ?? stat.like ?? null
+    const reply = data.reply ?? stat.reply ?? null
+    const danmaku = data.danmaku ?? stat.danmaku ?? null
+    return {
+        message: [
+            `B 站视频《${compactText(data.title || data.bvid || '未知视频', 50)}》`,
+            `BV: ${data.bvid || '-'}`,
+            `UP：${owner.name || '-'}${owner.mid ? `(UID:${owner.mid})` : ''}`,
+            `播放 ${view ?? '-'}`,
+            `点赞 ${like ?? '-'}`,
+            `评论 ${reply ?? '-'}`,
+            `弹幕 ${danmaku ?? '-'}`,
+            `时长 ${data.duration ?? '-'} 秒`
+        ].join('；'),
+        data: {
+            bvid: data.bvid || '',
+            aid: data.aid ?? null,
+            title: data.title || '',
+            ownerName: owner.name || '',
+            ownerUid: owner.mid ? String(owner.mid) : '',
+            view,
+            like,
+            reply,
+            danmaku,
+            duration: data.duration ?? null,
+            pubdate: data.pubdate ?? null,
+            type: result.type || data.type || ''
+        }
+    }
+}
+
+function formatSubscriptionStatus(subscriptions, args) {
+    const users = Array.isArray(subscriptions?.users) ? subscriptions.users : []
+    const bangumis = Array.isArray(subscriptions?.bangumis) ? subscriptions.bangumis : []
+    if (args.type === 'user') {
+        const sub = users.find((item) => String(item.uid || '').trim() === args.uid)
+        if (!sub) {
+            return {
+                message: `群 ${args.groupId} 未订阅 B 站用户 ${args.uid}。`,
+                data: { groupId: args.groupId, type: args.type, uid: args.uid, subscribed: false }
+            }
+        }
+        return {
+            message: [
+                `群 ${args.groupId} 已订阅 B 站用户 ${sub.name || sub.uid}（UID: ${sub.uid}）`,
+                `最近动态 ${sub.lastDynamicId || '-'}`,
+                `最近视频 ${sub.lastVideoId || '-'}`,
+                `直播状态 ${sub.lastLiveStatus || '-'}`
+            ].join('；'),
+            data: {
+                groupId: args.groupId,
+                type: args.type,
+                uid: String(sub.uid || ''),
+                name: sub.name || '',
+                subscribed: true,
+                lastDynamicId: sub.lastDynamicId || null,
+                lastVideoId: sub.lastVideoId || null,
+                lastLiveStatus: sub.lastLiveStatus || null,
+                sourceCount: Array.isArray(sub.sources) ? sub.sources.length : null
+            }
+        }
+    }
+
+    const sub = bangumis.find((item) => String(item.seasonId || '').trim() === args.seasonId)
+    if (!sub) {
+        return {
+            message: `群 ${args.groupId} 未订阅番剧 ${args.seasonId}。`,
+            data: { groupId: args.groupId, type: args.type, seasonId: args.seasonId, subscribed: false }
+        }
+    }
+    return {
+        message: [
+            `群 ${args.groupId} 已订阅番剧 ${sub.title || sub.seasonId}（Season: ${sub.seasonId}）`,
+            `最近剧集 ${sub.lastEpId || '-'}`
+        ].join('；'),
+        data: {
+            groupId: args.groupId,
+            type: args.type,
+            seasonId: String(sub.seasonId || ''),
+            title: sub.title || '',
+            subscribed: true,
+            lastEpId: sub.lastEpId || null
+        }
+    }
+}
+
+function formatMemorySummary(memories, args) {
+    const visibleMemories = (Array.isArray(memories) ? memories : [])
+        .filter((memory) => memory.scope !== 'user' || !memory.userId || memory.userId === args.viewerUserId)
+    const query = args.query.toLowerCase()
+    const filtered = query
+        ? visibleMemories.filter((memory) => String(memory.content || '').toLowerCase().includes(query))
+        : visibleMemories
+    const selected = filtered.slice(0, args.limit)
+
+    if (selected.length === 0) {
+        return {
+            message: args.query
+                ? `当前群没有找到与「${args.query}」相关的可见 Agent 记忆。`
+                : '当前群暂无可见 Agent 记忆。',
+            data: {
+                groupId: args.groupId,
+                query: args.query,
+                totalVisible: visibleMemories.length,
+                memories: []
+            }
+        }
+    }
+
+    return {
+        message: [
+            args.query ? `与「${args.query}」相关的 Agent 记忆` : '当前群 Agent 记忆摘要',
+            formatList(selected, (memory) => `${memory.type || 'fact'}:${compactText(memory.content, 36)}`, args.limit)
+        ].join('：'),
+        data: {
+            groupId: args.groupId,
+            query: args.query,
+            totalVisible: visibleMemories.length,
+            memories: selected.map((memory) => ({
+                id: memory.id || '',
+                scope: memory.scope || '',
+                type: memory.type || '',
+                content: memory.content || '',
+                confidence: memory.confidence ?? null,
+                updatedAt: memory.updatedAt || memory.createdAt || ''
+            }))
+        }
+    }
+}
+
 function formatBiliUserSearch(result) {
     if (!result || result.status !== 'success' || !result.data) {
         return {
@@ -187,6 +367,32 @@ const toolDefinitions = {
             return formatBiliUserSearch(result)
         }
     },
+    'bili.video_lookup': {
+        name: 'bili.video_lookup',
+        description: '按 BV/av 号查询 B 站视频基础信息。',
+        risk: 'low',
+        permission: 'read_bili',
+        normalizeArgs: normalizeBiliVideoLookupArgs,
+        summarize: (args) => `查询 B 站视频 ${args.bvid}`,
+        execute: async (args) => {
+            const result = await biliApi.getVideoInfo(args.bvid, args.groupId)
+            return formatBiliVideoInfo(result)
+        }
+    },
+    'bili.subscription_status': {
+        name: 'bili.subscription_status',
+        description: '查询当前群是否已订阅指定 B 站用户或番剧。',
+        risk: 'low',
+        permission: 'read_subscriptions',
+        normalizeArgs: normalizeSubscriptionStatusArgs,
+        summarize: (args) => args.type === 'user'
+            ? `查询群 ${args.groupId} 是否订阅用户 ${args.uid}`
+            : `查询群 ${args.groupId} 是否订阅番剧 ${args.seasonId}`,
+        execute: async (args) => {
+            const subscriptions = await subscriptionService.getSubscriptionsByGroup(args.groupId)
+            return formatSubscriptionStatus(subscriptions, args)
+        }
+    },
     'agent.get_group_config': {
         name: 'agent.get_group_config',
         description: '查询当前群的新 Agent 配置状态。',
@@ -217,6 +423,20 @@ const toolDefinitions = {
                     toolsEnabled: Boolean(effective.tools?.enabled)
                 }
             }
+        }
+    },
+    'agent.get_memory_summary': {
+        name: 'agent.get_memory_summary',
+        description: '查询当前群可见的 Agent 长期记忆摘要。',
+        risk: 'low',
+        permission: 'read_agent_memory',
+        normalizeArgs: normalizeMemorySummaryArgs,
+        summarize: (args) => args.query
+            ? `查询群 ${args.groupId} 与「${args.query}」相关的 Agent 记忆`
+            : `查询群 ${args.groupId} 的 Agent 记忆摘要`,
+        execute: async (args) => {
+            const memories = await longTermStore.listMemories({ groupId: args.groupId, limit: 50 })
+            return formatMemorySummary(memories, args)
         }
     },
     'agent.set_group_enabled': {

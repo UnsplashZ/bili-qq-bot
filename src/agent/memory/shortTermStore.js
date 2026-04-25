@@ -63,6 +63,41 @@ class ShortTermStore {
         }
     }
 
+    recordAssistantReply({ groupId, selfId = '', replyText = '', sourceMessageId = '', timestamp = Date.now() } = {}, options = {}) {
+        const text = String(replyText || '').trim()
+        const targetGroupId = String(groupId || '')
+        if (!targetGroupId || !text) return null
+
+        const groupState = this.getGroupState(targetGroupId)
+        const maxRecent = options.maxRecentMessagesPerGroup || 100
+        const message = {
+            id: sourceMessageId ? `assistant:${sourceMessageId}` : `assistant:${timestamp}`,
+            role: 'assistant',
+            groupId: targetGroupId,
+            userId: String(selfId || 'bot'),
+            selfId: String(selfId || ''),
+            messageType: 'group',
+            rawText: text,
+            segments: [{ type: 'text', data: { text } }],
+            normalizedText: text,
+            mentionsSelf: false,
+            replyToSelf: false,
+            hasReply: false,
+            replyMessageId: '',
+            replyTarget: null,
+            aliasMatched: false,
+            timestamp,
+            sender: {
+                nickname: 'Bot',
+                card: '',
+                role: 'assistant'
+            }
+        }
+        groupState.recentMessages.push(message)
+        groupState.recentMessages = groupState.recentMessages.slice(-maxRecent)
+        return message
+    }
+
     getSnapshot(groupId) {
         const groupState = this.getGroupState(groupId)
         return {

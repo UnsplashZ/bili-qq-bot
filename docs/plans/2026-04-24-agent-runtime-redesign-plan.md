@@ -789,12 +789,12 @@ Phase 1.5 增加 LLM decision 配置，但仍不发送：
 Agent 的能力范围应按“领域工具优先，通用浏览器后置”的顺序扩展：
 
 1. B 站领域查询工具：
-   - `bili.user_lookup`: 按 uid 或可支持的关键词查询用户基础信息。
-   - `bili.video_lookup`: 查询视频标题、UP、发布时间、播放量等基础信息。
-   - `bili.subscription_status`: 查询本群订阅状态和最近同步结果。
+   - `bili.user_lookup`: 已实现，按 uid 或可支持的关键词查询用户基础信息。
+   - `bili.video_lookup`: 已实现，按 BV/av 查询视频标题、UP、播放量、点赞、评论、弹幕和时长等基础信息。
+   - `bili.subscription_status`: 已实现，查询本群是否订阅指定 UID/Season，并返回最近动态、视频、直播或剧集状态。
 2. Bot 配置查询工具：
    - `agent.get_group_config`: 查询本群 Agent 开关、发言状态、冷却和工具策略。
-   - `agent.get_memory_summary`: 查询与当前话题相关的记忆摘要。
+   - `agent.get_memory_summary`: 已实现，查询当前群可见的长期记忆摘要，并避免暴露其他用户的 user-scope 私有记忆。
 3. 订阅管理工具完善：
    - 订阅新增/删除前先查询目标信息，降低订错 uid 或番剧 ID 的概率。
    - 工具结果回灌 LLM，由 Agent 用自然语言解释执行结果。
@@ -833,6 +833,6 @@ Agent 的能力范围应按“领域工具优先，通用浏览器后置”的�
 
 验收：
 
-- 用户问“这个 uid 订阅了吗 / 本群 Agent 现在开了吗 / 帮我查一下这个 B 站用户”时，Agent 能调用只读工具并自然回复。
+- 用户问“这个 uid 订阅了吗 / 本群 Agent 现在开了吗 / 帮我查一下这个 B 站用户或视频”时，Agent 能调用只读工具并自然回复。
 - 用户要求新增/删除订阅时，Agent 先解析目标，再走权限和确认，确认后能说明实际执行结果。
 - Dashboard 能看到工具计划、权限判断、确认、执行结果和最终回复之间的完整链路。

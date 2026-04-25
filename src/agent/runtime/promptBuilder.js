@@ -48,11 +48,21 @@ function buildDecisionInstruction() {
 function summarizeRecentMessages(memoryObservation) {
     const messages = memoryObservation?.groupState?.recentMessages || []
     return messages.slice(-8).map((message) => ({
+        role: message.role || (message.userId === message.selfId ? 'assistant' : 'user'),
         userId: message.userId,
         messageId: message.id,
         text: compactText(message.normalizedText || message.rawText, 160),
         mentionsSelf: message.mentionsSelf,
-        aliasMatched: message.aliasMatched
+        aliasMatched: message.aliasMatched,
+        replyToMessageId: message.replyMessageId || '',
+        replyTarget: message.replyTarget
+            ? {
+                messageId: message.replyTarget.messageId || '',
+                userId: message.replyTarget.userId || '',
+                isBot: Boolean(message.replyTarget.isBot),
+                text: compactText(message.replyTarget.text || '', 160)
+            }
+            : null
     }))
 }
 
@@ -91,6 +101,14 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             text: compactText(agentMessage.normalizedText || agentMessage.rawText, 500),
             mentionsSelf: agentMessage.mentionsSelf,
             hasReply: agentMessage.hasReply,
+            replyTarget: agentMessage.replyTarget
+                ? {
+                    messageId: agentMessage.replyTarget.messageId || '',
+                    userId: agentMessage.replyTarget.userId || '',
+                    isBot: Boolean(agentMessage.replyTarget.isBot),
+                    text: compactText(agentMessage.replyTarget.text || '', 240)
+                }
+                : null,
             aliasMatched: agentMessage.aliasMatched,
             senderRole: agentMessage.sender.role
         },
@@ -113,6 +131,8 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         constraints: [
             '默认不要插话。',
             '明确 @ 你、回复你或叫你的名字时，必须选择 short_reply/full_reply/ask_clarify 并提供 replyDraft。',
+            '如果 currentMessage.replyTarget 存在，尤其是 isBot=true，必须优先结合被回复消息理解“第一个/继续/这个/上面”等指代。',
+            'recentMessages 中 role=assistant 的消息是你自己刚发过的内容；用户追问短指代时，应结合这些上下文，不要轻易要求重复说明。',
             'memoryHints 只记录长期稳定信息，例如用户偏好、uid/昵称映射、群内人物关系、长期事实；不要记录一次性闲聊、情绪、敏感信息或密码密钥。',
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',

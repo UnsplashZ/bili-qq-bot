@@ -44,7 +44,7 @@ function checkToolPermission({ plan, actor }) {
             : { allowed: false, reason: 'subscription_permission_denied' }
     }
 
-    if (['read_group_config', 'read_subscriptions', 'read_bili'].includes(plan.permission)) {
+    if (['read_group_config', 'read_subscriptions', 'read_bili', 'read_agent_memory'].includes(plan.permission)) {
         if (actor.isRoot) return { allowed: true, reason: 'root_read_allowed' }
         return targetIsCurrentGroup(plan, actor)
             ? { allowed: true, reason: 'current_group_read_allowed' }

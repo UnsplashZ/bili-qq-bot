@@ -1,7 +1,7 @@
 const logger = require('../../utils/logger')
 const notificationService = require('../../services/notificationService')
 const { normalizeAgentConfig, isEnabledForGroup, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
-const { normalizeMessage } = require('./messageNormalizer')
+const { normalizeMessage, textifyCqAt, textifySegment } = require('./messageNormalizer')
 const { resolveActor } = require('../session/actorResolver')
 const { runWithAgentSession } = require('../session/agentSessionContext')
 const shortTermStore = require('../memory/shortTermStore')
@@ -34,6 +34,8 @@ async function sendSystemReply({ context, groupId, userId, decision, traceContex
         ws: context.ws,
         groupId,
         userId,
+        selfId: context.messageData?.self_id,
+        sourceMessageId: context.messageData?.message_id,
         llmDecision,
         policyDecision,
         traceContext
@@ -64,10 +66,41 @@ function senderIsSelf(messagePayload, selfId) {
     return senderUserId !== undefined && senderUserId !== null && String(senderUserId) === normalizedSelfId
 }
 
-async function resolveReplyToSelf({ ws, agentMessage, messageData, traceScope }) {
-    if (!agentMessage.hasReply) return false
-    if (senderIsSelf(messageData?.reply, agentMessage.selfId)) return true
-    if (!agentMessage.replyMessageId || !ws || ws.readyState !== 1) return false
+function extractPayloadText(messagePayload, selfId = '') {
+    if (!messagePayload || typeof messagePayload !== 'object') return ''
+    const segments = Array.isArray(messagePayload.message) ? messagePayload.message : []
+    const segmentText = segments.map((segment) => textifySegment(segment, selfId)).join(' ').replace(/\s+/g, ' ').trim()
+    if (segmentText) return segmentText
+    return textifyCqAt(messagePayload.raw_message || messagePayload.message_text || '', selfId).replace(/\s+/g, ' ').trim()
+}
+
+function buildReplyTarget(messagePayload, selfId, fallbackMessageId = '') {
+    if (!messagePayload || typeof messagePayload !== 'object') return null
+    const senderUserId = messagePayload?.sender?.user_id ?? messagePayload?.sender?.userId ?? messagePayload?.user_id
+    const messageId = messagePayload?.message_id ?? messagePayload?.id ?? fallbackMessageId
+    return {
+        messageId: messageId !== undefined && messageId !== null ? String(messageId) : '',
+        userId: senderUserId !== undefined && senderUserId !== null ? String(senderUserId) : '',
+        isBot: senderIsSelf(messagePayload, selfId),
+        text: extractPayloadText(messagePayload, selfId)
+    }
+}
+
+async function resolveReplyContext({ ws, agentMessage, messageData, traceScope }) {
+    if (!agentMessage.hasReply) return { replyToSelf: false, replyTarget: null }
+    const embeddedTarget = buildReplyTarget(messageData?.reply, agentMessage.selfId, agentMessage.replyMessageId)
+    if (embeddedTarget?.text) {
+        return {
+            replyToSelf: embeddedTarget.isBot,
+            replyTarget: embeddedTarget
+        }
+    }
+    if (!agentMessage.replyMessageId || !ws || ws.readyState !== 1) {
+        return {
+            replyToSelf: Boolean(embeddedTarget?.isBot),
+            replyTarget: embeddedTarget
+        }
+    }
 
     try {
         const response = await notificationService.callAction(
@@ -77,15 +110,24 @@ async function resolveReplyToSelf({ ws, agentMessage, messageData, traceScope })
             'AgentReplyResolver',
             3000
         )
-        return senderIsSelf(response?.data, agentMessage.selfId)
+        const replyTarget = buildReplyTarget(response?.data, agentMessage.selfId, agentMessage.replyMessageId)
+        return {
+            replyToSelf: Boolean(replyTarget?.isBot || embeddedTarget?.isBot),
+            replyTarget: replyTarget || embeddedTarget
+        }
     } catch (error) {
         logger.logEvent('debug', 'AGENT', traceScope || '', 'reply-target-resolve-failed', {
             messageId: agentMessage.id,
             replyMessageId: agentMessage.replyMessageId,
             error: logger.getErrorMessage(error)
         })
-        return false
+        return { replyToSelf: false, replyTarget: null }
     }
+}
+
+async function resolveReplyToSelf(args) {
+    const replyContext = await resolveReplyContext(args)
+    return Boolean(replyContext.replyToSelf)
 }
 
 const DETERMINISTIC_MEMORY_SOURCES = new Set([
@@ -122,12 +164,14 @@ async function observe(context) {
         messageData: context.messageData,
         aliases: agentConfig.aliases
     })
-    agentMessage.replyToSelf = await resolveReplyToSelf({
+    const replyContext = await resolveReplyContext({
         ws: context.ws,
         agentMessage,
         messageData: context.messageData,
         traceScope: context.traceContext?.scope || ''
     })
+    agentMessage.replyToSelf = replyContext.replyToSelf
+    agentMessage.replyTarget = replyContext.replyTarget
     const actor = resolveActor({ groupId, userId: context.userId, messageData: context.messageData })
     const memoryObservation = shortTermStore.observe(agentMessage, agentConfig.shortTerm)
     const sessionContext = {
@@ -180,6 +224,7 @@ async function observe(context) {
                     userId: agentMessage.userId,
                     messageId: agentMessage.id,
                     topicId: sessionContext.topicId,
+                    replyTarget: agentMessage.replyTarget,
                     toolConfirmation: finalToolConfirmation,
                     execution
                 })
@@ -282,6 +327,7 @@ async function observe(context) {
                     userId: agentMessage.userId,
                     messageId: agentMessage.id,
                     topicId: sessionContext.topicId,
+                    replyTarget: agentMessage.replyTarget,
                     toolPlanResult,
                     execution,
                     actor: {
@@ -349,6 +395,8 @@ async function observe(context) {
             ws: context.ws,
             groupId,
             userId: agentMessage.userId,
+            selfId: agentMessage.selfId,
+            sourceMessageId: agentMessage.id,
             llmDecision: effectiveLlmDecision,
             policyDecision,
             traceContext: context.traceContext
@@ -382,6 +430,7 @@ async function observe(context) {
                 messageId: agentMessage.id,
                 topicId: sessionContext.topicId,
                 rawTextPreview: agentMessage.rawText,
+                replyTarget: agentMessage.replyTarget,
                 decision,
                 messageTraits: scoreResult.traits,
                 longTermMemories,
@@ -412,6 +461,7 @@ async function observe(context) {
 
 module.exports = {
     observe,
+    resolveReplyContext,
     resolveReplyToSelf,
     filterMemoryHintsForWrite
 }

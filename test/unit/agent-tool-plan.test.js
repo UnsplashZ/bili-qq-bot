@@ -19,7 +19,7 @@ const toolRegistry = require(path.join(__dirname, '../../src/agent/tools/registr
 const subscriptionService = require(path.join(__dirname, '../../src/services/subscriptionService'))
 const biliApi = require(path.join(__dirname, '../../src/services/biliApi'))
 const { normalizeMessage } = require(path.join(__dirname, '../../src/agent/ingress/messageNormalizer'))
-const { resolveReplyToSelf } = require(path.join(__dirname, '../../src/agent/ingress/agentIngress'))
+const { resolveReplyContext, resolveReplyToSelf } = require(path.join(__dirname, '../../src/agent/ingress/agentIngress'))
 
 const tempMemoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-qq-agent-tool-memory-'))
 const tempMemoryFile = path.join(tempMemoryDir, 'memories.json')
@@ -35,6 +35,7 @@ const originals = {
     getSubscriptionsByGroup: subscriptionService.getSubscriptionsByGroup,
     getUserInfo: biliApi.getUserInfo,
     searchUsers: biliApi.searchUsers,
+    getVideoInfo: biliApi.getVideoInfo,
     apiKey: process.env.AGENT_API_KEY
 }
 
@@ -53,6 +54,7 @@ function restore() {
     subscriptionService.getSubscriptionsByGroup = originals.getSubscriptionsByGroup
     biliApi.getUserInfo = originals.getUserInfo
     biliApi.searchUsers = originals.searchUsers
+    biliApi.getVideoInfo = originals.getVideoInfo
     if (originals.apiKey === undefined) {
         delete process.env.AGENT_API_KEY
     } else {
@@ -159,6 +161,41 @@ async function run() {
     const configReadResult = await toolRegistry.executeToolPlan(configReadPlan)
     assert.ok(configReadResult.message.includes('群 1000 Agent 配置'))
 
+    await longTermStore.storeMemoryHints({
+        hints: [
+            { scope: 'group', type: 'fact', content: '楠哥喜欢看 B 站科技区视频', confidence: 0.8 },
+            { scope: 'user', type: 'preference', content: 'Tester 喜欢简短回复', confidence: 0.7 }
+        ],
+        sessionContext: { groupId: '1000', userId: '42', topicId: 'topic_memory' },
+        agentMessage: { id: 'memory_msg_1' },
+        decision: { action: 'short_reply' }
+    })
+    await longTermStore.storeMemoryHints({
+        hints: [
+            { scope: 'user', type: 'preference', content: 'OtherUser 的私有记忆不应暴露', confidence: 0.7 }
+        ],
+        sessionContext: { groupId: '1000', userId: '43', topicId: 'topic_memory' },
+        agentMessage: { id: 'memory_msg_2' },
+        decision: { action: 'short_reply' }
+    })
+    const memorySummaryPlan = toolRegistry.normalizeToolIntent({
+        name: 'agent.get_memory_summary',
+        arguments: { groupId: '1000', query: '楠哥' }
+    }, { groupId: '1000', userId: '42' })
+    assert.strictEqual(memorySummaryPlan.risk, 'low')
+    assert.strictEqual(memorySummaryPlan.permission, 'read_agent_memory')
+    const memorySummary = await toolRegistry.executeToolPlan(memorySummaryPlan)
+    assert.ok(memorySummary.message.includes('楠哥'))
+    assert.strictEqual(memorySummary.data.memories.length, 1)
+
+    const memoryListPlan = toolRegistry.normalizeToolIntent({
+        name: 'agent.get_memory_summary',
+        arguments: { groupId: '1000' }
+    }, { groupId: '1000', userId: '42' })
+    const memoryList = await toolRegistry.executeToolPlan(memoryListPlan)
+    assert.ok(memoryList.message.includes('简短回复'))
+    assert.ok(!memoryList.message.includes('私有记忆'))
+
     subscriptionService.getSubscriptionsByGroup = async () => ({
         users: [{ uid: '2402855757', name: '楠哥' }],
         bangumis: [{ seasonId: '12345', title: '测试番剧' }]
@@ -172,6 +209,42 @@ async function run() {
     const subscriptionListResult = await toolRegistry.executeToolPlan(subscriptionListPlan)
     assert.ok(subscriptionListResult.message.includes('用户 1 个'))
     assert.ok(subscriptionListResult.message.includes('番剧 1 个'))
+
+    subscriptionService.getSubscriptionsByGroup = async () => ({
+        users: [{
+            uid: '2402855757',
+            name: '楠哥',
+            lastDynamicId: 'dyn_1',
+            lastVideoId: 'BV1xx411c7mD',
+            lastLiveStatus: 'offline'
+        }],
+        bangumis: [{ seasonId: '12345', title: '测试番剧', lastEpId: 'ep_1' }]
+    })
+    const userSubscriptionStatusPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.subscription_status',
+        arguments: { groupId: '1000', uid: '2402855757' }
+    }, { groupId: '1000' })
+    assert.strictEqual(userSubscriptionStatusPlan.risk, 'low')
+    assert.strictEqual(userSubscriptionStatusPlan.permission, 'read_subscriptions')
+    const userSubscriptionStatus = await toolRegistry.executeToolPlan(userSubscriptionStatusPlan)
+    assert.ok(userSubscriptionStatus.message.includes('已订阅'))
+    assert.strictEqual(userSubscriptionStatus.data.subscribed, true)
+    assert.strictEqual(userSubscriptionStatus.data.lastVideoId, 'BV1xx411c7mD')
+
+    const bangumiSubscriptionStatusPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.subscription_status',
+        arguments: { groupId: '1000', seasonId: '12345' }
+    }, { groupId: '1000' })
+    const bangumiSubscriptionStatus = await toolRegistry.executeToolPlan(bangumiSubscriptionStatusPlan)
+    assert.ok(bangumiSubscriptionStatus.message.includes('测试番剧'))
+    assert.strictEqual(bangumiSubscriptionStatus.data.subscribed, true)
+
+    const missingSubscriptionStatusPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.subscription_status',
+        arguments: { groupId: '1000', uid: '1' }
+    }, { groupId: '1000' })
+    const missingSubscriptionStatus = await toolRegistry.executeToolPlan(missingSubscriptionStatusPlan)
+    assert.strictEqual(missingSubscriptionStatus.data.subscribed, false)
 
     biliApi.getUserInfo = async (uid, groupId) => ({
         status: 'success',
@@ -216,6 +289,36 @@ async function run() {
     const userSearchResult = await toolRegistry.executeToolPlan(userSearchPlan)
     assert.ok(userSearchResult.message.includes('梦桦楠'))
     assert.strictEqual(userSearchResult.data.candidates[0].uid, '2402855757')
+
+    biliApi.getVideoInfo = async (bvid, groupId) => ({
+        status: 'success',
+        type: 'video',
+        data: {
+            bvid,
+            aid: 123,
+            title: '测试视频',
+            owner: { mid: 42, name: '测试UP' },
+            stat: { view: 1000, like: 50, reply: 3, danmaku: 2 },
+            duration: 125,
+            pubdate: 1710000000
+        },
+        groupId
+    })
+    const videoLookupPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.video_lookup',
+        arguments: { groupId: '1000', bvid: 'BV1xx411c7mD' }
+    }, { groupId: '1000' })
+    assert.strictEqual(videoLookupPlan.risk, 'low')
+    assert.strictEqual(videoLookupPlan.permission, 'read_bili')
+    const videoLookupResult = await toolRegistry.executeToolPlan(videoLookupPlan)
+    assert.ok(videoLookupResult.message.includes('测试视频'))
+    assert.ok(videoLookupResult.message.includes('测试UP'))
+    assert.strictEqual(videoLookupResult.data.bvid, 'BV1xx411c7mD')
+    const videoUrlLookupPlan = toolRegistry.normalizeToolIntent({
+        name: 'bili.video_lookup',
+        arguments: { groupId: '1000', id: 'https://www.bilibili.com/video/BV1xx411c7mD/' }
+    }, { groupId: '1000' })
+    assert.strictEqual(videoUrlLookupPlan.args.bvid, 'BV1xx411c7mD')
 
     let llmCalls = 0
     llmClient.createChatCompletion = async () => {
@@ -419,9 +522,27 @@ async function run() {
         status: 'ok',
         retcode: 0,
         data: {
-            sender: { user_id: '999' }
+            message_id: 'source-message',
+            sender: { user_id: '999' },
+            message: [{ type: 'text', data: { text: '你要第一个还是第二个？' } }],
+            raw_message: '你要第一个还是第二个？'
         }
     })
+    const replyContext = await resolveReplyContext({
+        ws: { readyState: 1 },
+        agentMessage: {
+            id: 'reply-test',
+            hasReply: true,
+            replyMessageId: 'source-message',
+            selfId: '999'
+        },
+        messageData: {},
+        traceScope: 'test:reply-context'
+    })
+    assert.strictEqual(replyContext.replyToSelf, true)
+    assert.strictEqual(replyContext.replyTarget.isBot, true)
+    assert.strictEqual(replyContext.replyTarget.text, '你要第一个还是第二个？')
+
     const replyToSelf = await resolveReplyToSelf({
         ws: { readyState: 1 },
         agentMessage: {
@@ -441,7 +562,8 @@ async function run() {
         messageData: makeMessage('回复 Bot 的消息', {
             reply: {
                 message_id: 'reply-source',
-                sender: { user_id: '999' }
+                sender: { user_id: '999' },
+                message: [{ type: 'text', data: { text: '上一条 Bot 回复' } }]
             }
         }),
         aliases: ['小助手']
@@ -468,7 +590,8 @@ async function run() {
         messageData: {
             reply: {
                 message_id: 'reply-source',
-                sender: { user_id: '999' }
+                sender: { user_id: '999' },
+                message: [{ type: 'text', data: { text: '上一条 Bot 回复' } }]
             }
         },
         traceScope: 'test:reply-fallback'
