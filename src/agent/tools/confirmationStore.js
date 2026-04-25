@@ -89,6 +89,43 @@ function getPending(sessionContext) {
     return pending
 }
 
+function summarizeConfirmation(confirmation) {
+    return {
+        id: confirmation.id,
+        groupId: confirmation.groupId,
+        userId: confirmation.userId,
+        requestMessageId: confirmation.requestMessageId,
+        shortId: confirmation.shortId,
+        createdAt: confirmation.createdAt,
+        expiresAt: new Date(confirmation.expiresAt).toISOString(),
+        plan: {
+            id: confirmation.plan?.id || '',
+            name: confirmation.plan?.name || '',
+            risk: confirmation.plan?.risk || '',
+            permission: confirmation.plan?.permission || '',
+            summary: confirmation.plan?.summary || ''
+        }
+    }
+}
+
+function listPendingConfirmations(filters = {}) {
+    const groupId = String(filters.groupId || '')
+    const userId = String(filters.userId || '')
+    const active = []
+
+    for (const [key, confirmation] of pendingConfirmations.entries()) {
+        if (confirmation.expiresAt <= nowMs()) {
+            pendingConfirmations.delete(key)
+            continue
+        }
+        if (groupId && confirmation.groupId !== groupId) continue
+        if (userId && confirmation.userId !== userId) continue
+        active.push(summarizeConfirmation(confirmation))
+    }
+
+    return active.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+}
+
 function consumeConfirmation({ sessionContext, agentMessage, text }) {
     const pending = getPending(sessionContext)
     if (!pending) return { consumed: false, action: 'none' }
@@ -122,6 +159,7 @@ function resetConfirmations() {
 module.exports = {
     createConfirmation,
     getPending,
+    listPendingConfirmations,
     consumeConfirmation,
     resetConfirmations,
     isConfirmText,

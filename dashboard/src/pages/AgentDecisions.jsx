@@ -118,8 +118,28 @@ function DecisionCard({ item }) {
           </div>
         )}
         {item.tool && (
-          <div className="text-sm text-amber-100 bg-amber-500/10 border border-amber-400/20 rounded-lg p-3">
-            工具：{item.tool.name || '-'} · 风险：{item.tool.risk || '-'} · {item.tool.summary || '-'}
+          <div className="text-sm text-amber-100 bg-amber-500/10 border border-amber-400/20 rounded-lg p-3 space-y-1">
+            <div>
+              工具：{item.tool.name || '-'} · 状态：{item.tool.status || '-'} · 风险：{item.tool.risk || '-'}
+            </div>
+            <div>{item.tool.summary || item.tool.reason || '-'}</div>
+            {item.tool.confirmation?.shortId && (
+              <div className="text-xs text-amber-200/80">
+                确认码：{item.tool.confirmation.shortId} · 过期：{formatTime(item.tool.confirmation.expiresAt)}
+              </div>
+            )}
+            {(item.tool.resultMessage || item.tool.error || item.tool.reason) && (
+              <div className="text-xs text-amber-200/80">
+                结果：{item.tool.resultMessage || item.tool.error || item.tool.reason}
+              </div>
+            )}
+          </div>
+        )}
+        {(item.memoryWrite || item.topicSummaryWrite) && (
+          <div className="text-xs text-emerald-100 bg-emerald-500/10 border border-emerald-400/20 rounded-lg p-3">
+            记忆：写入 {item.memoryWrite?.stored ?? 0}，跳过 {item.memoryWrite?.skipped ?? 0}
+            {item.topicSummaryWrite?.stored ? ` · 话题摘要 ${item.topicSummaryWrite.stored}` : ''}
+            {item.memoryWrite?.error ? ` · 错误：${item.memoryWrite.error}` : ''}
           </div>
         )}
       </div>
@@ -127,9 +147,33 @@ function DecisionCard({ item }) {
   );
 }
 
+function PendingConfirmationCard({ confirmation }) {
+  return (
+    <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-4 space-y-2">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="font-medium text-amber-100">
+            {confirmation.plan?.summary || confirmation.plan?.name || '待确认工具'}
+          </div>
+          <div className="text-sm text-amber-200/80">
+            群 {confirmation.groupId || '-'} · 用户 {confirmation.userId || '-'} · 风险 {confirmation.plan?.risk || '-'}
+          </div>
+        </div>
+        <div className="text-sm font-mono text-amber-100">
+          {confirmation.shortId}
+        </div>
+      </div>
+      <div className="text-xs text-amber-200/70">
+        请在 QQ 中 @Bot 回复「确认 {confirmation.shortId}」或「取消 {confirmation.shortId}」；过期：{formatTime(confirmation.expiresAt)}
+      </div>
+    </div>
+  );
+}
+
 const AgentDecisions = () => {
   const { show } = useToast();
   const [items, setItems] = useState([]);
+  const [confirmations, setConfirmations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     date: todayKey(),
@@ -148,8 +192,15 @@ const AgentDecisions = () => {
       if (filters.userId.trim()) params.set('userId', filters.userId.trim());
       if (filters.action.trim()) params.set('action', filters.action.trim());
       params.set('limit', String(filters.limit || 100));
-      const response = await api.get(`/api/agent/trajectories?${params.toString()}`);
-      setItems(response.data.items || []);
+      const confirmationParams = new URLSearchParams();
+      if (filters.groupId.trim()) confirmationParams.set('groupId', filters.groupId.trim());
+      if (filters.userId.trim()) confirmationParams.set('userId', filters.userId.trim());
+      const [trajectoryResponse, confirmationResponse] = await Promise.all([
+        api.get(`/api/agent/trajectories?${params.toString()}`),
+        api.get(`/api/agent/confirmations?${confirmationParams.toString()}`),
+      ]);
+      setItems(trajectoryResponse.data.items || []);
+      setConfirmations(confirmationResponse.data.items || []);
     } catch (error) {
       console.error('Failed to load agent decisions:', error);
       show(error.response?.data?.error || '加载 Agent 决策失败', 'error');
@@ -248,6 +299,27 @@ const AgentDecisions = () => {
           日期为空时会读取所有轨迹文件并返回最近记录；页面只展示已脱敏摘要。
         </div>
       </GlassCard>
+
+      {confirmations.length > 0 && (
+        <GlassCard>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">待确认工具</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                这里只展示当前进程内仍未过期的受限工具确认，不在 WebUI 直接执行。
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-xs bg-amber-500/20 text-amber-200">
+              {confirmations.length}
+            </span>
+          </div>
+          <div className="grid gap-3">
+            {confirmations.map((confirmation) => (
+              <PendingConfirmationCard key={confirmation.id} confirmation={confirmation} />
+            ))}
+          </div>
+        </GlassCard>
+      )}
 
       <div className="grid gap-4">
         {items.length === 0 && (

@@ -182,6 +182,9 @@ async function run() {
     assert.ok(ws.sent[0].params.message[0].data.text.includes('需要你确认'))
 
     const shortId = planResult.toolPlanResult.confirmation.shortId
+    let pendingConfirmations = confirmationStore.listPendingConfirmations({ groupId: '1000', userId: '42' })
+    assert.strictEqual(pendingConfirmations.length, 1)
+    assert.strictEqual(pendingConfirmations[0].shortId, shortId)
     llmClient.createChatCompletion = async () => {
         llmCalls += 1
         return {
@@ -230,6 +233,8 @@ async function run() {
     assert.strictEqual(llmCalls, 2)
     assert.strictEqual(ws.sent.length, 2)
     assert.ok(ws.sent[1].params.message[0].data.text.includes('已关闭群 1000 的 Agent 发言'))
+    pendingConfirmations = confirmationStore.listPendingConfirmations({ groupId: '1000', userId: '42' })
+    assert.strictEqual(pendingConfirmations.length, 0)
 
     confirmationStore.resetConfirmations()
     config._overrides.agent.groups['1000'].sendEnabled = true

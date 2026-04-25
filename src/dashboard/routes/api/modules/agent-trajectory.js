@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const { RUNS_DIR } = require('../../../../agent/runtime/trajectoryRecorder')
+const confirmationStore = require('../../../../agent/tools/confirmationStore')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -35,12 +36,21 @@ function safeArray(value) {
     return Array.isArray(value) ? value : []
 }
 
+function toIsoString(value) {
+    if (!value) return ''
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
 function summarizeTrajectory(event) {
     const llmDecision = event.llmDecision || {}
     const llmDecisionBody = llmDecision.decision || {}
+    const rawLlmDecisionBody = event.rawLlmDecision?.decision || {}
     const policyDecision = event.policyDecision || {}
     const execution = event.execution || {}
-    const toolPlan = event.toolPlanResult?.plan || event.toolConfirmation?.plan || null
+    const toolSource = event.toolPlanResult || event.toolConfirmation || null
+    const toolPlan = toolSource?.plan || null
+    const toolConfirmation = toolSource?.confirmation || null
 
     return {
         type: String(event.type || ''),
@@ -92,12 +102,24 @@ function summarizeTrajectory(event) {
         },
         memoryWrite: event.memoryWrite || null,
         topicSummaryWrite: event.topicSummaryWrite || null,
-        tool: toolPlan
+        tool: toolSource
             ? {
-                status: event.toolPlanResult?.status || event.toolConfirmation?.status || '',
-                name: toolPlan.name || '',
-                risk: toolPlan.risk || '',
-                summary: toolPlan.summary || ''
+                status: toolSource.status || '',
+                name: toolPlan?.name || rawLlmDecisionBody.toolIntent?.name || llmDecisionBody.toolIntent?.name || '',
+                risk: toolPlan?.risk || '',
+                permission: toolPlan?.permission || '',
+                summary: toolPlan?.summary || '',
+                reason: toolSource.reason || toolSource.permission?.reason || '',
+                error: toolSource.error || '',
+                resultMessage: toolSource.result?.message || '',
+                confirmation: toolConfirmation
+                    ? {
+                        id: toolConfirmation.id || '',
+                        shortId: toolConfirmation.shortId || '',
+                        requestMessageId: toolConfirmation.requestMessageId || '',
+                        expiresAt: toIsoString(toolConfirmation.expiresAt)
+                    }
+                    : null
             }
             : null,
         actor: event.actor
@@ -116,9 +138,14 @@ function summarizeTrajectory(event) {
 function matchesFilters(item, filters) {
     if (filters.groupId && item.groupId !== filters.groupId) return false
     if (filters.userId && item.userId !== filters.userId) return false
-    if (filters.action === 'tool_plan' && item.tool) return true
-    if (filters.action && item.llmDecision.action !== filters.action && item.policyDecision.finalAction !== filters.action) return false
     if (filters.type && item.type !== filters.type) return false
+    if (
+        filters.action === 'tool_plan' &&
+        (item.tool || item.type === 'tool_plan_result' || item.type === 'tool_confirmation')
+    ) {
+        return true
+    }
+    if (filters.action && item.llmDecision.action !== filters.action && item.policyDecision.finalAction !== filters.action) return false
     return true
 }
 
@@ -163,6 +190,19 @@ router.get('/agent/trajectories', async (req, res) => {
     } catch (error) {
         dashLog(req, 'error', 'agent-trajectory-list-failed', { error: error.message })
         res.status(500).json({ error: 'Failed to list agent trajectories' })
+    }
+})
+
+router.get('/agent/confirmations', async (req, res) => {
+    try {
+        const filters = {
+            groupId: normalizeFilter(req.query.groupId),
+            userId: normalizeFilter(req.query.userId)
+        }
+        res.json({ items: confirmationStore.listPendingConfirmations(filters) })
+    } catch (error) {
+        dashLog(req, 'error', 'agent-confirmation-list-failed', { error: error.message })
+        res.status(500).json({ error: 'Failed to list agent confirmations' })
     }
 })
 
