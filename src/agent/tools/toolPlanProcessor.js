@@ -181,7 +181,34 @@ async function tryConsumeToolConfirmation({ agentMessage, agentConfig, sessionCo
         agentMessage,
         text: agentMessage?.normalizedText || agentMessage?.rawText || ''
     })
-    if (!consumed.consumed) return null
+    if (!consumed.consumed) {
+        const text = agentMessage?.normalizedText || agentMessage?.rawText || ''
+        if (
+            consumed.pending &&
+            confirmationStore.includesShortId(text, consumed.pending.shortId)
+        ) {
+            await recordToolAudit({
+                event: 'tool_confirmation_unrecognized',
+                traceScope: sessionContext?.traceScope || '',
+                groupId: sessionContext.groupId,
+                userId: sessionContext.userId,
+                plan: consumed.pending.plan,
+                confirmationId: consumed.pending.id,
+                shortId: consumed.pending.shortId,
+                reason: consumed.action
+            })
+            return {
+                status: 'pending',
+                plan: consumed.pending.plan,
+                reason: consumed.action,
+                decisionOverride: makeReplyDecision(
+                    `确认码 ${consumed.pending.shortId} 还在等待处理。请回复「确认 ${consumed.pending.shortId}」执行，或回复「取消 ${consumed.pending.shortId}」。`,
+                    'tool_confirmation_unrecognized'
+                )
+            }
+        }
+        return null
+    }
 
     const traceScope = sessionContext?.traceScope || ''
     const actor = sessionContext.actor

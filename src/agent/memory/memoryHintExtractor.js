@@ -25,7 +25,9 @@ function makeHint({ scope = 'group', type = 'fact', content, confidence = 0.7, s
 }
 
 function isBadSubject(subject) {
-    return /^(我|你|他|她|它|咱|咱们|我们|你们|他们|她们|bot|Bot|小助手|助手|机器人)$/.test(String(subject || '').trim())
+    const normalizedSubject = String(subject || '').trim()
+    return /^(我|你|他|她|它|咱|咱们|我们|你们|他们|她们|bot|Bot|小助手|助手|机器人)$/.test(normalizedSubject)
+        || /[嘛呢吧啊呀啦吗]$/.test(normalizedSubject)
 }
 
 function extractExplicitMemory(text) {

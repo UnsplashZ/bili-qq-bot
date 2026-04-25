@@ -34,6 +34,9 @@ function run() {
     hints = extractMemoryHints({ agentMessage: makeMessage('楠哥可能是蔚蓝档案高手') })
     assert.strictEqual(hints.length, 0)
 
+    hints = extractMemoryHints({ agentMessage: makeMessage('agent嘛 就是比较麻烦') })
+    assert.strictEqual(hints.length, 0)
+
     const merged = mergeMemoryHints(
         [{ scope: 'group', type: 'fact', content: '楠哥是蔚蓝档案高手', confidence: 0.6 }],
         [{ scope: 'group', type: 'fact', content: '楠哥是蔚蓝档案高手', confidence: 0.68 }]

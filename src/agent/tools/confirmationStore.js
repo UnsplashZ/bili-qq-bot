@@ -9,7 +9,11 @@ function getKey({ groupId, userId }) {
 }
 
 function normalizeText(value) {
-    return String(value || '').replace(/\s+/g, '').trim().toLowerCase()
+    return String(value || '')
+        .replace(/\[CQ:[^\]]+\]/g, '')
+        .replace(/\s+/g, '')
+        .trim()
+        .toLowerCase()
 }
 
 function isDirectlyAddressed(agentMessage) {
@@ -41,6 +45,12 @@ function parseDecisionText(text, shortId = '') {
     }
 
     return { action: 'none', hasCode: false }
+}
+
+function includesShortId(text, shortId = '') {
+    const normalizedShortId = normalizeText(shortId)
+    if (!normalizedShortId) return false
+    return normalizeText(text).includes(normalizedShortId)
 }
 
 function isConfirmText(text, shortId = '') {
@@ -116,5 +126,6 @@ module.exports = {
     resetConfirmations,
     isConfirmText,
     isCancelText,
-    parseDecisionText
+    parseDecisionText,
+    includesShortId
 }

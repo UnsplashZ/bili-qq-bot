@@ -29,7 +29,7 @@ function appendUniqueLink(links, link) {
 function extractLinksFromMessage(rawMessage, groupId, traceContext = null) {
     const scope = getScope(traceContext)
     if (!rawMessage || typeof rawMessage !== 'string') {
-        logger.logEvent('warn', 'LINK', scope, 'extract-skipped', {
+        logger.logEvent('debug', 'LINK', scope, 'extract-skipped', {
             groupId,
             reason: 'invalid_message_type',
             valueType: typeof rawMessage

@@ -211,6 +211,10 @@ async function run() {
     assert.strictEqual(nakedConfirmResult.toolConfirmation, undefined)
     assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, true)
     assert.strictEqual(ws.sent.length, 1)
+    assert.deepStrictEqual(
+        confirmationStore.parseDecisionText(`[CQ:at,qq=999] 取消${shortId}`, shortId),
+        { action: 'cancel', hasCode: true }
+    )
 
     const confirmResult = await agent.agentIngress.observe({
         ws,
