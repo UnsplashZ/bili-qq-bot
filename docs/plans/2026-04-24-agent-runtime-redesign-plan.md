@@ -771,25 +771,68 @@ Phase 1.5 增加 LLM decision 配置，但仍不发送：
 
 ## 16. 推荐下一步
 
-当前 Phase 1 已经落地并在 QQ 群真实消息中验证：消息可以进入 `AGENT observe-decision`，trajectory 能记录 rule score、reason、actor 和 topic；下一步要把 rule score 降级为 message traits。
+当前 Phase 1-5 已经落地，Phase 6 正在收口。下一步不应急着给 Agent 开放通用浏览器或任意 HTTP 能力，而应先把“受限工具闭环”和“可观测性”打稳，再逐步扩展外部信息获取能力。
 
-下一步建议实现 Phase 1.5：`LLM 自主决策，只记录不发送`。
+### 16.1 近期收口任务
 
-优先实现点：
+优先级从高到低：
 
-- `runtime/llmClient.js`: OpenAI-compatible 调用封装，支持 timeout 和错误回退。
-- `runtime/promptBuilder.js`: 分段构建 persona、群聊礼仪、message traits、短期上下文。
-- `cognition/agentDecisionService.js`: 调 LLM 输出结构化 decision。
-- `cognition/decisionSchema.js`: 校验 action、confidence、replyDraft、toolIntent。
-- `runtime/trajectoryRecorder.js`: 同时记录 message traits、budget decision 和 llm decision。
-- `agentConfig`: 增加 `decisionMode=rule_only|llm_shadow|llm_live`、`sendEnabled=false`、`llm` 配置。
+1. 决策页过滤回归：确保 `action=tool_plan` 能包含 `tool_plan_result` / `tool_confirmation` 这类真实工具轨迹。
+2. 工具执行闭环：支持 `tool_plan -> 工具执行结果 -> 回灌 LLM -> 最终自然语言回复`，避免系统回复过硬。
+3. 工具结果观测：Dashboard 决策页展示工具输入摘要、执行结果、确认短码、权限拒绝原因和错误。
+4. 记忆治理收口：继续清理重复/低质量记忆，补充冲突合并、来源解释和自动过期的实测记录。
+5. QQ 实测矩阵：覆盖 @Bot、回复 Bot、普通自然语言、订阅管理、开关 Agent、确认/取消短码、越权工具、记忆写入和清理。
+6. 文档收口：README 增加新 Agent 配置、启动、实测和安全边界说明。
 
-Phase 1.5 的目标不是让 Bot 开始说话，而是用真实群聊流量验证：
+### 16.2 能力扩展顺序
 
-- LLM 是否比手写规则更懂“该不该回”。
-- 普通闲聊是否能保持沉默。
-- @Bot/明确请求是否能给出合理 replyDraft。
-- prompt 是否会让 Agent 过度积极。
-- JSON 输出、超时和异常回退是否稳定。
+Agent 的能力范围应按“领域工具优先，通用浏览器后置”的顺序扩展：
 
-通过 Phase 1.5 后，再进入 Phase 2：打开受控发送闸门。
+1. B 站领域查询工具：
+   - `bili.user_lookup`: 按 uid 或可支持的关键词查询用户基础信息。
+   - `bili.video_lookup`: 查询视频标题、UP、发布时间、播放量等基础信息。
+   - `bili.subscription_status`: 查询本群订阅状态和最近同步结果。
+2. Bot 配置查询工具：
+   - `agent.get_group_config`: 查询本群 Agent 开关、发言状态、冷却和工具策略。
+   - `agent.get_memory_summary`: 查询与当前话题相关的记忆摘要。
+3. 订阅管理工具完善：
+   - 订阅新增/删除前先查询目标信息，降低订错 uid 或番剧 ID 的概率。
+   - 工具结果回灌 LLM，由 Agent 用自然语言解释执行结果。
+4. 外部只读信息工具：
+   - `web.fetch`: 只读抓取用户给出的明确 URL，限制超时、大小、协议和域名。
+   - `web.search`: 可选，必须记录来源，不把搜索摘要当作确定事实。
+5. 通用浏览器工具：
+   - 只在前面工具不足时引入。
+   - 默认只读 snapshot，不允许登录态操作、表单提交、下载文件或执行任意脚本。
+   - 必须有每群/全局开关、限流、审计日志和高风险确认。
+
+### 16.3 浏览器能力边界
+
+不建议现在直接内置“完整浏览器 Agent”。原因：
+
+- QQ 群场景下，优先收益来自 B 站查询、订阅查询和 Bot 自管理，不是通用网页操作。
+- 浏览器工具成本高、慢、易超时，且更难解释和审计。
+- 通用浏览器会扩大攻击面，容易引入 prompt injection、SSRF、敏感页面读取和误操作风险。
+
+如果后续加入浏览器，应坚持：
+
+- 只作为白名单工具，由 LLM 输出 `tool_plan` 请求。
+- 默认只读，禁止任意写操作。
+- 禁止访问本机内网、元数据地址、文件协议和敏感域名。
+- 工具输入、访问 URL、页面标题、摘要和错误必须写入 trajectory。
+- 任何需要登录态、提交表单或改变外部状态的行为默认不支持。
+
+### 16.4 下一阶段建议
+
+下一阶段建议定义为 Phase 7：`Tool Result Feedback + Domain Tools`。
+
+目标：
+
+- 让 Agent 不只是“触发工具”，而是能基于工具结果生成清晰、拟人化、可审计的最终回复。
+- 优先增加 B 站和 Bot 配置领域工具，不先开放通用浏览器。
+
+验收：
+
+- 用户问“这个 uid 订阅了吗 / 本群 Agent 现在开了吗 / 帮我查一下这个 B 站用户”时，Agent 能调用只读工具并自然回复。
+- 用户要求新增/删除订阅时，Agent 先解析目标，再走权限和确认，确认后能说明实际执行结果。
+- Dashboard 能看到工具计划、权限判断、确认、执行结果和最终回复之间的完整链路。

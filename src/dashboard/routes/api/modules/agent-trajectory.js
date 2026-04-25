@@ -135,17 +135,18 @@ function summarizeTrajectory(event) {
     }
 }
 
+function getTrajectoryAction(item) {
+    if (item?.tool || item?.type === 'tool_plan_result' || item?.type === 'tool_confirmation') {
+        return 'tool_plan'
+    }
+    return item?.policyDecision?.finalAction || item?.llmDecision?.action || ''
+}
+
 function matchesFilters(item, filters) {
     if (filters.groupId && item.groupId !== filters.groupId) return false
     if (filters.userId && item.userId !== filters.userId) return false
     if (filters.type && item.type !== filters.type) return false
-    if (
-        filters.action === 'tool_plan' &&
-        (item.tool || item.type === 'tool_plan_result' || item.type === 'tool_confirmation')
-    ) {
-        return true
-    }
-    if (filters.action && item.llmDecision.action !== filters.action && item.policyDecision.finalAction !== filters.action) return false
+    if (filters.action && getTrajectoryAction(item) !== filters.action) return false
     return true
 }
 
@@ -173,7 +174,7 @@ function summarizeItems(items) {
 
     for (const item of items) {
         incrementCounter(typeCounts, item.type)
-        incrementCounter(actionCounts, item.policyDecision?.finalAction || item.llmDecision?.action)
+        incrementCounter(actionCounts, getTrajectoryAction(item))
         incrementCounter(policyReasonCounts, item.policyDecision?.reason)
         if (item.execution?.executed) sent += 1
         if (item.policyDecision?.accepted) accepted += 1
@@ -251,5 +252,12 @@ router.get('/agent/confirmations', async (req, res) => {
         res.status(500).json({ error: 'Failed to list agent confirmations' })
     }
 })
+
+router._private = {
+    summarizeTrajectory,
+    matchesFilters,
+    summarizeItems,
+    getTrajectoryAction
+}
 
 module.exports = router
