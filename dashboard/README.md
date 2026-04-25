@@ -34,6 +34,7 @@ npm run build
 - `src/pages/Groups.jsx`：群组配置、订阅与视频下载策略
 - `src/pages/Settings.jsx`：全局配置、B 站登录与视频下载策略
 - `src/pages/AgentSettings.jsx`：新 Agent 运行模式、LLM、预算、工具和群级覆盖配置
+- `src/pages/AgentDecisions.jsx`：新 Agent 决策轨迹、LLM 判断、发送策略和执行结果观测
 - `src/pages/AgentMemory.jsx`：新 Agent 长期记忆查看、筛选和清理
 - `src/pages/Logs.jsx`：实时日志与历史缓冲
 - `src/pages/Login.jsx`：管理面板登录

@@ -12,6 +12,7 @@ const biliRoutes = require('./modules/bili')
 const systemRoutes = require('./modules/system')
 const logsRoutes = require('./modules/logs')
 const agentConfigRoutes = require('./modules/agent-config')
+const agentTrajectoryRoutes = require('./modules/agent-trajectory')
 const agentMemoryRoutes = require('./modules/agent-memory')
 
 const router = express.Router()
@@ -46,6 +47,7 @@ router.use(biliRoutes)
 router.use(systemRoutes)
 router.use(logsRoutes)
 router.use(agentConfigRoutes)
+router.use(agentTrajectoryRoutes)
 router.use(agentMemoryRoutes)
 
 module.exports = router
