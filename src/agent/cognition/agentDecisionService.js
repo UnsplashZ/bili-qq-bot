@@ -41,6 +41,51 @@ function buildRepairMessages({ messages, invalidContent, errorMessage }) {
     ]
 }
 
+function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, errorMessage }) {
+    const text = String(agentMessage?.normalizedText || agentMessage?.rawText || '')
+    const traits = scoreResult?.traits || {}
+    const addressed = Boolean(
+        traits.mentionedBot ||
+        traits.aliasMatched ||
+        traits.replyToBot ||
+        agentMessage?.mentionsSelf ||
+        agentMessage?.aliasMatched ||
+        agentMessage?.replyToSelf ||
+        ruleDecision?.wouldReply
+    )
+
+    if (addressed && /agent/i.test(text) && /(配置|状态|模式|开关|config|status)/i.test(text)) {
+        return {
+            action: 'tool_plan',
+            confidence: 0.2,
+            reason: `LLM decision failed; fallback to safe group config read: ${errorMessage}`,
+            topic: 'agent_config',
+            replyStyle: 'serious',
+            replyDraft: '',
+            memoryHints: [],
+            toolIntent: {
+                name: 'agent.get_group_config',
+                arguments: {}
+            }
+        }
+    }
+
+    if (addressed) {
+        return {
+            action: 'ask_clarify',
+            confidence: 0.2,
+            reason: `LLM decision failed; fallback to clarify: ${errorMessage}`,
+            topic: 'llm_fallback',
+            replyStyle: 'clarify',
+            replyDraft: '我刚才没能正确解析这条请求。你可以再明确说一次吗？',
+            memoryHints: [],
+            toolIntent: null
+        }
+    }
+
+    return fallbackDecision(`LLM decision failed; fallback to observe_only: ${errorMessage}`)
+}
+
 async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const skipReason = validateLlmConfig(agentConfig)
     if (skipReason) {
@@ -115,15 +160,21 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
             repaired
         }
     } catch (error) {
+        const errorMessage = logger.getErrorMessage(error)
         logger.logEvent('warn', 'AGENT', sessionContext.traceScope, 'llm-decision-failed', {
             groupId: sessionContext.groupId,
             userId: sessionContext.userId,
-            error: logger.getErrorMessage(error)
+            error: errorMessage
         })
         return {
             status: 'error',
-            reason: logger.getErrorMessage(error),
-            decision: fallbackDecision('LLM decision failed; fallback to observe_only')
+            reason: errorMessage,
+            decision: buildErrorFallbackDecision({
+                agentMessage,
+                scoreResult,
+                ruleDecision,
+                errorMessage
+            })
         }
     }
 }
@@ -207,5 +258,6 @@ module.exports = {
     finalizeToolResultReply,
     shouldRunLlmDecision,
     validateLlmConfig,
-    buildRepairMessages
+    buildRepairMessages,
+    buildErrorFallbackDecision
 }

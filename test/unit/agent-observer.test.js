@@ -331,6 +331,66 @@ async function run() {
         shortTermStore.reset()
         budgetGuard.resetBudget()
         replyGuard.resetReplyGuard()
+        let fallbackCalls = 0
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            tools: {
+                enabled: true,
+                confirmationTtlMs: 60000,
+                requireConfirmationFor: ['medium', 'high']
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => {
+            fallbackCalls += 1
+            return {
+                model: 'test-model',
+                usage: { total_tokens: 1 },
+                content: '不是 JSON'
+            }
+        }
+        const fallbackSent = []
+        const fallbackResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    fallbackSent.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '小助手，现在 agent 什么配置',
+            messageData: makeMessageData('小助手，现在 agent 什么配置', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: '小助手，现在 agent 什么配置' } }
+                ],
+                message_id: 'fallback1'
+            }),
+            traceContext: { scope: 'test:llm-error-fallback' }
+        })
+        assert.ok(fallbackCalls >= 2)
+        assert.strictEqual(fallbackResult.rawLlmDecision.status, 'error')
+        assert.strictEqual(fallbackResult.rawLlmDecision.decision.action, 'tool_plan')
+        assert.strictEqual(fallbackResult.toolPlanResult.status, 'executed')
+        assert.strictEqual(fallbackResult.toolPlanResult.plan.name, 'agent.get_group_config')
+        assert.strictEqual(fallbackSent.length, 1)
+        assert.ok(fallbackSent[0].params.message[0].data.text.includes('Agent 配置'))
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
         longTermStore.resetForTest(tempMemoryFile)
         enableAgent({
             decisionMode: 'llm_shadow',
