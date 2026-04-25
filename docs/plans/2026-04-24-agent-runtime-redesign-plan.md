@@ -668,6 +668,8 @@ WebUI 不应提供 MCP 配置入口。
 - WebUI 只展示新 Agent，不恢复旧 AI/MCP。
 - 支持 root 审核 Agent 行为。
 
+当前状态：已启动 Phase 5，新增 Agent 管理页和 Dashboard API，覆盖全局 Agent 开关、LLM 配置引用、预算、受限工具策略、确认风险等级和群级覆盖配置；既有 Agent 记忆页继续负责长期记忆查看、筛选、删除和清理。
+
 ## 13. 最小配置建议
 
 Phase 1 配置应尽量少：

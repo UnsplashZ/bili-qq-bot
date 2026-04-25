@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, Home, Users, Settings, Terminal, Menu } from 'lucide-react';
+import { Bot, Brain, Home, Users, Settings, Terminal, Menu } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import MobileMenu from './MobileMenu';
 
@@ -65,6 +65,12 @@ const Layout = ({ children }) => {
             label="系统设置"
             href="/settings"
             active={path === '/settings'}
+          />
+          <SidebarItem
+            icon={Bot}
+            label="Agent 管理"
+            href="/agent-settings"
+            active={path === '/agent-settings'}
           />
           <SidebarItem
             icon={Brain}

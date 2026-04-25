@@ -6,6 +6,7 @@ import Settings from './pages/Settings';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import AgentSettings from './pages/AgentSettings';
 import AgentMemory from './pages/AgentMemory';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ToastProvider } from './components/ToastProvider';
@@ -56,6 +57,17 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <Logs />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/agent-settings"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <AgentSettings />
                 </Layout>
               </ProtectedRoute>
             }
