@@ -16,6 +16,7 @@ const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budget
 const replyGuard = require(path.join(__dirname, '../../src/agent/runtime/replyGuard'))
 const commandManager = require(path.join(__dirname, '../../src/commands'))
 const linkService = require(path.join(__dirname, '../../src/services/link'))
+const { filterMemoryHintsForWrite } = require(path.join(__dirname, '../../src/agent/ingress/agentIngress'))
 
 const agentEnvKeys = [
     'AGENT_LLM_ENABLED',
@@ -469,6 +470,42 @@ async function run() {
         const extractedMemories = await longTermStore.listMemories({ groupId: '1000' })
         assert.strictEqual(extractedMemories.length, 1)
         assert.strictEqual(extractedMemories[0].content, 'uid 2402855757 是 楠哥')
+
+        const writableOnError = filterMemoryHintsForWrite({
+            llmDecision: {
+                status: 'error',
+                decision: {
+                    action: 'observe_only',
+                    memoryHints: [
+                        {
+                            scope: 'group',
+                            type: 'fact',
+                            content: 'LLM 错误时不应写入',
+                            confidence: 0.9
+                        }
+                    ]
+                }
+            },
+            extractedMemoryHints: [
+                {
+                    scope: 'group',
+                    type: 'fact',
+                    content: '楠哥的qq是这个',
+                    confidence: 0.68,
+                    source: 'named_fact_pattern'
+                },
+                {
+                    scope: 'group',
+                    type: 'relation',
+                    content: '楠哥的QQ号是2402855757',
+                    confidence: 0.85,
+                    source: 'qq_relation_pattern'
+                }
+            ]
+        })
+        assert.deepStrictEqual(writableOnError.llmHints, [])
+        assert.strictEqual(writableOnError.extractedHints.length, 1)
+        assert.strictEqual(writableOnError.extractedHints[0].content, '楠哥的QQ号是2402855757')
 
         shortTermStore.reset()
         budgetGuard.resetBudget()

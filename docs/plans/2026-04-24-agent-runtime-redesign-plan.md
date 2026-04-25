@@ -668,7 +668,25 @@ WebUI 不应提供 MCP 配置入口。
 - WebUI 只展示新 Agent，不恢复旧 AI/MCP。
 - 支持 root 审核 Agent 行为。
 
-当前状态：已启动 Phase 5，新增 Agent 管理页和 Dashboard API，覆盖全局 Agent 开关、LLM 配置引用、预算、受限工具策略、确认风险等级和群级覆盖配置；新增 Agent 决策页用于查看 rule score、LLM decision、policy validator 和发送结果；既有 Agent 记忆页继续负责长期记忆查看、筛选、删除和清理。
+当前状态：已实现 Agent 管理页和 Dashboard API，覆盖全局 Agent 开关、Persona、LLM 配置引用、预算、受限工具策略、确认风险等级和群级覆盖配置；Agent 决策页可查看 rule score、LLM decision、policy validator、发送结果、工具确认/执行结果、记忆写入摘要、待确认工具和筛选范围统计；既有 Agent 记忆页继续负责长期记忆查看、筛选、删除和清理。
+
+### Phase 6：运行可靠性与实测收口
+
+目标：把 Agent 从“功能可用”收敛到“可长期运行、可定位问题、可安全回滚”。
+
+范围：
+
+- QQ 实机回归矩阵：@Bot、回复 Bot、普通自然语言、订阅管理、开关 Agent、确认/取消短码、越权工具、记忆写入和记忆清理。
+- Docker 本地镜像构建与启动验证，确认不会拉取远端 `bili-qq-bot` 镜像。
+- 运行观测：确认 Dashboard 决策页、待确认工具、记忆页和日志页能定位主要问题。
+- 安全边界复核：工具仍只能白名单执行，高风险强制确认，WebUI 不直接执行待确认工具。
+- 文档收口：README / Agent 计划文档记录新 Agent 使用方式、配置方式和实测清单。
+
+验收：
+
+- 本地 Docker 启动后，QQ 群实测场景均能在 WebUI 或日志中解释。
+- 出现 LLM 误判、工具拒绝、记忆污染时，有明确的观测入口和清理入口。
+- 无旧 AI/MCP 配置或入口回流。
 
 ## 13. 最小配置建议
 

@@ -71,6 +71,25 @@ async function resolveReplyToSelf({ ws, agentMessage, messageData, traceScope })
     }
 }
 
+const DETERMINISTIC_MEMORY_SOURCES = new Set([
+    'explicit_memory_request',
+    'uid_relation_pattern',
+    'qq_relation_pattern',
+    'user_preference_pattern'
+])
+
+function filterMemoryHintsForWrite({ llmDecision, extractedMemoryHints }) {
+    const llmHints = llmDecision?.status === 'ok'
+        ? (llmDecision.decision?.memoryHints || [])
+        : []
+    const extractedHints = Array.isArray(extractedMemoryHints)
+        ? extractedMemoryHints.filter((hint) => (
+            llmDecision?.status === 'ok' || DETERMINISTIC_MEMORY_SOURCES.has(hint?.source)
+        ))
+        : []
+    return { llmHints, extractedHints }
+}
+
 async function observe(context) {
     const baseAgentConfig = normalizeAgentConfig()
     const groupId = context.groupId ? String(context.groupId) : ''
@@ -183,7 +202,11 @@ async function observe(context) {
                 }
             }
             : llmDecision
-        const memoryHints = mergeMemoryHints(effectiveLlmDecision.decision?.memoryHints || [], extractedMemoryHints)
+        const writableMemoryHints = filterMemoryHintsForWrite({
+            llmDecision: effectiveLlmDecision,
+            extractedMemoryHints
+        })
+        const memoryHints = mergeMemoryHints(writableMemoryHints.llmHints, writableMemoryHints.extractedHints)
         const memoryWrite = await longTermStore.storeMemoryHints({
             hints: memoryHints,
             sessionContext,
@@ -360,5 +383,6 @@ async function observe(context) {
 
 module.exports = {
     observe,
-    resolveReplyToSelf
+    resolveReplyToSelf,
+    filterMemoryHintsForWrite
 }

@@ -62,6 +62,7 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
 
     try {
         const messages = buildDecisionMessages({
+            agentConfig,
             agentMessage,
             memoryObservation,
             longTermMemories,

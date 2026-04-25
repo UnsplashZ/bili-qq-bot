@@ -439,6 +439,50 @@ const AgentSettings = () => {
             )}
           </div>
         </GlassCard>
+
+        <GlassCard>
+          <h2 className="text-xl font-semibold mb-4">Persona</h2>
+          <div className="space-y-4">
+            <TextInput
+              label="显示身份"
+              value={agent.persona?.displayName}
+              placeholder="例如：Bilibili 助手"
+              onChange={(value) => updateAgent((next) => {
+                next.persona = next.persona || {};
+                next.persona.displayName = value;
+              })}
+            />
+            <label className="block space-y-1.5">
+              <span className="text-sm text-gray-300">表达风格</span>
+              <textarea
+                value={agent.persona?.style || ''}
+                onChange={(event) => updateAgent((next) => {
+                  next.persona = next.persona || {};
+                  next.persona.style = event.target.value;
+                })}
+                rows={3}
+                maxLength={500}
+                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm text-gray-300">参与边界</span>
+              <textarea
+                value={agent.persona?.boundaries || ''}
+                onChange={(event) => updateAgent((next) => {
+                  next.persona = next.persona || {};
+                  next.persona.boundaries = event.target.value;
+                })}
+                rows={3}
+                maxLength={500}
+                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500"
+              />
+            </label>
+            <div className="text-xs text-gray-500">
+              Persona 会进入 Agent system prompt，但不会绕过命令、链接、权限和工具确认边界。
+            </div>
+          </div>
+        </GlassCard>
       </div>
 
       <GlassCard>

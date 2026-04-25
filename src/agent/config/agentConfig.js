@@ -63,6 +63,10 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     normalized.aliases = Array.isArray(normalized.aliases)
         ? normalized.aliases.map((alias) => String(alias).trim()).filter(Boolean)
         : []
+    normalized.persona = isPlainObject(normalized.persona) ? normalized.persona : clone(DEFAULT_AGENT_CONFIG.persona)
+    normalized.persona.displayName = String(normalized.persona.displayName || DEFAULT_AGENT_CONFIG.persona.displayName).trim().slice(0, 80)
+    normalized.persona.style = String(normalized.persona.style || DEFAULT_AGENT_CONFIG.persona.style).trim().slice(0, 500)
+    normalized.persona.boundaries = String(normalized.persona.boundaries || DEFAULT_AGENT_CONFIG.persona.boundaries).trim().slice(0, 500)
     normalized.groups = isPlainObject(normalized.groups) ? normalized.groups : {}
 
     const shortTerm = normalized.shortTerm

@@ -49,6 +49,11 @@ const DEFAULT_AGENT_CONFIG = {
     decisionMode: 'rule_only',
     sendEnabled: false,
     aliases: [],
+    persona: {
+        displayName: 'Bilibili 助手',
+        style: '友好、简洁、不过度热情；优先少说废话。',
+        boundaries: '专注 B 站链接、订阅、群聊上下文和 Bot 配置管理；普通闲聊默认保持克制。'
+    },
     shortTerm: {
         maxRecentMessagesPerGroup: 100,
         topicIdleMs: 30 * 60 * 1000,

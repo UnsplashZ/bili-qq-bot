@@ -353,6 +353,20 @@ async function run() {
     })
     assert.strictEqual(replyFallbackMessage.hasReply, true)
     assert.strictEqual(replyFallbackMessage.replyMessageId, 'reply-source')
+
+    const atMessage = normalizeMessage({
+        rawMessage: '[CQ:at,qq=999] 楠哥的qq是这个[CQ:at,qq=2402855757]',
+        messageSegments: [
+            { type: 'at', data: { qq: '999' } },
+            { type: 'text', data: { text: '楠哥的qq是这个' } },
+            { type: 'at', data: { qq: '2402855757' } }
+        ],
+        messageData: makeMessage('[CQ:at,qq=999] 楠哥的qq是这个[CQ:at,qq=2402855757]'),
+        aliases: ['小助手']
+    })
+    assert.strictEqual(atMessage.normalizedText, '@Bot 楠哥的qq是这个 @2402855757')
+    assert.strictEqual(atMessage.mentionsSelf, true)
+
     assert.strictEqual(await resolveReplyToSelf({
         ws: { readyState: 1 },
         agentMessage: replyFallbackMessage,

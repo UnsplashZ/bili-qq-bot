@@ -5,9 +5,19 @@ function compactText(value, limit = 500) {
     return text.length > limit ? `${text.slice(0, limit - 3)}...` : text
 }
 
-function buildSystemPrompt() {
+function personaLines(agentConfig = {}) {
+    const persona = agentConfig.persona || {}
+    const lines = []
+    if (persona.displayName) lines.push(`你的当前显示身份：${compactText(persona.displayName, 80)}。`)
+    if (persona.style) lines.push(`表达风格：${compactText(persona.style, 300)}`)
+    if (persona.boundaries) lines.push(`参与边界：${compactText(persona.boundaries, 300)}`)
+    return lines
+}
+
+function buildSystemPrompt(agentConfig = {}) {
     return [
         '你是一个 QQ 群聊里的 Bilibili 助手 Agent。',
+        ...personaLines(agentConfig),
         '你不是每条消息都要回复；沉默是常见且正确的选择。',
         '你需要根据上下文、与你的关联程度、群聊节奏和自己的职责，判断是否参与。',
         '如果用户明确 @ 你、回复你、叫你的名字，必须输出可发送回复，除非内容违法、危险或无法理解。',
@@ -69,7 +79,7 @@ function buildMemoryContext(longTermMemories = []) {
     ].join('\n')
 }
 
-function buildDecisionMessages({ agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
+function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const memoryContext = buildMemoryContext(longTermMemories)
     const userPayload = {
         task: '判断是否应该参与这条 QQ 群聊消息。只输出 JSON。',
@@ -116,7 +126,7 @@ function buildDecisionMessages({ agentMessage, memoryObservation, longTermMemori
     }
 
     return [
-        { role: 'system', content: buildSystemPrompt() },
+        { role: 'system', content: buildSystemPrompt(agentConfig) },
         { role: 'user', content: JSON.stringify(userPayload, null, 2) }
     ]
 }

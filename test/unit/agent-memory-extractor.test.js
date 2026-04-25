@@ -20,6 +20,21 @@ function run() {
     assert.strictEqual(hints[0].type, 'relation')
     assert.strictEqual(hints[0].content, 'uid 2402855757 是 楠哥')
 
+    hints = extractMemoryHints({ agentMessage: makeMessage('@Bot 记住 楠哥是蔚蓝档案高手') })
+    assert.strictEqual(hints.length, 1)
+    assert.strictEqual(hints[0].source, 'explicit_memory_request')
+    assert.strictEqual(hints[0].content, '楠哥是蔚蓝档案高手')
+
+    hints = extractMemoryHints({ agentMessage: makeMessage('楠哥的qq是这个 [CQ:at,qq=2402855757]') })
+    assert.strictEqual(hints.length, 1)
+    assert.strictEqual(hints[0].scope, 'group')
+    assert.strictEqual(hints[0].type, 'relation')
+    assert.strictEqual(hints[0].content, '楠哥的QQ号是2402855757')
+    assert.strictEqual(hints[0].source, 'qq_relation_pattern')
+
+    hints = extractMemoryHints({ agentMessage: makeMessage('楠哥的qq是这个') })
+    assert.strictEqual(hints.length, 0)
+
     hints = extractMemoryHints({ agentMessage: makeMessage('楠哥是蔚蓝档案高手') })
     assert.strictEqual(hints.length, 1)
     assert.strictEqual(hints[0].type, 'fact')
@@ -30,6 +45,9 @@ function run() {
     assert.strictEqual(hints[0].scope, 'user')
     assert.strictEqual(hints[0].type, 'preference')
     assert.strictEqual(hints[0].content, '用户喜欢少前2')
+
+    hints = extractMemoryHints({ agentMessage: makeMessage('不记得了 当时弄那个小卡的时候搞过好像') })
+    assert.strictEqual(hints.length, 0)
 
     hints = extractMemoryHints({ agentMessage: makeMessage('楠哥可能是蔚蓝档案高手') })
     assert.strictEqual(hints.length, 0)

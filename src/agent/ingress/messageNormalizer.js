@@ -3,6 +3,40 @@ function segmentText(segment) {
     return String(segment.data?.text || '')
 }
 
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function textifyCqAt(rawText, selfId = '') {
+    const normalizedSelfId = String(selfId || '')
+    return String(rawText || '').replace(/\[CQ:at,qq=([^\],]+)[^\]]*\]/g, (_, qq) => {
+        const normalizedQq = String(qq || '').trim()
+        if (!normalizedQq) return ' '
+        return normalizedSelfId && normalizedQq === normalizedSelfId ? '@Bot' : `@${normalizedQq}`
+    })
+}
+
+function textifySegment(segment, selfId = '') {
+    if (!segment || typeof segment !== 'object') return ''
+    if (segment.type === 'text') return String(segment.data?.text || '')
+    if (segment.type === 'at') {
+        const qq = String(segment.data?.qq || '').trim()
+        if (!qq) return ''
+        return selfId && qq === String(selfId) ? '@Bot' : `@${qq}`
+    }
+    if (segment.type === 'image') return '[图片]'
+    if (segment.type === 'face') return '[表情]'
+    return ''
+}
+
+function buildNormalizedText({ rawText, segments, selfId }) {
+    const segmentTextified = Array.isArray(segments)
+        ? segments.map((segment) => textifySegment(segment, selfId)).join(' ')
+        : ''
+    const sourceText = segmentTextified.trim() ? segmentTextified : textifyCqAt(rawText, selfId)
+    return sourceText.replace(/\s+/g, ' ').trim()
+}
+
 function hasAtSelfSegment(segments, selfId) {
     const normalizedSelfId = String(selfId || '')
     if (!normalizedSelfId) return false
@@ -43,10 +77,12 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
     const messageId = messageData?.message_id != null ? String(messageData.message_id) : ''
     const groupId = messageData?.group_id != null ? String(messageData.group_id) : ''
     const userId = messageData?.user_id != null ? String(messageData.user_id) : ''
+    const cqAtSelfPattern = selfId ? new RegExp(`\\[CQ:at,qq=${escapeRegExp(selfId)}(?:,|\\])`) : null
     const mentionsSelf = hasAtSelfSegment(segments, selfId) || (
-        selfId && new RegExp(`\\[CQ:at,qq=${selfId}\\]`).test(rawText)
+        cqAtSelfPattern && cqAtSelfPattern.test(rawText)
     )
     const replyMessageId = extractReplyMessageId({ segments, messageData })
+    const normalizedText = buildNormalizedText({ rawText, segments, selfId })
 
     return {
         id: messageId,
@@ -56,12 +92,12 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
         messageType: String(messageData?.message_type || 'group'),
         rawText,
         segments,
-        normalizedText: rawText.replace(/\s+/g, ' ').trim(),
+        normalizedText,
         mentionsSelf,
         replyToSelf: false,
         hasReply: hasReplySignal({ segments, messageData }),
         replyMessageId,
-        aliasMatched: includesAlias(rawText, aliases),
+        aliasMatched: includesAlias(normalizedText || rawText, aliases),
         timestamp: Number(messageData?.time || 0) > 0 ? Number(messageData.time) * 1000 : Date.now(),
         sender: {
             nickname: String(messageData?.sender?.nickname || ''),
@@ -74,5 +110,7 @@ function normalizeMessage({ rawMessage, messageSegments, messageData, aliases = 
 module.exports = {
     normalizeMessage,
     includesAlias,
-    extractReplyMessageId
+    extractReplyMessageId,
+    textifyCqAt,
+    textifySegment
 }

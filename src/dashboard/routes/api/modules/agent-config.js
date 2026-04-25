@@ -101,6 +101,13 @@ function sanitizeGlobalPatch(body = {}) {
         patch.aliases = parseAliases(body.aliases)
     }
 
+    if (isPlainObject(body.persona)) {
+        patch.persona = {}
+        if (body.persona.displayName !== undefined) patch.persona.displayName = parseString(body.persona.displayName, 'persona.displayName', 80)
+        if (body.persona.style !== undefined) patch.persona.style = parseString(body.persona.style, 'persona.style', 500)
+        if (body.persona.boundaries !== undefined) patch.persona.boundaries = parseString(body.persona.boundaries, 'persona.boundaries', 500)
+    }
+
     if (isPlainObject(body.shortTerm)) {
         patch.shortTerm = {}
         assignInteger(patch.shortTerm, body.shortTerm, 'maxRecentMessagesPerGroup', 10, 1000)

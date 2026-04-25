@@ -149,6 +149,52 @@ function matchesFilters(item, filters) {
     return true
 }
 
+function incrementCounter(counter, key) {
+    const normalizedKey = key || 'unknown'
+    counter[normalizedKey] = (counter[normalizedKey] || 0) + 1
+}
+
+function topCounters(counter, limit = 5) {
+    return Object.entries(counter)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, limit)
+        .map(([key, count]) => ({ key, count }))
+}
+
+function summarizeItems(items) {
+    const actionCounts = {}
+    const policyReasonCounts = {}
+    const typeCounts = {}
+    let sent = 0
+    let accepted = 0
+    let toolCount = 0
+    let memoryStored = 0
+    let memorySkipped = 0
+
+    for (const item of items) {
+        incrementCounter(typeCounts, item.type)
+        incrementCounter(actionCounts, item.policyDecision?.finalAction || item.llmDecision?.action)
+        incrementCounter(policyReasonCounts, item.policyDecision?.reason)
+        if (item.execution?.executed) sent += 1
+        if (item.policyDecision?.accepted) accepted += 1
+        if (item.tool) toolCount += 1
+        memoryStored += Number(item.memoryWrite?.stored || 0)
+        memorySkipped += Number(item.memoryWrite?.skipped || 0)
+    }
+
+    return {
+        total: items.length,
+        sent,
+        accepted,
+        toolCount,
+        memoryStored,
+        memorySkipped,
+        actionCounts,
+        typeCounts,
+        topPolicyReasons: topCounters(policyReasonCounts)
+    }
+}
+
 async function readTrajectoryItems({ date, limit, filters }) {
     const files = await listRunFiles(date)
     const items = []
@@ -186,7 +232,7 @@ router.get('/agent/trajectories', async (req, res) => {
             type: normalizeFilter(req.query.type)
         }
         const items = await readTrajectoryItems({ date, limit, filters })
-        res.json({ items, limit })
+        res.json({ items, limit, summary: summarizeItems(items) })
     } catch (error) {
         dashLog(req, 'error', 'agent-trajectory-list-failed', { error: error.message })
         res.status(500).json({ error: 'Failed to list agent trajectories' })

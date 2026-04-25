@@ -41,6 +41,17 @@ function compactList(value) {
   return Array.isArray(value) && value.length > 0 ? value.join(', ') : '-';
 }
 
+function formatPercent(count, total) {
+  if (!total) return '0%';
+  return `${Math.round((Number(count || 0) / total) * 100)}%`;
+}
+
+function topReasonText(summary) {
+  const reasons = summary?.topPolicyReasons || [];
+  if (!Array.isArray(reasons) || reasons.length === 0) return '-';
+  return reasons.slice(0, 3).map((item) => `${item.key}:${item.count}`).join(' / ');
+}
+
 function DecisionCard({ item }) {
   const llmAction = item.llmDecision?.action || '-';
   const finalAction = item.policyDecision?.finalAction || '-';
@@ -174,6 +185,7 @@ const AgentDecisions = () => {
   const { show } = useToast();
   const [items, setItems] = useState([]);
   const [confirmations, setConfirmations] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     date: todayKey(),
@@ -200,6 +212,7 @@ const AgentDecisions = () => {
         api.get(`/api/agent/confirmations?${confirmationParams.toString()}`),
       ]);
       setItems(trajectoryResponse.data.items || []);
+      setSummary(trajectoryResponse.data.summary || null);
       setConfirmations(confirmationResponse.data.items || []);
     } catch (error) {
       console.error('Failed to load agent decisions:', error);
@@ -299,6 +312,37 @@ const AgentDecisions = () => {
           日期为空时会读取所有轨迹文件并返回最近记录；页面只展示已脱敏摘要。
         </div>
       </GlassCard>
+
+      {summary && (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <GlassCard>
+            <div className="text-sm text-gray-400">轨迹总数</div>
+            <div className="text-2xl font-semibold text-white mt-1">{summary.total || 0}</div>
+            <div className="text-xs text-gray-500 mt-1">当前筛选返回范围</div>
+          </GlassCard>
+          <GlassCard>
+            <div className="text-sm text-gray-400">发送比例</div>
+            <div className="text-2xl font-semibold text-blue-100 mt-1">
+              {summary.sent || 0} / {formatPercent(summary.sent, summary.total)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">实际发出普通/系统回复</div>
+          </GlassCard>
+          <GlassCard>
+            <div className="text-sm text-gray-400">工具轨迹</div>
+            <div className="text-2xl font-semibold text-amber-100 mt-1">{summary.toolCount || 0}</div>
+            <div className="text-xs text-gray-500 mt-1">tool_plan / confirmation</div>
+          </GlassCard>
+          <GlassCard>
+            <div className="text-sm text-gray-400">记忆写入</div>
+            <div className="text-2xl font-semibold text-emerald-100 mt-1">{summary.memoryStored || 0}</div>
+            <div className="text-xs text-gray-500 mt-1">跳过 {summary.memorySkipped || 0}</div>
+          </GlassCard>
+          <GlassCard>
+            <div className="text-sm text-gray-400">主要拒绝/策略原因</div>
+            <div className="text-sm text-gray-200 mt-2 break-words">{topReasonText(summary)}</div>
+          </GlassCard>
+        </div>
+      )}
 
       {confirmations.length > 0 && (
         <GlassCard>

@@ -1,13 +1,22 @@
 function cleanText(value) {
     return String(value || '')
+        .replace(/\[CQ:at,qq=([^\],]+)[^\]]*\]/g, (_, qq) => {
+            const normalizedQq = String(qq || '').trim()
+            return normalizedQq ? ` @${normalizedQq} ` : ' '
+        })
         .replace(/\[CQ:[^\]]+\]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
 }
 
-function stripBotLead(text) {
+function stripBotAddressLead(text) {
     return cleanText(text)
-        .replace(/^(小助手|助手|bot|Bot|我是|Bilibili助手)[，,：:\s]*/i, '')
+        .replace(/^(@Bot|小助手|助手|bot|Bot|我是|Bilibili助手)[，,：:\s]*/i, '')
+        .trim()
+}
+
+function stripBotLead(text) {
+    return stripBotAddressLead(text)
         .replace(/^(记住|记一下|帮我记|记得)[，,：:\s]*/i, '')
         .trim()
 }
@@ -31,7 +40,7 @@ function isBadSubject(subject) {
 }
 
 function extractExplicitMemory(text) {
-    const match = cleanText(text).match(/(?:记住|记一下|帮我记|记得)[，,：:\s]*(.+)$/i)
+    const match = stripBotAddressLead(text).match(/^(?:记住|记一下|帮我记|记得)[，,：:\s]*(.+)$/i)
     if (!match) return null
     const content = cleanText(match[1])
     if (!content || content.length < 2) return null
@@ -68,6 +77,19 @@ function extractUidRelation(text) {
     })
 }
 
+function extractQqRelation(text) {
+    const cleaned = stripBotLead(text)
+    const relation = cleaned.match(/([\u4e00-\u9fa5A-Za-z0-9_\-]{1,24}?)\s*的?\s*(?:qq|QQ|Q号|扣扣|账号)\s*(?:是|=|就是|为)?\s*(?:这个|那个|这位|那位|他|她|它)?\s*@?\s*([1-9][0-9]{4,11})/i)
+    if (!relation || isBadSubject(relation[1])) return null
+    return makeHint({
+        scope: 'group',
+        type: 'relation',
+        content: `${relation[1]}的QQ号是${relation[2]}`,
+        confidence: 0.85,
+        source: 'qq_relation_pattern'
+    })
+}
+
 function extractUserPreference(text) {
     const cleaned = stripBotLead(text)
     const match = cleaned.match(/(?:我|本人|俺)\s*(喜欢|爱|偏好|讨厌|不喜欢)\s*([^，。,.!?！？]{1,40})/)
@@ -84,12 +106,15 @@ function extractUserPreference(text) {
 function extractNamedFact(text) {
     const cleaned = stripBotLead(text)
     if (/uid\s*[0-9]{5,}/i.test(cleaned)) return null
+    if (/(?:qq|QQ|Q号|扣扣|账号)\s*(?:是|=|就是|为)?\s*(?:这个|那个|这位|那位|他|她|它)?\s*@?\s*[1-9][0-9]{4,11}/i.test(cleaned)) return null
     if (/不是|不算|好像|可能|也许|大概/.test(cleaned)) return null
     const match = cleaned.match(/([\u4e00-\u9fa5A-Za-z0-9_\-]{1,24})\s*(?:是|就是)\s*([^，。,.!?！？]{2,40})/)
     if (!match || isBadSubject(match[1])) return null
     const subject = cleanText(match[1])
     const predicate = cleanText(match[2])
     if (!subject || !predicate || /^[谁什么啥哪]/.test(predicate)) return null
+    if (/^(这个|那个|这位|那位|这里|那里|他|她|它|其|这个人|那个人)$/.test(predicate)) return null
+    if (/^@?[1-9][0-9]{4,11}$/.test(predicate)) return null
     return makeHint({
         scope: 'group',
         type: 'fact',
@@ -127,6 +152,7 @@ function extractMemoryHints({ agentMessage }) {
     return dedupeHints([
         extractExplicitMemory(text),
         extractUidRelation(text),
+        extractQqRelation(text),
         extractUserPreference(text),
         extractNamedFact(text)
     ])
