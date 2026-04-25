@@ -45,25 +45,115 @@ function buildDecisionInstruction() {
     }, null, 2)
 }
 
-function summarizeRecentMessages(memoryObservation) {
-    const messages = memoryObservation?.groupState?.recentMessages || []
-    return messages.slice(-8).map((message) => ({
+function summarizeMessage(message, relevance, maxCharsPerMessage) {
+    return {
         role: message.role || (message.userId === message.selfId ? 'assistant' : 'user'),
         userId: message.userId,
         messageId: message.id,
-        text: compactText(message.normalizedText || message.rawText, 160),
+        text: compactText(message.normalizedText || message.rawText, maxCharsPerMessage),
         mentionsSelf: message.mentionsSelf,
         aliasMatched: message.aliasMatched,
         replyToMessageId: message.replyMessageId || '',
+        relevance,
         replyTarget: message.replyTarget
             ? {
                 messageId: message.replyTarget.messageId || '',
                 userId: message.replyTarget.userId || '',
                 isBot: Boolean(message.replyTarget.isBot),
-                text: compactText(message.replyTarget.text || '', 160)
+                text: compactText(message.replyTarget.text || '', Math.min(maxCharsPerMessage, 220))
             }
             : null
-    }))
+    }
+}
+
+function messageTimestamp(message, fallbackIndex) {
+    const timestamp = Number(message?.timestamp || 0)
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : fallbackIndex
+}
+
+function addSelectedMessage(selected, message, relevance, score, index) {
+    if (!message) return
+    const key = String(message.id || `${message.userId || 'unknown'}:${index}`)
+    const current = selected.get(key)
+    if (current) {
+        current.relevance.add(relevance)
+        current.score += score
+        return
+    }
+    selected.set(key, {
+        message,
+        index,
+        score,
+        relevance: new Set([relevance])
+    })
+}
+
+function summarizeRecentMessages(memoryObservation, agentConfig = {}, agentMessage = {}) {
+    const messages = Array.isArray(memoryObservation?.groupState?.recentMessages)
+        ? memoryObservation.groupState.recentMessages
+        : []
+    const shortTerm = agentConfig.shortTerm || {}
+    const promptRecentMessages = shortTerm.promptRecentMessages || 16
+    const promptTopicMessages = shortTerm.promptTopicMessages || 20
+    const promptAssistantMessages = shortTerm.promptAssistantMessages || 6
+    const promptMaxMessages = shortTerm.promptMaxMessages || 32
+    const promptMaxCharsPerMessage = shortTerm.promptMaxCharsPerMessage || 220
+    const selected = new Map()
+    const topicMessageIds = new Set(memoryObservation?.topicSnapshot?.recentMessageIds || [])
+    const replyMessageId = String(agentMessage.replyMessageId || agentMessage.replyTarget?.messageId || '')
+    const currentUserId = String(agentMessage.userId || '')
+    const indexedMessages = messages.map((message, index) => ({ message, index }))
+
+    indexedMessages.slice(-promptRecentMessages).forEach(({ message, index }) => {
+        addSelectedMessage(selected, message, 'recent', 10 + index / 1000, index)
+    })
+
+    if (topicMessageIds.size > 0 && promptTopicMessages > 0) {
+        indexedMessages
+            .filter(({ message }) => topicMessageIds.has(message.id))
+            .slice(-promptTopicMessages)
+            .forEach(({ message, index }) => addSelectedMessage(selected, message, 'topic', 60, index))
+    }
+
+    if (replyMessageId) {
+        indexedMessages
+            .filter(({ message }) => (
+                String(message.id || '') === replyMessageId ||
+                String(message.replyMessageId || '') === replyMessageId ||
+                String(message.replyTarget?.messageId || '') === replyMessageId
+            ))
+            .forEach(({ message, index }) => addSelectedMessage(selected, message, 'reply_chain', 100, index))
+    }
+
+    indexedMessages
+        .filter(({ message }) => (
+            String(message.userId || '') === currentUserId ||
+            message.mentionsSelf ||
+            message.aliasMatched ||
+            message.replyTarget?.isBot
+        ))
+        .slice(-promptRecentMessages)
+        .forEach(({ message, index }) => addSelectedMessage(selected, message, 'addressed_or_same_user', 35, index))
+
+    if (promptAssistantMessages > 0) {
+        indexedMessages
+            .filter(({ message }) => (message.role || (message.userId === message.selfId ? 'assistant' : 'user')) === 'assistant')
+            .slice(-promptAssistantMessages)
+            .forEach(({ message, index }) => addSelectedMessage(selected, message, 'assistant_recent', 50, index))
+    }
+
+    const limited = [...selected.values()]
+    if (limited.length > promptMaxMessages) {
+        limited.sort((left, right) => {
+            if (right.score !== left.score) return right.score - left.score
+            return messageTimestamp(right.message, right.index) - messageTimestamp(left.message, left.index)
+        })
+        limited.length = promptMaxMessages
+    }
+
+    return limited
+        .sort((left, right) => messageTimestamp(left.message, left.index) - messageTimestamp(right.message, right.index))
+        .map(({ message, relevance }) => summarizeMessage(message, [...relevance], promptMaxCharsPerMessage))
 }
 
 function sanitizeMemoryContent(value) {
@@ -127,19 +217,29 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         memoryContext,
         budgetDecision: budgetDecision || null,
         availableTools: listToolDefinitions(),
-        recentMessages: summarizeRecentMessages(memoryObservation),
+        recentMessages: summarizeRecentMessages(memoryObservation, agentConfig, agentMessage),
+        contextPolicy: {
+            strategy: 'relevance_window',
+            note: 'recentMessages 是按相关性筛选后的群聊上下文，不是完整聊天记录。',
+            maxMessages: agentConfig.shortTerm?.promptMaxMessages || 32,
+            relevanceKinds: ['reply_chain', 'topic', 'assistant_recent', 'addressed_or_same_user', 'recent']
+        },
         constraints: [
             '默认不要插话。',
             '明确 @ 你、回复你或叫你的名字时，必须选择 short_reply/full_reply/ask_clarify 并提供 replyDraft。',
             '如果 currentMessage.replyTarget 存在，尤其是 isBot=true，必须优先结合被回复消息理解“第一个/继续/这个/上面”等指代。',
+            'recentMessages 已按 relevance 标注上下文来源；理解短指代时优先看 reply_chain、topic、assistant_recent，而不是只看最后一句。',
             'recentMessages 中 role=assistant 的消息是你自己刚发过的内容；用户追问短指代时，应结合这些上下文，不要轻易要求重复说明。',
             'memoryHints 只记录长期稳定信息，例如用户偏好、uid/昵称映射、群内人物关系、长期事实；不要记录一次性闲聊、情绪、敏感信息或密码密钥。',
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
-            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、加群审批时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
+            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、显式学习记忆时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
             'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 ask_clarify，不要猜 QQ 号。',
+            '如果需要按昵称定位群成员，应先使用 qq.search_members 返回候选，不要直接执行禁言/踢人/改名片。',
             '撤回消息优先使用 currentMessage.replyTarget.messageId；禁言/踢人优先使用 currentMessage.replyTarget.userId 或明确 QQ 号。',
+            '读取网页时只能使用 browser.read_url；不要请求内网、localhost、密钥、Cookie 或登录凭证。',
+            '稳定事实优先写入 memoryHints；用户明确要求你学习/记住某条非敏感事实时，也可以使用 agent.learn_memory。',
             'toolIntent.arguments 只能包含工具需要的结构化参数；不要把自然语言解释放进参数。',
             '不要声称已经执行任何配置或订阅修改；实际执行必须等待权限校验和确认。',
             'observe_only/defer 时 replyDraft 必须为空字符串。',

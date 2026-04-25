@@ -113,6 +113,11 @@ function sanitizeGlobalPatch(body = {}) {
         assignInteger(patch.shortTerm, body.shortTerm, 'maxRecentMessagesPerGroup', 10, 1000)
         assignInteger(patch.shortTerm, body.shortTerm, 'topicIdleMs', 60 * 1000, 24 * 60 * 60 * 1000)
         assignInteger(patch.shortTerm, body.shortTerm, 'crowdedMessagesPerMinute', 1, 120)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptRecentMessages', 4, 80)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptTopicMessages', 0, 80)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptAssistantMessages', 0, 40)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptMaxMessages', 8, 120)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptMaxCharsPerMessage', 80, 1000)
     }
 
     if (isPlainObject(body.longTerm)) {

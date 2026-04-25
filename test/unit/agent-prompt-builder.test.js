@@ -83,7 +83,85 @@ function run() {
     assert.strictEqual(payload.currentMessage.replyTarget.text, '你要第一个还是第二个？')
     assert.strictEqual(payload.currentMessage.replyTarget.isBot, true)
     assert.strictEqual(payload.recentMessages[0].role, 'assistant')
+    assert.ok(payload.recentMessages[0].relevance.includes('assistant_recent'))
     assert.ok(payload.constraints.some((line) => line.includes('第一个/继续/这个/上面')))
+    assert.strictEqual(payload.contextPolicy.strategy, 'relevance_window')
+
+    const longContextMessages = Array.from({ length: 14 }, (_, index) => ({
+        role: 'user',
+        userId: String(200 + index),
+        id: `noise_${index}`,
+        normalizedText: `无关闲聊 ${index}`,
+        rawText: `无关闲聊 ${index}`,
+        timestamp: 1000 + index
+    }))
+    longContextMessages.unshift({
+        role: 'user',
+        userId: '77',
+        id: 'topic_old_1',
+        normalizedText: '前面讨论过番剧订阅规则',
+        rawText: '前面讨论过番剧订阅规则',
+        timestamp: 500
+    })
+    longContextMessages.unshift({
+        role: 'assistant',
+        userId: '999',
+        selfId: '999',
+        id: 'assistant_old_1',
+        normalizedText: '我刚才说第一个方案更稳',
+        rawText: '我刚才说第一个方案更稳',
+        timestamp: 400
+    })
+    longContextMessages.push({
+        role: 'user',
+        userId: '42',
+        id: 'msg_current',
+        normalizedText: '@Bot 那就按这个来',
+        rawText: '@Bot 那就按这个来',
+        mentionsSelf: true,
+        timestamp: 3000
+    })
+
+    const relevanceMessages = buildDecisionMessages({
+        agentConfig: {
+            shortTerm: {
+                promptRecentMessages: 4,
+                promptTopicMessages: 4,
+                promptAssistantMessages: 2,
+                promptMaxMessages: 8,
+                promptMaxCharsPerMessage: 220
+            }
+        },
+        agentMessage: {
+            groupId: '1000',
+            userId: '42',
+            id: 'msg_current',
+            normalizedText: '@Bot 那就按这个来',
+            rawText: '@Bot 那就按这个来',
+            mentionsSelf: true,
+            hasReply: false,
+            aliasMatched: false,
+            sender: { role: 'member' }
+        },
+        memoryObservation: {
+            groupState: { recentMessages: longContextMessages },
+            topicSnapshot: { topicId: 'topic_1', recentMessageIds: ['topic_old_1', 'msg_current'] },
+            chatPace: {}
+        },
+        longTermMemories: [],
+        scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
+        ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
+        sessionContext: { actor: {} },
+        budgetDecision: { allowed: true }
+    })
+    const relevancePayload = JSON.parse(relevanceMessages[1].content)
+    const oldTopic = relevancePayload.recentMessages.find((message) => message.messageId === 'topic_old_1')
+    const oldAssistant = relevancePayload.recentMessages.find((message) => message.messageId === 'assistant_old_1')
+    assert.ok(oldTopic, 'should keep older active topic message')
+    assert.ok(oldTopic.relevance.includes('topic'))
+    assert.ok(oldAssistant, 'should keep older assistant context')
+    assert.ok(oldAssistant.relevance.includes('assistant_recent'))
+    assert.ok(relevancePayload.recentMessages.length <= 8)
 
     console.log('✓ Agent prompt persona 注入正常')
 }

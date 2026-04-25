@@ -19,6 +19,10 @@ function normalizeGroupId(value) {
 }
 
 function normalizeRole(role) {
+    const numericRole = Number(role)
+    if (numericRole === 4) return 'owner'
+    if (numericRole === 3 || numericRole === 2) return 'admin'
+    if (numericRole === 1) return 'member'
     const normalized = String(role || 'unknown').trim().toLowerCase()
     return Object.prototype.hasOwnProperty.call(ROLE_LEVEL, normalized) ? normalized : 'unknown'
 }
@@ -46,15 +50,20 @@ function displayMember(member) {
     return userId ? `${name}(${userId})` : name
 }
 
+function compactText(value, limit = 80) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    return text.length > limit ? text.slice(0, limit) : text
+}
+
 function normalizeMember(data = {}) {
     return {
         groupId: String(data.group_id || data.groupId || ''),
-        userId: String(data.user_id || data.userId || ''),
-        nickname: String(data.nickname || ''),
-        card: String(data.card || ''),
+        userId: String(data.user_id || data.userId || data.uin || data.uid || ''),
+        nickname: String(data.nickname || data.nick || ''),
+        card: String(data.card || data.cardName || ''),
         role: normalizeRole(data.role),
         title: String(data.title || ''),
-        shutUpTimestamp: Number(data.shut_up_timestamp || data.shutUpTimestamp || 0) || 0,
+        shutUpTimestamp: Number(data.shut_up_timestamp || data.shutUpTimestamp || data.shutUpTime || 0) || 0,
         raw: data
     }
 }
@@ -67,6 +76,22 @@ function normalizeGroup(data = {}) {
         maxMemberCount: Number(data.max_member_count || data.maxMemberCount || 0) || 0,
         wholeBanEnabled: Boolean(Number(data.group_all_shut || data.groupAllShut || 0)),
         raw: data
+    }
+}
+
+function normalizeSystemRequest(item = {}) {
+    return {
+        requestId: String(item.request_id || item.requestId || ''),
+        invitorUin: String(item.invitor_uin || item.invitorUin || ''),
+        invitorNick: String(item.invitor_nick || item.invitorNick || ''),
+        groupId: String(item.group_id || item.groupId || ''),
+        groupName: String(item.group_name || item.groupName || ''),
+        userId: String(item.requester_uin || item.requesterUin || item.user_id || item.userId || ''),
+        requesterNick: String(item.requester_nick || item.requesterNick || ''),
+        message: String(item.message || ''),
+        checked: Boolean(item.checked),
+        actor: String(item.actor || ''),
+        raw: item
     }
 }
 
@@ -113,6 +138,78 @@ class QqGroupAdminService {
         return normalizeGroup(response.data || {})
     }
 
+    async getGroupMuteList({ groupId }, options = {}) {
+        const response = await this.callAction('get_group_shut_list', {
+            group_id: normalizeGroupId(groupId)
+        }, options)
+        return (Array.isArray(response.data) ? response.data : []).map(normalizeMember)
+    }
+
+    async getEssenceMessages({ groupId }, options = {}) {
+        const response = await this.callAction('get_essence_msg_list', {
+            group_id: normalizeGroupId(groupId)
+        }, options)
+        return Array.isArray(response.data) ? response.data : []
+    }
+
+    async getGroupNotices({ groupId }, options = {}) {
+        const response = await this.callAction('_get_group_notice', {
+            group_id: normalizeGroupId(groupId)
+        }, options)
+        return Array.isArray(response.data) ? response.data : []
+    }
+
+    async getAtAllRemain({ groupId }, options = {}) {
+        const response = await this.callAction('get_group_at_all_remain', {
+            group_id: normalizeGroupId(groupId)
+        }, options)
+        return response.data || {}
+    }
+
+    async getGroupSystemMessages({ groupId, count = 50 }, options = {}) {
+        const safeGroupId = normalizeGroupId(groupId)
+        const response = await this.callAction('get_group_system_msg', {
+            count: Math.max(1, Math.min(100, Math.trunc(Number(count) || 50)))
+        }, options)
+        return this.filterSystemMessagesByGroup(response.data || {}, safeGroupId)
+    }
+
+    async getGroupIgnoredNotifies({ groupId }, options = {}) {
+        const safeGroupId = normalizeGroupId(groupId)
+        const response = await this.callAction('get_group_ignored_notifies', {}, options)
+        return this.filterSystemMessagesByGroup(response.data || {}, safeGroupId)
+    }
+
+    filterSystemMessagesByGroup(data, groupId) {
+        const invited = Array.isArray(data.InvitedRequest) ? data.InvitedRequest : []
+        const joins = Array.isArray(data.join_requests) ? data.join_requests : []
+        return {
+            invitedRequests: invited.map(normalizeSystemRequest).filter((item) => item.groupId === groupId),
+            joinRequests: joins.map(normalizeSystemRequest).filter((item) => item.groupId === groupId)
+        }
+    }
+
+    async listMembers({ groupId, noCache = false }, options = {}) {
+        const response = await this.callAction('get_group_member_list', {
+            group_id: normalizeGroupId(groupId),
+            no_cache: Boolean(noCache)
+        }, options)
+        return (Array.isArray(response.data) ? response.data : []).map(normalizeMember)
+    }
+
+    async searchMembers({ groupId, query, limit = 8 }, options = {}) {
+        const safeQuery = String(query || '').trim().toLowerCase()
+        if (!safeQuery) throw new Error('missing_member_query')
+        const members = await this.listMembers({ groupId, noCache: false }, options)
+        return members
+            .filter((member) => (
+                member.userId.includes(safeQuery) ||
+                member.nickname.toLowerCase().includes(safeQuery) ||
+                member.card.toLowerCase().includes(safeQuery)
+            ))
+            .slice(0, Math.max(1, Math.min(20, Math.trunc(Number(limit) || 8))))
+    }
+
     async getMessageInfo({ messageId }, options = {}) {
         const safeMessageId = String(messageId || '').trim()
         if (!safeMessageId) throw new Error('missing_message_id')
@@ -128,6 +225,16 @@ class QqGroupAdminService {
             throw new Error('bot_not_group_admin')
         }
         return botMember
+    }
+
+    async assertActorCanManageGroup(groupId, options = {}) {
+        const safeGroupId = normalizeGroupId(groupId)
+        const actor = options.actor || {}
+        const botMember = await this.assertBotCanManage(safeGroupId, options)
+        if (actor.isRoot) return { groupId: safeGroupId, botMember, actorMember: { userId: String(actor.userId || ''), role: 'owner' } }
+        const actorMember = await this.getMemberInfo({ groupId: safeGroupId, userId: actor.userId, noCache: true }, options)
+        if (!isManagerRole(actorMember.role)) throw new Error('actor_not_group_admin')
+        return { groupId: safeGroupId, botMember, actorMember }
     }
 
     assertActorCanManageTarget({ actor, actorMember, botMember, targetMember, action = 'manage' }) {
@@ -204,6 +311,63 @@ class QqGroupAdminService {
         return {
             message: `已将 ${displayMember(context.targetMember)} 移出本群。`,
             data: { groupId: context.groupId, targetUserId: context.targetUserId, rejectAddRequest: Boolean(rejectAddRequest) }
+        }
+    }
+
+    async setMemberCard({ groupId, targetUserId, card }, options = {}) {
+        const safeCard = compactText(card, 60)
+        const context = await this.buildModerationContext({ groupId, targetUserId, actor: options.actor }, options)
+        this.assertActorCanManageTarget({ actor: options.actor, actorMember: context.actorMember, botMember: context.botMember, targetMember: context.targetMember, action: 'set_card' })
+        await this.callAction('set_group_card', {
+            group_id: context.groupId,
+            user_id: context.targetUserId,
+            card: safeCard
+        }, options)
+        return {
+            message: safeCard
+                ? `已将 ${displayMember(context.targetMember)} 的群名片改为「${safeCard}」。`
+                : `已清空 ${displayMember(context.targetMember)} 的群名片。`,
+            data: { groupId: context.groupId, targetUserId: context.targetUserId, card: safeCard }
+        }
+    }
+
+    async setWholeBan({ groupId, enabled }, options = {}) {
+        const context = await this.assertActorCanManageGroup(groupId, options)
+        await this.callAction('set_group_whole_ban', {
+            group_id: context.groupId,
+            enable: Boolean(enabled)
+        }, options)
+        return {
+            message: `已${enabled ? '开启' : '关闭'}群 ${context.groupId} 的全员禁言。`,
+            data: { groupId: context.groupId, enabled: Boolean(enabled) }
+        }
+    }
+
+    async assertMessageInGroup({ groupId, messageId }, options = {}) {
+        const safeGroupId = normalizeGroupId(groupId)
+        const messageInfo = await this.getMessageInfo({ messageId }, options)
+        if (!messageInfo.groupId) throw new Error('message_group_unavailable')
+        if (messageInfo.groupId !== safeGroupId) throw new Error('message_cross_group_denied')
+        return messageInfo
+    }
+
+    async setEssenceMessage({ groupId, messageId }, options = {}) {
+        await this.assertActorCanManageGroup(groupId, options)
+        await this.assertMessageInGroup({ groupId, messageId }, options)
+        await this.callAction('set_essence_msg', { message_id: String(messageId).trim() }, options)
+        return {
+            message: `已将消息 ${messageId} 设置为群精华。`,
+            data: { groupId: normalizeGroupId(groupId), messageId: String(messageId).trim() }
+        }
+    }
+
+    async deleteEssenceMessage({ groupId, messageId }, options = {}) {
+        await this.assertActorCanManageGroup(groupId, options)
+        await this.assertMessageInGroup({ groupId, messageId }, options)
+        await this.callAction('delete_essence_msg', { message_id: String(messageId).trim() }, options)
+        return {
+            message: `已将消息 ${messageId} 移出群精华。`,
+            data: { groupId: normalizeGroupId(groupId), messageId: String(messageId).trim() }
         }
     }
 

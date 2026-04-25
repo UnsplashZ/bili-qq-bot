@@ -57,7 +57,12 @@ const DEFAULT_AGENT_CONFIG = {
     shortTerm: {
         maxRecentMessagesPerGroup: 100,
         topicIdleMs: 30 * 60 * 1000,
-        crowdedMessagesPerMinute: 8
+        crowdedMessagesPerMinute: 8,
+        promptRecentMessages: 16,
+        promptTopicMessages: 20,
+        promptAssistantMessages: 6,
+        promptMaxMessages: 32,
+        promptMaxCharsPerMessage: 220
     },
     longTerm: {
         retrieveLimit: 5,

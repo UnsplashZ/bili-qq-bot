@@ -73,6 +73,11 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     shortTerm.maxRecentMessagesPerGroup = Math.max(10, Math.trunc(parseNumber(shortTerm.maxRecentMessagesPerGroup, DEFAULT_AGENT_CONFIG.shortTerm.maxRecentMessagesPerGroup)))
     shortTerm.topicIdleMs = Math.max(60 * 1000, Math.trunc(parseNumber(shortTerm.topicIdleMs, DEFAULT_AGENT_CONFIG.shortTerm.topicIdleMs)))
     shortTerm.crowdedMessagesPerMinute = Math.max(1, Math.trunc(parseNumber(shortTerm.crowdedMessagesPerMinute, DEFAULT_AGENT_CONFIG.shortTerm.crowdedMessagesPerMinute)))
+    shortTerm.promptRecentMessages = Math.max(4, Math.min(80, Math.trunc(parseNumber(shortTerm.promptRecentMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptRecentMessages))))
+    shortTerm.promptTopicMessages = Math.max(0, Math.min(80, Math.trunc(parseNumber(shortTerm.promptTopicMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptTopicMessages))))
+    shortTerm.promptAssistantMessages = Math.max(0, Math.min(40, Math.trunc(parseNumber(shortTerm.promptAssistantMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptAssistantMessages))))
+    shortTerm.promptMaxMessages = Math.max(8, Math.min(120, Math.trunc(parseNumber(shortTerm.promptMaxMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptMaxMessages))))
+    shortTerm.promptMaxCharsPerMessage = Math.max(80, Math.min(1000, Math.trunc(parseNumber(shortTerm.promptMaxCharsPerMessage, DEFAULT_AGENT_CONFIG.shortTerm.promptMaxCharsPerMessage))))
 
     const longTerm = normalized.longTerm
     longTerm.retrieveLimit = Math.max(1, Math.min(10, Math.trunc(parseNumber(longTerm.retrieveLimit, DEFAULT_AGENT_CONFIG.longTerm.retrieveLimit))))

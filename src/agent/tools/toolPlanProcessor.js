@@ -41,6 +41,7 @@ function formatDenied(reason) {
         group_config_permission_denied: '这个群配置操作需要群主、群管理员或已配置的群管理员权限。',
         subscription_permission_denied: '订阅管理需要群主、群管理员或已配置的群管理员权限。',
         qq_manager_permission_denied: 'QQ 群管理操作需要群主或群管理员权限。',
+        qq_account_requires_root: 'QQ 账号级操作需要 Root 权限。',
         cross_group_permission_denied: '你只能管理当前群；跨群操作需要 Root 权限。'
     }
     return messages[reason] || `这个工具计划没有执行：${reason}`

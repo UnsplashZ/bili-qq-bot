@@ -2,6 +2,8 @@ const config = require('../../config')
 const subscriptionService = require('../../services/subscriptionService')
 const biliApi = require('../../services/biliApi')
 const qqGroupAdminService = require('../../services/qqGroupAdminService')
+const qqAccountService = require('../../services/qqAccountService')
+const agentBrowserService = require('../../services/agentBrowserService')
 const requestApprovalService = require('../../services/requestApprovalService')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const longTermStore = require('../memory/longTermStore')
@@ -86,6 +88,17 @@ function normalizeMemorySummaryArgs(args, sessionContext) {
     }
 }
 
+function normalizeMemoryLearnArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const content = compactText(args.content || args.text || args.fact || '', 240)
+    const scope = ['user', 'group', 'topic'].includes(args.scope) ? args.scope : 'group'
+    const type = ['fact', 'preference', 'relation', 'episode', 'persona'].includes(args.type) ? args.type : 'fact'
+    const confidence = Math.min(1, Math.max(0, Number(args.confidence) || 0.7))
+    if (!groupId) throw new Error('missing_group_id')
+    if (!content) throw new Error('missing_memory_content')
+    return { groupId, content, scope, type, confidence }
+}
+
 function normalizeBiliUserLookupArgs(args, sessionContext) {
     const groupId = normalizeGroupId(args.groupId, sessionContext)
     const uid = normalizeNumericId(args.uid || args.userId || args.mid)
@@ -166,6 +179,33 @@ function normalizeDeleteMessageArgs(args, sessionContext) {
     return { groupId, messageId }
 }
 
+function normalizeMemberSearchArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const query = compactText(args.query || args.keyword || args.name || args.qq || '', 60)
+    const limit = Math.max(1, Math.min(20, Math.trunc(Number(args.limit) || 8)))
+    if (!groupId) throw new Error('missing_group_id')
+    if (!query) throw new Error('missing_member_query')
+    return { groupId, query, limit }
+}
+
+function normalizeSetCardArgs(args, sessionContext) {
+    const base = normalizeTargetUserArgs(args, sessionContext)
+    const hasCard = Object.prototype.hasOwnProperty.call(args, 'card')
+        || Object.prototype.hasOwnProperty.call(args, 'name')
+        || Object.prototype.hasOwnProperty.call(args, 'nickname')
+    if (!hasCard) throw new Error('missing_member_card')
+    const card = compactText(args.card ?? args.name ?? args.nickname ?? '', 60)
+    return { ...base, card }
+}
+
+function normalizeQqGroupFlagArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const enabled = normalizeBoolean(args.enabled)
+    if (!groupId) throw new Error('missing_group_id')
+    if (enabled === null) throw new Error('invalid_enabled')
+    return { groupId, enabled }
+}
+
 function normalizeApprovalDecisionArgs(args, sessionContext) {
     const groupId = normalizeGroupId(args.groupId, sessionContext)
     const decisionText = String(args.decision || args.action || '').trim().toLowerCase()
@@ -178,6 +218,52 @@ function normalizeApprovalDecisionArgs(args, sessionContext) {
     if (!decision) throw new Error('invalid_approval_decision')
     if (!shortId && !replyMessageId) throw new Error('missing_approval_target')
     return { groupId, decision, shortId, replyMessageId }
+}
+
+function normalizeFriendApprovalDecisionArgs(args) {
+    const decisionText = String(args.decision || args.action || '').trim().toLowerCase()
+    const decision = ['approve', '同意', 'yes', 'y'].includes(decisionText)
+        ? 'approve'
+        : (['reject', '拒绝', 'no', 'n'].includes(decisionText) ? 'reject' : '')
+    const shortId = String(args.shortId || args.requestId || args.id || '').trim().toUpperCase()
+    const replyMessageId = String(args.replyMessageId || args.messageId || '').trim()
+    if (!decision) throw new Error('invalid_approval_decision')
+    if (!shortId && !replyMessageId) throw new Error('missing_approval_target')
+    return { decision, shortId, replyMessageId }
+}
+
+function normalizeCountGroupQueryArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const count = Math.max(1, Math.min(100, Math.trunc(Number(args.count) || 50)))
+    if (!groupId) throw new Error('missing_group_id')
+    return { groupId, count }
+}
+
+function normalizeOnlineStatusArgs(args) {
+    const preset = compactText(args.preset || args.statusName || args.name || '', 40).toLowerCase()
+    const status = args.status
+    const extStatus = args.extStatus ?? args.ext_status ?? 0
+    const batteryStatus = args.batteryStatus ?? args.battery_status ?? 0
+    if (!preset && status === undefined) throw new Error('missing_online_status')
+    return { preset, status, extStatus, batteryStatus }
+}
+
+function normalizeInputStatusArgs(args, sessionContext) {
+    const targetUserId = normalizeNumericId(args.targetUserId || args.userId || args.qq || sessionContext?.userId)
+    const preset = compactText(args.preset || args.statusName || args.name || '', 40).toLowerCase()
+    const eventType = args.eventType ?? args.event_type
+    if (!targetUserId) throw new Error('invalid_target_user_id')
+    if (!preset && eventType === undefined) throw new Error('missing_input_status')
+    return { userId: targetUserId, preset, eventType }
+}
+
+function normalizeBrowserReadArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const url = String(args.url || args.href || '').trim()
+    const maxChars = Math.max(200, Math.min(8000, Math.trunc(Number(args.maxChars) || 3000)))
+    if (!groupId) throw new Error('missing_group_id')
+    if (!url) throw new Error('missing_url')
+    return { groupId, url, maxChars }
 }
 
 function formatList(items, mapper, limit = 5) {
@@ -411,6 +497,63 @@ function formatGroupInfo(group) {
     }
 }
 
+function formatMuteList(members, args) {
+    const list = Array.isArray(members) ? members : []
+    if (list.length === 0) return { message: `群 ${args.groupId} 当前没有成员处于禁言列表。`, data: { groupId: args.groupId, members: [] } }
+    return {
+        message: [
+            `群 ${args.groupId} 禁言成员 ${list.length} 个`,
+            formatList(list, (member) => `${member.card || member.nickname || member.userId}(${member.userId}) 解禁时间:${member.shutUpTimestamp || '-'}`, 8)
+        ].join('：'),
+        data: { groupId: args.groupId, members: list }
+    }
+}
+
+function formatEssenceMessages(items, args) {
+    const list = Array.isArray(items) ? items : []
+    if (list.length === 0) return { message: `群 ${args.groupId} 暂无精华消息。`, data: { groupId: args.groupId, items: [] } }
+    return {
+        message: [
+            `群 ${args.groupId} 精华消息 ${list.length} 条`,
+            formatList(list, (item) => `${item.message_id || item.messageId}:${compactText(item.content || item.sender_nick || '', 30)}`, 8)
+        ].join('：'),
+        data: { groupId: args.groupId, items: list }
+    }
+}
+
+function formatGroupNotices(items, args) {
+    const list = Array.isArray(items) ? items : []
+    if (list.length === 0) return { message: `群 ${args.groupId} 暂无群公告。`, data: { groupId: args.groupId, items: [] } }
+    return {
+        message: [
+            `群 ${args.groupId} 群公告 ${list.length} 条`,
+            formatList(list, (item) => `${item.notice_id || '-'}:${compactText(item.message?.text || item.message || '', 30)}`, 8)
+        ].join('：'),
+        data: { groupId: args.groupId, items: list }
+    }
+}
+
+function formatSystemMessages(result, args, label) {
+    const invitedRequests = Array.isArray(result?.invitedRequests) ? result.invitedRequests : []
+    const joinRequests = Array.isArray(result?.joinRequests) ? result.joinRequests : []
+    const total = invitedRequests.length + joinRequests.length
+    if (total === 0) return { message: `群 ${args.groupId} 没有${label}。`, data: { groupId: args.groupId, invitedRequests, joinRequests } }
+    return {
+        message: [
+            `群 ${args.groupId} ${label} ${total} 条`,
+            formatList([...joinRequests, ...invitedRequests], (item) => `${item.requestId || '-'}:${item.userId || item.requesterNick || item.invitorUin}${item.message ? `「${compactText(item.message, 20)}」` : ''}`, 8)
+        ].join('：'),
+        data: { groupId: args.groupId, invitedRequests, joinRequests }
+    }
+}
+
+function formatAtAllRemain(data, args) {
+    return {
+        message: `群 ${args.groupId} @全体：${data?.can_at_all ? '可用' : '不可用'}，群剩余 ${data?.remain_at_all_count_for_group ?? '-'}，账号剩余 ${data?.remain_at_all_count_for_uin ?? '-'}。`,
+        data: { groupId: args.groupId, ...data }
+    }
+}
+
 function formatPendingApprovals(result, groupId) {
     const items = (Array.isArray(result?.items) ? result.items : [])
         .filter((item) => !groupId || String(item.groupId || '') === String(groupId))
@@ -426,6 +569,46 @@ function formatPendingApprovals(result, groupId) {
     }
 }
 
+function formatFriendApprovals(result) {
+    const items = (Array.isArray(result?.items) ? result.items : [])
+        .filter((item) => item.requestType === 'friend')
+    if (items.length === 0) return { message: '当前没有待处理好友申请。', data: { pendingCount: 0, items: [] } }
+    return {
+        message: [
+            `待处理好友申请 ${items.length} 个`,
+            formatList(items, (item) => `${item.shortId}:${item.userId}${item.comment ? `「${compactText(item.comment, 20)}」` : ''}`, 8)
+        ].join('：'),
+        data: { pendingCount: items.length, items }
+    }
+}
+
+function formatMemberSearchResults(members, args) {
+    const list = Array.isArray(members) ? members : []
+    if (list.length === 0) {
+        return {
+            message: `群 ${args.groupId} 未找到匹配「${args.query}」的成员。`,
+            data: { groupId: args.groupId, query: args.query, members: [] }
+        }
+    }
+    return {
+        message: [
+            `群 ${args.groupId} 找到 ${list.length} 个成员`,
+            formatList(list, (member) => `${member.card || member.nickname || member.userId}(${member.userId}, ${member.role})`, args.limit)
+        ].join('：'),
+        data: {
+            groupId: args.groupId,
+            query: args.query,
+            members: list.map((member) => ({
+                userId: member.userId,
+                nickname: member.nickname,
+                card: member.card,
+                role: member.role,
+                shutUpTimestamp: member.shutUpTimestamp
+            }))
+        }
+    }
+}
+
 function findPendingApprovalTarget({ shortId, replyMessageId, groupId }) {
     const pending = requestApprovalService.listPendingApprovals()
     const normalizedShortId = String(shortId || '').trim().toUpperCase()
@@ -436,6 +619,19 @@ function findPendingApprovalTarget({ shortId, replyMessageId, groupId }) {
     ))
     if (!target) throw new Error('approval_target_not_found')
     if (String(target.groupId || '') !== String(groupId || '')) throw new Error('approval_cross_group_denied')
+    return target
+}
+
+function findPendingFriendApprovalTarget({ shortId, replyMessageId }) {
+    const pending = requestApprovalService.listPendingApprovals()
+    const normalizedShortId = String(shortId || '').trim().toUpperCase()
+    const normalizedReplyMessageId = String(replyMessageId || '').trim()
+    const target = (Array.isArray(pending.items) ? pending.items : []).find((item) => (
+        (normalizedShortId && String(item.shortId || '').toUpperCase() === normalizedShortId) ||
+        (normalizedReplyMessageId && String(item.notifyMessageId || '') === normalizedReplyMessageId)
+    ))
+    if (!target) throw new Error('approval_target_not_found')
+    if (target.requestType !== 'friend') throw new Error('approval_target_not_friend')
     return target
 }
 
@@ -530,6 +726,45 @@ const toolDefinitions = {
             return formatMemorySummary(memories, args)
         }
     },
+    'agent.learn_memory': {
+        name: 'agent.learn_memory',
+        description: '把明确、稳定、非敏感的事实写入当前群 Agent 长期记忆。',
+        risk: 'low',
+        permission: 'write_agent_memory',
+        normalizeArgs: normalizeMemoryLearnArgs,
+        summarize: (args) => `学习群 ${args.groupId} 记忆：${compactText(args.content, 40)}`,
+        execute: async (args, context) => {
+            const result = await longTermStore.storeMemoryHints({
+                hints: [{
+                    scope: args.scope,
+                    type: args.type,
+                    content: args.content,
+                    confidence: args.confidence
+                }],
+                sessionContext: {
+                    groupId: args.groupId,
+                    userId: context?.userId || '',
+                    topicId: context?.agentMessage?.topicId || '',
+                    traceScope: context?.traceScope || ''
+                },
+                agentMessage: context?.agentMessage,
+                decision: { action: 'tool_plan' }
+            })
+            return {
+                message: result.stored > 0 ? `已学习：${compactText(args.content, 80)}` : `没有写入记忆：${result.error || '内容可能为空或敏感'}`,
+                data: result
+            }
+        }
+    },
+    'browser.read_url': {
+        name: 'browser.read_url',
+        description: '受限读取公开 http/https 网页文本；会拒绝 localhost、内网地址和带凭证 URL。',
+        risk: 'medium',
+        permission: 'use_browser',
+        normalizeArgs: normalizeBrowserReadArgs,
+        summarize: (args) => `读取网页 ${args.url}`,
+        execute: async (args, context) => agentBrowserService.readUrl(args, context)
+    },
     'qq.get_group_info': {
         name: 'qq.get_group_info',
         description: '查询当前 QQ 群基础状态和全员禁言状态。',
@@ -538,6 +773,60 @@ const toolDefinitions = {
         normalizeArgs: normalizeGroupQueryArgs,
         summarize: (args) => `查询 QQ 群 ${args.groupId} 状态`,
         execute: async (args, context) => formatGroupInfo(await qqGroupAdminService.getGroupInfo(args, context))
+    },
+    'qq.get_group_mute_list': {
+        name: 'qq.get_group_mute_list',
+        description: '查询当前 QQ 群禁言成员列表。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 禁言列表`,
+        execute: async (args, context) => formatMuteList(await qqGroupAdminService.getGroupMuteList(args, context), args)
+    },
+    'qq.get_essence_messages': {
+        name: 'qq.get_essence_messages',
+        description: '查询当前 QQ 群精华消息列表。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 精华消息`,
+        execute: async (args, context) => formatEssenceMessages(await qqGroupAdminService.getEssenceMessages(args, context), args)
+    },
+    'qq.get_group_notices': {
+        name: 'qq.get_group_notices',
+        description: '查询当前 QQ 群公告列表。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 公告`,
+        execute: async (args, context) => formatGroupNotices(await qqGroupAdminService.getGroupNotices(args, context), args)
+    },
+    'qq.get_group_system_messages': {
+        name: 'qq.get_group_system_messages',
+        description: '查询当前 QQ 群系统申请消息，作为运行期审批缓存的补充。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeCountGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 系统消息`,
+        execute: async (args, context) => formatSystemMessages(await qqGroupAdminService.getGroupSystemMessages(args, context), args, '系统消息')
+    },
+    'qq.get_group_ignored_notifies': {
+        name: 'qq.get_group_ignored_notifies',
+        description: '查询当前 QQ 群被过滤/忽略的系统申请消息。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 被忽略系统消息`,
+        execute: async (args, context) => formatSystemMessages(await qqGroupAdminService.getGroupIgnoredNotifies(args, context), args, '被忽略系统消息')
+    },
+    'qq.get_at_all_remain': {
+        name: 'qq.get_at_all_remain',
+        description: '查询当前 QQ 群 @全体剩余次数。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} @全体剩余次数`,
+        execute: async (args, context) => formatAtAllRemain(await qqGroupAdminService.getAtAllRemain(args, context), args)
     },
     'qq.get_member_info': {
         name: 'qq.get_member_info',
@@ -551,6 +840,15 @@ const toolDefinitions = {
             userId: args.targetUserId,
             noCache: true
         }, context))
+    },
+    'qq.search_members': {
+        name: 'qq.search_members',
+        description: '按 QQ 号、昵称或群名片搜索当前 QQ 群成员候选；用于管理动作前定位人员。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeMemberSearchArgs,
+        summarize: (args) => `搜索群 ${args.groupId} 成员「${args.query}」`,
+        execute: async (args, context) => formatMemberSearchResults(await qqGroupAdminService.searchMembers(args, context), args)
     },
     'qq.mute_member': {
         name: 'qq.mute_member',
@@ -579,6 +877,24 @@ const toolDefinitions = {
         summarize: (args) => `踢出群 ${args.groupId} 成员 ${args.targetUserId}`,
         execute: async (args, context) => qqGroupAdminService.kickMember(args, context)
     },
+    'qq.set_member_card': {
+        name: 'qq.set_member_card',
+        description: '设置或清空当前 QQ 群指定成员的群名片。',
+        risk: 'medium',
+        permission: 'manage_qq_member',
+        normalizeArgs: normalizeSetCardArgs,
+        summarize: (args) => `设置群 ${args.groupId} 成员 ${args.targetUserId} 群名片为「${args.card || '空'}」`,
+        execute: async (args, context) => qqGroupAdminService.setMemberCard(args, context)
+    },
+    'qq.set_whole_ban': {
+        name: 'qq.set_whole_ban',
+        description: '开启或关闭当前 QQ 群全员禁言。',
+        risk: 'high',
+        permission: 'manage_qq_group',
+        normalizeArgs: normalizeQqGroupFlagArgs,
+        summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 全员禁言`,
+        execute: async (args, context) => qqGroupAdminService.setWholeBan(args, context)
+    },
     'qq.delete_message': {
         name: 'qq.delete_message',
         description: '撤回当前 QQ 群中的指定消息；优先用于回复某条消息后要求撤回。',
@@ -587,6 +903,24 @@ const toolDefinitions = {
         normalizeArgs: normalizeDeleteMessageArgs,
         summarize: (args) => `撤回群 ${args.groupId} 消息 ${args.messageId}`,
         execute: async (args, context) => qqGroupAdminService.deleteMessage(args, context)
+    },
+    'qq.set_essence_message': {
+        name: 'qq.set_essence_message',
+        description: '将当前 QQ 群指定消息设置为精华消息；优先用于回复某条消息后设置。',
+        risk: 'medium',
+        permission: 'manage_qq_message',
+        normalizeArgs: normalizeDeleteMessageArgs,
+        summarize: (args) => `设置群 ${args.groupId} 消息 ${args.messageId} 为精华`,
+        execute: async (args, context) => qqGroupAdminService.setEssenceMessage(args, context)
+    },
+    'qq.delete_essence_message': {
+        name: 'qq.delete_essence_message',
+        description: '将当前 QQ 群指定消息移出精华消息；优先用于回复某条消息后移出。',
+        risk: 'medium',
+        permission: 'manage_qq_message',
+        normalizeArgs: normalizeDeleteMessageArgs,
+        summarize: (args) => `移出群 ${args.groupId} 精华消息 ${args.messageId}`,
+        execute: async (args, context) => qqGroupAdminService.deleteEssenceMessage(args, context)
     },
     'qq.list_pending_requests': {
         name: 'qq.list_pending_requests',
@@ -621,6 +955,57 @@ const toolDefinitions = {
                 data: result
             }
         }
+    },
+    'qq.list_friend_requests': {
+        name: 'qq.list_friend_requests',
+        description: '查询待处理好友申请。',
+        risk: 'low',
+        permission: 'manage_qq_account',
+        normalizeArgs: () => ({}),
+        summarize: () => '查询待处理好友申请',
+        execute: async () => formatFriendApprovals(requestApprovalService.listPendingApprovals())
+    },
+    'qq.handle_friend_request': {
+        name: 'qq.handle_friend_request',
+        description: '同意或拒绝待处理好友申请。',
+        risk: 'high',
+        permission: 'manage_qq_account',
+        normalizeArgs: normalizeFriendApprovalDecisionArgs,
+        summarize: (args) => `${args.decision === 'approve' ? '同意' : '拒绝'}好友申请 ${args.shortId || args.replyMessageId}`,
+        execute: async (args, context) => {
+            findPendingFriendApprovalTarget({
+                shortId: args.shortId,
+                replyMessageId: args.replyMessageId
+            })
+            const result = await requestApprovalService.handleExactApprovalDecision(context?.ws, {
+                decision: args.decision,
+                shortId: args.shortId,
+                replyMessageId: args.replyMessageId
+            })
+            if (!result.ok) throw new Error(result.error || result.status || 'approval_failed')
+            return {
+                message: `已${args.decision === 'approve' ? '同意' : '拒绝'}好友申请 ${result.shortId || args.shortId}。剩余待处理 ${result.pendingCount} 个。`,
+                data: result
+            }
+        }
+    },
+    'qq.set_online_status': {
+        name: 'qq.set_online_status',
+        description: '设置 Bot QQ 账号在线状态。',
+        risk: 'medium',
+        permission: 'manage_qq_account',
+        normalizeArgs: normalizeOnlineStatusArgs,
+        summarize: (args) => `设置 QQ 在线状态 ${args.preset || args.status}`,
+        execute: async (args, context) => qqAccountService.setOnlineStatus(args, context)
+    },
+    'qq.set_input_status': {
+        name: 'qq.set_input_status',
+        description: '向指定 QQ 用户设置输入/说话状态。',
+        risk: 'low',
+        permission: 'manage_qq_account',
+        normalizeArgs: normalizeInputStatusArgs,
+        summarize: (args) => `向 ${args.userId} 设置输入状态 ${args.preset || args.eventType}`,
+        execute: async (args, context) => qqAccountService.setInputStatus(args, context)
     },
     'agent.set_group_enabled': {
         name: 'agent.set_group_enabled',
