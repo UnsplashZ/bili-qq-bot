@@ -320,6 +320,120 @@ async function run() {
     }, { groupId: '1000' })
     assert.strictEqual(videoUrlLookupPlan.args.bvid, 'BV1xx411c7mD')
 
+    const adminActionCalls = []
+    notificationService.callAction = async (_ws, action, params) => {
+        adminActionCalls.push({ action, params })
+        if (action === 'get_group_member_info') {
+            const userId = String(params.user_id)
+            const roleByUser = {
+                999: 'admin',
+                42: 'admin',
+                123: 'member',
+                888: 'owner'
+            }
+            return {
+                status: 'ok',
+                retcode: 0,
+                data: {
+                    group_id: params.group_id,
+                    user_id: params.user_id,
+                    nickname: `User${userId}`,
+                    card: '',
+                    role: roleByUser[userId] || 'member',
+                    shut_up_timestamp: 0
+                }
+            }
+        }
+        if (action === 'get_group_info') {
+            return {
+                status: 'ok',
+                retcode: 0,
+                data: {
+                    group_id: params.group_id,
+                    group_name: '测试群',
+                    member_count: 10,
+                    max_member_count: 500,
+                    group_all_shut: 0
+                }
+            }
+        }
+        if (action === 'get_msg') {
+            return {
+                status: 'ok',
+                retcode: 0,
+                data: {
+                    group_id: 1000,
+                    message_id: params.message_id,
+                    user_id: 123,
+                    sender: { user_id: 123 }
+                }
+            }
+        }
+        return { status: 'ok', retcode: 0, data: {} }
+    }
+
+    const qqContext = {
+        ws: makeWs(),
+        groupId: '1000',
+        selfId: '999',
+        userId: '42',
+        actor: {
+            isRoot: false,
+            userId: '42',
+            groupId: '1000',
+            qqRole: 'admin'
+        },
+        replyTarget: {
+            messageId: 'reply-msg-1',
+            userId: '123',
+            isBot: false,
+            text: '广告消息'
+        }
+    }
+    const groupInfoPlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.get_group_info',
+        arguments: { groupId: '1000' }
+    }, qqContext)
+    assert.strictEqual(groupInfoPlan.permission, 'read_qq_group')
+    const groupInfoResult = await toolRegistry.executeToolPlan(groupInfoPlan, qqContext)
+    assert.ok(groupInfoResult.message.includes('测试群'))
+
+    const memberInfoPlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.get_member_info',
+        arguments: {}
+    }, qqContext)
+    assert.strictEqual(memberInfoPlan.args.targetUserId, '123')
+    const memberInfoResult = await toolRegistry.executeToolPlan(memberInfoPlan, qqContext)
+    assert.ok(memberInfoResult.message.includes('User123'))
+
+    const mutePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.mute_member',
+        arguments: { duration: 600 }
+    }, qqContext)
+    assert.strictEqual(mutePlan.risk, 'high')
+    assert.strictEqual(mutePlan.permission, 'manage_qq_member')
+    const muteResult = await toolRegistry.executeToolPlan(mutePlan, qqContext)
+    assert.ok(muteResult.message.includes('已禁言'))
+    assert.ok(adminActionCalls.some((call) => call.action === 'set_group_ban' && call.params.duration === 600))
+
+    const deletePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.delete_message',
+        arguments: {}
+    }, qqContext)
+    assert.strictEqual(deletePlan.args.messageId, 'reply-msg-1')
+    const deleteResult = await toolRegistry.executeToolPlan(deletePlan, qqContext)
+    assert.ok(deleteResult.message.includes('已撤回'))
+    assert.ok(adminActionCalls.some((call) => call.action === 'delete_msg' && call.params.message_id === 'reply-msg-1'))
+
+    const ownerMutePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.mute_member',
+        arguments: { targetUserId: '888', duration: 60 }
+    }, qqContext)
+    await assert.rejects(
+        () => toolRegistry.executeToolPlan(ownerMutePlan, qqContext),
+        /target_is_group_owner/
+    )
+
     let llmCalls = 0
     llmClient.createChatCompletion = async () => {
         llmCalls += 1

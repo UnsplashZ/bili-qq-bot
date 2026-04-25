@@ -1,6 +1,8 @@
 const config = require('../../config')
 const subscriptionService = require('../../services/subscriptionService')
 const biliApi = require('../../services/biliApi')
+const qqGroupAdminService = require('../../services/qqGroupAdminService')
+const requestApprovalService = require('../../services/requestApprovalService')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const longTermStore = require('../memory/longTermStore')
 
@@ -132,6 +134,50 @@ function normalizeBlacklistArgs(args, sessionContext) {
     if (scope === 'group' && !groupId) throw new Error('missing_group_id')
     if (!targetUserId) throw new Error('invalid_target_user_id')
     return { scope, groupId, targetUserId }
+}
+
+function normalizeTargetUserArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const replyTargetUserId = sessionContext?.replyTarget?.userId || sessionContext?.agentMessage?.replyTarget?.userId || ''
+    const targetUserId = normalizeNumericId(args.targetUserId || args.userId || args.qq || replyTargetUserId)
+    if (!groupId) throw new Error('missing_group_id')
+    if (!targetUserId) throw new Error('invalid_target_user_id')
+    return { groupId, targetUserId }
+}
+
+function normalizeMuteArgs(args, sessionContext) {
+    const base = normalizeTargetUserArgs(args, sessionContext)
+    const duration = Math.trunc(Number(args.duration || args.durationSeconds || args.seconds || 600))
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('invalid_duration')
+    return { ...base, duration: Math.min(duration, 24 * 60 * 60) }
+}
+
+function normalizeKickArgs(args, sessionContext) {
+    const base = normalizeTargetUserArgs(args, sessionContext)
+    return { ...base, rejectAddRequest: Boolean(normalizeBoolean(args.rejectAddRequest || args.reject_add_request) || false) }
+}
+
+function normalizeDeleteMessageArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const replyMessageId = sessionContext?.replyTarget?.messageId || sessionContext?.agentMessage?.replyTarget?.messageId || ''
+    const messageId = String(args.messageId || args.message_id || replyMessageId || '').trim()
+    if (!groupId) throw new Error('missing_group_id')
+    if (!messageId) throw new Error('missing_message_id')
+    return { groupId, messageId }
+}
+
+function normalizeApprovalDecisionArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const decisionText = String(args.decision || args.action || '').trim().toLowerCase()
+    const decision = ['approve', '同意', 'yes', 'y'].includes(decisionText)
+        ? 'approve'
+        : (['reject', '拒绝', 'no', 'n'].includes(decisionText) ? 'reject' : '')
+    const shortId = String(args.shortId || args.requestId || args.id || '').trim().toUpperCase()
+    const replyMessageId = String(args.replyMessageId || args.messageId || '').trim()
+    if (!groupId) throw new Error('missing_group_id')
+    if (!decision) throw new Error('invalid_approval_decision')
+    if (!shortId && !replyMessageId) throw new Error('missing_approval_target')
+    return { groupId, decision, shortId, replyMessageId }
 }
 
 function formatList(items, mapper, limit = 5) {
@@ -348,6 +394,51 @@ function formatBiliUserSearch(result) {
     }
 }
 
+function formatMemberInfo(member) {
+    const muteText = member.shutUpTimestamp > Math.floor(Date.now() / 1000)
+        ? `禁言至 ${new Date(member.shutUpTimestamp * 1000).toLocaleString('zh-CN', { hour12: false })}`
+        : '未禁言'
+    return {
+        message: `成员 ${member.card || member.nickname || member.userId}（${member.userId}）：角色 ${member.role}，${muteText}。`,
+        data: member
+    }
+}
+
+function formatGroupInfo(group) {
+    return {
+        message: `群 ${group.groupName || group.groupId}（${group.groupId}）：成员 ${group.memberCount}/${group.maxMemberCount || '-'}，全员禁言${group.wholeBanEnabled ? '开启' : '关闭'}。`,
+        data: group
+    }
+}
+
+function formatPendingApprovals(result, groupId) {
+    const items = (Array.isArray(result?.items) ? result.items : [])
+        .filter((item) => !groupId || String(item.groupId || '') === String(groupId))
+    if (items.length === 0) {
+        return { message: `当前群 ${groupId} 没有待处理加群申请。`, data: { groupId, pendingCount: 0, items: [] } }
+    }
+    return {
+        message: [
+            `当前群 ${groupId} 待处理申请 ${items.length} 个`,
+            formatList(items, (item) => `${item.shortId}:${item.userId}${item.comment ? `「${compactText(item.comment, 20)}」` : ''}`, 5)
+        ].join('：'),
+        data: { groupId, pendingCount: items.length, items }
+    }
+}
+
+function findPendingApprovalTarget({ shortId, replyMessageId, groupId }) {
+    const pending = requestApprovalService.listPendingApprovals()
+    const normalizedShortId = String(shortId || '').trim().toUpperCase()
+    const normalizedReplyMessageId = String(replyMessageId || '').trim()
+    const target = (Array.isArray(pending.items) ? pending.items : []).find((item) => (
+        (normalizedShortId && String(item.shortId || '').toUpperCase() === normalizedShortId) ||
+        (normalizedReplyMessageId && String(item.notifyMessageId || '') === normalizedReplyMessageId)
+    ))
+    if (!target) throw new Error('approval_target_not_found')
+    if (String(target.groupId || '') !== String(groupId || '')) throw new Error('approval_cross_group_denied')
+    return target
+}
+
 const toolDefinitions = {
     'bili.user_lookup': {
         name: 'bili.user_lookup',
@@ -437,6 +528,98 @@ const toolDefinitions = {
         execute: async (args) => {
             const memories = await longTermStore.listMemories({ groupId: args.groupId, limit: 50 })
             return formatMemorySummary(memories, args)
+        }
+    },
+    'qq.get_group_info': {
+        name: 'qq.get_group_info',
+        description: '查询当前 QQ 群基础状态和全员禁言状态。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询 QQ 群 ${args.groupId} 状态`,
+        execute: async (args, context) => formatGroupInfo(await qqGroupAdminService.getGroupInfo(args, context))
+    },
+    'qq.get_member_info': {
+        name: 'qq.get_member_info',
+        description: '查询当前 QQ 群成员角色、群名片和禁言状态。',
+        risk: 'low',
+        permission: 'read_qq_group',
+        normalizeArgs: normalizeTargetUserArgs,
+        summarize: (args) => `查询群 ${args.groupId} 成员 ${args.targetUserId}`,
+        execute: async (args, context) => formatMemberInfo(await qqGroupAdminService.getMemberInfo({
+            groupId: args.groupId,
+            userId: args.targetUserId,
+            noCache: true
+        }, context))
+    },
+    'qq.mute_member': {
+        name: 'qq.mute_member',
+        description: '禁言当前 QQ 群指定成员，最长 24 小时。',
+        risk: 'high',
+        permission: 'manage_qq_member',
+        normalizeArgs: normalizeMuteArgs,
+        summarize: (args) => `禁言群 ${args.groupId} 成员 ${args.targetUserId} ${args.duration} 秒`,
+        execute: async (args, context) => qqGroupAdminService.muteMember(args, context)
+    },
+    'qq.unmute_member': {
+        name: 'qq.unmute_member',
+        description: '解除当前 QQ 群指定成员禁言。',
+        risk: 'medium',
+        permission: 'manage_qq_member',
+        normalizeArgs: normalizeTargetUserArgs,
+        summarize: (args) => `解除群 ${args.groupId} 成员 ${args.targetUserId} 禁言`,
+        execute: async (args, context) => qqGroupAdminService.unmuteMember(args, context)
+    },
+    'qq.kick_member': {
+        name: 'qq.kick_member',
+        description: '将当前 QQ 群指定成员移出群聊。',
+        risk: 'high',
+        permission: 'manage_qq_member',
+        normalizeArgs: normalizeKickArgs,
+        summarize: (args) => `踢出群 ${args.groupId} 成员 ${args.targetUserId}`,
+        execute: async (args, context) => qqGroupAdminService.kickMember(args, context)
+    },
+    'qq.delete_message': {
+        name: 'qq.delete_message',
+        description: '撤回当前 QQ 群中的指定消息；优先用于回复某条消息后要求撤回。',
+        risk: 'medium',
+        permission: 'manage_qq_message',
+        normalizeArgs: normalizeDeleteMessageArgs,
+        summarize: (args) => `撤回群 ${args.groupId} 消息 ${args.messageId}`,
+        execute: async (args, context) => qqGroupAdminService.deleteMessage(args, context)
+    },
+    'qq.list_pending_requests': {
+        name: 'qq.list_pending_requests',
+        description: '查询当前群待处理的加群申请。',
+        risk: 'low',
+        permission: 'manage_qq_request',
+        normalizeArgs: normalizeGroupQueryArgs,
+        summarize: (args) => `查询群 ${args.groupId} 待处理加群申请`,
+        execute: async (args) => formatPendingApprovals(requestApprovalService.listPendingApprovals(), args.groupId)
+    },
+    'qq.handle_group_request': {
+        name: 'qq.handle_group_request',
+        description: '同意或拒绝当前群待处理的加群申请。',
+        risk: 'high',
+        permission: 'manage_qq_request',
+        normalizeArgs: normalizeApprovalDecisionArgs,
+        summarize: (args) => `${args.decision === 'approve' ? '同意' : '拒绝'}群 ${args.groupId} 加群申请 ${args.shortId || args.replyMessageId}`,
+        execute: async (args, context) => {
+            findPendingApprovalTarget({
+                shortId: args.shortId,
+                replyMessageId: args.replyMessageId,
+                groupId: args.groupId
+            })
+            const result = await requestApprovalService.handleExactApprovalDecision(context?.ws, {
+                decision: args.decision,
+                shortId: args.shortId,
+                replyMessageId: args.replyMessageId
+            })
+            if (!result.ok) throw new Error(result.error || result.status || 'approval_failed')
+            return {
+                message: `已${args.decision === 'approve' ? '同意' : '拒绝'}申请 ${result.shortId || args.shortId}。剩余待处理 ${result.pendingCount} 个。`,
+                data: result
+            }
         }
     },
     'agent.set_group_enabled': {
@@ -636,10 +819,10 @@ function normalizeToolIntent(toolIntent, sessionContext) {
     }
 }
 
-async function executeToolPlan(plan) {
+async function executeToolPlan(plan, context = {}) {
     const definition = getToolDefinition(plan?.name)
     if (!definition) throw new Error(`unknown_tool:${plan?.name || 'empty'}`)
-    return definition.execute(plan.args || {})
+    return definition.execute(plan.args || {}, context)
 }
 
 module.exports = {

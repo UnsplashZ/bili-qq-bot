@@ -177,13 +177,17 @@ async function observe(context) {
     const sessionContext = {
         platform: 'qq',
         chatType: agentMessage.messageType,
+        ws: context.ws,
         groupId,
         userId: agentMessage.userId,
+        selfId: agentMessage.selfId,
         messageId: agentMessage.id,
+        replyTarget: agentMessage.replyTarget,
         topicId: memoryObservation.topic.topicId,
         traceScope: context.traceContext?.scope || '',
         isSharedMultiUserSession: agentMessage.messageType === 'group',
-        actor
+        actor,
+        agentMessage
     }
 
     return runWithAgentSession(sessionContext, async () => {

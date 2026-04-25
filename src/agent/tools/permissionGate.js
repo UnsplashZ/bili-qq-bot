@@ -4,6 +4,10 @@ function targetIsCurrentGroup(plan, actor) {
     return targetGroupId && currentGroupId && targetGroupId === currentGroupId
 }
 
+function actorIsQqManager(actor) {
+    return actor?.qqRole === 'admin' || actor?.qqRole === 'owner'
+}
+
 function checkToolPermission({ plan, actor }) {
     if (!plan) {
         return { allowed: false, reason: 'missing_tool_plan' }
@@ -44,7 +48,17 @@ function checkToolPermission({ plan, actor }) {
             : { allowed: false, reason: 'subscription_permission_denied' }
     }
 
-    if (['read_group_config', 'read_subscriptions', 'read_bili', 'read_agent_memory'].includes(plan.permission)) {
+    if (['manage_qq_member', 'manage_qq_message', 'manage_qq_request'].includes(plan.permission)) {
+        if (actor.isRoot) return { allowed: true, reason: 'root_qq_manage_allowed' }
+        if (!targetIsCurrentGroup(plan, actor)) {
+            return { allowed: false, reason: 'cross_group_permission_denied' }
+        }
+        return actorIsQqManager(actor)
+            ? { allowed: true, reason: 'qq_manager_allowed' }
+            : { allowed: false, reason: 'qq_manager_permission_denied' }
+    }
+
+    if (['read_group_config', 'read_subscriptions', 'read_bili', 'read_agent_memory', 'read_qq_group'].includes(plan.permission)) {
         if (actor.isRoot) return { allowed: true, reason: 'root_read_allowed' }
         return targetIsCurrentGroup(plan, actor)
             ? { allowed: true, reason: 'current_group_read_allowed' }
