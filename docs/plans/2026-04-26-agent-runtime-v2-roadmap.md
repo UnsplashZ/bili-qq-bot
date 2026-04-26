@@ -369,6 +369,8 @@
 
 目标：降低主 Agent prompt 和工具列表复杂度。
 
+状态：已启动首轮路由骨架；当前先在主 Agent prompt 前做 specialist 选择和工具裁剪，权限、确认、执行仍统一走原 ToolSpec/Guardrail 管线。
+
 范围：
 
 - 实现 `bili_agent`。
@@ -376,6 +378,13 @@
 - 实现 `memory_agent`。
 - 实现 `browser_agent`。
 - 主 Agent 只负责判断是否 handoff 和最终表达。
+
+当前进展：
+
+- 已新增 `src/agent/specialists/specialistRouter.js`，按消息文本选择 `bili_agent`、`qq_admin_agent`、`memory_agent`、`browser_agent`。
+- `promptBuilder` 已根据 specialist 结果裁剪 `availableTools`，避免主 Agent 每轮看到全部工具。
+- QQ 管理、配置、黑名单、申请和账号状态工具归入 `qq_admin_agent`；订阅和 B 站查询归入 `bili_agent`；记忆工具归入 `memory_agent`；只读网页归入 `browser_agent`。
+- 现阶段仍是单次 LLM 决策内的 specialist-scoped prompt，不引入子 LLM 调用；所有工具仍不能绕过统一权限、确认和审计。
 
 验收：
 

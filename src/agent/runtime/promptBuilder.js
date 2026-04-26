@@ -1,6 +1,7 @@
 const { listToolDefinitions } = require('../tools/registry')
 const { compactText, buildContextPolicy } = require('../context/contextCompactor')
 const { selectContext } = require('../context/contextSelector')
+const { buildSpecialistContext } = require('../specialists/specialistRouter')
 
 function personaLines(agentConfig = {}) {
     const persona = agentConfig.persona || {}
@@ -68,6 +69,10 @@ function buildMemoryContext(longTermMemories = []) {
 function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail }) {
     const memoryContext = buildMemoryContext(longTermMemories)
     const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
+    const specialistContext = buildSpecialistContext({
+        agentMessage,
+        toolDefinitions: listToolDefinitions()
+    })
     const userPayload = {
         task: '判断是否应该参与这条 QQ 群聊消息。只输出 JSON。',
         outputSchema: JSON.parse(buildDecisionInstruction()),
@@ -105,7 +110,13 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         memoryContext,
         budgetDecision: budgetDecision || null,
         inputGuardrail: inputGuardrail || null,
-        availableTools: listToolDefinitions(),
+        specialistContext: {
+            mode: specialistContext.mode,
+            selectedSpecialists: specialistContext.selectedSpecialists,
+            availableToolCount: specialistContext.availableToolCount,
+            totalToolCount: specialistContext.totalToolCount
+        },
+        availableTools: specialistContext.availableTools,
         recentMessages: contextSelection.messages,
         contextPolicy: buildContextPolicy(agentConfig, contextSelection.stats),
         constraints: [
@@ -120,6 +131,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
             '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、显式学习记忆时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
+            'specialistContext 表示本轮已选中的领域 Agent；availableTools 已按领域裁剪。需要工具时只能选择 availableTools 中存在的工具。',
             'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 ask_clarify，不要猜 QQ 号。',
             '如果需要按昵称定位群成员，应先使用 qq.search_members 返回候选，不要直接执行禁言/踢人/改名片。',
             '撤回消息优先使用 currentMessage.replyTarget.messageId；禁言/踢人优先使用 currentMessage.replyTarget.userId 或明确 QQ 号。',

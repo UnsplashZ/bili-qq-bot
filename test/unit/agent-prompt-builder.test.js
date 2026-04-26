@@ -98,6 +98,8 @@ function run() {
     assert.strictEqual(payload.contextPolicy.budget.selectedMessageCount, 2)
     assert.ok(payload.contextPolicy.budget.relevanceCounts.assistant_recent >= 1)
     assert.strictEqual(payload.conversationSession.sessionId, 'sess_test')
+    assert.strictEqual(payload.specialistContext.mode, 'general')
+    assert.strictEqual(payload.specialistContext.availableToolCount, payload.specialistContext.totalToolCount)
 
     const longContextMessages = Array.from({ length: 14 }, (_, index) => ({
         role: 'user',
@@ -255,6 +257,36 @@ function run() {
     assert.ok(budgetPayload.contextPolicy.budget.estimatedChars <= 500)
     assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'assistant_budget_keep'), 'should keep assistant context under char budget')
     assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'topic_budget_keep'), 'should keep topic context under char budget')
+
+    const specialistMessages = buildDecisionMessages({
+        agentConfig: {},
+        agentMessage: {
+            groupId: '1000',
+            userId: '42',
+            id: 'specialist_msg',
+            normalizedText: '小助手，订阅 uid 2',
+            rawText: '小助手，订阅 uid 2',
+            mentionsSelf: false,
+            hasReply: false,
+            aliasMatched: true,
+            sender: { role: 'admin' }
+        },
+        memoryObservation: {
+            groupState: { recentMessages: [] },
+            topicSnapshot: { topicId: 'topic_bili' },
+            chatPace: {}
+        },
+        longTermMemories: [],
+        scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
+        ruleDecision: { action: 'tool_plan', wouldReply: true, threshold: 0.65 },
+        sessionContext: { actor: {} },
+        budgetDecision: { allowed: true }
+    })
+    const specialistPayload = JSON.parse(specialistMessages[1].content)
+    assert.strictEqual(specialistPayload.specialistContext.mode, 'specialist_scoped')
+    assert.ok(specialistPayload.specialistContext.selectedSpecialists.some((specialist) => specialist.id === 'bili_agent'))
+    assert.ok(specialistPayload.availableTools.some((tool) => tool.name === 'subscription.add_user'))
+    assert.ok(!specialistPayload.availableTools.some((tool) => tool.name === 'qq.mute_member'))
 
     console.log('✓ Agent prompt persona 注入正常')
 }
