@@ -313,6 +313,8 @@
 
 目标：解决群聊上下文“前言不搭后语”和长期记忆污染风险。
 
+状态：已启动行为保持型模块拆分；`ContextSelector` 和 `ContextCompactor` 已从 prompt builder 中抽出，当前仍保持原 relevance window 行为不变。
+
 范围：
 
 - 建立 `SessionStore`。
@@ -320,6 +322,12 @@
 - 抽出 `ContextCompactor`。
 - 记忆检索与上下文选择分层。
 - 增加配置化上下文预算。
+
+当前进展：
+
+- 已新增 `src/agent/context/contextSelector.js`，集中处理 reply chain、topic、assistant recent、same user/addressed、recent 的消息选择和排序。
+- 已新增 `src/agent/context/contextCompactor.js`，集中处理上下文消息压缩、文本截断和 `contextPolicy` 描述。
+- `promptBuilder` 已改为消费 selector/compactor 输出，便于后续增加 `SessionStore`、预算统计和话题压缩。
 
 验收：
 
