@@ -9,6 +9,7 @@ const path = require('path')
 const config = require(path.join(__dirname, '../../src/config'))
 const logger = require(path.join(__dirname, '../../src/utils/logger'))
 const agent = require(path.join(__dirname, '../../src/agent'))
+const sessionStore = require(path.join(__dirname, '../../src/agent/session/sessionStore'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
 const longTermStore = require(path.join(__dirname, '../../src/agent/memory/longTermStore'))
 const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
@@ -84,6 +85,7 @@ function restore() {
     linkService.prepareIncomingMessageLinks = originals.prepareIncomingMessageLinks
     agent.agentIngress.observe = originals.agentObserve
     llmClient.createChatCompletion = originals.createChatCompletion
+    sessionStore.reset()
     shortTermStore.reset()
     budgetGuard.resetBudget()
     replyGuard.resetReplyGuard()

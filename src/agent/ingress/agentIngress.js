@@ -3,6 +3,7 @@ const notificationService = require('../../services/notificationService')
 const { normalizeAgentConfig, isEnabledForGroup, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const { normalizeMessage, textifyCqAt, textifySegment } = require('./messageNormalizer')
 const { resolveActor } = require('../session/actorResolver')
+const sessionStore = require('../session/sessionStore')
 const shortTermStore = require('../memory/shortTermStore')
 const { AgentRunState } = require('../runtime/runState')
 const { runAgent, filterMemoryHintsForWrite } = require('../runtime/agentRunner')
@@ -103,6 +104,11 @@ async function observe(context) {
     agentMessage.replyTarget = replyContext.replyTarget
     const actor = resolveActor({ groupId, userId: context.userId, messageData: context.messageData })
     const memoryObservation = shortTermStore.observe(agentMessage, agentConfig.shortTerm)
+    const conversationSession = sessionStore.observe({
+        agentMessage,
+        topicSnapshot: memoryObservation.topicSnapshot,
+        options: agentConfig.shortTerm
+    })
     const sessionContext = {
         platform: 'qq',
         chatType: agentMessage.messageType,
@@ -115,6 +121,7 @@ async function observe(context) {
         topicId: memoryObservation.topic.topicId,
         traceScope: context.traceContext?.scope || '',
         isSharedMultiUserSession: agentMessage.messageType === 'group',
+        conversationSession,
         actor,
         agentMessage
     }

@@ -9,6 +9,7 @@ const path = require('path')
 const config = require(path.join(__dirname, '../../src/config'))
 const agent = require(path.join(__dirname, '../../src/agent'))
 const llmClient = require(path.join(__dirname, '../../src/agent/runtime/llmClient'))
+const sessionStore = require(path.join(__dirname, '../../src/agent/session/sessionStore'))
 const shortTermStore = require(path.join(__dirname, '../../src/agent/memory/shortTermStore'))
 const longTermStore = require(path.join(__dirname, '../../src/agent/memory/longTermStore'))
 const budgetGuard = require(path.join(__dirname, '../../src/agent/runtime/budgetGuard'))
@@ -61,6 +62,7 @@ function restore() {
     } else {
         process.env.AGENT_API_KEY = originals.apiKey
     }
+    sessionStore.reset()
     shortTermStore.reset()
     longTermStore.resetForTest()
     budgetGuard.resetBudget()

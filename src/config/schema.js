@@ -62,7 +62,8 @@ const DEFAULT_AGENT_CONFIG = {
         promptTopicMessages: 20,
         promptAssistantMessages: 6,
         promptMaxMessages: 32,
-        promptMaxCharsPerMessage: 220
+        promptMaxCharsPerMessage: 220,
+        promptMaxContextChars: 6000
     },
     longTerm: {
         retrieveLimit: 5,

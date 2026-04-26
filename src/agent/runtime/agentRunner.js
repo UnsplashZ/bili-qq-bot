@@ -1,5 +1,6 @@
 const logger = require('../../utils/logger')
 const { runWithAgentSession } = require('../session/agentSessionContext')
+const sessionStore = require('../session/sessionStore')
 const longTermStore = require('../memory/longTermStore')
 const { maybeStoreTopicSummary } = require('../memory/topicSummaryRecorder')
 const { extractMemoryHints, mergeMemoryHints } = require('../memory/memoryHintExtractor')
@@ -21,6 +22,24 @@ const DETERMINISTIC_MEMORY_SOURCES = new Set([
     'qq_relation_pattern',
     'user_preference_pattern'
 ])
+
+function recordSessionOutcome(runState, result) {
+    const conversationSession = runState.sessionContext?.conversationSession
+    if (!conversationSession?.sessionId) return
+
+    const toolOutcome = result?.toolPlanResult || result?.toolConfirmation || null
+    sessionStore.recordAgentOutcome({
+        sessionId: conversationSession.sessionId,
+        action: result?.policyDecision?.finalAction ||
+            toolOutcome?.decisionOverride?.action ||
+            result?.llmDecision?.decision?.action ||
+            result?.decision?.action ||
+            '',
+        executed: Boolean(result?.execution?.executed),
+        toolName: toolOutcome?.plan?.name || toolOutcome?.tool?.name || '',
+        timestamp: runState.agentMessage?.timestamp || Date.now()
+    })
+}
 
 function filterMemoryHintsForWrite({ llmDecision, extractedMemoryHints }) {
     const llmHints = llmDecision?.status === 'ok'
@@ -347,9 +366,13 @@ async function runAgent(runState) {
             sessionContext: runState.sessionContext
         })
         if (consumedToolConfirmation) {
-            return handleToolConfirmation(runState, scoreResult, consumedToolConfirmation)
+            const result = await handleToolConfirmation(runState, scoreResult, consumedToolConfirmation)
+            recordSessionOutcome(runState, result)
+            return result
         }
-        return runObserveDecision(runState, scoreResult)
+        const result = await runObserveDecision(runState, scoreResult)
+        recordSessionOutcome(runState, result)
+        return result
     })
 }
 

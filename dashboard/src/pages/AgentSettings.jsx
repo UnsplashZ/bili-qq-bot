@@ -353,6 +353,30 @@ const AgentSettings = () => {
               suffix="条/分钟"
               onChange={(value) => updateAgent((next) => { next.shortTerm.crowdedMessagesPerMinute = value; })}
             />
+            <NumberInput
+              label="上下文消息数"
+              min="8"
+              max="120"
+              value={agent.shortTerm?.promptMaxMessages}
+              suffix="条"
+              onChange={(value) => updateAgent((next) => { next.shortTerm.promptMaxMessages = value; })}
+            />
+            <NumberInput
+              label="单条上下文长度"
+              min="80"
+              max="1000"
+              value={agent.shortTerm?.promptMaxCharsPerMessage}
+              suffix="字符"
+              onChange={(value) => updateAgent((next) => { next.shortTerm.promptMaxCharsPerMessage = value; })}
+            />
+            <NumberInput
+              label="总上下文预算"
+              min="1000"
+              max="200000"
+              value={agent.shortTerm?.promptMaxContextChars}
+              suffix="字符"
+              onChange={(value) => updateAgent((next) => { next.shortTerm.promptMaxContextChars = value; })}
+            />
           </div>
           <label className="block mt-4 space-y-1.5">
             <span className="text-sm text-gray-300">触发昵称 / 别名</span>

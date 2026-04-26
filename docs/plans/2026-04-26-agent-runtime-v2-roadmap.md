@@ -328,6 +328,9 @@
 - 已新增 `src/agent/context/contextSelector.js`，集中处理 reply chain、topic、assistant recent、same user/addressed、recent 的消息选择和排序。
 - 已新增 `src/agent/context/contextCompactor.js`，集中处理上下文消息压缩、文本截断和 `contextPolicy` 描述。
 - `promptBuilder` 已改为消费 selector/compactor 输出，便于后续增加 `SessionStore`、预算统计和话题压缩。
+- `contextPolicy.budget` 已输出 source/selected/dropped 消息数、估算字符数、relevance 分布和当前上下文上限。
+- 已新增 `shortTerm.promptMaxContextChars`，ContextSelector 会在消息数筛选后继续按总字符预算裁剪，并优先保留 reply chain、topic、assistant recent 和明确寻址上下文。
+- 已新增 `src/agent/session/sessionStore.js`，按群/话题维护轻量会话摘要，并注入 prompt 的 `conversationSession`，用于区分多人群聊中的连续会话和无关话题。
 
 验收：
 

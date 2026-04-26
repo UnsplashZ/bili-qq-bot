@@ -118,6 +118,7 @@ function sanitizeGlobalPatch(body = {}) {
         assignInteger(patch.shortTerm, body.shortTerm, 'promptAssistantMessages', 0, 40)
         assignInteger(patch.shortTerm, body.shortTerm, 'promptMaxMessages', 8, 120)
         assignInteger(patch.shortTerm, body.shortTerm, 'promptMaxCharsPerMessage', 80, 1000)
+        assignInteger(patch.shortTerm, body.shortTerm, 'promptMaxContextChars', 1000, 200000)
     }
 
     if (isPlainObject(body.longTerm)) {

@@ -78,6 +78,7 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     shortTerm.promptAssistantMessages = Math.max(0, Math.min(40, Math.trunc(parseNumber(shortTerm.promptAssistantMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptAssistantMessages))))
     shortTerm.promptMaxMessages = Math.max(8, Math.min(120, Math.trunc(parseNumber(shortTerm.promptMaxMessages, DEFAULT_AGENT_CONFIG.shortTerm.promptMaxMessages))))
     shortTerm.promptMaxCharsPerMessage = Math.max(80, Math.min(1000, Math.trunc(parseNumber(shortTerm.promptMaxCharsPerMessage, DEFAULT_AGENT_CONFIG.shortTerm.promptMaxCharsPerMessage))))
+    shortTerm.promptMaxContextChars = Math.max(1000, Math.min(200000, Math.trunc(parseNumber(shortTerm.promptMaxContextChars, DEFAULT_AGENT_CONFIG.shortTerm.promptMaxContextChars))))
 
     const longTerm = normalized.longTerm
     longTerm.retrieveLimit = Math.max(1, Math.min(10, Math.trunc(parseNumber(longTerm.retrieveLimit, DEFAULT_AGENT_CONFIG.longTerm.retrieveLimit))))

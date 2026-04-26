@@ -76,7 +76,15 @@ function run() {
         longTermMemories: [],
         scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
         ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
-        sessionContext: { actor: {} },
+        sessionContext: {
+            actor: {},
+            conversationSession: {
+                sessionId: 'sess_test',
+                messageCount: 2,
+                participants: ['42', '999'],
+                turnsSinceAgentReply: 1
+            }
+        },
         budgetDecision: { allowed: true }
     })
     const payload = JSON.parse(messages[1].content)
@@ -86,6 +94,10 @@ function run() {
     assert.ok(payload.recentMessages[0].relevance.includes('assistant_recent'))
     assert.ok(payload.constraints.some((line) => line.includes('第一个/继续/这个/上面')))
     assert.strictEqual(payload.contextPolicy.strategy, 'relevance_window')
+    assert.strictEqual(payload.contextPolicy.budget.sourceMessageCount, 2)
+    assert.strictEqual(payload.contextPolicy.budget.selectedMessageCount, 2)
+    assert.ok(payload.contextPolicy.budget.relevanceCounts.assistant_recent >= 1)
+    assert.strictEqual(payload.conversationSession.sessionId, 'sess_test')
 
     const longContextMessages = Array.from({ length: 14 }, (_, index) => ({
         role: 'user',
@@ -162,6 +174,87 @@ function run() {
     assert.ok(oldAssistant, 'should keep older assistant context')
     assert.ok(oldAssistant.relevance.includes('assistant_recent'))
     assert.ok(relevancePayload.recentMessages.length <= 8)
+    assert.strictEqual(relevancePayload.contextPolicy.budget.maxMessages, 8)
+    assert.strictEqual(relevancePayload.contextPolicy.budget.maxContextChars, 6000)
+    assert.strictEqual(relevancePayload.contextPolicy.budget.selectedMessageCount, relevancePayload.recentMessages.length)
+    assert.ok(relevancePayload.contextPolicy.budget.droppedMessageCount > 0)
+
+    const largeText = '这是一段很长的上下文噪声，用来模拟群聊里连续刷屏导致 prompt 过大的情况。'.repeat(8)
+    const budgetMessages = [
+        {
+            role: 'assistant',
+            userId: '999',
+            selfId: '999',
+            id: 'assistant_budget_keep',
+            normalizedText: `我刚才给过一个关键结论：${largeText}`,
+            rawText: `我刚才给过一个关键结论：${largeText}`,
+            timestamp: 100
+        },
+        {
+            role: 'user',
+            userId: '88',
+            id: 'topic_budget_keep',
+            normalizedText: `这个话题的关键背景：${largeText}`,
+            rawText: `这个话题的关键背景：${largeText}`,
+            timestamp: 200
+        },
+        ...Array.from({ length: 12 }, (_, index) => ({
+            role: 'user',
+            userId: String(300 + index),
+            id: `budget_noise_${index}`,
+            normalizedText: `普通噪声 ${index} ${largeText}`,
+            rawText: `普通噪声 ${index} ${largeText}`,
+            timestamp: 300 + index
+        })),
+        {
+            role: 'user',
+            userId: '42',
+            id: 'budget_current',
+            normalizedText: '@Bot 继续刚才那个',
+            rawText: '@Bot 继续刚才那个',
+            mentionsSelf: true,
+            timestamp: 1000
+        }
+    ]
+    const budgetMessagesResult = buildDecisionMessages({
+        agentConfig: {
+            shortTerm: {
+                promptRecentMessages: 12,
+                promptTopicMessages: 4,
+                promptAssistantMessages: 2,
+                promptMaxMessages: 10,
+                promptMaxCharsPerMessage: 160,
+                promptMaxContextChars: 500
+            }
+        },
+        agentMessage: {
+            groupId: '1000',
+            userId: '42',
+            id: 'budget_current',
+            normalizedText: '@Bot 继续刚才那个',
+            rawText: '@Bot 继续刚才那个',
+            mentionsSelf: true,
+            hasReply: false,
+            aliasMatched: false,
+            sender: { role: 'member' }
+        },
+        memoryObservation: {
+            groupState: { recentMessages: budgetMessages },
+            topicSnapshot: { topicId: 'topic_budget', recentMessageIds: ['topic_budget_keep', 'budget_current'] },
+            chatPace: {}
+        },
+        longTermMemories: [],
+        scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
+        ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
+        sessionContext: { actor: {} },
+        budgetDecision: { allowed: true }
+    })
+    const budgetPayload = JSON.parse(budgetMessagesResult[1].content)
+    assert.strictEqual(budgetPayload.contextPolicy.budget.charBudgetExceeded, true)
+    assert.ok(budgetPayload.contextPolicy.budget.droppedByBudgetCount > 0)
+    assert.ok(budgetPayload.contextPolicy.budget.estimatedChars <= 500)
+    assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'assistant_budget_keep'), 'should keep assistant context under char budget')
+    assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'topic_budget_keep'), 'should keep topic context under char budget')
 
     console.log('✓ Agent prompt persona 注入正常')
 }

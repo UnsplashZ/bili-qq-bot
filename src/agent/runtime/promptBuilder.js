@@ -1,6 +1,6 @@
 const { listToolDefinitions } = require('../tools/registry')
 const { compactText, buildContextPolicy } = require('../context/contextCompactor')
-const { selectRecentMessages } = require('../context/contextSelector')
+const { selectContext } = require('../context/contextSelector')
 
 function personaLines(agentConfig = {}) {
     const persona = agentConfig.persona || {}
@@ -67,6 +67,7 @@ function buildMemoryContext(longTermMemories = []) {
 
 function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
     const memoryContext = buildMemoryContext(longTermMemories)
+    const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
     const userPayload = {
         task: '判断是否应该参与这条 QQ 群聊消息。只输出 JSON。',
         outputSchema: JSON.parse(buildDecisionInstruction()),
@@ -89,6 +90,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             senderRole: agentMessage.sender.role
         },
         actor: sessionContext.actor,
+        conversationSession: sessionContext.conversationSession || null,
         topic: memoryObservation?.topicSnapshot || null,
         chatPace: memoryObservation?.chatPace || null,
         messageTraits: scoreResult.traits || scoreResult.components || {},
@@ -103,13 +105,14 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         memoryContext,
         budgetDecision: budgetDecision || null,
         availableTools: listToolDefinitions(),
-        recentMessages: selectRecentMessages(memoryObservation, agentConfig, agentMessage),
-        contextPolicy: buildContextPolicy(agentConfig),
+        recentMessages: contextSelection.messages,
+        contextPolicy: buildContextPolicy(agentConfig, contextSelection.stats),
         constraints: [
             '默认不要插话。',
             '明确 @ 你、回复你或叫你的名字时，必须选择 short_reply/full_reply/ask_clarify 并提供 replyDraft。',
             '如果 currentMessage.replyTarget 存在，尤其是 isBot=true，必须优先结合被回复消息理解“第一个/继续/这个/上面”等指代。',
             'recentMessages 已按 relevance 标注上下文来源；理解短指代时优先看 reply_chain、topic、assistant_recent，而不是只看最后一句。',
+            'conversationSession 是当前话题会话摘要；多人群聊中应结合 session、topic 和 recentMessages 判断上下文，不要把不同话题硬拼。',
             'recentMessages 中 role=assistant 的消息是你自己刚发过的内容；用户追问短指代时，应结合这些上下文，不要轻易要求重复说明。',
             'memoryHints 只记录长期稳定信息，例如用户偏好、uid/昵称映射、群内人物关系、长期事实；不要记录一次性闲聊、情绪、敏感信息或密码密钥。',
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',

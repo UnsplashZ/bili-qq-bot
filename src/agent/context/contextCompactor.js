@@ -24,12 +24,13 @@ function summarizeMessage(message, relevance, maxCharsPerMessage) {
     }
 }
 
-function buildContextPolicy(agentConfig = {}) {
+function buildContextPolicy(agentConfig = {}, contextStats = null) {
     return {
         strategy: 'relevance_window',
         note: 'recentMessages 是按相关性筛选后的群聊上下文，不是完整聊天记录。',
         maxMessages: agentConfig.shortTerm?.promptMaxMessages || 32,
-        relevanceKinds: ['reply_chain', 'topic', 'assistant_recent', 'addressed_or_same_user', 'recent']
+        relevanceKinds: ['reply_chain', 'topic', 'assistant_recent', 'addressed_or_same_user', 'recent'],
+        budget: contextStats || null
     }
 }
 
