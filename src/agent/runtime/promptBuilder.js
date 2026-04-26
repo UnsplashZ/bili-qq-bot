@@ -65,7 +65,7 @@ function buildMemoryContext(longTermMemories = []) {
     ].join('\n')
 }
 
-function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision }) {
+function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail }) {
     const memoryContext = buildMemoryContext(longTermMemories)
     const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
     const userPayload = {
@@ -104,6 +104,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         },
         memoryContext,
         budgetDecision: budgetDecision || null,
+        inputGuardrail: inputGuardrail || null,
         availableTools: listToolDefinitions(),
         recentMessages: contextSelection.messages,
         contextPolicy: buildContextPolicy(agentConfig, contextSelection.stats),

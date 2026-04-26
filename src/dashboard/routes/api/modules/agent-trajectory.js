@@ -70,6 +70,12 @@ function buildTrajectorySpans(event, item) {
         spans.push(makeSpan('input_guardrail', item.budgetDecision.allowed ? 'ok' : 'blocked', item.budgetDecision.reason))
     }
 
+    if (event.inputGuardrail && !spans.some((span) => span.type === 'input_guardrail')) {
+        spans.push(makeSpan('input_guardrail', guardrailStatus(event.inputGuardrail), event.inputGuardrail.reason, {
+            checks: safeArray(event.inputGuardrail.checks)
+        }))
+    }
+
     if (item.topicId || Object.keys(item.messageTraits || {}).length > 0) {
         spans.push(makeSpan('context_selected', 'ok', '', {
             topicId: item.topicId,
@@ -178,6 +184,13 @@ function summarizeTrajectory(event) {
                 userCount: event.budgetDecision.userCount ?? null
             }
             : null,
+        inputGuardrail: event.inputGuardrail
+            ? {
+                allowed: event.inputGuardrail.allowed !== false,
+                reason: event.inputGuardrail.reason || '',
+                checks: safeArray(event.inputGuardrail.checks)
+            }
+            : null,
         llmDecision: {
             status: llmDecision.status || '',
             action: llmDecisionBody.action || '',
@@ -244,7 +257,7 @@ function summarizeTrajectory(event) {
             }
             : null
     }
-    item.spans = buildTrajectorySpans(event, item)
+    item.spans = safeArray(event.spans).length > 0 ? safeArray(event.spans) : buildTrajectorySpans(event, item)
     return item
 }
 

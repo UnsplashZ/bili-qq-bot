@@ -5,6 +5,7 @@ const assert = require('assert')
 const path = require('path')
 
 const trajectoryRouter = require(path.join(__dirname, '../../src/dashboard/routes/api/modules/agent-trajectory'))
+const { buildNativeTrajectorySpans } = require(path.join(__dirname, '../../src/agent/runtime/trajectorySpans'))
 
 function run() {
     const { summarizeTrajectory, matchesFilters, summarizeItems, getTrajectoryAction } = trajectoryRouter._private
@@ -80,6 +81,11 @@ function run() {
         type: 'observe_decision',
         groupId: '1000',
         userId: '42',
+        inputGuardrail: {
+            allowed: true,
+            reason: 'allowed',
+            checks: [{ name: 'llm_budget', passed: true, reason: 'budget_allowed' }]
+        },
         llmDecision: {
             status: 'ok',
             decision: {
@@ -106,8 +112,37 @@ function run() {
     assert.strictEqual(matchesFilters(replyItem, { action: 'tool_plan' }), false)
     assert.strictEqual(matchesFilters(replyItem, { action: 'short_reply' }), true)
     assert.strictEqual(matchesFilters(replyItem, { spanType: 'output_guardrail' }), true)
+    assert.strictEqual(matchesFilters(replyItem, { spanType: 'input_guardrail' }), true)
+    assert.strictEqual(replyItem.inputGuardrail.reason, 'allowed')
     assert.ok(replyItem.spans.some((span) => span.type === 'llm_decision'))
     assert.ok(replyItem.spans.some((span) => span.type === 'reply_sent'))
+
+    const nativeSpanItem = summarizeTrajectory({
+        type: 'observe_decision',
+        groupId: '1000',
+        userId: '42',
+        spans: [
+            { type: 'message_received', status: 'ok', reason: '' },
+            { type: 'input_guardrail', status: 'blocked', reason: 'group_budget_exceeded' }
+        ]
+    })
+    assert.strictEqual(nativeSpanItem.spans.length, 2)
+    assert.strictEqual(matchesFilters(nativeSpanItem, { spanType: 'input_guardrail' }), true)
+
+    const builtSpans = buildNativeTrajectorySpans({
+        type: 'observe_decision',
+        groupId: '1000',
+        userId: '42',
+        messageId: 'm1',
+        inputGuardrail: {
+            allowed: false,
+            reason: 'group_budget_exceeded',
+            checks: [{ name: 'llm_budget', passed: false, reason: 'group_budget_exceeded' }]
+        },
+        execution: { executed: false, reason: 'policy_not_accepted' }
+    })
+    assert.ok(builtSpans.some((span) => span.type === 'input_guardrail' && span.status === 'blocked'))
+    assert.ok(builtSpans.some((span) => span.type === 'reply_sent' && span.status === 'skipped'))
 
     const summary = summarizeItems([toolPlanItem, confirmationItem, replyItem])
     assert.strictEqual(summary.actionCounts.tool_plan, 2)
@@ -115,6 +150,7 @@ function run() {
     assert.strictEqual(summary.toolCount, 2)
     assert.strictEqual(summary.spanCounts.tool_plan, 2)
     assert.strictEqual(summary.spanCounts.reply_sent, 1)
+    assert.strictEqual(summary.spanCounts.input_guardrail, 1)
 
     console.log('✓ Agent trajectory tool_plan 和 span 过滤正常')
 }

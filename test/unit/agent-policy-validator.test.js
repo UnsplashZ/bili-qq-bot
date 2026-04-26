@@ -5,6 +5,7 @@ const assert = require('assert')
 const path = require('path')
 
 const { validateDecisionPolicy } = require(path.join(__dirname, '../../src/agent/cognition/decisionPolicyValidator'))
+const { evaluateInputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/inputGuardrails'))
 const { evaluateDecisionGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/decisionGuardrails'))
 const { applyOutputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/outputGuardrails'))
 
@@ -44,6 +45,20 @@ function validate({ confidence, traits, action = 'short_reply', replyDraft = '�
 }
 
 function run() {
+    const inputAllowed = evaluateInputGuardrails({
+        agentMessage: { userId: '42', normalizedText: '小助手 ping' },
+        budgetDecision: { allowed: true, reason: 'budget_allowed', groupCount: 1, userCount: 1 }
+    })
+    assert.strictEqual(inputAllowed.allowed, true)
+    assert.ok(inputAllowed.checks.some((check) => check.name === 'llm_budget' && check.passed))
+
+    const inputBlocked = evaluateInputGuardrails({
+        agentMessage: { userId: '42', normalizedText: '小助手 ping' },
+        budgetDecision: { allowed: false, reason: 'group_budget_exceeded', groupCount: 60, userCount: 2 }
+    })
+    assert.strictEqual(inputBlocked.allowed, false)
+    assert.strictEqual(inputBlocked.reason, 'group_budget_exceeded')
+
     const mentionedLowConfidence = validate({
         confidence: 0.2,
         traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }

@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const logger = require('../../utils/logger')
+const { buildNativeTrajectorySpans } = require('./trajectorySpans')
 
 const RUNS_DIR = path.join(__dirname, '../../../data/agent/runs')
 
@@ -25,6 +26,7 @@ async function recordTrajectory(event) {
         const payload = {
             ...event,
             rawTextPreview: redactText(event.rawTextPreview),
+            spans: Array.isArray(event.spans) ? event.spans : buildNativeTrajectorySpans(event),
             recordedAt: new Date().toISOString()
         }
         await fs.promises.appendFile(filePath, `${JSON.stringify(payload)}\n`, 'utf8')

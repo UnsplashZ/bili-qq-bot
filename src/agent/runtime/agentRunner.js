@@ -12,6 +12,7 @@ const { checkBudget } = require('./budgetGuard')
 const { recordTrajectory } = require('./trajectoryRecorder')
 const { executeReply } = require('./replyExecutor')
 const { checkReplyGuard } = require('./replyGuard')
+const { evaluateInputGuardrails } = require('./inputGuardrails')
 const { evaluateDecisionGuardrails } = require('./decisionGuardrails')
 const { applyOutputGuardrails } = require('./outputGuardrails')
 const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
@@ -150,7 +151,16 @@ async function handleToolPlanResult(runState, runData) {
             messageId: agentMessage.id,
             topicId: sessionContext.topicId,
             replyTarget: agentMessage.replyTarget,
+            decision: runData.decision,
+            messageTraits: runData.messageTraits,
+            memoryWrite: runData.memoryWrite,
+            topicSummaryWrite: runData.topicSummaryWrite,
+            budgetDecision: runData.budgetDecision,
+            inputGuardrail: runData.inputGuardrail,
+            llmDecision: runData.llmDecision,
+            rawLlmDecision: runData.rawLlmDecision,
             toolPlanResult: runData.toolPlanResult,
+            decisionGuardrail: runData.decisionGuardrail,
             execution,
             actor: runState.actorSummary()
         })
@@ -203,6 +213,10 @@ async function runObserveDecision(runState, scoreResult) {
         userId: agentMessage.userId,
         timestamp: agentMessage.timestamp
     })
+    const inputGuardrail = evaluateInputGuardrails({
+        agentMessage,
+        budgetDecision
+    })
     const longTermMemories = await longTermStore.retrieveRelevantMemories({
         groupId,
         userId: agentMessage.userId,
@@ -217,7 +231,8 @@ async function runObserveDecision(runState, scoreResult) {
         scoreResult,
         ruleDecision: decision,
         sessionContext,
-        budgetDecision
+        budgetDecision,
+        inputGuardrail
     })
     const extractedMemoryHints = extractMemoryHints({ agentMessage })
     const rawToolPlanResult = await processToolPlan({
@@ -265,6 +280,7 @@ async function runObserveDecision(runState, scoreResult) {
         memoryWrite,
         topicSummaryWrite,
         budgetDecision,
+        inputGuardrail,
         llmDecision: effectiveLlmDecision,
         rawLlmDecision: llmDecision,
         toolPlanResult,
@@ -338,6 +354,7 @@ async function runObserveDecision(runState, scoreResult) {
             memoryWrite,
             topicSummaryWrite,
             budgetDecision,
+            inputGuardrail,
             llmDecision: effectiveLlmDecision,
             rawLlmDecision: llmDecision,
             toolPlanResult,

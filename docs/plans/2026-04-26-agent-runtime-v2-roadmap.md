@@ -282,7 +282,7 @@
 
 目标：让工具能力从“能跑”变成“可验证、可审计、可扩展”。
 
-状态：已完成 ToolSpec 元数据、只读工具超时、首轮 tool guardrail、decision guardrail 和 output guardrail；input guardrail/span 化仍待继续。
+状态：已完成 ToolSpec 元数据、只读工具超时、input/decision/tool/output guardrail 和 span 化审计。
 
 范围：
 
@@ -301,7 +301,8 @@
 - `processToolPlan` 和确认恢复链路都会重新执行 tool guardrail，并把阻断原因写入审计和结果对象。
 - 已新增 `decisionGuardrails`，把 LLM 决策可用性、action 合法性、confidence 范围、tool intent 一致性输出为结构化检查结果。
 - 已新增 `outputGuardrails`，在发送前执行回复长度收敛和疑似密钥泄漏阻断。
-- 已补单测校验所有工具必须暴露 ToolSpec 元数据、工具执行超时错误、tool/decision/output guardrail 结构化结果。
+- 已新增 `inputGuardrails`，把消息输入有效性和 LLM 调用预算输出为结构化检查结果，并写入 trajectory span。
+- 已补单测校验所有工具必须暴露 ToolSpec 元数据、工具执行超时错误、input/tool/decision/output guardrail 结构化结果。
 
 验收：
 
@@ -343,7 +344,7 @@
 
 目标：把 Agent 每次行为变成可解释运行轨迹。
 
-状态：已启动兼容升级；后端可从现有 trajectory 合成 span，Dashboard 已支持 span 展示和 `spanType` 过滤。JSONL 存储仍保持旧事件格式，后续再推进原生 span 写入。
+状态：已完成兼容升级；新写入的 JSONL trajectory 已包含原生 `spans`，后端仍能兼容旧事件并按需合成 span，Dashboard 已支持 span 展示和 `spanType` 过滤。
 
 范围：
 
@@ -353,7 +354,8 @@
 
 当前进展：
 
-- `/api/agent/trajectories` 返回项已新增 `spans`，包含 `message_received`、`context_selected`、`llm_decision`、`decision_guardrail`、`tool_plan`、`tool_guardrail`、`tool_confirmation`、`tool_execute`、`tool_result_reply`、`output_guardrail`、`reply_sent` 等阶段。
+- `/api/agent/trajectories` 返回项已新增 `spans`，包含 `message_received`、`input_guardrail`、`context_selected`、`llm_decision`、`decision_guardrail`、`tool_plan`、`tool_guardrail`、`tool_confirmation`、`tool_execute`、`tool_result_reply`、`output_guardrail`、`reply_sent` 等阶段。
+- 新增 trajectory span builder；`recordTrajectory` 写入 JSONL 时会保存原生 `spans`，历史旧日志读取时仍兼容合成。
 - 后端已支持 `spanType` 查询过滤，并在 summary 中增加 `spanCounts`。
 - Dashboard 决策页已增加 Span 筛选器、Span badges 和主要 Span 汇总。
 
