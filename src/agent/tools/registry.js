@@ -635,6 +635,160 @@ function findPendingFriendApprovalTarget({ shortId, replyMessageId }) {
     return target
 }
 
+function objectSchema(properties = {}, required = [], description = '') {
+    return {
+        type: 'object',
+        description,
+        additionalProperties: false,
+        properties,
+        required
+    }
+}
+
+const commonSchemaProps = {
+    groupId: {
+        type: 'string',
+        description: 'QQ群号；通常可省略，由当前群上下文补齐。'
+    },
+    enabled: {
+        type: 'boolean',
+        description: '开关状态，true 表示开启，false 表示关闭。'
+    },
+    targetUserId: {
+        type: 'string',
+        description: '目标 QQ 号；优先来自被回复消息或明确 QQ 号，不要猜测昵称。'
+    },
+    messageId: {
+        type: 'string',
+        description: '目标 QQ 消息 ID；优先来自被回复消息。'
+    },
+    shortId: {
+        type: 'string',
+        description: '系统申请或确认短码。'
+    },
+    replyMessageId: {
+        type: 'string',
+        description: '通知消息 ID；通常来自回复申请通知。'
+    }
+}
+
+const toolParamSchemas = {
+    empty: objectSchema({}, [], '无需参数。'),
+    groupQuery: objectSchema({
+        groupId: commonSchemaProps.groupId
+    }, [], '当前群查询参数。'),
+    countedGroupQuery: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        count: { type: 'integer', minimum: 1, maximum: 100, description: '最多返回条数。' }
+    }, [], '当前群分页查询参数。'),
+    agentGroupFlag: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        enabled: commonSchemaProps.enabled
+    }, ['enabled'], '设置当前群 Agent/Bot 开关。'),
+    subscriptionStatus: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        uid: { type: 'string', description: 'B 站用户 UID。' },
+        seasonId: { type: 'string', description: 'B 站番剧 Season ID。' }
+    }, [], '订阅状态查询参数；uid 和 seasonId 至少提供一个。'),
+    biliUserLookup: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        uid: { type: 'string', description: 'B 站用户 UID。' },
+        keyword: { type: 'string', description: '用户搜索关键词。' }
+    }, [], 'B 站用户查询参数；uid 和 keyword 至少提供一个。'),
+    biliVideoLookup: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        bvid: { type: 'string', description: 'BV 或 av 视频号。' }
+    }, ['bvid'], 'B 站视频查询参数。'),
+    memorySummary: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        query: { type: 'string', description: '记忆检索关键词，可省略。' },
+        limit: { type: 'integer', minimum: 1, maximum: 8, description: '最多返回记忆条数。' }
+    }, [], 'Agent 长期记忆摘要查询参数。'),
+    memoryLearn: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        content: { type: 'string', description: '明确、稳定、非敏感的记忆内容。' },
+        scope: { type: 'string', enum: ['user', 'group', 'topic'], description: '记忆作用域。' },
+        type: { type: 'string', enum: ['fact', 'preference', 'relation', 'episode', 'persona'], description: '记忆类型。' },
+        confidence: { type: 'number', minimum: 0, maximum: 1, description: '置信度。' }
+    }, ['content'], '显式写入长期记忆。'),
+    browserRead: objectSchema({
+        url: { type: 'string', description: '公开 http/https URL；禁止 localhost、内网、凭证 URL。' },
+        maxChars: { type: 'integer', minimum: 200, maximum: 6000, description: '最多读取字符数。' }
+    }, ['url'], '受限只读网页读取参数。'),
+    targetUser: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        targetUserId: commonSchemaProps.targetUserId
+    }, [], '当前群目标成员参数。'),
+    mute: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        targetUserId: commonSchemaProps.targetUserId,
+        duration: { type: 'integer', minimum: 1, maximum: 86400, description: '禁言秒数，最长 24 小时。' }
+    }, ['duration'], '当前群成员禁言参数。'),
+    kick: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        targetUserId: commonSchemaProps.targetUserId,
+        rejectAddRequest: { type: 'boolean', description: '是否拒绝后续加群申请。' }
+    }, [], '当前群踢人参数。'),
+    memberSearch: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        query: { type: 'string', description: 'QQ 号、昵称或群名片关键词。' },
+        limit: { type: 'integer', minimum: 1, maximum: 20, description: '最多返回候选数。' }
+    }, ['query'], '搜索群成员候选。'),
+    setCard: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        targetUserId: commonSchemaProps.targetUserId,
+        card: { type: 'string', description: '新的群名片；空字符串表示清空。' }
+    }, ['card'], '设置当前群成员群名片。'),
+    qqGroupFlag: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        enabled: commonSchemaProps.enabled
+    }, ['enabled'], '设置 QQ 群状态开关。'),
+    messageTarget: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        messageId: commonSchemaProps.messageId
+    }, [], '当前群目标消息参数。'),
+    groupApprovalDecision: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        decision: { type: 'string', enum: ['approve', 'reject'], description: '审批结果。' },
+        shortId: commonSchemaProps.shortId,
+        replyMessageId: commonSchemaProps.replyMessageId
+    }, ['decision'], '处理当前群加群申请；shortId 和 replyMessageId 至少提供一个。'),
+    friendApprovalDecision: objectSchema({
+        decision: { type: 'string', enum: ['approve', 'reject'], description: '审批结果。' },
+        shortId: commonSchemaProps.shortId,
+        replyMessageId: commonSchemaProps.replyMessageId
+    }, ['decision'], '处理好友申请；shortId 和 replyMessageId 至少提供一个。'),
+    onlineStatus: objectSchema({
+        preset: { type: 'string', description: '预设在线状态，例如 online、away、busy、hidden。' },
+        status: { type: 'integer', description: 'NapCat 在线状态码。' },
+        extStatus: { type: 'integer', description: 'NapCat 扩展状态码。' },
+        batteryStatus: { type: 'integer', description: '电量状态。' }
+    }, [], '设置 Bot QQ 在线状态。'),
+    inputStatus: objectSchema({
+        targetUserId: commonSchemaProps.targetUserId,
+        preset: { type: 'string', description: '预设输入状态，例如 typing。' },
+        eventType: { type: 'integer', description: 'NapCat 输入状态事件类型。' }
+    }, [], '向指定 QQ 用户设置输入/说话状态。'),
+    blacklist: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        scope: { type: 'string', enum: ['group', 'global'], description: '黑名单范围。' },
+        targetUserId: commonSchemaProps.targetUserId
+    }, ['targetUserId'], '添加或移除 QQ 黑名单。'),
+    userSubscription: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        uid: { type: 'string', description: 'B 站用户 UID。' }
+    }, ['uid'], 'B 站用户订阅管理参数。'),
+    bangumiSubscription: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        seasonId: { type: 'string', description: 'B 站番剧 Season ID。' }
+    }, ['seasonId'], 'B 站番剧订阅管理参数。')
+}
+
+const defaultToolResultSchema = objectSchema({
+    message: { type: 'string', description: '给用户或后续 LLM 的工具结果摘要。' },
+    data: { type: 'object', description: '结构化工具结果。' }
+}, [], '工具标准返回结构。')
+
 const toolDefinitions = {
     'bili.user_lookup': {
         name: 'bili.user_lookup',
@@ -1167,6 +1321,59 @@ const toolDefinitions = {
     }
 }
 
+const toolSpecMetadata = {
+    'bili.user_lookup': { paramsSchema: toolParamSchemas.biliUserLookup, sideEffect: 'read', timeoutMs: 15000 },
+    'bili.video_lookup': { paramsSchema: toolParamSchemas.biliVideoLookup, sideEffect: 'read', timeoutMs: 15000 },
+    'bili.subscription_status': { paramsSchema: toolParamSchemas.subscriptionStatus, sideEffect: 'read', timeoutMs: 8000 },
+    'agent.get_group_config': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 3000 },
+    'agent.get_memory_summary': { paramsSchema: toolParamSchemas.memorySummary, sideEffect: 'read', timeoutMs: 5000 },
+    'agent.learn_memory': { paramsSchema: toolParamSchemas.memoryLearn, sideEffect: 'write_memory', timeoutMs: 5000 },
+    'browser.read_url': { paramsSchema: toolParamSchemas.browserRead, sideEffect: 'external_read', timeoutMs: 12000 },
+    'qq.get_group_info': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_group_mute_list': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_essence_messages': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_group_notices': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_group_system_messages': { paramsSchema: toolParamSchemas.countedGroupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_group_ignored_notifies': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_at_all_remain': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.get_member_info': { paramsSchema: toolParamSchemas.targetUser, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.search_members': { paramsSchema: toolParamSchemas.memberSearch, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.mute_member': { paramsSchema: toolParamSchemas.mute, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['target_user_required', 'bot_admin_required'] },
+    'qq.unmute_member': { paramsSchema: toolParamSchemas.targetUser, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['target_user_required', 'bot_admin_required'] },
+    'qq.kick_member': { paramsSchema: toolParamSchemas.kick, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['target_user_required', 'bot_admin_required'] },
+    'qq.set_member_card': { paramsSchema: toolParamSchemas.setCard, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['target_user_required', 'bot_admin_required'] },
+    'qq.set_whole_ban': { paramsSchema: toolParamSchemas.qqGroupFlag, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['bot_admin_required'] },
+    'qq.delete_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'get_msg_verify_sender'] },
+    'qq.set_essence_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'bot_admin_required'] },
+    'qq.delete_essence_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'bot_admin_required'] },
+    'qq.list_pending_requests': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.handle_group_request': { paramsSchema: toolParamSchemas.groupApprovalDecision, sideEffect: 'qq_request_write', timeoutMs: 5000, guardrails: ['approval_target_required'] },
+    'qq.list_friend_requests': { paramsSchema: toolParamSchemas.empty, sideEffect: 'read', timeoutMs: 5000 },
+    'qq.handle_friend_request': { paramsSchema: toolParamSchemas.friendApprovalDecision, sideEffect: 'qq_account_write', timeoutMs: 5000, guardrails: ['approval_target_required'] },
+    'qq.set_online_status': { paramsSchema: toolParamSchemas.onlineStatus, sideEffect: 'qq_account_write', timeoutMs: 5000 },
+    'qq.set_input_status': { paramsSchema: toolParamSchemas.inputStatus, sideEffect: 'qq_account_write', timeoutMs: 5000 },
+    'agent.set_group_enabled': { paramsSchema: toolParamSchemas.agentGroupFlag, sideEffect: 'config_write', timeoutMs: 3000 },
+    'agent.set_send_enabled': { paramsSchema: toolParamSchemas.agentGroupFlag, sideEffect: 'config_write', timeoutMs: 3000 },
+    'agent.set_observe_only': { paramsSchema: toolParamSchemas.agentGroupFlag, sideEffect: 'config_write', timeoutMs: 3000 },
+    'bot.set_group_enabled': { paramsSchema: toolParamSchemas.agentGroupFlag, sideEffect: 'config_write', timeoutMs: 3000 },
+    'blacklist.add_user': { paramsSchema: toolParamSchemas.blacklist, sideEffect: 'config_write', timeoutMs: 3000 },
+    'blacklist.remove_user': { paramsSchema: toolParamSchemas.blacklist, sideEffect: 'config_write', timeoutMs: 3000 },
+    'subscription.list': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 8000 },
+    'subscription.add_user': { paramsSchema: toolParamSchemas.userSubscription, sideEffect: 'subscription_write', timeoutMs: 15000 },
+    'subscription.remove_user': { paramsSchema: toolParamSchemas.userSubscription, sideEffect: 'subscription_write', timeoutMs: 8000 },
+    'subscription.add_bangumi': { paramsSchema: toolParamSchemas.bangumiSubscription, sideEffect: 'subscription_write', timeoutMs: 15000 },
+    'subscription.remove_bangumi': { paramsSchema: toolParamSchemas.bangumiSubscription, sideEffect: 'subscription_write', timeoutMs: 8000 }
+}
+
+Object.entries(toolDefinitions).forEach(([name, definition]) => {
+    const metadata = toolSpecMetadata[name] || {}
+    definition.paramsSchema = metadata.paramsSchema || toolParamSchemas.empty
+    definition.resultSchema = metadata.resultSchema || defaultToolResultSchema
+    definition.sideEffect = metadata.sideEffect || 'read'
+    definition.timeoutMs = metadata.timeoutMs || 10000
+    definition.guardrails = Array.isArray(metadata.guardrails) ? metadata.guardrails : []
+})
+
 function getToolDefinition(name) {
     return toolDefinitions[String(name || '').trim()] || null
 }
@@ -1176,7 +1383,11 @@ function listToolDefinitions() {
         name: tool.name,
         description: tool.description,
         risk: tool.risk,
-        permission: tool.permission
+        permission: tool.permission,
+        sideEffect: tool.sideEffect,
+        timeoutMs: tool.timeoutMs,
+        guardrails: tool.guardrails,
+        paramsSchema: tool.paramsSchema
     }))
 }
 
@@ -1204,10 +1415,37 @@ function normalizeToolIntent(toolIntent, sessionContext) {
     }
 }
 
+function executeWithTimeout(operation, timeoutMs, toolName) {
+    const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 10000))
+    let timeoutId = null
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`tool_timeout:${toolName}:${safeTimeoutMs}`))
+        }, safeTimeoutMs)
+    })
+    return Promise.race([
+        Promise.resolve().then(operation),
+        timeoutPromise
+    ]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId)
+    })
+}
+
+function shouldEnforceTimeout(definition) {
+    return ['read', 'external_read'].includes(definition?.sideEffect)
+}
+
 async function executeToolPlan(plan, context = {}) {
     const definition = getToolDefinition(plan?.name)
     if (!definition) throw new Error(`unknown_tool:${plan?.name || 'empty'}`)
-    return definition.execute(plan.args || {}, context)
+    if (!shouldEnforceTimeout(definition)) {
+        return definition.execute(plan.args || {}, context)
+    }
+    return executeWithTimeout(
+        () => definition.execute(plan.args || {}, context),
+        definition.timeoutMs,
+        definition.name
+    )
 }
 
 module.exports = {

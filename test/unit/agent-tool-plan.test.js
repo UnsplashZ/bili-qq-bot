@@ -711,6 +711,31 @@ async function run() {
         traceScope: 'test:reply-fallback'
     }), true)
 
+    const listedTools = toolRegistry.listToolDefinitions()
+    assert.ok(listedTools.length >= 40)
+    for (const tool of listedTools) {
+        assert.ok(tool.paramsSchema, `${tool.name} should expose paramsSchema`)
+        assert.strictEqual(tool.paramsSchema.type, 'object', `${tool.name} paramsSchema should be object`)
+        assert.ok(tool.sideEffect, `${tool.name} should expose sideEffect`)
+        assert.ok(Number.isFinite(tool.timeoutMs), `${tool.name} should expose timeoutMs`)
+        assert.ok(Array.isArray(tool.guardrails), `${tool.name} should expose guardrails`)
+    }
+
+    const timeoutDefinition = toolRegistry.getToolDefinition('agent.get_group_config')
+    const originalTimeoutExecute = timeoutDefinition.execute
+    const originalTimeoutMs = timeoutDefinition.timeoutMs
+    try {
+        timeoutDefinition.timeoutMs = 1
+        timeoutDefinition.execute = async () => new Promise((resolve) => setTimeout(() => resolve({ message: 'late' }), 20))
+        await assert.rejects(
+            () => toolRegistry.executeToolPlan({ name: 'agent.get_group_config', args: { groupId: '1000' } }),
+            /tool_timeout:agent\.get_group_config:1/
+        )
+    } finally {
+        timeoutDefinition.execute = originalTimeoutExecute
+        timeoutDefinition.timeoutMs = originalTimeoutMs
+    }
+
     console.log('✓ Agent 受限工具计划和确认链路正常')
 }
 

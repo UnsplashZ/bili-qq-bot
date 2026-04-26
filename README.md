@@ -2,9 +2,9 @@
 
 ![License](https://img.shields.io/badge/license-ISC-blue.svg) ![Docker](https://img.shields.io/badge/docker-ready-blue) ![Node](https://img.shields.io/badge/node-%3E%3D18-green) ![Python](https://img.shields.io/badge/python-%3E%3D3.8-yellow)
 
-基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的Bilibili链接解析机器人。它能智能识别并解析B站各种类型的链接，并为这些内容生成高清预览卡片。
+基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的 Bilibili 链接解析机器人。它能智能识别并解析 B 站各种类型的链接，并为这些内容生成高清预览卡片。
 
-> 当前版本聚焦 Bilibili 链接解析、订阅推送、视频下载与 WebUI 管理。旧版 AI 对话、向量记忆、用户画像、MCP 工具调用等实验性能力已从代码、配置和管理界面中移除；后续智能入口会以新的 Agent 架构重新设计。
+> 旧版 AI 对话、向量记忆、用户画像、MCP 工具调用等实验性能力已移除。当前分支使用新的 Agent 架构：命令和 B 站链接仍走确定性系统链路，自然语言消息可进入受限 Agent，由 LLM 判断是否回复、记忆或调用白名单工具。
 
 ## 目录
 
@@ -12,6 +12,7 @@
 - [📸 预览效果](#预览效果)
 - [🚀 一键快速部署](#一键快速部署)
 - [🖥️ WebUI 管理面板](#webui-管理面板)
+- [🤖 Agent 功能](#agent-功能)
 - [⚙️ 配置说明](#配置说明)
 - [💬 指令列表](#指令列表)
 - [🛠️ 其他部署方式](#其他部署方式)
@@ -50,6 +51,12 @@
 *   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、视频、专栏、直播与番剧更新
 
 *   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
+
+*   🤖 **受限 Agent（实验性）**
+    *   自然语言消息可进入 Agent，由 LLM 结合上下文、群聊节奏、记忆和人格决定回复或沉默
+    *   命令消息和 B 站链接不进 LLM，继续走确定性系统 handler
+    *   支持长期记忆、短期上下文、工具确认、权限闸门、审计日志和 WebUI 观测
+    *   支持受限工具：订阅管理、Agent/Bot 配置、B 站查询、QQ 群管理、申请处理、只读网页读取和显式学习记忆
 
 *   🐳 **Docker 化部署**：一键部署，内置 Noto CJK、多语种 Noto 与 Emoji 字体，并包含 FFmpeg 依赖
 
@@ -161,9 +168,55 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | **仪表盘** | 实时监控 CPU、内存、网络等系统状态，可视化图表展示 |
 | **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、关注同步、视频下载（继承/覆盖） |
 | **全局设置** | 常规配置（轮询间隔等）、全局黑名单、B站登录、视频下载全局策略、应用重启 |
+| **Agent 设置** | 新 Agent 的全局开关、Persona、LLM 引用、预算、工具策略和群级覆盖 |
+| **Agent 决策** | 查看 Agent 的 rule score、LLM decision、policy、工具确认/执行、发送结果和筛选统计 |
+| **Agent 记忆** | 查看、筛选、删除和清理长期记忆 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
 > 说明：WebUI 仅管理真实群聊（数字群号），不支持私聊会话（`private_*`）管理。
+
+</details>
+
+## Agent 功能
+
+<details>
+<summary><b>展开查看 Agent 说明</b></summary>
+
+Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎参与者 + 受限业务操作者”，不是收到消息就回复的聊天机器人。
+
+### 处理边界
+
+| 消息/事件 | 处理方式 |
+| :--- | :--- |
+| `/` 开头的显式指令 | 不进 LLM，直接走命令系统 |
+| B 站链接、短链、小程序分享 | 不进 LLM，直接走链接解析链路 |
+| 黑名单、群禁用、Agent 未启用 | 硬拒绝，不进入 Agent |
+| 普通自然语言 | 进入 Agent，由 LLM 判断回复、沉默、延迟或工具计划 |
+| @Bot、回复 Bot、叫昵称 | 高相关消息，原则上应由 Agent 认真回应 |
+| 配置、订阅、群管理意图 | LLM 只能输出 `tool_plan`，实际执行由权限和确认系统决定 |
+
+### 权限模型
+
+| 权限来源 | 能力范围 |
+| :--- | :--- |
+| 普通群成员 | 聊天、查询、提出请求 |
+| 配置群管理员 | 管理本群 Bot/Agent 配置和订阅 |
+| QQ 群管理员/群主 | 基于 QQ 权限管理本群配置和群聊操作 |
+| `ADMIN_QQ` Root | 全局配置、跨群管理、QQ 账号级工具 |
+
+### 工具和确认
+
+- Agent 只能调用白名单工具，不能执行 shell、不能任意读写文件、不能动态接入 MCP。
+- 中高风险工具会进入短码确认流程；确认必须来自同群同用户，并携带短码或明确回复 Bot。
+- 高风险工具不可通过 WebUI 配置关闭确认。
+- QQ 群管理工具会检查用户权限和 Bot 当前 QQ 群权限。
+- 浏览器能力仅限 `browser.read_url` 只读公开网页；拒绝 localhost、内网地址、带凭证 URL 和 DNS 解析到内网的地址。
+
+### 验证方式
+
+- 在 WebUI 的 **Agent 决策** 页查看每条消息的 LLM 决策、policy、工具计划、确认和发送结果。
+- 在 **Agent 记忆** 页查看长期记忆是否写入、是否有来源和置信度。
+- QQ 群实测建议参考 `docs/plans/2026-04-26-agent-qq-test-matrix.md`。
 
 </details>
 
@@ -171,7 +224,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 本项目采用双重配置系统：`config/.env` 用于启动/敏感信息，`config.json` 用于运行时动态配置。
 
-> `.env` 仅保留 NapCat 连接、管理员、图片路径、缓存、Python 与 WebUI 相关配置；不再包含任何 AI/MCP 密钥或模型配置。
+> `.env` 保存启动参数、敏感信息和 Agent LLM Provider/API Key；`config.json` 保存运行时动态配置。旧 MCP 配置不再保留。
 
 <details>
 <summary><b>展开查看具体配置</b></summary>
@@ -190,6 +243,19 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
+| `AGENT_LLM_ENABLED` | 是否启用 Agent LLM 调用 | `false` |
+| `AGENT_LLM_PROVIDER` | LLM Provider，目前支持 OpenAI-compatible | `openai-compatible` |
+| `AGENT_LLM_BASE_URL` | OpenAI-compatible Base URL | `https://api.example.com` |
+| `AGENT_LLM_MODEL` | Agent 决策模型名 | `model-name` |
+| `AGENT_LLM_API_KEY_ENV` | 保存 API Key 的环境变量名 | `AGENT_API_KEY` |
+| `AGENT_API_KEY` | Agent LLM API Key（本地填写，示例文件留空） | 留空 |
+| `AGENT_LLM_TIMEOUT_MS` | LLM 请求超时（毫秒） | `12000` |
+| `AGENT_LLM_TEMPERATURE` | LLM 决策温度 | `0.2` |
+| `AGENT_LLM_MAX_TOKENS` | LLM 最大输出 token；不是上下文窗口大小 | `500` |
+| `AGENT_BUDGET_ENABLED` | 是否启用 Agent LLM 调用预算 | `true` |
+| `AGENT_BUDGET_WINDOW_MS` | 预算统计窗口（毫秒） | `60000` |
+| `AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE` | 每群每分钟最大 LLM 调用数 | `60` |
+| `AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE` | 每用户每分钟最大 LLM 调用数 | `20` |
 | `JWT_SECRET` | Dashboard JWT 签名密钥（可选，不填则自动生成并持久化） | 留空 |
 | `DASHBOARD_PASSWORD` | WebUI 管理面板登录密码 | `admin` |
 | `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
@@ -214,6 +280,17 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `labelConfig` | 标签显示配置（视频、番剧、动态、专栏、直播及扩展类型） | `{"video": true, ...}` |
 | `showId` | 是否在卡片中显示 UID | `true` |
 | `groupConfigs` | 群级配置覆盖 (每个群可独立配置) | `{}` |
+| `agent` | 新 Agent 运行时配置，包括开关、Persona、短期/长期记忆、回复策略、工具策略、预算和群级覆盖 | `{"enabled": false, ...}` |
+
+### 3. Agent 开启建议
+
+Agent 默认关闭，建议按阶段开启：
+
+1. WebUI 或 `config.json` 设置 `agent.enabled=true`、目标群 `agent.groups.<群号>.enabled=true`。
+2. 先保持 `agent.observeOnly=true`、`agent.sendEnabled=false`，在 Agent 决策页观察 LLM 判断。
+3. 确认效果后切到 `decisionMode=llm_live`，再开启 `sendEnabled=true`。
+4. 需要自然语言管理订阅、配置或 QQ 群时，再开启 `agent.tools.enabled=true`。
+5. 中高风险工具保留确认，尤其是禁言、踢人、撤回、关闭 Bot、处理申请等操作。
 </details>
 
 ## 指令列表
