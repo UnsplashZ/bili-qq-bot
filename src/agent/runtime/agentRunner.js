@@ -96,7 +96,10 @@ async function finalizeToolOutcome({ runState, toolOutcome }) {
         ...toolOutcome,
         toolReplyDecision,
         decisionOverride: toolReplyDecision?.status === 'ok'
-            ? toolReplyDecision.decision
+            ? {
+                ...toolReplyDecision.decision,
+                messageChain: toolOutcome.decisionOverride?.messageChain || toolReplyDecision.decision.messageChain || null
+            }
             : toolOutcome.decisionOverride
     }
 }

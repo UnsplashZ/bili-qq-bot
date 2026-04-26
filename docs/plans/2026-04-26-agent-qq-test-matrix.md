@@ -99,6 +99,9 @@
 | W3 | 拒绝内网地址 | 请求读取 `http://192.168.1.1` | 拒绝，不访问 | Agent 决策 / 日志 | 待测 |
 | W4 | 拒绝带凭证 URL | 请求读取 `https://user:pass@example.com` | 拒绝，不访问 | Agent 决策 / 日志 | 待测 |
 | W5 | 跳转再校验 | 公网页面跳转到内网地址 | 跳转目标被重新校验并拒绝 | Agent 决策 / 日志 | 待测 |
+| W6 | 网页搜索 | `小助手，搜索一下 Agent Runtime V2 是什么` | 调用 `browser.search_web`，回复包含搜索结果摘要和来源，不当作确定事实 | Agent 决策 / QQ 群 | 待测 |
+| W7 | 网页截图 | `小助手，截一下 https://example.com` | 调用 `browser.screenshot_url`，发送网页截图图片并记录截图轨迹 | Agent 决策 / QQ 群 | 待测 |
+| W8 | 截图拒绝内网 | 请求截图 `http://localhost:3000` 或 `http://192.168.1.1` | 拒绝，不启动 Chromium 访问内网 | Agent 决策 / 日志 | 待测 |
 
 ## 9. 确认短码
 

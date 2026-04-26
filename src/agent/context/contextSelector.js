@@ -1,4 +1,4 @@
-const { summarizeMessage } = require('./contextCompactor')
+const { summarizeMessage, buildContextDigest } = require('./contextCompactor')
 
 function messageTimestamp(message, fallbackIndex) {
     const timestamp = Number(message?.timestamp || 0)
@@ -185,9 +185,11 @@ function selectContext(memoryObservation, agentConfig = {}, agentMessage = {}) {
         })
     const budgetResult = trimEntriesByCharBudget(preBudgetEntries, promptMaxContextChars)
     const selectedMessages = budgetResult.entries.map((entry) => entry.summary)
+    const digest = buildContextDigest(selectedMessages, shortTerm.promptDigestMaxChars || 700)
 
     return {
         messages: selectedMessages,
+        digest,
         stats: buildSelectionStats({
             sourceMessages: messages,
             preBudgetSelectedMessages: preBudgetEntries.map((entry) => entry.summary),

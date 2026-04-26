@@ -9,6 +9,13 @@ function buildTextMessage(text) {
     return [{ type: 'text', data: { text: safeText } }]
 }
 
+function normalizeMessageChain(chain, fallbackText) {
+    if (Array.isArray(chain) && chain.length > 0) {
+        return chain.filter((item) => item && typeof item === 'object')
+    }
+    return buildTextMessage(fallbackText)
+}
+
 function sendMessage({ ws, groupId, userId, messageChain }) {
     if (typeof groupId === 'string' && groupId.startsWith('private_')) {
         const realUserId = groupId.replace('private_', '')
@@ -37,7 +44,10 @@ async function executeReply({ ws, groupId, userId, selfId = '', sourceMessageId 
     }
 
     const replyDraft = policyDecision?.replyDraft || llmDecision?.decision?.replyDraft || ''
-    const messageChain = buildTextMessage(replyDraft)
+    const messageChain = normalizeMessageChain(
+        policyDecision?.messageChain || llmDecision?.decision?.messageChain,
+        replyDraft
+    )
     if (messageChain.length === 0) {
         return { executed: false, reason: 'empty_reply_draft' }
     }
@@ -89,5 +99,6 @@ async function executeReply({ ws, groupId, userId, selfId = '', sourceMessageId 
 
 module.exports = {
     executeReply,
-    buildTextMessage
+    buildTextMessage,
+    normalizeMessageChain
 }

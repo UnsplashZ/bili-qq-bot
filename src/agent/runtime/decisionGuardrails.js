@@ -15,7 +15,7 @@ function evaluateDecisionGuardrails(llmDecision) {
 
     checks.push(makeCheck(
         'decision_available',
-        Boolean(llmDecision && llmDecision.status === 'ok' && decision),
+        Boolean(decision),
         decision ? 'ok' : (llmDecision?.reason || llmDecision?.status || 'llm_decision_unavailable')
     ))
 

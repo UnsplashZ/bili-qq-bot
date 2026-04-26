@@ -4,6 +4,8 @@ const biliApi = require('../../services/biliApi')
 const qqGroupAdminService = require('../../services/qqGroupAdminService')
 const qqAccountService = require('../../services/qqAccountService')
 const agentBrowserService = require('../../services/agentBrowserService')
+const agentWebSearchService = require('../../services/agentWebSearchService')
+const agentScreenshotService = require('../../services/agentScreenshotService')
 const requestApprovalService = require('../../services/requestApprovalService')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const longTermStore = require('../memory/longTermStore')
@@ -264,6 +266,25 @@ function normalizeBrowserReadArgs(args, sessionContext) {
     if (!groupId) throw new Error('missing_group_id')
     if (!url) throw new Error('missing_url')
     return { groupId, url, maxChars }
+}
+
+function normalizeBrowserSearchArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const query = compactText(args.query || args.keyword || args.q || '', 120)
+    const maxResults = Math.max(1, Math.min(5, Math.trunc(Number(args.maxResults || args.limit) || 5)))
+    if (!groupId) throw new Error('missing_group_id')
+    if (!query) throw new Error('missing_search_query')
+    return { groupId, query, maxResults }
+}
+
+function normalizeBrowserScreenshotArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    const url = String(args.url || args.href || '').trim()
+    const viewportWidth = Math.max(320, Math.min(1920, Math.trunc(Number(args.viewportWidth || args.width) || 1280)))
+    const viewportHeight = Math.max(240, Math.min(2400, Math.trunc(Number(args.viewportHeight || args.height) || 900)))
+    if (!groupId) throw new Error('missing_group_id')
+    if (!url) throw new Error('missing_url')
+    return { groupId, url, viewportWidth, viewportHeight }
 }
 
 function formatList(items, mapper, limit = 5) {
@@ -715,6 +736,15 @@ const toolParamSchemas = {
         url: { type: 'string', description: '公开 http/https URL；禁止 localhost、内网、凭证 URL。' },
         maxChars: { type: 'integer', minimum: 200, maximum: 6000, description: '最多读取字符数。' }
     }, ['url'], '受限只读网页读取参数。'),
+    browserSearch: objectSchema({
+        query: { type: 'string', description: '网页搜索关键词；不要包含敏感信息、Cookie、token 或登录凭证。' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 5, description: '最多返回结果数。' }
+    }, ['query'], '受限只读网页搜索参数。'),
+    browserScreenshot: objectSchema({
+        url: { type: 'string', description: '公开 http/https URL；禁止 localhost、内网、凭证 URL。' },
+        viewportWidth: { type: 'integer', minimum: 320, maximum: 1920, description: '截图视口宽度。' },
+        viewportHeight: { type: 'integer', minimum: 240, maximum: 2400, description: '截图视口高度。' }
+    }, ['url'], '受限只读网页截图参数。'),
     targetUser: objectSchema({
         groupId: commonSchemaProps.groupId,
         targetUserId: commonSchemaProps.targetUserId
@@ -918,6 +948,24 @@ const toolDefinitions = {
         normalizeArgs: normalizeBrowserReadArgs,
         summarize: (args) => `读取网页 ${args.url}`,
         execute: async (args, context) => agentBrowserService.readUrl(args, context)
+    },
+    'browser.search_web': {
+        name: 'browser.search_web',
+        description: '受限只读网页搜索；返回标题、摘要和来源 URL，不把搜索摘要当确定事实。',
+        risk: 'medium',
+        permission: 'use_browser',
+        normalizeArgs: normalizeBrowserSearchArgs,
+        summarize: (args) => `搜索网页 ${args.query}`,
+        execute: async (args, context) => agentWebSearchService.search(args, context)
+    },
+    'browser.screenshot_url': {
+        name: 'browser.screenshot_url',
+        description: '使用容器内 Chromium 对公开网页做只读截图；拒绝 localhost、内网地址和带凭证 URL。',
+        risk: 'medium',
+        permission: 'use_browser',
+        normalizeArgs: normalizeBrowserScreenshotArgs,
+        summarize: (args) => `截取网页 ${args.url}`,
+        execute: async (args, context) => agentScreenshotService.screenshotUrl(args, context)
     },
     'qq.get_group_info': {
         name: 'qq.get_group_info',
@@ -1329,6 +1377,8 @@ const toolSpecMetadata = {
     'agent.get_memory_summary': { paramsSchema: toolParamSchemas.memorySummary, sideEffect: 'read', timeoutMs: 5000 },
     'agent.learn_memory': { paramsSchema: toolParamSchemas.memoryLearn, sideEffect: 'write_memory', timeoutMs: 5000 },
     'browser.read_url': { paramsSchema: toolParamSchemas.browserRead, sideEffect: 'external_read', timeoutMs: 12000 },
+    'browser.search_web': { paramsSchema: toolParamSchemas.browserSearch, sideEffect: 'external_read', timeoutMs: 12000 },
+    'browser.screenshot_url': { paramsSchema: toolParamSchemas.browserScreenshot, sideEffect: 'external_read', timeoutMs: 20000 },
     'qq.get_group_info': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
     'qq.get_group_mute_list': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
     'qq.get_essence_messages': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },

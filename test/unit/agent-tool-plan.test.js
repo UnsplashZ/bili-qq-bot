@@ -18,6 +18,7 @@ const confirmationStore = require(path.join(__dirname, '../../src/agent/tools/co
 const notificationService = require(path.join(__dirname, '../../src/services/notificationService'))
 const toolRegistry = require(path.join(__dirname, '../../src/agent/tools/registry'))
 const { evaluateToolGuardrails } = require(path.join(__dirname, '../../src/agent/tools/toolGuardrails'))
+const { executeReply } = require(path.join(__dirname, '../../src/agent/runtime/replyExecutor'))
 const subscriptionService = require(path.join(__dirname, '../../src/services/subscriptionService'))
 const biliApi = require(path.join(__dirname, '../../src/services/biliApi'))
 const { normalizeMessage } = require(path.join(__dirname, '../../src/agent/ingress/messageNormalizer'))
@@ -529,6 +530,22 @@ async function run() {
         confirmationStore.parseDecisionText(`[CQ:at,qq=999] 取消${shortId}`, shortId),
         { action: 'cancel', hasCode: true }
     )
+    assert.deepStrictEqual(
+        confirmationStore.parseDecisionText(`@Bot 确认 ${shortId}`, shortId),
+        { action: 'confirm', hasCode: true }
+    )
+    assert.deepStrictEqual(
+        confirmationStore.parseDecisionText(`确认码 ${shortId}`, shortId),
+        { action: 'confirm', hasCode: true }
+    )
+    assert.deepStrictEqual(
+        confirmationStore.parseDecisionText(shortId, shortId),
+        { action: 'confirm', hasCode: true }
+    )
+    assert.deepStrictEqual(
+        confirmationStore.parseDecisionText(`confirm ${shortId}`, shortId),
+        { action: 'confirm', hasCode: true }
+    )
 
     llmClient.createChatCompletion = async () => {
         llmCalls += 1
@@ -650,6 +667,25 @@ async function run() {
     assert.strictEqual(enableConfirmResult.toolConfirmation.status, 'executed')
     assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, true)
 
+    llmClient.createChatCompletion = async () => {
+        throw new Error('agent_llm_empty_message_content')
+    }
+    const llmFallbackWs = makeWs()
+    const llmFallbackResult = await agent.agentIngress.observe({
+        ws: llmFallbackWs,
+        groupId: '1000',
+        userId: '42',
+        rawMessage: '小助手 ping',
+        messageData: makeMessage('小助手 ping'),
+        traceContext: { scope: 'test:llm-error-fallback' }
+    })
+    assert.strictEqual(llmFallbackResult.llmDecision.status, 'error')
+    assert.strictEqual(llmFallbackResult.policyDecision.accepted, true)
+    assert.strictEqual(llmFallbackResult.policyDecision.reason, 'llm_fallback:agent_llm_empty_message_content')
+    assert.strictEqual(llmFallbackResult.execution.executed, true)
+    assert.strictEqual(llmFallbackWs.sent.length, 1)
+    assert.ok(llmFallbackWs.sent[0].params.message[0].data.text.includes('没能正确解析'))
+
     notificationService.callAction = async () => ({
         status: 'ok',
         retcode: 0,
@@ -755,6 +791,43 @@ async function run() {
         timeoutDefinition.execute = originalTimeoutExecute
         timeoutDefinition.timeoutMs = originalTimeoutMs
     }
+
+    const imageReplyWs = makeWs()
+    const imageReplyResult = await executeReply({
+        ws: imageReplyWs,
+        groupId: '1000',
+        userId: '42',
+        selfId: '999',
+        sourceMessageId: 'source-image-tool',
+        llmDecision: {
+            status: 'ok',
+            decision: {
+                action: 'short_reply',
+                confidence: 1,
+                replyDraft: '已截取网页截图。',
+                messageChain: [
+                    { type: 'text', data: { text: '已截取网页截图。' } },
+                    { type: 'image', data: { file: 'file:///tmp/agent_screenshot.png' } }
+                ]
+            }
+        },
+        policyDecision: {
+            accepted: true,
+            wouldSend: true,
+            finalAction: 'short_reply',
+            reason: 'test',
+            replyDraft: '已截取网页截图。',
+            messageChain: [
+                { type: 'text', data: { text: '已截取网页截图。' } },
+                { type: 'image', data: { file: 'file:///tmp/agent_screenshot.png' } }
+            ]
+        },
+        traceContext: { scope: 'test:image-message-chain' }
+    })
+    assert.strictEqual(imageReplyResult.executed, true)
+    assert.strictEqual(imageReplyWs.sent.length, 1)
+    assert.strictEqual(imageReplyWs.sent[0].params.message.length, 2)
+    assert.strictEqual(imageReplyWs.sent[0].params.message[1].type, 'image')
 
     console.log('✓ Agent 受限工具计划和确认链路正常')
 }

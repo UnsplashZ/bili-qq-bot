@@ -37,7 +37,7 @@ const SPECIALISTS = [
         toolPatterns: [/^browser\./],
         keywords: [
             /https?:\/\/\S+/i,
-            /网页|网站|链接|打开|读一下|总结.*页面|摘要.*页面|url/i
+            /网页|网站|链接|打开|读一下|搜索|搜一下|查网页|查资料|总结.*页面|摘要.*页面|url/i
         ]
     }
 ]

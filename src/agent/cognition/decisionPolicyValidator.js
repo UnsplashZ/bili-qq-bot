@@ -1,20 +1,13 @@
 function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, replyGuardDecision }) {
-    if (!llmDecision || llmDecision.status !== 'ok' || !llmDecision.decision) {
-        return {
-            accepted: false,
-            finalAction: 'observe_only',
-            reason: llmDecision?.reason || llmDecision?.status || 'llm_decision_unavailable',
-            wouldSend: false
-        }
-    }
+    const decision = llmDecision?.decision || null
+    const directlyAddressed = Boolean(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)
 
-    const decision = llmDecision.decision
     if (agentConfig.observeOnly) {
         return {
             accepted: false,
             finalAction: 'observe_only',
             reason: 'observe_only_enabled',
-            llmAction: decision.action,
+            llmAction: decision?.action || '',
             wouldSend: false
         }
     }
@@ -24,7 +17,7 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
             accepted: false,
             finalAction: 'observe_only',
             reason: 'send_disabled',
-            llmAction: decision.action,
+            llmAction: decision?.action || '',
             wouldSend: false
         }
     }
@@ -34,8 +27,54 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
             accepted: false,
             finalAction: 'observe_only',
             reason: 'decision_mode_not_live',
-            llmAction: decision.action,
+            llmAction: decision?.action || '',
             wouldSend: false
+        }
+    }
+
+    if (!llmDecision || !decision) {
+        return {
+            accepted: false,
+            finalAction: 'observe_only',
+            reason: llmDecision?.reason || llmDecision?.status || 'llm_decision_unavailable',
+            wouldSend: false
+        }
+    }
+
+    if (llmDecision.status !== 'ok') {
+        const fallbackSendable = directlyAddressed &&
+            ['short_reply', 'full_reply', 'ask_clarify'].includes(decision.action) &&
+            Boolean(decision.replyDraft)
+
+        if (!fallbackSendable) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: llmDecision.reason || llmDecision.status || 'llm_decision_unavailable',
+                llmAction: decision.action,
+                wouldSend: false
+            }
+        }
+
+        if (replyGuardDecision && replyGuardDecision.allowed === false) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: replyGuardDecision.reason,
+                llmAction: decision.action,
+                wouldSend: false,
+                replyGuardDecision
+            }
+        }
+
+        return {
+            accepted: true,
+            finalAction: decision.action,
+            reason: `llm_fallback:${llmDecision.reason || llmDecision.status}`,
+            llmAction: decision.action,
+            replyDraft: decision.replyDraft,
+            wouldSend: true,
+            replyGuardDecision
         }
     }
 
@@ -48,8 +87,6 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
             wouldSend: false
         }
     }
-
-    const directlyAddressed = Boolean(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)
 
     if (decision.action === 'react_only' || decision.action === 'tool_plan') {
         if (replyGuardDecision && replyGuardDecision.allowed === false) {

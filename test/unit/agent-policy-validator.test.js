@@ -25,19 +25,41 @@ function makeDecision({ confidence, replyDraft = '收到。' }) {
     }
 }
 
+function makeFallbackDecision({ action = 'ask_clarify', replyDraft = '我刚才没能正确解析这条请求。你可以再明确说一次吗？' } = {}) {
+    return {
+        status: 'error',
+        reason: 'agent_llm_empty_message_content',
+        decision: {
+            action,
+            confidence: 0.2,
+            reason: 'LLM decision failed; fallback to clarify: agent_llm_empty_message_content',
+            topic: 'llm_fallback',
+            replyStyle: 'clarify',
+            replyDraft,
+            memoryHints: [],
+            toolIntent: null
+        }
+    }
+}
+
+function makeAgentConfig(overrides = {}) {
+    return {
+        observeOnly: false,
+        sendEnabled: true,
+        decisionMode: 'llm_live',
+        replyPolicy: {
+            minReplyScore: 0.65,
+            cooldownMs: 5000
+        },
+        ...overrides
+    }
+}
+
 function validate({ confidence, traits, action = 'short_reply', replyDraft = '收到。' }) {
     const llmDecision = makeDecision({ confidence, replyDraft })
     llmDecision.decision.action = action
     return validateDecisionPolicy({
-        agentConfig: {
-            observeOnly: false,
-            sendEnabled: true,
-            decisionMode: 'llm_live',
-            replyPolicy: {
-                minReplyScore: 0.65,
-                cooldownMs: 5000
-            }
-        },
+        agentConfig: makeAgentConfig(),
         llmDecision,
         messageTraits: traits,
         replyGuardDecision: { allowed: true }
@@ -100,9 +122,41 @@ function run() {
     assert.strictEqual(directToolPlanDowngraded.finalAction, 'short_reply')
     assert.strictEqual(directToolPlanDowngraded.reason, 'tool_plan_reply_downgraded')
 
+    const directLlmErrorFallback = validateDecisionPolicy({
+        agentConfig: makeAgentConfig(),
+        llmDecision: makeFallbackDecision(),
+        messageTraits: { mentionedBot: true, replyToBot: false, aliasMatched: false },
+        replyGuardDecision: { allowed: true }
+    })
+    assert.strictEqual(directLlmErrorFallback.accepted, true)
+    assert.strictEqual(directLlmErrorFallback.finalAction, 'ask_clarify')
+    assert.strictEqual(directLlmErrorFallback.reason, 'llm_fallback:agent_llm_empty_message_content')
+
+    const naturalLlmErrorFallback = validateDecisionPolicy({
+        agentConfig: makeAgentConfig(),
+        llmDecision: makeFallbackDecision(),
+        messageTraits: { mentionedBot: false, replyToBot: false, aliasMatched: false },
+        replyGuardDecision: { allowed: true }
+    })
+    assert.strictEqual(naturalLlmErrorFallback.accepted, false)
+    assert.strictEqual(naturalLlmErrorFallback.reason, 'agent_llm_empty_message_content')
+
+    const disabledLlmErrorFallback = validateDecisionPolicy({
+        agentConfig: makeAgentConfig({ sendEnabled: false }),
+        llmDecision: makeFallbackDecision(),
+        messageTraits: { mentionedBot: true, replyToBot: false, aliasMatched: false },
+        replyGuardDecision: { allowed: true }
+    })
+    assert.strictEqual(disabledLlmErrorFallback.accepted, false)
+    assert.strictEqual(disabledLlmErrorFallback.reason, 'send_disabled')
+
     const decisionGuardrail = evaluateDecisionGuardrails(makeDecision({ confidence: 0.8 }))
     assert.strictEqual(decisionGuardrail.allowed, true)
     assert.ok(decisionGuardrail.checks.some((check) => check.name === 'action_allowed' && check.passed))
+
+    const fallbackDecisionGuardrail = evaluateDecisionGuardrails(makeFallbackDecision())
+    assert.strictEqual(fallbackDecisionGuardrail.allowed, true)
+    assert.ok(fallbackDecisionGuardrail.checks.some((check) => check.name === 'decision_available' && check.passed))
 
     const missingToolIntentGuardrail = evaluateDecisionGuardrails({
         status: 'ok',

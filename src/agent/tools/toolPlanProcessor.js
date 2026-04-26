@@ -4,7 +4,7 @@ const { evaluateToolGuardrails } = require('./toolGuardrails')
 const confirmationStore = require('./confirmationStore')
 const { recordToolAudit } = require('./auditLog')
 
-function makeReplyDecision(replyDraft, reason = 'tool_plan_processed') {
+function makeReplyDecision(replyDraft, reason = 'tool_plan_processed', messageChain = null) {
     return {
         action: 'short_reply',
         confidence: 1,
@@ -13,7 +13,8 @@ function makeReplyDecision(replyDraft, reason = 'tool_plan_processed') {
         replyStyle: 'serious',
         replyDraft: String(replyDraft || '').trim(),
         memoryHints: [],
-        toolIntent: null
+        toolIntent: null,
+        messageChain: Array.isArray(messageChain) && messageChain.length > 0 ? messageChain : null
     }
 }
 
@@ -82,7 +83,7 @@ async function executePlanWithAudit({ plan, sessionContext, actor, traceScope })
             status: 'executed',
             plan,
             result,
-            decisionOverride: makeReplyDecision(result.message || '操作已完成。', 'tool_executed')
+            decisionOverride: makeReplyDecision(result.message || '操作已完成。', 'tool_executed', result.messageChain)
         }
     } catch (error) {
         const errorMessage = logger.getErrorMessage(error)

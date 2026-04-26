@@ -11,6 +11,7 @@ function getKey({ groupId, userId }) {
 function normalizeText(value) {
     return String(value || '')
         .replace(/\[CQ:[^\]]+\]/g, '')
+        .replace(/@bot/gi, '')
         .replace(/\s+/g, '')
         .trim()
         .toLowerCase()
@@ -26,13 +27,20 @@ function makeShortId() {
 
 function parseDecisionText(text, shortId = '') {
     const normalized = normalizeText(text)
-    const confirmWords = ['确认', '确认执行', '执行', '同意', '是', 'yes', 'y', 'ok']
+    const confirmWords = ['确认', '确认执行', '执行', '同意', '是', 'yes', 'confirm', 'y', 'ok']
     const cancelWords = ['取消', '算了', '不要', '否', 'no', 'n', 'stop']
     const normalizedShortId = normalizeText(shortId)
+
+    if (normalizedShortId && normalized === normalizedShortId) {
+        return { action: 'confirm', hasCode: true }
+    }
 
     for (const word of confirmWords) {
         if (normalized === word) return { action: 'confirm', hasCode: false }
         if (normalizedShortId && normalized === `${word}${normalizedShortId}`) {
+            return { action: 'confirm', hasCode: true }
+        }
+        if (word.length > 1 && normalizedShortId && normalized.includes(normalizedShortId) && normalized.includes(word)) {
             return { action: 'confirm', hasCode: true }
         }
     }
@@ -40,6 +48,9 @@ function parseDecisionText(text, shortId = '') {
     for (const word of cancelWords) {
         if (normalized === word) return { action: 'cancel', hasCode: false }
         if (normalizedShortId && normalized === `${word}${normalizedShortId}`) {
+            return { action: 'cancel', hasCode: true }
+        }
+        if (word.length > 1 && normalizedShortId && normalized.includes(normalizedShortId) && normalized.includes(word)) {
             return { action: 'cancel', hasCode: true }
         }
     }

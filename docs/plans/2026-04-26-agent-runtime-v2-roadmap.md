@@ -109,6 +109,8 @@
 - 加群申请和好友申请处理已实现。
 - Bot 在线状态和输入状态工具已实现。
 - 受限 `browser.read_url` 已实现，带 SSRF 和内网防护。
+- 受限 `browser.search_web` 已实现，作为只读网页搜索入口，返回标题、摘要和来源 URL，不把搜索摘要当确定事实。
+- 受限 `browser.screenshot_url` 已实现，使用容器内 Chromium 对公开网页截图，复用 URL 安全校验并通过 NapCat 共享目录发送图片。
 - `agent.learn_memory` 显式学习工具已实现。
 
 ## 3. 当前全部待办
@@ -314,7 +316,7 @@
 
 目标：解决群聊上下文“前言不搭后语”和长期记忆污染风险。
 
-状态：已启动行为保持型模块拆分；`ContextSelector` 和 `ContextCompactor` 已从 prompt builder 中抽出，当前仍保持原 relevance window 行为不变。
+状态：已完成首轮上下文模块拆分和摘要压缩；`ContextSelector`、`ContextCompactor`、`SessionStore` 已落地，prompt 同时包含相关消息窗口和 `contextDigest` 压缩摘要。
 
 范围：
 
@@ -332,6 +334,7 @@
 - `contextPolicy.budget` 已输出 source/selected/dropped 消息数、估算字符数、relevance 分布和当前上下文上限。
 - 已新增 `shortTerm.promptMaxContextChars`，ContextSelector 会在消息数筛选后继续按总字符预算裁剪，并优先保留 reply chain、topic、assistant recent 和明确寻址上下文。
 - 已新增 `src/agent/session/sessionStore.js`，按群/话题维护轻量会话摘要，并注入 prompt 的 `conversationSession`，用于区分多人群聊中的连续会话和无关话题。
+- 已新增 `contextDigest`，对入选上下文进行轻量摘要，包含关键 turns、参与者、Bot 最近回复和 topic 消息数量，降低长群聊窗口下的指代混乱。
 
 验收：
 
@@ -397,7 +400,7 @@
 
 目标：把长期记忆检索从存储层拆出，减少多人群聊和多话题场景下的错误记忆注入。
 
-状态：已启动首轮行为收敛；当前先抽出检索评分模块，并让 topic 记忆默认只在同话题或文本显式命中时进入上下文。
+状态：已完成首轮行为收敛；当前已抽出检索评分模块，并让 topic 记忆默认只在同话题或文本显式命中时进入上下文。
 
 范围：
 
@@ -405,6 +408,8 @@
 - 检索输入显式包含 `topicId`。
 - topic summary 不再仅因同群就注入 prompt。
 - 保持长期记忆存储、冲突覆盖和访问统计行为不变。
+- 扩展敏感信息和 prompt injection 过滤，拒绝 token、密钥、系统提示词覆盖、忽略指令等污染记忆。
+- 低于最小置信度的记忆不写入长期存储。
 
 验收：
 

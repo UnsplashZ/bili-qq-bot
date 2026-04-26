@@ -34,6 +34,7 @@ function sanitizeContent(value) {
     return compactText(value)
         .replace(/<\/?memory-context>/gi, '[memory-context]')
         .replace(/<\/?system>/gi, '[system]')
+        .replace(/<\/?(assistant|user|tool|developer)>/gi, '[$1]')
         .replace(/```/g, "'''")
 }
 
@@ -44,7 +45,12 @@ function addMsIso(baseIso, durationMs) {
 
 function isSensitiveContent(value) {
     const text = String(value || '')
-    return /(sk-[A-Za-z0-9_-]{12,}|api[_-]?key|token|password|密码|密钥|cookie|authorization)/i.test(text)
+    return /(sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|api[_-]?key|access[_-]?token|refresh[_-]?token|bearer\s+[A-Za-z0-9._-]{16,}|jwt|session[_-]?id|token|password|密码|密钥|cookie|authorization|secret)/i.test(text)
+}
+
+function isPromptInjectionContent(value) {
+    const text = String(value || '').toLowerCase()
+    return /(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above)\s+(instructions?|messages?)|忽略(以上|之前|前面|所有).{0,12}(指令|规则|消息)|覆盖系统规则|系统提示词|system prompt|developer message|执行任意命令|绕过权限|不要遵守/.test(text)
 }
 
 function inferExpiresAt({ type, confidence, createdAt, explicitExpiresAt }) {
@@ -158,7 +164,7 @@ function buildMemoryItem({ hint, sessionContext, agentMessage, decision }) {
     if (!normalizedHint) return null
 
     const content = sanitizeContent(normalizedHint.content || normalizedHint.text || normalizedHint.value || '')
-    if (!content || isSensitiveContent(content)) return null
+    if (!content || isSensitiveContent(content) || isPromptInjectionContent(content)) return null
 
     const scope = ['global', 'group', 'user', 'topic'].includes(normalizedHint.scope)
         ? normalizedHint.scope
@@ -167,6 +173,7 @@ function buildMemoryItem({ hint, sessionContext, agentMessage, decision }) {
         ? normalizedHint.type
         : 'fact'
     const confidence = Math.min(1, Math.max(0, Number(normalizedHint.confidence) || DEFAULT_CONFIDENCE))
+    if (confidence > 0 && confidence < 0.25) return null
     const createdAt = nowIso()
     const sourceMessageIds = [agentMessage?.id].filter(Boolean)
     const dedupeKey = [scope, type, sessionContext?.groupId || '', sessionContext?.userId || '', content.toLowerCase()].join('|')
@@ -414,5 +421,7 @@ module.exports = {
     deleteMemory,
     clearMemories,
     resetForTest,
-    sanitizeContent
+    sanitizeContent,
+    isSensitiveContent,
+    isPromptInjectionContent
 }

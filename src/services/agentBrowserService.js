@@ -120,6 +120,7 @@ class AgentBrowserService {
 module.exports = new AgentBrowserService()
 module.exports._private = {
     assertSafeUrl,
+    assertResolvedHostSafe,
     isPrivateIPv4,
     isPrivateIPv6,
     htmlToText

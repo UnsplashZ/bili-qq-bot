@@ -47,10 +47,13 @@ function run() {
         agentMessage: { normalizedText: '小助手，读一下 https://example.com 这个网页' },
         toolDefinitions: allTools
     })
-    assert.deepStrictEqual(browserContext.availableTools.map((tool) => tool.name), ['browser.read_url'])
+    assert.ok(browserContext.availableTools.some((tool) => tool.name === 'browser.read_url'))
+    assert.ok(browserContext.availableTools.some((tool) => tool.name === 'browser.search_web'))
 
     assert.strictEqual(getSpecialistForTool('qq.delete_message').id, 'qq_admin_agent')
     assert.strictEqual(getSpecialistForTool('browser.read_url').id, 'browser_agent')
+    assert.strictEqual(getSpecialistForTool('browser.search_web').id, 'browser_agent')
+    assert.strictEqual(getSpecialistForTool('browser.screenshot_url').id, 'browser_agent')
 
     console.log('✓ Agent specialist 路由和工具裁剪正常')
 }

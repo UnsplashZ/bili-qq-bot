@@ -93,7 +93,8 @@ function run() {
     assert.strictEqual(payload.recentMessages[0].role, 'assistant')
     assert.ok(payload.recentMessages[0].relevance.includes('assistant_recent'))
     assert.ok(payload.constraints.some((line) => line.includes('第一个/继续/这个/上面')))
-    assert.strictEqual(payload.contextPolicy.strategy, 'relevance_window')
+    assert.strictEqual(payload.contextPolicy.strategy, 'relevance_window_with_digest')
+    assert.ok(payload.contextDigest.summary.includes('第一个'))
     assert.strictEqual(payload.contextPolicy.budget.sourceMessageCount, 2)
     assert.strictEqual(payload.contextPolicy.budget.selectedMessageCount, 2)
     assert.ok(payload.contextPolicy.budget.relevanceCounts.assistant_recent >= 1)
@@ -255,6 +256,7 @@ function run() {
     assert.strictEqual(budgetPayload.contextPolicy.budget.charBudgetExceeded, true)
     assert.ok(budgetPayload.contextPolicy.budget.droppedByBudgetCount > 0)
     assert.ok(budgetPayload.contextPolicy.budget.estimatedChars <= 500)
+    assert.ok(budgetPayload.contextDigest.summary)
     assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'assistant_budget_keep'), 'should keep assistant context under char budget')
     assert.ok(budgetPayload.recentMessages.some((message) => message.messageId === 'topic_budget_keep'), 'should keep topic context under char budget')
 
