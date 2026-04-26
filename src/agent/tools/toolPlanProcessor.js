@@ -1,6 +1,6 @@
 const logger = require('../../utils/logger')
 const { normalizeToolIntent, executeToolPlan } = require('./registry')
-const { checkToolPermission } = require('./permissionGate')
+const { evaluateToolGuardrails } = require('./toolGuardrails')
 const confirmationStore = require('./confirmationStore')
 const { recordToolAudit } = require('./auditLog')
 
@@ -42,7 +42,10 @@ function formatDenied(reason) {
         subscription_permission_denied: '订阅管理需要群主、群管理员或已配置的群管理员权限。',
         qq_manager_permission_denied: 'QQ 群管理操作需要群主或群管理员权限。',
         qq_account_requires_root: 'QQ 账号级操作需要 Root 权限。',
-        cross_group_permission_denied: '你只能管理当前群；跨群操作需要 Root 权限。'
+        cross_group_permission_denied: '你只能管理当前群；跨群操作需要 Root 权限。',
+        invalid_target_user_id: '这个操作需要明确的目标 QQ 号，请回复目标消息或提供 QQ 号。',
+        missing_message_id: '这个操作需要明确的目标消息，请回复要处理的消息后再试。',
+        missing_approval_target: '这个审批操作需要申请短码，或回复对应的申请通知。'
     }
     return messages[reason] || `这个工具计划没有执行：${reason}`
 }
@@ -140,22 +143,24 @@ async function processToolPlan({ decision, agentConfig, sessionContext }) {
     }
 
     const actor = sessionContext.actor
-    const permission = checkToolPermission({ plan, actor })
-    if (!permission.allowed) {
+    const guardrailDecision = evaluateToolGuardrails({ plan, actor })
+    if (!guardrailDecision.allowed) {
         await recordToolAudit({
-            event: 'tool_plan_denied',
+            event: 'tool_guardrail_denied',
             traceScope,
             groupId: sessionContext.groupId,
             userId: sessionContext.userId,
             actor,
             plan,
-            reason: permission.reason
+            reason: guardrailDecision.reason,
+            guardrailDecision
         })
         return {
             status: 'denied',
             plan,
-            permission,
-            decisionOverride: makeReplyDecision(formatDenied(permission.reason), 'tool_permission_denied')
+            permission: guardrailDecision.permission,
+            guardrailDecision,
+            decisionOverride: makeReplyDecision(formatDenied(guardrailDecision.reason), 'tool_guardrail_denied')
         }
     }
 
@@ -172,17 +177,23 @@ async function processToolPlan({ decision, agentConfig, sessionContext }) {
             userId: sessionContext.userId,
             actor,
             plan,
+            guardrailDecision,
             confirmationId: confirmation.id
         })
         return {
             status: 'confirmation_required',
             plan,
+            guardrailDecision,
             confirmation,
             decisionOverride: makeReplyDecision(`需要你确认后再执行：${plan.summary}\n请 @我回复「确认 ${confirmation.shortId}」执行，或回复「取消 ${confirmation.shortId}」。`, 'tool_confirmation_required')
         }
     }
 
-    return executePlanWithAudit({ plan, sessionContext, actor, traceScope })
+    const execution = await executePlanWithAudit({ plan, sessionContext, actor, traceScope })
+    return {
+        ...execution,
+        guardrailDecision
+    }
 }
 
 async function tryConsumeToolConfirmation({ agentMessage, agentConfig, sessionContext }) {
@@ -257,31 +268,37 @@ async function tryConsumeToolConfirmation({ agentMessage, agentConfig, sessionCo
         }
     }
 
-    const permission = checkToolPermission({ plan: consumed.pending.plan, actor })
-    if (!permission.allowed) {
+    const guardrailDecision = evaluateToolGuardrails({ plan: consumed.pending.plan, actor })
+    if (!guardrailDecision.allowed) {
         await recordToolAudit({
-            event: 'tool_confirmation_denied',
+            event: 'tool_confirmation_guardrail_denied',
             traceScope,
             groupId: sessionContext.groupId,
             userId: sessionContext.userId,
             actor,
             plan: consumed.pending.plan,
-            reason: permission.reason
+            reason: guardrailDecision.reason,
+            guardrailDecision
         })
         return {
             status: 'denied',
             plan: consumed.pending.plan,
-            permission,
-            decisionOverride: makeReplyDecision(formatDenied(permission.reason), 'tool_permission_denied')
+            permission: guardrailDecision.permission,
+            guardrailDecision,
+            decisionOverride: makeReplyDecision(formatDenied(guardrailDecision.reason), 'tool_guardrail_denied')
         }
     }
 
-    return executePlanWithAudit({
+    const execution = await executePlanWithAudit({
         plan: consumed.pending.plan,
         sessionContext,
         actor,
         traceScope
     })
+    return {
+        ...execution,
+        guardrailDecision
+    }
 }
 
 module.exports = {

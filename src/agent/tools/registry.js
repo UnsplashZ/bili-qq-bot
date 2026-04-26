@@ -1387,7 +1387,8 @@ function listToolDefinitions() {
         sideEffect: tool.sideEffect,
         timeoutMs: tool.timeoutMs,
         guardrails: tool.guardrails,
-        paramsSchema: tool.paramsSchema
+        paramsSchema: tool.paramsSchema,
+        resultSchema: tool.resultSchema
     }))
 }
 
@@ -1411,6 +1412,9 @@ function normalizeToolIntent(toolIntent, sessionContext) {
         args,
         risk: definition.risk,
         permission: definition.permission,
+        sideEffect: definition.sideEffect,
+        timeoutMs: definition.timeoutMs,
+        guardrails: definition.guardrails,
         summary: definition.summarize(args)
     }
 }

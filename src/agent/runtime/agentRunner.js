@@ -11,6 +11,8 @@ const { checkBudget } = require('./budgetGuard')
 const { recordTrajectory } = require('./trajectoryRecorder')
 const { executeReply } = require('./replyExecutor')
 const { checkReplyGuard } = require('./replyGuard')
+const { evaluateDecisionGuardrails } = require('./decisionGuardrails')
+const { applyOutputGuardrails } = require('./outputGuardrails')
 const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
 
 const DETERMINISTIC_MEMORY_SOURCES = new Set([
@@ -33,7 +35,7 @@ function filterMemoryHintsForWrite({ llmDecision, extractedMemoryHints }) {
 }
 
 async function sendSystemReply({ runState, decision }) {
-    const { context, groupId, agentMessage } = runState
+    const { context, groupId, agentConfig, agentMessage } = runState
     const llmDecision = {
         status: 'ok',
         decision
@@ -45,6 +47,11 @@ async function sendSystemReply({ runState, decision }) {
         wouldSend: true,
         replyDraft: decision.replyDraft
     }
+    const outputDecision = applyOutputGuardrails({
+        agentConfig,
+        policyDecision,
+        llmDecision
+    })
     return executeReply({
         ws: context.ws,
         groupId,
@@ -52,7 +59,7 @@ async function sendSystemReply({ runState, decision }) {
         selfId: context.messageData?.self_id,
         sourceMessageId: context.messageData?.message_id,
         llmDecision,
-        policyDecision,
+        policyDecision: outputDecision.policyDecision,
         traceContext: context.traceContext
     })
 }
@@ -212,6 +219,7 @@ async function runObserveDecision(runState, scoreResult) {
             }
         }
         : llmDecision
+    const decisionGuardrail = evaluateDecisionGuardrails(effectiveLlmDecision)
     const writableMemoryHints = filterMemoryHintsForWrite({
         llmDecision: effectiveLlmDecision,
         extractedMemoryHints
@@ -240,14 +248,15 @@ async function runObserveDecision(runState, scoreResult) {
         budgetDecision,
         llmDecision: effectiveLlmDecision,
         rawLlmDecision: llmDecision,
-        toolPlanResult
+        toolPlanResult,
+        decisionGuardrail
     }
 
     if (toolPlanResult?.decisionOverride) {
         return handleToolPlanResult(runState, runData)
     }
 
-    const policyDecision = validateDecisionPolicy({
+    let policyDecision = validateDecisionPolicy({
         agentConfig,
         llmDecision: effectiveLlmDecision,
         messageTraits: scoreResult.traits || {},
@@ -263,6 +272,12 @@ async function runObserveDecision(runState, scoreResult) {
             )
         })
     })
+    const outputDecision = applyOutputGuardrails({
+        agentConfig,
+        policyDecision,
+        llmDecision: effectiveLlmDecision
+    })
+    policyDecision = outputDecision.policyDecision
     logDecisions(runState, {
         decision,
         scoreResult,
@@ -283,6 +298,7 @@ async function runObserveDecision(runState, scoreResult) {
     const result = runState.baseResult({
         ...runData,
         policyDecision,
+        outputGuardrail: outputDecision.outputGuardrail,
         execution
     })
 
@@ -307,6 +323,8 @@ async function runObserveDecision(runState, scoreResult) {
             rawLlmDecision: llmDecision,
             toolPlanResult,
             policyDecision,
+            decisionGuardrail,
+            outputGuardrail: outputDecision.outputGuardrail,
             execution,
             score: scoreResult,
             actor: runState.actorSummary()

@@ -16,6 +16,7 @@ const replyGuard = require(path.join(__dirname, '../../src/agent/runtime/replyGu
 const confirmationStore = require(path.join(__dirname, '../../src/agent/tools/confirmationStore'))
 const notificationService = require(path.join(__dirname, '../../src/services/notificationService'))
 const toolRegistry = require(path.join(__dirname, '../../src/agent/tools/registry'))
+const { evaluateToolGuardrails } = require(path.join(__dirname, '../../src/agent/tools/toolGuardrails'))
 const subscriptionService = require(path.join(__dirname, '../../src/services/subscriptionService'))
 const biliApi = require(path.join(__dirname, '../../src/services/biliApi'))
 const { normalizeMessage } = require(path.join(__dirname, '../../src/agent/ingress/messageNormalizer'))
@@ -412,9 +413,24 @@ async function run() {
     }, qqContext)
     assert.strictEqual(mutePlan.risk, 'high')
     assert.strictEqual(mutePlan.permission, 'manage_qq_member')
+    assert.ok(mutePlan.guardrails.includes('target_user_required'))
+    assert.strictEqual(mutePlan.sideEffect, 'qq_group_write')
+    const muteGuardrail = evaluateToolGuardrails({ plan: mutePlan, actor: qqContext.actor })
+    assert.strictEqual(muteGuardrail.allowed, true)
+    assert.ok(muteGuardrail.checks.some((check) => check.name === 'permission' && check.passed))
     const muteResult = await toolRegistry.executeToolPlan(mutePlan, qqContext)
     assert.ok(muteResult.message.includes('已禁言'))
     assert.ok(adminActionCalls.some((call) => call.action === 'set_group_ban' && call.params.duration === 600))
+
+    const unsafeMuteGuardrail = evaluateToolGuardrails({
+        plan: {
+            ...mutePlan,
+            args: { groupId: '1000', duration: 60 }
+        },
+        actor: qqContext.actor
+    })
+    assert.strictEqual(unsafeMuteGuardrail.allowed, false)
+    assert.strictEqual(unsafeMuteGuardrail.reason, 'invalid_target_user_id')
 
     const deletePlan = toolRegistry.normalizeToolIntent({
         name: 'qq.delete_message',
@@ -719,6 +735,8 @@ async function run() {
         assert.ok(tool.sideEffect, `${tool.name} should expose sideEffect`)
         assert.ok(Number.isFinite(tool.timeoutMs), `${tool.name} should expose timeoutMs`)
         assert.ok(Array.isArray(tool.guardrails), `${tool.name} should expose guardrails`)
+        assert.ok(tool.resultSchema, `${tool.name} should expose resultSchema`)
+        assert.strictEqual(tool.resultSchema.type, 'object', `${tool.name} resultSchema should be object`)
     }
 
     const timeoutDefinition = toolRegistry.getToolDefinition('agent.get_group_config')

@@ -282,7 +282,7 @@
 
 目标：让工具能力从“能跑”变成“可验证、可审计、可扩展”。
 
-状态：已完成 ToolSpec 元数据和执行超时接入；guardrail 管线仍待实现。
+状态：已完成 ToolSpec 元数据、只读工具超时、首轮 tool guardrail、decision guardrail 和 output guardrail；input guardrail/span 化仍待继续。
 
 范围：
 
@@ -296,8 +296,12 @@
 
 - 所有白名单工具已具备 `paramsSchema`、`resultSchema`、`sideEffect`、`timeoutMs`、`guardrails` 元数据。
 - `listToolDefinitions()` 已向 LLM 暴露工具 schema、sideEffect、timeout 和 guardrail 标签。
-- 工具执行仍复用原 `normalizeArgs` / `execute`，但已统一通过 `timeoutMs` 限制执行耗时。
-- 已补单测校验所有工具必须暴露 ToolSpec 元数据，并覆盖工具执行超时错误。
+- 工具执行仍复用原 `normalizeArgs` / `execute`，但只读/外部读取工具已通过 `timeoutMs` 限制执行耗时；写操作不做 Promise 级超时，避免出现“返回超时失败但实际已执行”的状态歧义。
+- 已新增 `toolGuardrails`，把权限、目标用户、目标消息、审批目标、Bot 管理员要求、`get_msg` 发送人校验等要求输出为结构化检查结果。
+- `processToolPlan` 和确认恢复链路都会重新执行 tool guardrail，并把阻断原因写入审计和结果对象。
+- 已新增 `decisionGuardrails`，把 LLM 决策可用性、action 合法性、confidence 范围、tool intent 一致性输出为结构化检查结果。
+- 已新增 `outputGuardrails`，在发送前执行回复长度收敛和疑似密钥泄漏阻断。
+- 已补单测校验所有工具必须暴露 ToolSpec 元数据、工具执行超时错误、tool/decision/output guardrail 结构化结果。
 
 验收：
 
@@ -399,9 +403,10 @@
 
 1. Phase 10：抽 `AgentRunner` 和 `RunState`。
 2. Phase 11：升级 `registry` 为 `ToolSpec V2`。
-3. Phase 11：补 `paramsSchema` 和统一工具超时。
-4. Phase 13：升级 trajectory span。
-5. Phase 12：抽 `ContextSelector` 和 `ContextCompactor`。
+3. Phase 11：补 `paramsSchema`、只读工具超时和 tool guardrail。
+4. Phase 11：继续拆 decision/output guardrail。
+5. Phase 13：升级 trajectory span。
+6. Phase 12：抽 `ContextSelector` 和 `ContextCompactor`。
 
 ## 7. 风险控制原则
 

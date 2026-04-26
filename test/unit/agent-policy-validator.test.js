@@ -5,6 +5,8 @@ const assert = require('assert')
 const path = require('path')
 
 const { validateDecisionPolicy } = require(path.join(__dirname, '../../src/agent/cognition/decisionPolicyValidator'))
+const { evaluateDecisionGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/decisionGuardrails'))
+const { applyOutputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/outputGuardrails'))
 
 function makeDecision({ confidence, replyDraft = '收到。' }) {
     return {
@@ -82,6 +84,51 @@ function run() {
     assert.strictEqual(directToolPlanDowngraded.accepted, true)
     assert.strictEqual(directToolPlanDowngraded.finalAction, 'short_reply')
     assert.strictEqual(directToolPlanDowngraded.reason, 'tool_plan_reply_downgraded')
+
+    const decisionGuardrail = evaluateDecisionGuardrails(makeDecision({ confidence: 0.8 }))
+    assert.strictEqual(decisionGuardrail.allowed, true)
+    assert.ok(decisionGuardrail.checks.some((check) => check.name === 'action_allowed' && check.passed))
+
+    const missingToolIntentGuardrail = evaluateDecisionGuardrails({
+        status: 'ok',
+        decision: {
+            action: 'tool_plan',
+            confidence: 0.8,
+            replyDraft: '',
+            toolIntent: null
+        }
+    })
+    assert.strictEqual(missingToolIntentGuardrail.allowed, false)
+    assert.strictEqual(missingToolIntentGuardrail.reason, 'missing_tool_intent')
+
+    const longReply = '这是一段比较长的回复内容'.repeat(10)
+    const outputAllowed = applyOutputGuardrails({
+        agentConfig: { replyPolicy: { maxReplyChars: 80 } },
+        llmDecision: makeDecision({ confidence: 0.8, replyDraft: longReply }),
+        policyDecision: {
+            accepted: true,
+            wouldSend: true,
+            finalAction: 'short_reply',
+            reason: 'accepted',
+            replyDraft: longReply
+        }
+    })
+    assert.strictEqual(outputAllowed.policyDecision.accepted, true)
+    assert.strictEqual(outputAllowed.policyDecision.replyDraft.length, 80)
+
+    const outputBlocked = applyOutputGuardrails({
+        agentConfig: {},
+        llmDecision: makeDecision({ confidence: 0.8, replyDraft: 'sk-1234567890abcdefg' }),
+        policyDecision: {
+            accepted: true,
+            wouldSend: true,
+            finalAction: 'short_reply',
+            reason: 'accepted',
+            replyDraft: 'sk-1234567890abcdefg'
+        }
+    })
+    assert.strictEqual(outputBlocked.policyDecision.accepted, false)
+    assert.strictEqual(outputBlocked.policyDecision.reason, 'possible_secret_leakage')
 
     console.log('✓ Agent 回复策略阈值正常')
 }
