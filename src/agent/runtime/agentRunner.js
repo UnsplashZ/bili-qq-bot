@@ -220,6 +220,7 @@ async function runObserveDecision(runState, scoreResult) {
     const longTermMemories = await longTermStore.retrieveRelevantMemories({
         groupId,
         userId: agentMessage.userId,
+        topicId: sessionContext.topicId,
         text: agentMessage.normalizedText || agentMessage.rawText,
         limit: agentConfig.longTerm?.retrieveLimit || 5
     })

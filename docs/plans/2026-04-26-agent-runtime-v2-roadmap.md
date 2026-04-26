@@ -393,6 +393,26 @@
 - 不同领域能力可单独测试。
 - specialist 不能绕过统一权限和确认。
 
+### Phase 15：Memory Retriever V2
+
+目标：把长期记忆检索从存储层拆出，减少多人群聊和多话题场景下的错误记忆注入。
+
+状态：已启动首轮行为收敛；当前先抽出检索评分模块，并让 topic 记忆默认只在同话题或文本显式命中时进入上下文。
+
+范围：
+
+- 抽出 `MemoryRetriever`。
+- 检索输入显式包含 `topicId`。
+- topic summary 不再仅因同群就注入 prompt。
+- 保持长期记忆存储、冲突覆盖和访问统计行为不变。
+
+验收：
+
+- 同一话题追问能检索到 topic summary。
+- 无关话题不会注入旧 topic summary。
+- user-scope 记忆仍只对同群同用户可见。
+- 现有长期记忆、Agent observer 和 prompt 单测通过。
+
 ## 5. 开发优先级
 
 推荐立即执行顺序：
@@ -403,6 +423,7 @@
 4. Phase 13：Trace Span 和 Dashboard V2。
 5. Phase 12：Session / Context / Memory V2。
 6. Phase 14：Specialist Agents。
+7. Phase 15：Memory Retriever V2。
 
 说明：
 

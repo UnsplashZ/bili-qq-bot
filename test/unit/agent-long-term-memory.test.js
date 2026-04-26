@@ -113,6 +113,22 @@ async function run() {
         assert.ok(topicMemories[0].sourceMessageIds.includes('topic-msg-4'))
         assert.ok(topicMemories[0].expiresAt)
 
+        const sameTopicSummary = await longTermStore.retrieveRelevantMemories({
+            groupId: '1000',
+            userId: '42',
+            topicId: 'topic-game',
+            text: '刚才活动剧情聊到哪了'
+        })
+        assert.ok(sameTopicSummary.some((memory) => memory.scope === 'topic'))
+
+        const unrelatedTopicSummary = await longTermStore.retrieveRelevantMemories({
+            groupId: '1000',
+            userId: '42',
+            topicId: 'topic-food',
+            text: '今晚吃什么'
+        })
+        assert.ok(!unrelatedTopicSummary.some((memory) => memory.scope === 'topic'), '无关话题不应注入旧 topic summary')
+
         longTermStore.resetForTest(tempMemoryFile)
         await longTermStore.storeMemoryHints({
             hints: [{

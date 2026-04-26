@@ -2,7 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const logger = require('../../utils/logger')
-const { extractKeywords } = require('./topicContextEngine')
+const { selectRelevantMemories } = require('./memoryRetriever')
 
 const MEMORY_DIR = path.join(__dirname, '../../../data/agent/memory')
 const MEMORY_FILE = path.join(MEMORY_DIR, 'memories.json')
@@ -257,23 +257,6 @@ async function storeMemoryHints({ hints, sessionContext, agentMessage, decision 
     return { stored, skipped }
 }
 
-function scoreMemory(memory, { groupId, userId, text }) {
-    let score = 0
-    if (memory.scope === 'global') score += 0.2
-    if (memory.groupId && memory.groupId === groupId) score += 0.4
-    if (memory.userId && memory.userId === userId) score += 0.4
-    if (memory.scope === 'group' && memory.groupId === groupId) score += 0.3
-
-    const whitespaceWords = String(text || '').toLowerCase().split(/\s+/).filter((word) => word.length >= 2)
-    const words = Array.from(new Set([...whitespaceWords, ...extractKeywords(text)]))
-    const content = String(memory.content || '').toLowerCase()
-    const matches = words.filter((word) => content.includes(word)).length
-    score += Math.min(0.3, matches * 0.08)
-    score += Math.min(0.2, Number(memory.confidence) || 0)
-    score += Math.min(0.1, Number(memory.importance) || 0)
-    return score
-}
-
 function getRetentionScore(memory) {
     const updatedAt = Date.parse(memory.updatedAt || memory.createdAt || '')
     const ageDays = Number.isFinite(updatedAt) ? Math.max(0, (Date.now() - updatedAt) / (24 * 60 * 60 * 1000)) : 999
@@ -293,22 +276,19 @@ function pruneMemories() {
         .slice(0, MAX_MEMORY_ITEMS)
 }
 
-async function retrieveRelevantMemories({ groupId, userId, text, limit = 5 }) {
+async function retrieveRelevantMemories({ groupId, userId, topicId = '', text, limit = 5 }) {
     await load()
     const timestamp = Date.now()
-    const selected = memories
-        .filter((memory) => !isExpired(memory, timestamp))
-        .filter((memory) => {
-            if (memory.scope === 'global') return true
-            if (memory.scope === 'group' || memory.scope === 'topic') return memory.groupId === groupId
-            if (memory.scope === 'user') return memory.groupId === groupId && memory.userId === userId
-            return false
-        })
-        .map((memory) => ({ memory, score: scoreMemory(memory, { groupId, userId, text }) }))
-        .filter((item) => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
-        .map((item) => item.memory)
+    const selected = selectRelevantMemories({
+        memories,
+        groupId,
+        userId,
+        topicId,
+        text,
+        limit,
+        timestamp,
+        isExpired
+    })
     if (selected.length > 0) {
         const accessedAt = nowIso()
         selected.forEach((memory) => {
