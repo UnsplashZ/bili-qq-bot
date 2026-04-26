@@ -42,6 +42,107 @@ function toIsoString(value) {
     return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
+function makeSpan(type, status = 'ok', reason = '', detail = {}) {
+    return {
+        type,
+        status,
+        reason,
+        ...detail
+    }
+}
+
+function guardrailStatus(guardrail) {
+    if (!guardrail) return 'skipped'
+    return guardrail.allowed === false ? 'blocked' : 'ok'
+}
+
+function buildTrajectorySpans(event, item) {
+    const spans = []
+    const toolSource = event.toolPlanResult || event.toolConfirmation || null
+
+    spans.push(makeSpan('message_received', 'ok', '', {
+        messageId: item.messageId,
+        groupId: item.groupId,
+        userId: item.userId
+    }))
+
+    if (item.budgetDecision) {
+        spans.push(makeSpan('input_guardrail', item.budgetDecision.allowed ? 'ok' : 'blocked', item.budgetDecision.reason))
+    }
+
+    if (item.topicId || Object.keys(item.messageTraits || {}).length > 0) {
+        spans.push(makeSpan('context_selected', 'ok', '', {
+            topicId: item.topicId,
+            traitCount: Object.keys(item.messageTraits || {}).length
+        }))
+    }
+
+    if (item.llmDecision?.status || item.llmDecision?.action) {
+        spans.push(makeSpan('llm_decision', item.llmDecision.status === 'ok' ? 'ok' : 'skipped', item.llmDecision.reason, {
+            action: item.llmDecision.action,
+            model: item.llmDecision.model,
+            totalTokens: item.llmDecision.totalTokens
+        }))
+    }
+
+    if (event.decisionGuardrail) {
+        spans.push(makeSpan('decision_guardrail', guardrailStatus(event.decisionGuardrail), event.decisionGuardrail.reason, {
+            checks: safeArray(event.decisionGuardrail.checks)
+        }))
+    }
+
+    if (item.tool) {
+        spans.push(makeSpan('tool_plan', item.tool.status || 'ok', item.tool.reason || item.tool.error, {
+            toolName: item.tool.name,
+            risk: item.tool.risk,
+            permission: item.tool.permission
+        }))
+    }
+
+    if (toolSource?.guardrailDecision) {
+        spans.push(makeSpan('tool_guardrail', guardrailStatus(toolSource.guardrailDecision), toolSource.guardrailDecision.reason, {
+            toolName: item.tool?.name || '',
+            checks: safeArray(toolSource.guardrailDecision.checks)
+        }))
+    }
+
+    if (item.tool?.confirmation) {
+        spans.push(makeSpan('tool_confirmation', item.tool.status || 'pending', item.tool.reason, {
+            shortId: item.tool.confirmation.shortId,
+            expiresAt: item.tool.confirmation.expiresAt
+        }))
+    }
+
+    if (item.tool && ['executed', 'failed'].includes(item.tool.status)) {
+        spans.push(makeSpan('tool_execute', item.tool.status === 'executed' ? 'ok' : 'failed', item.tool.error || item.tool.reason, {
+            toolName: item.tool.name,
+            resultMessage: item.tool.resultMessage
+        }))
+    }
+
+    if (item.tool?.replyDecision) {
+        spans.push(makeSpan('tool_result_reply', item.tool.replyDecision.status || 'skipped', item.tool.replyDecision.reason, {
+            action: item.tool.replyDecision.action,
+            model: item.tool.replyDecision.model
+        }))
+    }
+
+    const outputGuardrail = event.outputGuardrail || event.policyDecision?.outputGuardrail || null
+    if (outputGuardrail) {
+        spans.push(makeSpan('output_guardrail', guardrailStatus(outputGuardrail), outputGuardrail.reason, {
+            checks: safeArray(outputGuardrail.checks)
+        }))
+    }
+
+    if (event.execution) {
+        spans.push(makeSpan('reply_sent', item.execution.executed ? 'ok' : 'skipped', item.execution.reason, {
+            action: item.execution.action
+        }))
+    }
+
+    return spans
+}
+
 function summarizeTrajectory(event) {
     const llmDecision = event.llmDecision || {}
     const llmDecisionBody = llmDecision.decision || {}
@@ -52,7 +153,7 @@ function summarizeTrajectory(event) {
     const toolPlan = toolSource?.plan || null
     const toolConfirmation = toolSource?.confirmation || null
 
-    return {
+    const item = {
         type: String(event.type || ''),
         recordedAt: event.recordedAt || '',
         traceScope: event.traceScope || '',
@@ -143,6 +244,8 @@ function summarizeTrajectory(event) {
             }
             : null
     }
+    item.spans = buildTrajectorySpans(event, item)
+    return item
 }
 
 function getTrajectoryAction(item) {
@@ -157,6 +260,7 @@ function matchesFilters(item, filters) {
     if (filters.userId && item.userId !== filters.userId) return false
     if (filters.type && item.type !== filters.type) return false
     if (filters.action && getTrajectoryAction(item) !== filters.action) return false
+    if (filters.spanType && !safeArray(item.spans).some((span) => span.type === filters.spanType)) return false
     return true
 }
 
@@ -176,6 +280,7 @@ function summarizeItems(items) {
     const actionCounts = {}
     const policyReasonCounts = {}
     const typeCounts = {}
+    const spanCounts = {}
     let sent = 0
     let accepted = 0
     let toolCount = 0
@@ -186,6 +291,9 @@ function summarizeItems(items) {
         incrementCounter(typeCounts, item.type)
         incrementCounter(actionCounts, getTrajectoryAction(item))
         incrementCounter(policyReasonCounts, item.policyDecision?.reason)
+        for (const span of safeArray(item.spans)) {
+            incrementCounter(spanCounts, span.type)
+        }
         if (item.execution?.executed) sent += 1
         if (item.policyDecision?.accepted) accepted += 1
         if (item.tool) toolCount += 1
@@ -202,6 +310,7 @@ function summarizeItems(items) {
         memorySkipped,
         actionCounts,
         typeCounts,
+        spanCounts,
         topPolicyReasons: topCounters(policyReasonCounts)
     }
 }
@@ -240,7 +349,8 @@ router.get('/agent/trajectories', async (req, res) => {
             groupId: normalizeFilter(req.query.groupId),
             userId: normalizeFilter(req.query.userId),
             action: normalizeFilter(req.query.action),
-            type: normalizeFilter(req.query.type)
+            type: normalizeFilter(req.query.type),
+            spanType: normalizeFilter(req.query.spanType)
         }
         const items = await readTrajectoryItems({ date, limit, filters })
         res.json({ items, limit, summary: summarizeItems(items) })
@@ -267,7 +377,8 @@ router._private = {
     summarizeTrajectory,
     matchesFilters,
     summarizeItems,
-    getTrajectoryAction
+    getTrajectoryAction,
+    buildTrajectorySpans
 }
 
 module.exports = router

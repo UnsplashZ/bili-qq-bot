@@ -14,6 +14,22 @@ const ACTIONS = [
   'defer',
 ];
 
+const SPAN_TYPES = [
+  '',
+  'message_received',
+  'input_guardrail',
+  'context_selected',
+  'llm_decision',
+  'decision_guardrail',
+  'tool_plan',
+  'tool_guardrail',
+  'tool_confirmation',
+  'tool_execute',
+  'tool_result_reply',
+  'output_guardrail',
+  'reply_sent',
+];
+
 function todayKey() {
   const date = new Date();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -50,6 +66,20 @@ function topReasonText(summary) {
   const reasons = summary?.topPolicyReasons || [];
   if (!Array.isArray(reasons) || reasons.length === 0) return '-';
   return reasons.slice(0, 3).map((item) => `${item.key}:${item.count}`).join(' / ');
+}
+
+function topSpanText(summary) {
+  const counts = summary?.spanCounts || {};
+  const spans = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4);
+  return spans.length > 0 ? spans.map(([key, count]) => `${key}:${count}`).join(' / ') : '-';
+}
+
+function spanBadgeClass(status) {
+  if (status === 'blocked' || status === 'failed') return 'bg-red-500/15 text-red-200 border-red-400/25';
+  if (status === 'skipped' || status === 'pending') return 'bg-slate-500/15 text-slate-200 border-slate-400/25';
+  return 'bg-cyan-500/15 text-cyan-100 border-cyan-400/25';
 }
 
 function DecisionCard({ item }) {
@@ -152,6 +182,22 @@ function DecisionCard({ item }) {
             )}
           </div>
         )}
+        {Array.isArray(item.spans) && item.spans.length > 0 && (
+          <div className="rounded-lg bg-cyan-500/10 border border-cyan-400/20 p-3 space-y-2">
+            <div className="text-sm font-medium text-cyan-100">Trace Spans</div>
+            <div className="flex flex-wrap gap-2">
+              {item.spans.map((span, spanIndex) => (
+                <span
+                  key={`${span.type}-${spanIndex}`}
+                  className={`px-2.5 py-1 rounded-full text-xs border ${spanBadgeClass(span.status)}`}
+                  title={span.reason || ''}
+                >
+                  {span.type}:{span.status || 'ok'}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {(item.memoryWrite || item.topicSummaryWrite) && (
           <div className="text-xs text-emerald-100 bg-emerald-500/10 border border-emerald-400/20 rounded-lg p-3">
             记忆：写入 {item.memoryWrite?.stored ?? 0}，跳过 {item.memoryWrite?.skipped ?? 0}
@@ -198,6 +244,7 @@ const AgentDecisions = () => {
     groupId: '',
     userId: '',
     action: '',
+    spanType: '',
     limit: 100,
   });
 
@@ -209,6 +256,7 @@ const AgentDecisions = () => {
       if (filters.groupId.trim()) params.set('groupId', filters.groupId.trim());
       if (filters.userId.trim()) params.set('userId', filters.userId.trim());
       if (filters.action.trim()) params.set('action', filters.action.trim());
+      if (filters.spanType.trim()) params.set('spanType', filters.spanType.trim());
       params.set('limit', String(filters.limit || 100));
       const confirmationParams = new URLSearchParams();
       if (filters.groupId.trim()) confirmationParams.set('groupId', filters.groupId.trim());
@@ -259,7 +307,7 @@ const AgentDecisions = () => {
       </div>
 
       <GlassCard>
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-6">
           <label className="space-y-1.5">
             <span className="text-sm text-gray-300">日期</span>
             <input
@@ -302,6 +350,20 @@ const AgentDecisions = () => {
             </select>
           </label>
           <label className="space-y-1.5">
+            <span className="text-sm text-gray-300">Span</span>
+            <select
+              value={filters.spanType}
+              onChange={(event) => updateFilter('spanType', event.target.value)}
+              className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white"
+            >
+              {SPAN_TYPES.map((spanType) => (
+                <option key={spanType || 'all'} value={spanType}>
+                  {spanType || '全部'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1.5">
             <span className="text-sm text-gray-300">数量</span>
             <input
               type="number"
@@ -320,7 +382,7 @@ const AgentDecisions = () => {
       </GlassCard>
 
       {summary && (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <GlassCard>
             <div className="text-sm text-gray-400">轨迹总数</div>
             <div className="text-2xl font-semibold text-white mt-1">{summary.total || 0}</div>
@@ -346,6 +408,10 @@ const AgentDecisions = () => {
           <GlassCard>
             <div className="text-sm text-gray-400">主要拒绝/策略原因</div>
             <div className="text-sm text-gray-200 mt-2 break-words">{topReasonText(summary)}</div>
+          </GlassCard>
+          <GlassCard>
+            <div className="text-sm text-gray-400">主要 Span</div>
+            <div className="text-sm text-gray-200 mt-2 break-words">{topSpanText(summary)}</div>
           </GlassCard>
         </div>
       )}

@@ -332,11 +332,19 @@
 
 目标：把 Agent 每次行为变成可解释运行轨迹。
 
+状态：已启动兼容升级；后端可从现有 trajectory 合成 span，Dashboard 已支持 span 展示和 `spanType` 过滤。JSONL 存储仍保持旧事件格式，后续再推进原生 span 写入。
+
 范围：
 
 - trajectory 存储兼容升级为 span。
 - Dashboard 支持 span 时间线。
 - 支持按 traceId、groupId、action、tool、spanType、error 过滤。
+
+当前进展：
+
+- `/api/agent/trajectories` 返回项已新增 `spans`，包含 `message_received`、`context_selected`、`llm_decision`、`decision_guardrail`、`tool_plan`、`tool_guardrail`、`tool_confirmation`、`tool_execute`、`tool_result_reply`、`output_guardrail`、`reply_sent` 等阶段。
+- 后端已支持 `spanType` 查询过滤，并在 summary 中增加 `spanCounts`。
+- Dashboard 决策页已增加 Span 筛选器、Span badges 和主要 Span 汇总。
 
 验收：
 

@@ -15,6 +15,11 @@ function run() {
         userId: '42',
         toolPlanResult: {
             status: 'confirmation_required',
+            guardrailDecision: {
+                allowed: true,
+                reason: 'allowed',
+                checks: [{ name: 'permission', passed: true, reason: 'group_config_allowed' }]
+            },
             plan: {
                 name: 'agent.set_send_enabled',
                 risk: 'medium',
@@ -35,6 +40,10 @@ function run() {
     assert.strictEqual(getTrajectoryAction(toolPlanItem), 'tool_plan')
     assert.strictEqual(matchesFilters(toolPlanItem, { action: 'tool_plan' }), true)
     assert.strictEqual(matchesFilters(toolPlanItem, { action: 'short_reply' }), false)
+    assert.strictEqual(matchesFilters(toolPlanItem, { spanType: 'tool_guardrail' }), true)
+    assert.strictEqual(matchesFilters(toolPlanItem, { spanType: 'output_guardrail' }), false)
+    assert.ok(toolPlanItem.spans.some((span) => span.type === 'tool_plan'))
+    assert.ok(toolPlanItem.spans.some((span) => span.type === 'tool_guardrail' && span.status === 'ok'))
 
     const confirmationItem = summarizeTrajectory({
         type: 'tool_confirmation',
@@ -81,18 +90,33 @@ function run() {
         policyDecision: {
             accepted: true,
             finalAction: 'short_reply',
-            reason: 'accepted'
+            reason: 'accepted',
+            outputGuardrail: {
+                allowed: true,
+                reason: 'allowed',
+                checks: [{ name: 'secret_leakage', passed: true, reason: 'ok' }]
+            }
+        },
+        execution: {
+            executed: true,
+            reason: 'sent',
+            action: 'short_reply'
         }
     })
     assert.strictEqual(matchesFilters(replyItem, { action: 'tool_plan' }), false)
     assert.strictEqual(matchesFilters(replyItem, { action: 'short_reply' }), true)
+    assert.strictEqual(matchesFilters(replyItem, { spanType: 'output_guardrail' }), true)
+    assert.ok(replyItem.spans.some((span) => span.type === 'llm_decision'))
+    assert.ok(replyItem.spans.some((span) => span.type === 'reply_sent'))
 
     const summary = summarizeItems([toolPlanItem, confirmationItem, replyItem])
     assert.strictEqual(summary.actionCounts.tool_plan, 2)
     assert.strictEqual(summary.actionCounts.short_reply, 1)
     assert.strictEqual(summary.toolCount, 2)
+    assert.strictEqual(summary.spanCounts.tool_plan, 2)
+    assert.strictEqual(summary.spanCounts.reply_sent, 1)
 
-    console.log('✓ Agent trajectory tool_plan 过滤正常')
+    console.log('✓ Agent trajectory tool_plan 和 span 过滤正常')
 }
 
 try {
