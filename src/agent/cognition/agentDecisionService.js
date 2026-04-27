@@ -86,7 +86,7 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
     return fallbackDecision(`LLM decision failed; fallback to observe_only: ${errorMessage}`)
 }
 
-async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail }) {
+async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail, socialScore }) {
     const skipReason = validateLlmConfig(agentConfig)
     if (skipReason) {
         return {
@@ -124,7 +124,8 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
             ruleDecision,
             sessionContext,
             budgetDecision,
-            inputGuardrail
+            inputGuardrail,
+            socialScore
         })
         const response = await llmClient.createChatCompletion({
             llmConfig: agentConfig.llm,

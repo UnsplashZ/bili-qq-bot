@@ -90,14 +90,28 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     replyPolicy.minReplyScore = Math.min(1, Math.max(0, parseNumber(replyPolicy.minReplyScore, DEFAULT_AGENT_CONFIG.replyPolicy.minReplyScore)))
     replyPolicy.cooldownMs = Math.max(0, Math.trunc(parseNumber(replyPolicy.cooldownMs, DEFAULT_AGENT_CONFIG.replyPolicy.cooldownMs)))
 
+    const social = normalized.social
+    social.enabled = Boolean(social.enabled)
+    social.mode = ['quiet', 'normal', 'active', 'debug'].includes(social.mode) ? social.mode : DEFAULT_AGENT_CONFIG.social.mode
+    social.interjectProbability = Math.min(1, Math.max(0, parseNumber(social.interjectProbability, DEFAULT_AGENT_CONFIG.social.interjectProbability)))
+    social.ambientReactProbability = Math.min(1, Math.max(0, parseNumber(social.ambientReactProbability, DEFAULT_AGENT_CONFIG.social.ambientReactProbability)))
+    social.minInterjectScore = Math.min(1, Math.max(0, parseNumber(social.minInterjectScore, DEFAULT_AGENT_CONFIG.social.minInterjectScore)))
+    social.minAmbientScore = Math.min(1, Math.max(0, parseNumber(social.minAmbientScore, DEFAULT_AGENT_CONFIG.social.minAmbientScore)))
+    social.cooldownMs = Math.max(0, Math.trunc(parseNumber(social.cooldownMs, DEFAULT_AGENT_CONFIG.social.cooldownMs)))
+    social.dailyInterjectLimit = Math.max(0, Math.trunc(parseNumber(social.dailyInterjectLimit, DEFAULT_AGENT_CONFIG.social.dailyInterjectLimit)))
+    social.perTopicInterjectLimit = Math.max(0, Math.trunc(parseNumber(social.perTopicInterjectLimit, DEFAULT_AGENT_CONFIG.social.perTopicInterjectLimit)))
+    social.avoidDuringRapidTwoPersonChat = social.avoidDuringRapidTwoPersonChat !== false
+    social.maxCasualReplyChars = Math.max(20, Math.min(500, Math.trunc(parseNumber(social.maxCasualReplyChars, DEFAULT_AGENT_CONFIG.social.maxCasualReplyChars))))
+
     const tools = normalized.tools
     tools.enabled = Boolean(tools.enabled)
     tools.confirmationTtlMs = Math.max(10 * 1000, Math.trunc(parseNumber(tools.confirmationTtlMs, DEFAULT_AGENT_CONFIG.tools.confirmationTtlMs)))
-    tools.requireConfirmationFor = Array.isArray(tools.requireConfirmationFor)
+    const requiredRisks = Array.isArray(tools.requireConfirmationFor)
         ? tools.requireConfirmationFor
             .map((risk) => String(risk).trim())
             .filter((risk) => ['low', 'medium', 'high'].includes(risk))
         : [...DEFAULT_AGENT_CONFIG.tools.requireConfirmationFor]
+    tools.requireConfirmationFor = [...new Set([...requiredRisks, 'high'])]
 
     const llm = normalized.llm
     llm.enabled = parseBoolean(process.env.AGENT_LLM_ENABLED, Boolean(llm.enabled))
@@ -144,6 +158,9 @@ function getEffectiveAgentConfigForGroup(groupId, agentConfig = normalizeAgentCo
     }
     if (isPlainObject(groupConfig.replyPolicy)) {
         effective.replyPolicy = mergeDefaults(effective.replyPolicy, groupConfig.replyPolicy)
+    }
+    if (isPlainObject(groupConfig.social)) {
+        effective.social = mergeDefaults(effective.social, groupConfig.social)
     }
     return effective
 }

@@ -4,6 +4,8 @@ const ALLOWED_ACTIONS = new Set([
     'short_reply',
     'full_reply',
     'ask_clarify',
+    'casual_interject',
+    'ambient_react',
     'tool_plan',
     'defer'
 ])
@@ -13,7 +15,10 @@ const ALLOWED_REPLY_STYLES = new Set([
     'friendly_brief',
     'explain',
     'clarify',
-    'serious'
+    'serious',
+    'casual',
+    'casual_opinion',
+    'ambient'
 ])
 
 function extractJsonObject(text) {
@@ -71,7 +76,8 @@ function normalizeDecision(input) {
         replyStyle: normalizedReplyStyle,
         replyDraft,
         memoryHints: Array.isArray(input.memoryHints) ? input.memoryHints.slice(0, 5) : [],
-        toolIntent: input.toolIntent && typeof input.toolIntent === 'object' ? input.toolIntent : null
+        toolIntent: input.toolIntent && typeof input.toolIntent === 'object' ? input.toolIntent : null,
+        social: input.social && typeof input.social === 'object' && !Array.isArray(input.social) ? input.social : null
     }
 }
 

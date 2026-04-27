@@ -16,6 +16,9 @@ const { evaluateInputGuardrails } = require('./inputGuardrails')
 const { evaluateDecisionGuardrails } = require('./decisionGuardrails')
 const { applyOutputGuardrails } = require('./outputGuardrails')
 const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
+const { scoreSocialInterject } = require('../social/socialInterjectScorer')
+const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget')
+const { isSocialAction } = require('../social/interjectPolicy')
 
 const DETERMINISTIC_MEMORY_SOURCES = new Set([
     'explicit_memory_request',
@@ -220,6 +223,12 @@ async function runObserveDecision(runState, scoreResult) {
         agentMessage,
         budgetDecision
     })
+    const socialScore = scoreSocialInterject({
+        agentConfig,
+        agentMessage,
+        memoryObservation,
+        scoreResult
+    })
     const longTermMemories = await longTermStore.retrieveRelevantMemories({
         groupId,
         userId: agentMessage.userId,
@@ -236,7 +245,8 @@ async function runObserveDecision(runState, scoreResult) {
         ruleDecision: decision,
         sessionContext,
         budgetDecision,
-        inputGuardrail
+        inputGuardrail,
+        socialScore
     })
     const extractedMemoryHints = extractMemoryHints({ agentMessage })
     const rawToolPlanResult = await processToolPlan({
@@ -288,28 +298,47 @@ async function runObserveDecision(runState, scoreResult) {
         llmDecision: effectiveLlmDecision,
         rawLlmDecision: llmDecision,
         toolPlanResult,
-        decisionGuardrail
+        decisionGuardrail,
+        socialScore
     }
 
     if (toolPlanResult?.decisionOverride) {
         return handleToolPlanResult(runState, runData)
     }
 
+    let replyGuardDecision = checkReplyGuard({
+        agentConfig,
+        groupId,
+        replyDraft: effectiveLlmDecision.decision?.replyDraft || '',
+        timestamp: agentMessage.timestamp,
+        bypassCooldown: Boolean(
+            scoreResult.traits?.mentionedBot ||
+            scoreResult.traits?.replyToBot ||
+            scoreResult.traits?.aliasMatched
+        )
+    })
+    if (isSocialAction(effectiveLlmDecision.decision?.action)) {
+        const llmSocialScore = Number(effectiveLlmDecision.decision.social?.interjectScore)
+        const trustedSocialScore = Number.isFinite(llmSocialScore)
+            ? Math.min(socialScore.score, Math.max(0, Math.min(1, llmSocialScore)))
+            : socialScore.score
+        replyGuardDecision = checkSocialBudget({
+            agentConfig,
+            groupId,
+            userId: agentMessage.userId,
+            topicId: sessionContext.topicId,
+            timestamp: agentMessage.timestamp,
+            action: effectiveLlmDecision.decision.action,
+            score: trustedSocialScore,
+            socialScore
+        })
+    }
+
     let policyDecision = validateDecisionPolicy({
         agentConfig,
         llmDecision: effectiveLlmDecision,
         messageTraits: scoreResult.traits || {},
-        replyGuardDecision: checkReplyGuard({
-            agentConfig,
-            groupId,
-            replyDraft: effectiveLlmDecision.decision?.replyDraft || '',
-            timestamp: agentMessage.timestamp,
-            bypassCooldown: Boolean(
-                scoreResult.traits?.mentionedBot ||
-                scoreResult.traits?.replyToBot ||
-                scoreResult.traits?.aliasMatched
-            )
-        })
+        replyGuardDecision
     })
     const outputDecision = applyOutputGuardrails({
         agentConfig,
@@ -334,6 +363,9 @@ async function runObserveDecision(runState, scoreResult) {
         policyDecision,
         traceContext: runState.context.traceContext
     })
+    if (execution.executed && isSocialAction(policyDecision.finalAction)) {
+        recordSocialSend({ groupId, topicId: sessionContext.topicId, timestamp: agentMessage.timestamp })
+    }
     const result = runState.baseResult({
         ...runData,
         policyDecision,

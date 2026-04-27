@@ -1,6 +1,7 @@
 function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, replyGuardDecision }) {
     const decision = llmDecision?.decision || null
     const directlyAddressed = Boolean(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)
+    const socialActions = ['casual_interject', 'ambient_react']
 
     if (agentConfig.observeOnly) {
         return {
@@ -116,6 +117,75 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
             reason: 'action_not_enabled_in_phase2',
             llmAction: decision.action,
             wouldSend: false
+        }
+    }
+
+    if (socialActions.includes(decision.action)) {
+        if (decision.toolIntent) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: 'social_action_with_tool_intent',
+                llmAction: decision.action,
+                wouldSend: false
+            }
+        }
+
+        if (directlyAddressed) {
+            if (decision.replyDraft) {
+                return {
+                    accepted: true,
+                    finalAction: 'short_reply',
+                    reason: 'social_action_direct_reply_downgraded',
+                    llmAction: decision.action,
+                    replyDraft: decision.replyDraft,
+                    wouldSend: true,
+                    replyGuardDecision
+                }
+            }
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: 'social_action_not_for_direct_address',
+                llmAction: decision.action,
+                wouldSend: false
+            }
+        }
+        if (!agentConfig.social?.enabled || agentConfig.social?.mode === 'quiet') {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: 'social_disabled',
+                llmAction: decision.action,
+                wouldSend: false
+            }
+        }
+        if (!decision.replyDraft) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: 'empty_reply_draft',
+                llmAction: decision.action,
+                wouldSend: false
+            }
+        }
+        if (replyGuardDecision && replyGuardDecision.allowed === false) {
+            return {
+                accepted: false,
+                finalAction: 'observe_only',
+                reason: replyGuardDecision.reason,
+                llmAction: decision.action,
+                wouldSend: false,
+                replyGuardDecision
+            }
+        }
+        return {
+            accepted: true,
+            finalAction: decision.action,
+            reason: 'social_accepted',
+            llmAction: decision.action,
+            wouldSend: true,
+            replyGuardDecision
         }
     }
 

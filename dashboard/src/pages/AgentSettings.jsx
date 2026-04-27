@@ -10,6 +10,13 @@ const RISK_LEVELS = [
   { value: 'high', label: 'High' },
 ];
 
+const SOCIAL_MODES = [
+  { value: 'quiet', label: '安静' },
+  { value: 'normal', label: '普通' },
+  { value: 'active', label: '活跃' },
+  { value: 'debug', label: '调试' },
+];
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -32,6 +39,22 @@ function fromOverrideValue(value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return null;
+}
+
+function defaultSocialDraft(agent) {
+  return {
+    enabled: agent?.social?.enabled ?? false,
+    mode: agent?.social?.mode || 'quiet',
+    interjectProbability: agent?.social?.interjectProbability ?? 0.18,
+    ambientReactProbability: agent?.social?.ambientReactProbability ?? 0.08,
+    minInterjectScore: agent?.social?.minInterjectScore ?? 0.72,
+    minAmbientScore: agent?.social?.minAmbientScore ?? 0.62,
+    cooldownMs: agent?.social?.cooldownMs ?? 90000,
+    dailyInterjectLimit: agent?.social?.dailyInterjectLimit ?? 30,
+    perTopicInterjectLimit: agent?.social?.perTopicInterjectLimit ?? 2,
+    avoidDuringRapidTwoPersonChat: agent?.social?.avoidDuringRapidTwoPersonChat ?? true,
+    maxCasualReplyChars: agent?.social?.maxCasualReplyChars ?? 120,
+  };
 }
 
 function NumberInput({ label, value, onChange, min, max, step = 1, suffix = '', disabled = false }) {
@@ -70,16 +93,17 @@ function TextInput({ label, value, onChange, placeholder = '', disabled = false 
   );
 }
 
-function Toggle({ label, description, checked, onChange }) {
+function Toggle({ label, description, checked, onChange, disabled = false }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`text-left p-4 rounded-xl border transition-colors ${
         checked
           ? 'bg-emerald-500/10 border-emerald-400/30'
           : 'bg-black/20 border-white/10 hover:bg-white/5'
-      }`}
+      } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
     >
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-white">{label}</span>
@@ -109,6 +133,114 @@ function OverrideSelect({ label, value, onChange }) {
   );
 }
 
+function SocialConfigFields({ value, onChange, disabled = false }) {
+  const update = (key, nextValue) => onChange({ ...value, [key]: nextValue });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Toggle
+          label="允许偶尔插话"
+          description="开启后，普通闲聊可由 Agent 判断是否自然参与。"
+          checked={Boolean(value?.enabled)}
+          disabled={disabled}
+          onChange={(checked) => update('enabled', checked)}
+        />
+        <Toggle
+          label="避开双人快聊"
+          description="两个人高速对话时默认降低打断概率。"
+          checked={value?.avoidDuringRapidTwoPersonChat !== false}
+          disabled={disabled}
+          onChange={(checked) => update('avoidDuringRapidTwoPersonChat', checked)}
+        />
+        <label className="space-y-1.5">
+          <span className="text-sm text-gray-300">活跃模式</span>
+          <select
+            value={value?.mode || 'quiet'}
+            disabled={disabled}
+            onChange={(event) => update('mode', event.target.value)}
+            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white disabled:opacity-60"
+          >
+            {SOCIAL_MODES.map((mode) => (
+              <option key={mode.value} value={mode.value}>{mode.label} / {mode.value}</option>
+            ))}
+          </select>
+        </label>
+        <NumberInput
+          label="插话概率"
+          min="0"
+          max="1"
+          step="0.01"
+          value={value?.interjectProbability}
+          disabled={disabled}
+          onChange={(nextValue) => update('interjectProbability', nextValue)}
+        />
+        <NumberInput
+          label="轻量附和概率"
+          min="0"
+          max="1"
+          step="0.01"
+          value={value?.ambientReactProbability}
+          disabled={disabled}
+          onChange={(nextValue) => update('ambientReactProbability', nextValue)}
+        />
+        <NumberInput
+          label="插话最低分"
+          min="0"
+          max="1"
+          step="0.01"
+          value={value?.minInterjectScore}
+          disabled={disabled}
+          onChange={(nextValue) => update('minInterjectScore', nextValue)}
+        />
+        <NumberInput
+          label="附和最低分"
+          min="0"
+          max="1"
+          step="0.01"
+          value={value?.minAmbientScore}
+          disabled={disabled}
+          onChange={(nextValue) => update('minAmbientScore', nextValue)}
+        />
+        <NumberInput
+          label="社交冷却"
+          min="0"
+          max="3600000"
+          value={value?.cooldownMs}
+          suffix="ms"
+          disabled={disabled}
+          onChange={(nextValue) => update('cooldownMs', nextValue)}
+        />
+        <NumberInput
+          label="每日插话上限"
+          min="0"
+          max="1000"
+          value={value?.dailyInterjectLimit}
+          disabled={disabled}
+          onChange={(nextValue) => update('dailyInterjectLimit', nextValue)}
+        />
+        <NumberInput
+          label="单话题上限"
+          min="0"
+          max="100"
+          value={value?.perTopicInterjectLimit}
+          disabled={disabled}
+          onChange={(nextValue) => update('perTopicInterjectLimit', nextValue)}
+        />
+        <NumberInput
+          label="社交回复最长"
+          min="20"
+          max="500"
+          value={value?.maxCasualReplyChars}
+          suffix="字符"
+          disabled={disabled}
+          onChange={(nextValue) => update('maxCasualReplyChars', nextValue)}
+        />
+      </div>
+    </div>
+  );
+}
+
 const AgentSettings = () => {
   const { show } = useToast();
   const [agent, setAgent] = useState(null);
@@ -125,6 +257,8 @@ const AgentSettings = () => {
       minReplyScore: 0.65,
       cooldownMs: 5000,
     },
+    socialMode: 'inherit',
+    social: defaultSocialDraft(null),
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -191,6 +325,7 @@ const AgentSettings = () => {
       observeOnly: fromOverrideValue(groupDraft.observeOnly),
       sendEnabled: fromOverrideValue(groupDraft.sendEnabled),
       replyPolicy: groupDraft.replyPolicyMode === 'custom' ? groupDraft.replyPolicy : null,
+      social: groupDraft.socialMode === 'custom' ? groupDraft.social : null,
     };
     setSaving(true);
     try {
@@ -230,6 +365,11 @@ const AgentSettings = () => {
       replyPolicy: {
         minReplyScore: config.replyPolicy?.minReplyScore ?? agent?.replyPolicy?.minReplyScore ?? 0.65,
         cooldownMs: config.replyPolicy?.cooldownMs ?? agent?.replyPolicy?.cooldownMs ?? 5000,
+      },
+      socialMode: config.social ? 'custom' : 'inherit',
+      social: {
+        ...defaultSocialDraft(agent),
+        ...(config.social || {}),
       },
     });
   };
@@ -507,6 +647,19 @@ const AgentSettings = () => {
             </div>
           </div>
         </GlassCard>
+
+        <GlassCard>
+          <h2 className="text-xl font-semibold mb-4">社交插话</h2>
+          <SocialConfigFields
+            value={agent.social || defaultSocialDraft(agent)}
+            onChange={(value) => updateAgent((next) => {
+              next.social = value;
+            })}
+          />
+          <div className="text-xs text-gray-500 mt-4">
+            该层只控制普通闲聊的偶尔参与；明确 @、回复 Bot、命令、B 站链接仍走原有入口和工具边界。
+          </div>
+        </GlassCard>
       </div>
 
       <GlassCard>
@@ -618,6 +771,26 @@ const AgentSettings = () => {
             }))}
           />
         </div>
+        <div className="mt-6">
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input
+              type="checkbox"
+              checked={groupDraft.socialMode === 'custom'}
+              onChange={(event) => setGroupDraft((prev) => ({
+                ...prev,
+                socialMode: event.target.checked ? 'custom' : 'inherit',
+              }))}
+            />
+            覆盖本群社交插话配置；不勾选则继承全局配置
+          </label>
+        </div>
+        <div className="mt-4">
+          <SocialConfigFields
+            value={groupDraft.social}
+            disabled={groupDraft.socialMode !== 'custom'}
+            onChange={(value) => setGroupDraft((prev) => ({ ...prev, social: value }))}
+          />
+        </div>
 
         <div className="mt-6 grid gap-3">
           {groups.length === 0 && <div className="text-gray-500 text-sm">暂无群级 Agent 覆盖配置。</div>}
@@ -628,6 +801,7 @@ const AgentSettings = () => {
                 <div className="text-sm text-gray-400 mt-1">
                   入口 {formatOverride(config.enabled)} · 仅观察 {formatOverride(config.observeOnly)} · 发言 {formatOverride(config.sendEnabled)}
                   {config.replyPolicy && ` · 阈值 ${config.replyPolicy.minReplyScore ?? '-'} · 冷却 ${config.replyPolicy.cooldownMs ?? '-'}ms`}
+                  {config.social && ` · 社交 ${formatBool(config.social.enabled)} / ${config.social.mode || 'quiet'}`}
                 </div>
               </div>
               <div className="flex gap-2">

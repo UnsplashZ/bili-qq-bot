@@ -20,6 +20,16 @@ function maxReplyChars(agentConfig) {
         : 500
 }
 
+function maxReplyCharsForDecision(agentConfig, policyDecision) {
+    if (policyDecision?.finalAction === 'casual_interject' || policyDecision?.finalAction === 'ambient_react') {
+        const configured = Number(agentConfig?.social?.maxCasualReplyChars)
+        return Number.isFinite(configured)
+            ? Math.max(20, Math.min(500, Math.trunc(configured)))
+            : 120
+    }
+    return maxReplyChars(agentConfig)
+}
+
 function containsSecret(text) {
     return SECRET_PATTERNS.some((pattern) => pattern.test(String(text || '')))
 }
@@ -34,7 +44,7 @@ function evaluateOutputGuardrails({ agentConfig, policyDecision, llmDecision }) 
     const checks = []
     const wouldSend = Boolean(policyDecision?.accepted && policyDecision?.wouldSend)
     const originalReplyDraft = String(policyDecision?.replyDraft || llmDecision?.decision?.replyDraft || '').trim()
-    const limit = maxReplyChars(agentConfig)
+    const limit = maxReplyCharsForDecision(agentConfig, policyDecision)
     const replyDraft = wouldSend ? trimReplyDraft(originalReplyDraft, limit) : originalReplyDraft
 
     checks.push(makeCheck('sendable_policy', wouldSend || !originalReplyDraft, wouldSend ? 'ok' : (policyDecision?.reason || 'not_sending')))

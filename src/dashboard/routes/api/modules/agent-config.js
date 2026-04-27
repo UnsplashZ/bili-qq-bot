@@ -7,6 +7,7 @@ const { dashLog } = require('../shared/logging')
 const router = express.Router()
 const DECISION_MODES = ['rule_only', 'llm_shadow', 'llm_live']
 const RISK_LEVELS = ['low', 'medium', 'high']
+const SOCIAL_MODES = ['quiet', 'normal', 'active', 'debug']
 
 function clone(value) {
     return JSON.parse(JSON.stringify(value))
@@ -135,6 +136,25 @@ function sanitizeGlobalPatch(body = {}) {
         assignInteger(patch.replyPolicy, body.replyPolicy, 'cooldownMs', 0, 60 * 60 * 1000)
     }
 
+    if (isPlainObject(body.social)) {
+        patch.social = {}
+        assignBoolean(patch.social, body.social, 'enabled')
+        if (body.social.mode !== undefined) {
+            const mode = parseString(body.social.mode, 'social.mode', 30)
+            if (!SOCIAL_MODES.includes(mode)) throw new Error('invalid social.mode')
+            patch.social.mode = mode
+        }
+        assignFloat(patch.social, body.social, 'interjectProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'ambientReactProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'minInterjectScore', 0, 1)
+        assignFloat(patch.social, body.social, 'minAmbientScore', 0, 1)
+        assignInteger(patch.social, body.social, 'cooldownMs', 0, 60 * 60 * 1000)
+        assignInteger(patch.social, body.social, 'dailyInterjectLimit', 0, 1000)
+        assignInteger(patch.social, body.social, 'perTopicInterjectLimit', 0, 100)
+        assignBoolean(patch.social, body.social, 'avoidDuringRapidTwoPersonChat')
+        assignInteger(patch.social, body.social, 'maxCasualReplyChars', 20, 500)
+    }
+
     if (isPlainObject(body.tools)) {
         patch.tools = {}
         assignBoolean(patch.tools, body.tools, 'enabled')
@@ -183,6 +203,26 @@ function sanitizeGroupPatch(body = {}) {
         patch.replyPolicy = {}
         assignFloat(patch.replyPolicy, body.replyPolicy, 'minReplyScore', 0, 1)
         assignInteger(patch.replyPolicy, body.replyPolicy, 'cooldownMs', 0, 60 * 60 * 1000)
+    }
+    if (body.social === null) {
+        patch.social = null
+    } else if (isPlainObject(body.social)) {
+        patch.social = {}
+        assignBoolean(patch.social, body.social, 'enabled')
+        if (body.social.mode !== undefined) {
+            const mode = parseString(body.social.mode, 'social.mode', 30)
+            if (!SOCIAL_MODES.includes(mode)) throw new Error('invalid social.mode')
+            patch.social.mode = mode
+        }
+        assignFloat(patch.social, body.social, 'interjectProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'ambientReactProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'minInterjectScore', 0, 1)
+        assignFloat(patch.social, body.social, 'minAmbientScore', 0, 1)
+        assignInteger(patch.social, body.social, 'cooldownMs', 0, 60 * 60 * 1000)
+        assignInteger(patch.social, body.social, 'dailyInterjectLimit', 0, 1000)
+        assignInteger(patch.social, body.social, 'perTopicInterjectLimit', 0, 100)
+        assignBoolean(patch.social, body.social, 'avoidDuringRapidTwoPersonChat')
+        assignInteger(patch.social, body.social, 'maxCasualReplyChars', 20, 500)
     }
     return patch
 }

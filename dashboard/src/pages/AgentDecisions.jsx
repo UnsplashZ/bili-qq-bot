@@ -10,6 +10,8 @@ const ACTIONS = [
   'short_reply',
   'full_reply',
   'ask_clarify',
+  'casual_interject',
+  'ambient_react',
   'tool_plan',
   'defer',
 ];
@@ -48,6 +50,8 @@ function badgeClass(action) {
   if (['short_reply', 'full_reply', 'ask_clarify'].includes(action)) {
     return 'bg-blue-500/15 text-blue-200 border-blue-400/30';
   }
+  if (action === 'casual_interject') return 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-400/30';
+  if (action === 'ambient_react') return 'bg-cyan-500/15 text-cyan-100 border-cyan-400/30';
   if (action === 'tool_plan') return 'bg-amber-500/15 text-amber-200 border-amber-400/30';
   if (action === 'observe_only' || action === 'defer') return 'bg-slate-500/15 text-slate-200 border-slate-400/30';
   return 'bg-purple-500/15 text-purple-200 border-purple-400/30';

@@ -186,10 +186,26 @@ function selectContext(memoryObservation, agentConfig = {}, agentMessage = {}) {
     const budgetResult = trimEntriesByCharBudget(preBudgetEntries, promptMaxContextChars)
     const selectedMessages = budgetResult.entries.map((entry) => entry.summary)
     const digest = buildContextDigest(selectedMessages, shortTerm.promptDigestMaxChars || 700)
+    const topicMessageIdSet = new Set(memoryObservation?.topicSnapshot?.recentMessageIds || [])
+    const assistantMessageIdSet = new Set(memoryObservation?.topicSnapshot?.assistantMessageIds || [])
+    const replyChainMessages = selectedMessages.filter((message) => Array.isArray(message.relevance) && message.relevance.includes('reply_chain'))
+    const currentThreadMessages = selectedMessages.filter((message) => topicMessageIdSet.has(message.messageId))
+    const assistantRecentInThread = selectedMessages.filter((message) => assistantMessageIdSet.has(message.messageId) || (message.role === 'assistant' && topicMessageIdSet.has(message.messageId)))
+    const ambientRecentMessages = selectedMessages.filter((message) => !topicMessageIdSet.has(message.messageId) && !(Array.isArray(message.relevance) && message.relevance.includes('reply_chain'))).slice(-6)
 
     return {
         messages: selectedMessages,
         digest,
+        threads: {
+            currentThread: {
+                topicId: memoryObservation?.topicSnapshot?.topicId || '',
+                summary: memoryObservation?.topicSnapshot?.summary || '',
+                messages: currentThreadMessages.length > 0 ? currentThreadMessages : selectedMessages.slice(-Math.min(8, selectedMessages.length))
+            },
+            replyChainMessages,
+            assistantRecentInThread,
+            ambientRecentMessages
+        },
         stats: buildSelectionStats({
             sourceMessages: messages,
             preBudgetSelectedMessages: preBudgetEntries.map((entry) => entry.summary),

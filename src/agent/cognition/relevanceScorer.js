@@ -9,7 +9,8 @@ function scoreTraits(traits) {
 
     if (traits.mentionedBot) score += 0.45
     if (traits.aliasMatched) score += 0.25
-    if (traits.replyToBot || traits.hasReply) score += 0.12
+    if (traits.replyToBot) score += 0.65
+    else if (traits.hasReply) score += 0.12
     if (traits.managementTopic) score += 0.18
     if (traits.questionLike) score += 0.08
     if (traits.privilegedActor) score += 0.04

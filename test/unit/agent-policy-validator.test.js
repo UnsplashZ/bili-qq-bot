@@ -8,6 +8,7 @@ const { validateDecisionPolicy } = require(path.join(__dirname, '../../src/agent
 const { evaluateInputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/inputGuardrails'))
 const { evaluateDecisionGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/decisionGuardrails'))
 const { applyOutputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/outputGuardrails'))
+const { normalizeAgentConfig } = require(path.join(__dirname, '../../src/agent/config/agentConfig'))
 
 function makeDecision({ confidence, replyDraft = '收到。' }) {
     return {
@@ -50,6 +51,11 @@ function makeAgentConfig(overrides = {}) {
         replyPolicy: {
             minReplyScore: 0.65,
             cooldownMs: 5000
+        },
+        social: {
+            enabled: true,
+            mode: 'debug',
+            maxCasualReplyChars: 80
         },
         ...overrides
     }
@@ -122,6 +128,40 @@ function run() {
     assert.strictEqual(directToolPlanDowngraded.finalAction, 'short_reply')
     assert.strictEqual(directToolPlanDowngraded.reason, 'tool_plan_reply_downgraded')
 
+    const socialAccepted = validate({
+        confidence: 0.9,
+        action: 'casual_interject',
+        replyDraft: '这个角度我觉得挺准。',
+        traits: { mentionedBot: false, replyToBot: false, aliasMatched: false }
+    })
+    assert.strictEqual(socialAccepted.accepted, true)
+    assert.strictEqual(socialAccepted.finalAction, 'casual_interject')
+
+    const socialWithToolIntent = makeDecision({
+        confidence: 0.9,
+        replyDraft: '这个角度我觉得挺准。'
+    })
+    socialWithToolIntent.decision.action = 'casual_interject'
+    socialWithToolIntent.decision.toolIntent = { name: 'browser.search_web', arguments: { query: 'test' } }
+    const socialToolRejected = validateDecisionPolicy({
+        agentConfig: makeAgentConfig(),
+        llmDecision: socialWithToolIntent,
+        messageTraits: { mentionedBot: false, replyToBot: false, aliasMatched: false },
+        replyGuardDecision: { allowed: true }
+    })
+    assert.strictEqual(socialToolRejected.accepted, false)
+    assert.strictEqual(socialToolRejected.reason, 'social_action_with_tool_intent')
+
+    const directSocialDowngraded = validate({
+        confidence: 0.9,
+        action: 'casual_interject',
+        replyDraft: '这个角度我觉得挺准。',
+        traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
+    })
+    assert.strictEqual(directSocialDowngraded.accepted, true)
+    assert.strictEqual(directSocialDowngraded.finalAction, 'short_reply')
+    assert.strictEqual(directSocialDowngraded.reason, 'social_action_direct_reply_downgraded')
+
     const directLlmErrorFallback = validateDecisionPolicy({
         agentConfig: makeAgentConfig(),
         llmDecision: makeFallbackDecision(),
@@ -185,6 +225,19 @@ function run() {
     assert.strictEqual(outputAllowed.policyDecision.accepted, true)
     assert.strictEqual(outputAllowed.policyDecision.replyDraft.length, 80)
 
+    const socialTrimmed = applyOutputGuardrails({
+        agentConfig: { social: { maxCasualReplyChars: 30 } },
+        llmDecision: makeDecision({ confidence: 0.8, replyDraft: longReply }),
+        policyDecision: {
+            accepted: true,
+            wouldSend: true,
+            finalAction: 'casual_interject',
+            reason: 'social_accepted',
+            replyDraft: longReply
+        }
+    })
+    assert.strictEqual(socialTrimmed.policyDecision.replyDraft.length, 30)
+
     const outputBlocked = applyOutputGuardrails({
         agentConfig: {},
         llmDecision: makeDecision({ confidence: 0.8, replyDraft: 'sk-1234567890abcdefg' }),
@@ -198,6 +251,14 @@ function run() {
     })
     assert.strictEqual(outputBlocked.policyDecision.accepted, false)
     assert.strictEqual(outputBlocked.policyDecision.reason, 'possible_secret_leakage')
+
+    const normalizedConfig = normalizeAgentConfig({
+        tools: {
+            enabled: true,
+            requireConfirmationFor: ['low']
+        }
+    })
+    assert.deepStrictEqual(normalizedConfig.tools.requireConfirmationFor.sort(), ['high', 'low'])
 
     console.log('✓ Agent 回复策略阈值正常')
 }

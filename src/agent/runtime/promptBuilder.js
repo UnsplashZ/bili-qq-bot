@@ -19,7 +19,8 @@ function buildSystemPrompt(agentConfig = {}) {
         '你不是每条消息都要回复；沉默是常见且正确的选择。',
         '你需要根据上下文、与你的关联程度、群聊节奏和自己的职责，判断是否参与。',
         '如果用户明确 @ 你、回复你、叫你的名字，必须输出可发送回复，除非内容违法、危险或无法理解。',
-        '如果只是普通闲聊，除非与你的职责或人格强相关，否则 observe_only。',
+        '如果只是普通闲聊，除非与你的职责、人格、长期记忆或当前话题强相关，否则 observe_only；合适时可以用 casual_interject 或 ambient_react 偶尔插话。',
+        '闲聊插话要像有分寸的群友：短、口语化、有观点但不抢话；不要列表化，不要说“作为 AI”，不要假装真实经历。',
         '你需要主动维护长期记忆：稳定偏好、uid/昵称映射、群内人物关系、长期事实应该写入 memoryHints。',
         '如果 replyDraft 声称“已记住/收到/好的”，必须在 memoryHints 中给出对应记忆；否则不要声称已经记住。',
         '如果涉及订阅、配置、群管理，只能输出 tool_plan 意图，不能声称已经执行。',
@@ -29,12 +30,18 @@ function buildSystemPrompt(agentConfig = {}) {
 
 function buildDecisionInstruction() {
     return JSON.stringify({
-        action: 'observe_only|react_only|short_reply|full_reply|ask_clarify|tool_plan|defer',
+        action: 'observe_only|react_only|short_reply|full_reply|ask_clarify|casual_interject|ambient_react|tool_plan|defer',
         confidence: '0.0 到 1.0 的数字',
         reason: '简短说明为什么这样决定',
         topic: '当前话题标签',
-        replyStyle: 'none|friendly_brief|explain|clarify|serious',
+        replyStyle: 'none|friendly_brief|explain|clarify|serious|casual|casual_opinion|ambient',
         replyDraft: '如果需要回复，给出草稿；否则为空字符串',
+        social: {
+            interjectScore: '仅普通闲聊插话时填写 0.0-1.0',
+            interruptionRisk: '插话打断风险 0.0-1.0',
+            style: 'casual_opinion|ambient',
+            expectedIntrusiveness: 'low|medium|high'
+        },
         memoryHints: [],
         toolIntent: {
             name: '仅当 action=tool_plan 时填写工具名',
@@ -66,7 +73,7 @@ function buildMemoryContext(longTermMemories = []) {
     ].join('\n')
 }
 
-function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail }) {
+function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail, socialScore }) {
     const memoryContext = buildMemoryContext(longTermMemories)
     const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
     const specialistContext = buildSpecialistContext({
@@ -110,6 +117,13 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         memoryContext,
         budgetDecision: budgetDecision || null,
         inputGuardrail: inputGuardrail || null,
+        socialContext: socialScore || null,
+        socialPolicy: {
+            enabled: Boolean(agentConfig.social?.enabled),
+            mode: agentConfig.social?.mode || 'quiet',
+            maxCasualReplyChars: agentConfig.social?.maxCasualReplyChars || 120,
+            avoidDuringRapidTwoPersonChat: agentConfig.social?.avoidDuringRapidTwoPersonChat !== false
+        },
         specialistContext: {
             mode: specialistContext.mode,
             selectedSpecialists: specialistContext.selectedSpecialists,
@@ -118,14 +132,19 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         },
         availableTools: specialistContext.availableTools,
         contextDigest: contextSelection.digest,
+        threadContext: contextSelection.threads,
         recentMessages: contextSelection.messages,
         contextPolicy: buildContextPolicy(agentConfig, contextSelection.stats),
         constraints: [
             '默认不要插话。',
+            '普通闲聊只有在 socialContext.score 高、打断风险低、且你能自然补充观点时才选择 casual_interject；只是轻微附和时可选择 ambient_react。',
+            'casual_interject/ambient_react 不能携带 toolIntent，默认不写长期记忆，replyDraft 必须简短自然。',
             '明确 @ 你、回复你或叫你的名字时，必须选择 short_reply/full_reply/ask_clarify 并提供 replyDraft。',
             '如果 currentMessage.replyTarget 存在，尤其是 isBot=true，必须优先结合被回复消息理解“第一个/继续/这个/上面”等指代。',
             'recentMessages 已按 relevance 标注上下文来源；理解短指代时优先看 reply_chain、topic、assistant_recent，而不是只看最后一句。',
             'contextDigest 是 recentMessages 的压缩摘要；当 recentMessages 很长或话题混杂时，先用 contextDigest 判断当前话题，再回看具体消息。',
+            'threadContext.currentThread.messages 是当前话题主上下文；threadContext.ambientRecentMessages 只是群聊环境噪声，不要和当前话题强行拼接。',
+            'threadContext.replyChainMessages 优先级最高，用于理解“这个/第一个/继续/上面”等短指代。',
             'conversationSession 是当前话题会话摘要；多人群聊中应结合 session、topic 和 recentMessages 判断上下文，不要把不同话题硬拼。',
             'recentMessages 中 role=assistant 的消息是你自己刚发过的内容；用户追问短指代时，应结合这些上下文，不要轻易要求重复说明。',
             'memoryHints 只记录长期稳定信息，例如用户偏好、uid/昵称映射、群内人物关系、长期事实；不要记录一次性闲聊、情绪、敏感信息或密码密钥。',
