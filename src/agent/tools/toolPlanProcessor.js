@@ -51,6 +51,17 @@ function formatDenied(reason) {
     return messages[reason] || `这个工具计划没有执行：${reason}`
 }
 
+function formatToolError(errorMessage) {
+    const normalized = String(errorMessage || '')
+    if (normalized.includes('screenshot_access_blocked')) {
+        return '网页截图被站点安全验证拦截，不能发送有效截图；可以改为读取网页正文并总结。'
+    }
+    if (normalized.includes('screenshot_page_blank')) {
+        return '网页截图结果为空白，不能发送无效截图；可以换链接或改为读取网页正文。'
+    }
+    return `工具执行失败：${normalized}`
+}
+
 async function executePlanWithAudit({ plan, sessionContext, actor, traceScope }) {
     await recordToolAudit({
         event: 'tool_execute_start',
@@ -99,7 +110,7 @@ async function executePlanWithAudit({ plan, sessionContext, actor, traceScope })
             status: 'failed',
             plan,
             error: errorMessage,
-            decisionOverride: makeReplyDecision(`工具执行失败：${errorMessage}`, 'tool_execute_failed')
+            decisionOverride: makeReplyDecision(formatToolError(errorMessage), 'tool_execute_failed')
         }
     }
 }
@@ -305,5 +316,6 @@ async function tryConsumeToolConfirmation({ agentMessage, agentConfig, sessionCo
 module.exports = {
     processToolPlan,
     tryConsumeToolConfirmation,
-    makeReplyDecision
+    makeReplyDecision,
+    formatToolError
 }

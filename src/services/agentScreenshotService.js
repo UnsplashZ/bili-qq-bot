@@ -12,7 +12,7 @@ const MAX_VIEWPORT_WIDTH = 1920
 const MIN_VIEWPORT_HEIGHT = 240
 const MAX_VIEWPORT_HEIGHT = 2400
 const MIN_NON_BLANK_BYTES = 8 * 1024
-const DESKTOP_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+const DESKTOP_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 function compactText(value, limit = 500) {
     const text = String(value || '').replace(/\s+/g, ' ').trim()
@@ -35,7 +35,7 @@ function normalizeViewport(value, min, max, fallback) {
     return Math.max(min, Math.min(max, parsed))
 }
 
-async function assertSafeBrowserRequest(rawUrl) {
+async function assertSafeBrowserRequest(rawUrl, trustedOrigin = '') {
     const protocol = (() => {
         try {
             return new URL(String(rawUrl || '')).protocol
@@ -47,7 +47,16 @@ async function assertSafeBrowserRequest(rawUrl) {
     if (['about:', 'blob:', 'data:'].includes(protocol)) return
 
     const safeUrl = agentBrowserService._private.assertSafeUrl(rawUrl)
+    if (trustedOrigin && safeUrl.origin === trustedOrigin) return
     await agentBrowserService._private.assertResolvedHostSafe(safeUrl.hostname)
+}
+
+async function prepareStealthPage(page) {
+    await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+        Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] })
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] })
+    })
 }
 
 async function waitForPageRender(page, timeoutMs) {
@@ -67,7 +76,10 @@ async function waitForPageRender(page, timeoutMs) {
 
 async function getPageRenderState(page) {
     return page.evaluate(() => ({
+        url: String(location.href || ''),
         title: String(document.title || '').trim(),
+        bodyText: String(document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 1000),
+        bodyHtml: String(document.documentElement?.outerHTML || '').slice(0, 3000),
         bodyTextLength: String(document.body?.innerText || '').trim().length,
         bodyChildCount: document.body?.children?.length || 0,
         imageCount: document.images.length,
@@ -87,6 +99,10 @@ function hasRenderableContent(renderState = {}) {
 
 function isBlankScreenshot({ renderState, bytes }) {
     return !hasRenderableContent(renderState) && Number(bytes || 0) < MIN_NON_BLANK_BYTES
+}
+
+function isBlockedScreenshot(renderState = {}) {
+    return agentBrowserService._private.looksLikeAccessBlocked(renderState.bodyText || '', renderState.bodyHtml || '')
 }
 
 async function resolveSafeFinalUrl(rawUrl, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -127,7 +143,9 @@ function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs }) {
                 '--no-sandbox',
                 '--disable-gpu',
                 '--disable-dev-shm-usage',
-                '--hide-scrollbars'
+                '--hide-scrollbars',
+                '--disable-blink-features=AutomationControlled',
+                '--lang=zh-CN,zh'
             ]
         })
 
@@ -135,19 +153,30 @@ function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs }) {
             const page = await browser.newPage()
             page.setDefaultTimeout(timeoutMs)
             page.setDefaultNavigationTimeout(timeoutMs)
+            const trustedOrigin = new URL(url).origin
+            await prepareStealthPage(page)
             await page.setViewport({ width, height, deviceScaleFactor: 1 })
             await page.setUserAgent(DESKTOP_USER_AGENT)
             await page.setExtraHTTPHeaders({
-                'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                ...agentBrowserService._private.buildBrowserLikeHeaders(new URL(url)),
+                'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                referer: `${trustedOrigin}/`
             })
             await page.setJavaScriptEnabled(true)
             await page.setRequestInterception(true)
             page.on('request', (request) => {
-                if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) {
+                const isTrustedOrigin = (() => {
+                    try {
+                        return new URL(request.url()).origin === trustedOrigin
+                    } catch (_) {
+                        return false
+                    }
+                })()
+                if (!isTrustedOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(request.method())) {
                     request.abort().catch(() => {})
                     return
                 }
-                assertSafeBrowserRequest(request.url())
+                assertSafeBrowserRequest(request.url(), trustedOrigin)
                     .then(() => {
                         if (typeof request.isInterceptResolutionHandled === 'function' && request.isInterceptResolutionHandled()) return
                         return request.continue()
@@ -165,6 +194,9 @@ function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs }) {
             })
             await waitForPageRender(page, timeoutMs)
             const renderState = await getPageRenderState(page)
+            if (isBlockedScreenshot(renderState)) {
+                throw new Error('screenshot_access_blocked')
+            }
             await page.screenshot({
                 path: outputPath,
                 type: 'png',
@@ -206,6 +238,9 @@ class AgentScreenshotService {
         if (isBlankScreenshot({ renderState, bytes: stat.size })) {
             throw new Error('screenshot_page_blank')
         }
+        if (isBlockedScreenshot(renderState)) {
+            throw new Error('screenshot_access_blocked')
+        }
 
         const message = `已截取网页截图：${compactText(finalUrl.toString(), 120)}`
         return {
@@ -232,8 +267,10 @@ module.exports._private = {
     resolveSafeFinalUrl,
     runChromiumScreenshot,
     assertSafeBrowserRequest,
+    prepareStealthPage,
     waitForPageRender,
     getPageRenderState,
     hasRenderableContent,
-    isBlankScreenshot
+    isBlankScreenshot,
+    isBlockedScreenshot
 }

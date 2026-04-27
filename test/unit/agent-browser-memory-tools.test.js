@@ -12,6 +12,7 @@ const longTermStore = require(path.join(__dirname, '../../src/agent/memory/longT
 const agentBrowserService = require(path.join(__dirname, '../../src/services/agentBrowserService'))
 const agentWebSearchService = require(path.join(__dirname, '../../src/services/agentWebSearchService'))
 const agentScreenshotService = require(path.join(__dirname, '../../src/services/agentScreenshotService'))
+const { formatToolError } = require(path.join(__dirname, '../../src/agent/tools/toolPlanProcessor'))
 
 async function run() {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-tool-'))
@@ -113,6 +114,15 @@ async function run() {
         renderState: { bodyTextLength: 120, imageCount: 0, hasCanvas: false, hasVideo: false },
         bytes: 4000
     }), false)
+    assert.strictEqual(agentScreenshotService._private.isBlockedScreenshot({
+        bodyText: '请求存在异常，请进行安全验证',
+        bodyHtml: '<html><body>请求存在异常</body></html>'
+    }), true)
+    assert.strictEqual(agentScreenshotService._private.isBlockedScreenshot({
+        bodyText: '这是正常网页正文。'.repeat(20),
+        bodyHtml: '<article>正常内容</article>'
+    }), false)
+    assert.ok(formatToolError('screenshot_failed:screenshot_access_blocked').includes('安全验证拦截'))
     assert.throws(() => toolRegistry.normalizeToolIntent({
         name: 'browser.screenshot_url',
         arguments: { groupId: '1000', url: '' }
