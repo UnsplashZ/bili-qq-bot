@@ -41,7 +41,42 @@ function buildRepairMessages({ messages, invalidContent, errorMessage }) {
     ]
 }
 
-function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, errorMessage }) {
+function isQqManagementText(text) {
+    return /禁言|解禁|撤回|踢出?|群名片|全员禁言|精华|加群|好友申请|在线状态|输入状态|公告|头衔|申请/.test(String(text || ''))
+}
+
+function canManageQq(actor) {
+    const qqRole = String(actor?.qqRole || '').toLowerCase()
+    return Boolean(actor?.isRoot || qqRole === 'admin' || qqRole === 'owner')
+}
+
+function buildQqManagementFallbackDecision({ actor, errorMessage }) {
+    if (!canManageQq(actor)) {
+        return {
+            action: 'short_reply',
+            confidence: 0.2,
+            reason: `LLM decision failed; fallback to QQ management permission denial: ${errorMessage}`,
+            topic: 'qq_management_permission',
+            replyStyle: 'serious',
+            replyDraft: '这个操作需要 QQ 群主或管理员权限，我不能替普通群成员执行禁言、撤回、踢人等群管理操作。',
+            memoryHints: [],
+            toolIntent: null
+        }
+    }
+
+    return {
+        action: 'ask_clarify',
+        confidence: 0.2,
+        reason: `LLM decision failed; fallback to QQ management clarification: ${errorMessage}`,
+        topic: 'qq_management_fallback',
+        replyStyle: 'clarify',
+        replyDraft: '我识别到这是 QQ 群管理操作，但刚才没有可靠解析出目标或参数。请明确动作、目标和必要参数，例如“禁言 123456 60 秒”，或回复目标消息说“撤回这条”。',
+        memoryHints: [],
+        toolIntent: null
+    }
+}
+
+function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, errorMessage, sessionContext }) {
     const text = String(agentMessage?.normalizedText || agentMessage?.rawText || '')
     const traits = scoreResult?.traits || {}
     const addressed = Boolean(
@@ -53,6 +88,7 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
         agentMessage?.replyToSelf ||
         ruleDecision?.wouldReply
     )
+    const actor = sessionContext?.actor || {}
 
     if (addressed && /agent/i.test(text) && /(配置|状态|模式|开关|config|status)/i.test(text)) {
         return {
@@ -68,6 +104,10 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
                 arguments: {}
             }
         }
+    }
+
+    if (addressed && isQqManagementText(text)) {
+        return buildQqManagementFallbackDecision({ actor, errorMessage })
     }
 
     if (addressed) {
@@ -184,7 +224,8 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
                 agentMessage,
                 scoreResult,
                 ruleDecision,
-                errorMessage
+                errorMessage,
+                sessionContext
             })
         }
     }
@@ -270,5 +311,6 @@ module.exports = {
     shouldRunLlmDecision,
     validateLlmConfig,
     buildRepairMessages,
-    buildErrorFallbackDecision
+    buildErrorFallbackDecision,
+    isQqManagementText
 }

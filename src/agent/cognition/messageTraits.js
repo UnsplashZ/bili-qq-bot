@@ -9,9 +9,11 @@ function isLowInformation(text) {
     return false
 }
 
+const managementTopicPattern = /订阅|配置|设置|开启|关闭|管理|权限|拉黑|黑名单|禁言|解禁|撤回|踢出?|群名片|全员禁言|精华|加群|好友申请|在线状态|输入状态|公告|头衔|申请/
+
 function extractMessageTraits({ agentMessage, memoryObservation, actor }) {
     const text = agentMessage.normalizedText || ''
-    const managementTopic = includesPattern(text, /订阅|配置|设置|开启|关闭|管理|权限|拉黑|黑名单/)
+    const managementTopic = includesPattern(text, managementTopicPattern)
     const questionLike = includesPattern(text, /\?|？|吗|么|怎么|如何|为什么|谁|什么/)
     const tooShort = String(text).replace(/\s+/g, '').length <= 2
     const lowInformation = isLowInformation(text)

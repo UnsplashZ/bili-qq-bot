@@ -393,6 +393,61 @@ async function run() {
         shortTermStore.reset()
         budgetGuard.resetBudget()
         replyGuard.resetReplyGuard()
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            tools: {
+                enabled: true,
+                confirmationTtlMs: 60000,
+                requireConfirmationFor: ['medium', 'high']
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async () => ({
+            model: 'test-model',
+            usage: { total_tokens: 1 },
+            content: '不是 JSON'
+        })
+        const qqManageFallbackSent = []
+        const qqManageFallbackResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    qqManageFallbackSent.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '[CQ:at,qq=999] 禁言我',
+            messageData: makeMessageData('[CQ:at,qq=999] 禁言我', {
+                message: [
+                    { type: 'at', data: { qq: '999' } },
+                    { type: 'text', data: { text: ' 禁言我' } }
+                ],
+                message_id: 'qq-manage-fallback1',
+                sender: { nickname: 'Tester', role: 'member' }
+            }),
+            traceContext: { scope: 'test:qq-manage-fallback' }
+        })
+        assert.strictEqual(qqManageFallbackResult.rawLlmDecision.status, 'error')
+        assert.strictEqual(qqManageFallbackResult.rawLlmDecision.decision.action, 'short_reply')
+        assert.ok(qqManageFallbackResult.rawLlmDecision.decision.replyDraft.includes('需要 QQ 群主或管理员权限'))
+        assert.strictEqual(qqManageFallbackSent.length, 1)
+        assert.ok(qqManageFallbackSent[0].params.message[0].data.text.includes('需要 QQ 群主或管理员权限'))
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
         longTermStore.resetForTest(tempMemoryFile)
         enableAgent({
             decisionMode: 'llm_shadow',

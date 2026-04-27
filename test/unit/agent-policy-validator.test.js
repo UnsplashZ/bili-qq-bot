@@ -9,6 +9,7 @@ const { evaluateInputGuardrails } = require(path.join(__dirname, '../../src/agen
 const { evaluateDecisionGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/decisionGuardrails'))
 const { applyOutputGuardrails } = require(path.join(__dirname, '../../src/agent/runtime/outputGuardrails'))
 const { normalizeAgentConfig } = require(path.join(__dirname, '../../src/agent/config/agentConfig'))
+const { scoreMessage } = require(path.join(__dirname, '../../src/agent/cognition/relevanceScorer'))
 
 function makeDecision({ confidence, replyDraft = '收到。' }) {
     return {
@@ -171,6 +172,25 @@ function run() {
     assert.strictEqual(directLlmErrorFallback.accepted, true)
     assert.strictEqual(directLlmErrorFallback.finalAction, 'ask_clarify')
     assert.strictEqual(directLlmErrorFallback.reason, 'llm_fallback:agent_llm_empty_message_content')
+
+    const memberQqManageScore = scoreMessage({
+        agentMessage: {
+            normalizedText: '@Bot 禁言我',
+            mentionsSelf: true,
+            aliasMatched: false,
+            replyToSelf: false,
+            hasReply: false
+        },
+        memoryObservation: {},
+        actor: {
+            isRoot: false,
+            qqRole: 'member',
+            canManageGroupConfig: false,
+            canManageSubscriptions: false
+        }
+    })
+    assert.strictEqual(memberQqManageScore.traits.managementTopic, true)
+    assert.ok(memberQqManageScore.reasons.includes('bot_management_topic'))
 
     const naturalLlmErrorFallback = validateDecisionPolicy({
         agentConfig: makeAgentConfig(),
