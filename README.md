@@ -56,7 +56,7 @@
     *   自然语言消息可进入 Agent，由 LLM 结合上下文、群聊节奏、记忆和人格决定回复或沉默
     *   命令消息和 B 站链接不进 LLM，继续走确定性系统 handler
     *   支持长期记忆、短期上下文、工具确认、权限闸门、审计日志和 WebUI 观测
-    *   支持受限工具：订阅管理、Agent/Bot 配置、B 站查询、QQ 群管理、申请处理、只读网页读取和显式学习记忆
+    *   支持受限工具：订阅管理、Agent/Bot 配置、B 站查询、QQ 群管理、申请处理、网页读取/搜索/截图和显式学习记忆
 
 *   🐳 **Docker 化部署**：一键部署，内置 Noto CJK、多语种 Noto 与 Emoji 字体，并包含 FFmpeg 依赖
 
@@ -139,8 +139,8 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 **部署流程：**
 1.  **环境检查**：自动安装 docker 等必要依赖。
-2.  **配置引导**：脚本会引导您输入 Bot QQ 号，自动生成 NapCat 配置。
-3.  **服务启动**：自动拉取镜像并启动容器。
+2.  **配置引导**：脚本会引导您输入 Bot QQ 号、WebUI 密码，并可选配置 Agent LLM Provider/API Key。
+3.  **服务启动**：自动拉取镜像并启动容器。注意：一键部署使用发布镜像，只有镜像发布后才包含最新开发分支能力。
 4.  **扫码登录**：直接在终端显示 NapCat 日志和二维码，扫码即可完成登录。
 
 
@@ -210,7 +210,8 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 - 中高风险工具会进入短码确认流程；确认必须来自同群同用户，并携带短码或明确回复 Bot。
 - 高风险工具不可通过 WebUI 配置关闭确认。
 - QQ 群管理工具会检查用户权限和 Bot 当前 QQ 群权限。
-- 浏览器能力仅限 `browser.read_url` 只读公开网页；拒绝 localhost、内网地址、带凭证 URL 和 DNS 解析到内网的地址。
+- 浏览器能力包括 `browser.read_url`、`browser.search_web` 和 `browser.screenshot_url`；拒绝 localhost、内网地址、带凭证 URL 和 DNS 解析到内网的地址。
+- QQ 管理工具包括群信息查询、成员查询、禁言/解禁、踢人、撤回、精华、全员禁言、加群申请、好友申请、在线状态和输入状态；写操作受 QQ 权限、Bot 权限、风险确认和审计日志约束。
 
 ### 验证方式
 
@@ -239,11 +240,12 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
 | `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
 | `PUPPETEER_EXECUTABLE_PATH` | 指定浏览器可执行文件路径（可选） | 留空（自动检测） |
+| `CHROMIUM_PATH` | Agent 网页读取/截图使用的 Chromium 路径（可选） | 留空（自动检测） |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
-| `AGENT_LLM_ENABLED` | 是否启用 Agent LLM 调用 | `false` |
+| `AGENT_LLM_ENABLED` | 是否启用 Agent LLM 调用；默认关闭，开启后仍需在运行时配置中启用 Agent/群级开关 | `false` |
 | `AGENT_LLM_PROVIDER` | LLM Provider，目前支持 OpenAI-compatible | `openai-compatible` |
 | `AGENT_LLM_BASE_URL` | OpenAI-compatible Base URL | `https://api.example.com` |
 | `AGENT_LLM_MODEL` | Agent 决策模型名 | `model-name` |
@@ -251,7 +253,7 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | `AGENT_API_KEY` | Agent LLM API Key（本地填写，示例文件留空） | 留空 |
 | `AGENT_LLM_TIMEOUT_MS` | LLM 请求超时（毫秒） | `12000` |
 | `AGENT_LLM_TEMPERATURE` | LLM 决策温度 | `0.2` |
-| `AGENT_LLM_MAX_TOKENS` | LLM 最大输出 token；不是上下文窗口大小 | `500` |
+| `AGENT_LLM_MAX_TOKENS` | LLM 最大输出 token；不是上下文窗口大小，群聊上下文由 `config.json` 的 `agent.shortTerm.*` 控制 | `500` |
 | `AGENT_BUDGET_ENABLED` | 是否启用 Agent LLM 调用预算 | `true` |
 | `AGENT_BUDGET_WINDOW_MS` | 预算统计窗口（毫秒） | `60000` |
 | `AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE` | 每群每分钟最大 LLM 调用数 | `60` |
@@ -284,14 +286,31 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 ### 3. Agent 开启建议
 
-Agent 默认关闭，建议按阶段开启：
+Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key，不会自动让 Agent 在群里发言；建议按阶段开启：
 
 1. WebUI 或 `config.json` 设置 `agent.enabled=true`、目标群 `agent.groups.<群号>.enabled=true`。
 2. 先保持 `agent.observeOnly=true`、`agent.sendEnabled=false`，在 Agent 决策页观察 LLM 判断。
 3. 确认效果后切到 `decisionMode=llm_live`，再开启 `sendEnabled=true`。
 4. 需要自然语言管理订阅、配置或 QQ 群时，再开启 `agent.tools.enabled=true`。
 5. 中高风险工具保留确认，尤其是禁言、踢人、撤回、关闭 Bot、处理申请等操作。
+6. 如需偶尔插话，在 Agent 设置中开启 `agent.social.enabled=true`，并逐步调高插话概率和每日上限。
 </details>
+
+
+### Agent 实测建议
+
+开启 Agent 后，建议在 QQ 群中按风险从低到高验证：
+
+| 场景 | 示例 | 预期 |
+| :--- | :--- | :--- |
+| 自然语言 | `@Bot 你现在能做什么？` | Agent 正常回复，WebUI Agent 决策可见轨迹 |
+| 网页读取 | `@Bot 总结 https://example.com` | 调用 `browser.read_url` 并给出摘要 |
+| 网页搜索 | `@Bot 搜一下 B 站最新动态` | 调用 `browser.search_web`，返回搜索摘要 |
+| 网页截图 | `@Bot 截图 https://example.com` | 调用 `browser.screenshot_url` 并发送截图；风控页返回受限提示 |
+| 记忆 | `@Bot 记住我喜欢简短回答` | 写入长期记忆，WebUI Agent 记忆可见 |
+| QQ 管理 | `@Bot 禁言 @某人 1分钟` | 校验用户权限和 Bot 群管权限，中高风险要求确认 |
+| 申请处理 | `@Bot 查看加群申请` / `同意第一个申请` | 读取/处理申请，写操作按风险确认 |
+| 偶尔插话 | 群内持续闲聊 | 社交模式开启后，Agent 在预算和冷却内低频插话 |
 
 ## 指令列表
 
