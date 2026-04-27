@@ -45,11 +45,40 @@ async function run() {
         arguments: { groupId: '1000', url: 'https://example.com', maxChars: 500 }
     }, { groupId: '1000' })
     assert.strictEqual(checkToolPermission({ plan: browserPlan, actor }).allowed, true)
+    assert.strictEqual(browserPlan.timeoutMs, 40000)
     assert.throws(() => agentBrowserService._private.assertSafeUrl('http://localhost:3000'), /local_url_denied/)
     assert.throws(() => agentBrowserService._private.assertSafeUrl('http://127.0.0.1/test'), /private_url_denied/)
     assert.throws(() => agentBrowserService._private.assertSafeUrl('file:///etc/passwd'), /unsupported_url_protocol/)
     assert.throws(() => agentBrowserService._private.assertSafeUrl('http://user:pass@example.com'), /url_credentials_denied/)
     assert.ok(agentBrowserService._private.htmlToText('<title>T</title><script>x</script><p>Hello&nbsp;World</p>').includes('Hello World'))
+    assert.strictEqual(agentBrowserService._private.extractMetaDescription('<meta name="description" content="页面描述">'), '页面描述')
+    const browserHeaders = agentBrowserService._private.buildBrowserLikeHeaders(new URL('https://example.com/path'))
+    assert.ok(browserHeaders['user-agent'].includes('Mozilla/5.0'))
+    assert.ok(browserHeaders.accept.includes('text/html'))
+    assert.strictEqual(browserHeaders.referer, 'https://example.com/')
+    const blockedQuality = agentBrowserService._private.assessContentQuality({
+        status: 403,
+        contentType: 'text/html',
+        text: 'Forbidden',
+        html: '<html>Forbidden</html>'
+    })
+    assert.strictEqual(blockedQuality.usable, false)
+    assert.strictEqual(blockedQuality.shouldFallback, true)
+    const spaQuality = agentBrowserService._private.assessContentQuality({
+        status: 200,
+        contentType: 'text/html',
+        text: 'Loading',
+        html: '<div id="app"></div><script></script><script></script><script></script>'
+    })
+    assert.strictEqual(spaQuality.usable, false)
+    assert.strictEqual(spaQuality.reason, 'spa_shell_or_low_text')
+    const normalQuality = agentBrowserService._private.assessContentQuality({
+        status: 200,
+        contentType: 'text/html',
+        text: '这是可用正文。'.repeat(80),
+        html: '<article>这是可用正文。</article>'
+    })
+    assert.strictEqual(normalQuality.usable, true)
 
     const searchPlan = toolRegistry.normalizeToolIntent({
         name: 'browser.search_web',

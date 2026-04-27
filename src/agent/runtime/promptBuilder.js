@@ -2,6 +2,7 @@ const { listToolDefinitions } = require('../tools/registry')
 const { compactText, buildContextPolicy } = require('../context/contextCompactor')
 const { selectContext } = require('../context/contextSelector')
 const { buildSpecialistContext } = require('../specialists/specialistRouter')
+const { planFallbackTool } = require('../cognition/fallbackToolPlanner')
 
 function personaLines(agentConfig = {}) {
     const persona = agentConfig.persona || {}
@@ -80,6 +81,21 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         agentMessage,
         toolDefinitions: listToolDefinitions()
     })
+    const traits = scoreResult.traits || scoreResult.components || {}
+    const addressed = Boolean(
+        traits.mentionedBot ||
+        traits.aliasMatched ||
+        traits.replyToBot ||
+        agentMessage.mentionsSelf ||
+        agentMessage.aliasMatched ||
+        agentMessage.replyToSelf ||
+        ruleDecision.wouldReply
+    )
+    const deterministicToolCandidate = planFallbackTool({
+        text: agentMessage.normalizedText || agentMessage.rawText,
+        addressed,
+        availableToolNames: specialistContext.availableTools.map((tool) => tool.name)
+    })
     const userPayload = {
         task: '判断是否应该参与这条 QQ 群聊消息。只输出 JSON。',
         outputSchema: JSON.parse(buildDecisionInstruction()),
@@ -105,7 +121,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         conversationSession: sessionContext.conversationSession || null,
         topic: memoryObservation?.topicSnapshot || null,
         chatPace: memoryObservation?.chatPace || null,
-        messageTraits: scoreResult.traits || scoreResult.components || {},
+        messageTraits: traits,
         legacyRuleObservation: {
             score: scoreResult.score,
             reasons: scoreResult.reasons,
@@ -131,6 +147,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             totalToolCount: specialistContext.totalToolCount
         },
         availableTools: specialistContext.availableTools,
+        deterministicToolCandidate,
         contextDigest: contextSelection.digest,
         threadContext: contextSelection.threads,
         recentMessages: contextSelection.messages,
@@ -153,6 +170,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
             '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、网页搜索、网页截图、显式学习记忆时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
             'specialistContext 表示本轮已选中的领域 Agent；availableTools 已按领域裁剪。需要工具时只能选择 availableTools 中存在的工具。',
+            'deterministicToolCandidate 是 runtime 根据明确文本生成的低风险候选工具计划；如果它符合用户意图，优先采用它并输出 action=tool_plan。',
             'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 ask_clarify，不要猜 QQ 号。',
             '如果需要按昵称定位群成员，应先使用 qq.search_members 返回候选，不要直接执行禁言/踢人/改名片。',
             '撤回消息优先使用 currentMessage.replyTarget.messageId；禁言/踢人优先使用 currentMessage.replyTarget.userId 或明确 QQ 号。',
@@ -169,6 +187,20 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         { role: 'system', content: buildSystemPrompt(agentConfig) },
         { role: 'user', content: JSON.stringify(userPayload, null, 2) }
     ]
+}
+
+function buildToolResultData(result) {
+    const data = result?.data || null
+    if (!data || typeof data !== 'object') return null
+    return {
+        url: data.url || '',
+        status: data.status ?? null,
+        title: compactText(data.title || '', 160),
+        method: data.method || '',
+        quality: data.quality || '',
+        text: compactText(data.text || '', 6000),
+        bytes: data.bytes ?? null
+    }
 }
 
 function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, toolOutcome }) {
@@ -196,7 +228,8 @@ function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, to
             },
             result: result
                 ? {
-                    message: compactText(result.message || '', 300)
+                    message: compactText(result.message || '', 300),
+                    data: buildToolResultData(result)
                 }
                 : null
         },
@@ -204,7 +237,8 @@ function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, to
             '必须忠实反映工具执行结果，不得声称执行了不存在的操作。',
             '不要输出新的 tool_plan，不要要求用户重复确认已经执行完成的操作。',
             '成功时用 short_reply 简洁说明结果；失败时用 short_reply 说明失败原因和可行下一步。',
-            'replyDraft 必须适合直接发送到 QQ 群，控制在 120 字以内。',
+            'browser.read_url 成功时，应基于 toolOutcome.result.data.text 回答用户的总结/解读问题，控制在 300 字以内。',
+            '其他工具回复必须适合直接发送到 QQ 群，控制在 120 字以内。',
             'memoryHints 必须为空数组，toolIntent 必须为 null。'
         ]
     }
@@ -220,5 +254,6 @@ module.exports = {
     buildToolResultMessages,
     buildSystemPrompt,
     compactText,
-    buildMemoryContext
+    buildMemoryContext,
+    buildToolResultData
 }

@@ -2,6 +2,7 @@ const logger = require('../../utils/logger')
 const llmClient = require('../runtime/llmClient')
 const { buildDecisionMessages, buildToolResultMessages } = require('../runtime/promptBuilder')
 const { parseDecisionJson, normalizeDecision, fallbackDecision } = require('./decisionSchema')
+const { planFallbackTool } = require('./fallbackToolPlanner')
 
 function shouldRunLlmDecision(agentConfig) {
     return agentConfig.decisionMode === 'llm_shadow' || agentConfig.decisionMode === 'llm_live'
@@ -89,6 +90,15 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
         ruleDecision?.wouldReply
     )
     const actor = sessionContext?.actor || {}
+
+    const fallbackToolPlan = planFallbackTool({ text, addressed })
+    if (fallbackToolPlan) {
+        return {
+            ...fallbackToolPlan,
+            confidence: 0.25,
+            reason: `LLM decision failed; ${fallbackToolPlan.reason}: ${errorMessage}`
+        }
+    }
 
     if (addressed && /agent/i.test(text) && /(配置|状态|模式|开关|config|status)/i.test(text)) {
         return {

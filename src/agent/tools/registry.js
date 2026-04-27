@@ -1376,7 +1376,7 @@ const toolSpecMetadata = {
     'agent.get_group_config': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 3000 },
     'agent.get_memory_summary': { paramsSchema: toolParamSchemas.memorySummary, sideEffect: 'read', timeoutMs: 5000 },
     'agent.learn_memory': { paramsSchema: toolParamSchemas.memoryLearn, sideEffect: 'write_memory', timeoutMs: 5000 },
-    'browser.read_url': { paramsSchema: toolParamSchemas.browserRead, sideEffect: 'external_read', timeoutMs: 12000 },
+    'browser.read_url': { paramsSchema: toolParamSchemas.browserRead, sideEffect: 'external_read', timeoutMs: 40000 },
     'browser.search_web': { paramsSchema: toolParamSchemas.browserSearch, sideEffect: 'external_read', timeoutMs: 12000 },
     'browser.screenshot_url': { paramsSchema: toolParamSchemas.browserScreenshot, sideEffect: 'external_read', timeoutMs: 20000 },
     'qq.get_group_info': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
