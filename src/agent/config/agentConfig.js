@@ -90,6 +90,22 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     replyPolicy.minReplyScore = Math.min(1, Math.max(0, parseNumber(replyPolicy.minReplyScore, DEFAULT_AGENT_CONFIG.replyPolicy.minReplyScore)))
     replyPolicy.cooldownMs = Math.max(0, Math.trunc(parseNumber(replyPolicy.cooldownMs, DEFAULT_AGENT_CONFIG.replyPolicy.cooldownMs)))
 
+    const participation = normalized.participation
+    participation.enabled = participation.enabled !== false
+    participation.timingGateEnabled = participation.timingGateEnabled !== false
+    participation.replyerEnabled = participation.replyerEnabled !== false
+    participation.expressionLearningEnabled = Boolean(participation.expressionLearningEnabled)
+    participation.replyEffectTrackingEnabled = Boolean(participation.replyEffectTrackingEnabled)
+
+    const replyer = normalized.replyer
+    replyer.maxReactChars = Math.max(20, Math.min(500, Math.trunc(parseNumber(replyer.maxReactChars, DEFAULT_AGENT_CONFIG.replyer.maxReactChars))))
+    replyer.maxReplyChars = Math.max(80, Math.min(2000, Math.trunc(parseNumber(replyer.maxReplyChars, DEFAULT_AGENT_CONFIG.replyer.maxReplyChars))))
+    replyer.allowQuoteReply = replyer.allowQuoteReply !== false
+
+    const timing = normalized.timing
+    timing.quietWindowMs = Math.max(0, Math.min(60 * 1000, Math.trunc(parseNumber(timing.quietWindowMs, DEFAULT_AGENT_CONFIG.timing.quietWindowMs))))
+    timing.maxWaitMs = Math.max(0, Math.min(5 * 60 * 1000, Math.trunc(parseNumber(timing.maxWaitMs, DEFAULT_AGENT_CONFIG.timing.maxWaitMs))))
+
     const social = normalized.social
     social.enabled = Boolean(social.enabled)
     social.mode = ['quiet', 'normal', 'active', 'debug'].includes(social.mode) ? social.mode : DEFAULT_AGENT_CONFIG.social.mode
@@ -161,6 +177,15 @@ function getEffectiveAgentConfigForGroup(groupId, agentConfig = normalizeAgentCo
     }
     if (isPlainObject(groupConfig.social)) {
         effective.social = mergeDefaults(effective.social, groupConfig.social)
+    }
+    if (isPlainObject(groupConfig.participation)) {
+        effective.participation = mergeDefaults(effective.participation, groupConfig.participation)
+    }
+    if (isPlainObject(groupConfig.timing)) {
+        effective.timing = mergeDefaults(effective.timing, groupConfig.timing)
+    }
+    if (isPlainObject(groupConfig.replyer)) {
+        effective.replyer = mergeDefaults(effective.replyer, groupConfig.replyer)
     }
     return effective
 }

@@ -30,7 +30,7 @@ function maxReplyChars(agentConfig) {
 }
 
 function maxReplyCharsForDecision(agentConfig, policyDecision) {
-    if (policyDecision?.finalAction === 'casual_interject' || policyDecision?.finalAction === 'ambient_react') {
+    if (policyDecision?.finalAction === 'react') {
         const configured = Number(agentConfig?.social?.maxCasualReplyChars)
         return Number.isFinite(configured)
             ? Math.max(20, Math.min(500, Math.trunc(configured)))
@@ -110,7 +110,7 @@ function applyOutputGuardrails({ agentConfig, policyDecision, llmDecision }) {
                 ...policyDecision,
                 accepted: false,
                 wouldSend: false,
-                finalAction: 'observe_only',
+                finalAction: 'listen',
                 reason: outputGuardrail.reason,
                 outputGuardrail
             },

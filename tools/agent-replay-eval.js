@@ -189,7 +189,7 @@ function assertSample(sample, actual) {
             if (!actual.contextMessageIds.includes(String(messageId))) failures.push(`missing context message ${messageId}`)
         }
     }
-    if (expected.mustNotUseTool && actual.action === 'tool_plan') failures.push('unexpected tool_plan')
+    if (expected.mustNotUseTool && actual.action === 'act') failures.push('unexpected act')
     return failures
 }
 

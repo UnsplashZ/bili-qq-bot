@@ -6,7 +6,7 @@ const { recordToolAudit } = require('./auditLog')
 
 function makeReplyDecision(replyDraft, reason = 'tool_plan_processed', messageChain = null) {
     return {
-        action: 'short_reply',
+        action: 'reply',
         confidence: 1,
         reason,
         topic: 'tool_management',
@@ -116,7 +116,7 @@ async function executePlanWithAudit({ plan, sessionContext, actor, traceScope })
 }
 
 async function processToolPlan({ decision, agentConfig, sessionContext }) {
-    if (decision?.action !== 'tool_plan') return null
+    if (decision?.action !== 'act') return null
 
     const traceScope = sessionContext?.traceScope || ''
     if (!toolsEnabled(agentConfig)) {

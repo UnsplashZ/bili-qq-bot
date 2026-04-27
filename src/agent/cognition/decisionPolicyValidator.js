@@ -1,12 +1,11 @@
 function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, replyGuardDecision }) {
     const decision = llmDecision?.decision || null
     const directlyAddressed = Boolean(messageTraits.mentionedBot || messageTraits.replyToBot || messageTraits.aliasMatched)
-    const socialActions = ['casual_interject', 'ambient_react']
 
     if (agentConfig.observeOnly) {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: 'observe_only_enabled',
             llmAction: decision?.action || '',
             wouldSend: false
@@ -16,7 +15,7 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
     if (!agentConfig.sendEnabled) {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: 'send_disabled',
             llmAction: decision?.action || '',
             wouldSend: false
@@ -26,7 +25,7 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
     if (agentConfig.decisionMode !== 'llm_live') {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: 'decision_mode_not_live',
             llmAction: decision?.action || '',
             wouldSend: false
@@ -36,41 +35,36 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
     if (!llmDecision || !decision) {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: llmDecision?.reason || llmDecision?.status || 'llm_decision_unavailable',
             wouldSend: false
         }
     }
 
     if (llmDecision.status !== 'ok') {
-        const fallbackSendable = directlyAddressed &&
-            ['short_reply', 'full_reply', 'ask_clarify'].includes(decision.action) &&
-            Boolean(decision.replyDraft)
-
+        const fallbackSendable = directlyAddressed && decision.action === 'reply' && Boolean(decision.replyDraft)
         if (!fallbackSendable) {
             return {
                 accepted: false,
-                finalAction: 'observe_only',
+                finalAction: 'listen',
                 reason: llmDecision.reason || llmDecision.status || 'llm_decision_unavailable',
                 llmAction: decision.action,
                 wouldSend: false
             }
         }
-
         if (replyGuardDecision && replyGuardDecision.allowed === false) {
             return {
                 accepted: false,
-                finalAction: 'observe_only',
+                finalAction: 'listen',
                 reason: replyGuardDecision.reason,
                 llmAction: decision.action,
                 wouldSend: false,
                 replyGuardDecision
             }
         }
-
         return {
             accepted: true,
-            finalAction: decision.action,
+            finalAction: 'reply',
             reason: `llm_fallback:${llmDecision.reason || llmDecision.status}`,
             llmAction: decision.action,
             replyDraft: decision.replyDraft,
@@ -79,32 +73,12 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         }
     }
 
-    if (decision.action === 'observe_only' || decision.action === 'defer') {
-        return {
-            accepted: false,
-            finalAction: decision.action,
-            reason: `llm_action_${decision.action}`,
-            llmAction: decision.action,
-            wouldSend: false
-        }
-    }
-
-    if (decision.action === 'react_only' || decision.action === 'tool_plan') {
-        if (replyGuardDecision && replyGuardDecision.allowed === false) {
-            return {
-                accepted: false,
-                finalAction: 'observe_only',
-                reason: replyGuardDecision.reason,
-                llmAction: decision.action,
-                wouldSend: false,
-                replyGuardDecision
-            }
-        }
-        if (directlyAddressed && decision.replyDraft) {
+    if (decision.action === 'listen' || decision.action === 'wait') {
+        if (directlyAddressed) {
             return {
                 accepted: true,
-                finalAction: 'short_reply',
-                reason: `${decision.action}_reply_downgraded`,
+                finalAction: 'reply',
+                reason: `${decision.action}_direct_reply_forced`,
                 llmAction: decision.action,
                 replyDraft: decision.replyDraft,
                 wouldSend: true,
@@ -114,57 +88,48 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         return {
             accepted: false,
             finalAction: decision.action,
-            reason: 'action_not_enabled_in_phase2',
+            reason: `planner_action_${decision.action}`,
             llmAction: decision.action,
             wouldSend: false
         }
     }
 
-    if (socialActions.includes(decision.action)) {
+    if (decision.action === 'act') {
+        return {
+            accepted: false,
+            finalAction: 'act',
+            reason: 'tool_action_processed_before_reply_policy',
+            llmAction: decision.action,
+            wouldSend: false
+        }
+    }
+
+    if (decision.action === 'react') {
         if (decision.toolIntent) {
             return {
                 accepted: false,
-                finalAction: 'observe_only',
-                reason: 'social_action_with_tool_intent',
+                finalAction: 'listen',
+                reason: 'react_action_with_tool_intent',
                 llmAction: decision.action,
                 wouldSend: false
             }
         }
-
         if (directlyAddressed) {
-            if (decision.replyDraft) {
-                return {
-                    accepted: true,
-                    finalAction: 'short_reply',
-                    reason: 'social_action_direct_reply_downgraded',
-                    llmAction: decision.action,
-                    replyDraft: decision.replyDraft,
-                    wouldSend: true,
-                    replyGuardDecision
-                }
-            }
             return {
-                accepted: false,
-                finalAction: 'observe_only',
-                reason: 'social_action_not_for_direct_address',
+                accepted: true,
+                finalAction: 'reply',
+                reason: 'react_direct_reply_upgraded',
                 llmAction: decision.action,
-                wouldSend: false
+                replyDraft: decision.replyDraft,
+                wouldSend: true,
+                replyGuardDecision
             }
         }
         if (!agentConfig.social?.enabled || agentConfig.social?.mode === 'quiet') {
             return {
                 accepted: false,
-                finalAction: 'observe_only',
+                finalAction: 'listen',
                 reason: 'social_disabled',
-                llmAction: decision.action,
-                wouldSend: false
-            }
-        }
-        if (!decision.replyDraft) {
-            return {
-                accepted: false,
-                finalAction: 'observe_only',
-                reason: 'empty_reply_draft',
                 llmAction: decision.action,
                 wouldSend: false
             }
@@ -172,7 +137,7 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         if (replyGuardDecision && replyGuardDecision.allowed === false) {
             return {
                 accepted: false,
-                finalAction: 'observe_only',
+                finalAction: 'listen',
                 reason: replyGuardDecision.reason,
                 llmAction: decision.action,
                 wouldSend: false,
@@ -181,19 +146,20 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
         }
         return {
             accepted: true,
-            finalAction: decision.action,
-            reason: 'social_accepted',
+            finalAction: 'react',
+            reason: 'react_accepted',
             llmAction: decision.action,
+            replyDraft: decision.replyDraft,
             wouldSend: true,
             replyGuardDecision
         }
     }
 
-    if (!['short_reply', 'full_reply', 'ask_clarify'].includes(decision.action)) {
+    if (decision.action !== 'reply') {
         return {
             accepted: false,
             finalAction: decision.action,
-            reason: 'action_not_sendable_yet',
+            reason: 'unknown_participation_action',
             llmAction: decision.action,
             wouldSend: false
         }
@@ -203,18 +169,8 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
     if (decision.confidence < minConfidence) {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: 'confidence_below_send_threshold',
-            llmAction: decision.action,
-            wouldSend: false
-        }
-    }
-
-    if (!decision.replyDraft) {
-        return {
-            accepted: false,
-            finalAction: 'observe_only',
-            reason: 'empty_reply_draft',
             llmAction: decision.action,
             wouldSend: false
         }
@@ -223,7 +179,7 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
     if (replyGuardDecision && replyGuardDecision.allowed === false) {
         return {
             accepted: false,
-            finalAction: 'observe_only',
+            finalAction: 'listen',
             reason: replyGuardDecision.reason,
             llmAction: decision.action,
             wouldSend: false,
@@ -233,9 +189,10 @@ function validateDecisionPolicy({ agentConfig, llmDecision, messageTraits, reply
 
     return {
         accepted: true,
-        finalAction: decision.action,
+        finalAction: 'reply',
         reason: 'accepted',
         llmAction: decision.action,
+        replyDraft: decision.replyDraft,
         wouldSend: true,
         replyGuardDecision
     }

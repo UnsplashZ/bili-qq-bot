@@ -35,15 +35,21 @@ function evaluateDecisionGuardrails(llmDecision) {
         ))
 
         checks.push(makeCheck(
+            'participation_consistency',
+            !decision.participation?.action || decision.participation.action === decision.action,
+            decision.participation?.action && decision.participation.action !== decision.action ? 'participation_action_mismatch' : 'ok'
+        ))
+
+        checks.push(makeCheck(
             'tool_intent_consistency',
-            decision.action !== 'tool_plan' || Boolean(decision.toolIntent),
-            decision.action === 'tool_plan' && !decision.toolIntent ? 'missing_tool_intent' : 'ok'
+            decision.action !== 'act' || Boolean(decision.toolIntent),
+            decision.action === 'act' && !decision.toolIntent ? 'missing_tool_intent' : 'ok'
         ))
 
         checks.push(makeCheck(
             'reply_draft_consistency',
-            !['observe_only', 'defer'].includes(decision.action) || !decision.replyDraft,
-            'observe_or_defer_reply_must_be_empty'
+            !['listen', 'wait', 'act'].includes(decision.action) || !decision.replyDraft,
+            ['listen', 'wait', 'act'].includes(decision.action) && decision.replyDraft ? 'non_reply_action_reply_must_be_empty' : 'ok'
         ))
     }
 

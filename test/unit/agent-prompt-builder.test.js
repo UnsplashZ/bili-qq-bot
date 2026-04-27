@@ -18,7 +18,7 @@ function run() {
     assert.ok(prompt.includes('测试助手'))
     assert.ok(prompt.includes('冷静直接'))
     assert.ok(prompt.includes('不讨论无关八卦'))
-    assert.ok(prompt.includes('只能输出 tool_plan 意图'))
+    assert.ok(prompt.includes('选择 act 并输出 toolIntent'))
 
     const messages = buildDecisionMessages({
         agentConfig: {},
@@ -75,7 +75,7 @@ function run() {
         },
         longTermMemories: [],
         scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
-        ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
+        ruleDecision: { action: 'reply', wouldReply: true, threshold: 0.65 },
         sessionContext: {
             actor: {},
             conversationSession: {
@@ -167,7 +167,7 @@ function run() {
         },
         longTermMemories: [],
         scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
-        ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
+        ruleDecision: { action: 'reply', wouldReply: true, threshold: 0.65 },
         sessionContext: { actor: {} },
         budgetDecision: { allowed: true }
     })
@@ -252,7 +252,7 @@ function run() {
         },
         longTermMemories: [],
         scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
-        ruleDecision: { action: 'short_reply', wouldReply: true, threshold: 0.65 },
+        ruleDecision: { action: 'reply', wouldReply: true, threshold: 0.65 },
         sessionContext: { actor: {} },
         budgetDecision: { allowed: true }
     })
@@ -284,7 +284,7 @@ function run() {
         },
         longTermMemories: [],
         scoreResult: { traits: {}, components: {}, score: 1, reasons: [], penalties: [] },
-        ruleDecision: { action: 'tool_plan', wouldReply: true, threshold: 0.65 },
+        ruleDecision: { action: 'act', wouldReply: true, threshold: 0.65 },
         sessionContext: { actor: {} },
         budgetDecision: { allowed: true }
     })

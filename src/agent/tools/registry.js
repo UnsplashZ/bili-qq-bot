@@ -932,7 +932,7 @@ const toolDefinitions = {
                     traceScope: context?.traceScope || ''
                 },
                 agentMessage: context?.agentMessage,
-                decision: { action: 'tool_plan' }
+                decision: { action: 'act' }
             })
             return {
                 message: result.stored > 0 ? `已学习：${compactText(args.content, 80)}` : `没有写入记忆：${result.error || '内容可能为空或敏感'}`,

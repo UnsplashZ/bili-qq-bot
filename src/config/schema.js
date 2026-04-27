@@ -75,6 +75,22 @@ const DEFAULT_AGENT_CONFIG = {
         minReplyScore: 0.65,
         cooldownMs: 5 * 1000
     },
+    participation: {
+        enabled: true,
+        timingGateEnabled: true,
+        replyerEnabled: true,
+        expressionLearningEnabled: false,
+        replyEffectTrackingEnabled: false
+    },
+    replyer: {
+        maxReactChars: 60,
+        maxReplyChars: 500,
+        allowQuoteReply: true
+    },
+    timing: {
+        quietWindowMs: 2500,
+        maxWaitMs: 12000
+    },
     social: {
         enabled: false,
         mode: 'quiet',

@@ -15,7 +15,7 @@ function makeDecision({ confidence, replyDraft = '收到。' }) {
     return {
         status: 'ok',
         decision: {
-            action: 'short_reply',
+            action: 'reply',
             confidence,
             reason: 'test',
             topic: 'test',
@@ -27,7 +27,7 @@ function makeDecision({ confidence, replyDraft = '收到。' }) {
     }
 }
 
-function makeFallbackDecision({ action = 'ask_clarify', replyDraft = '这句我没理解具体要我做什么。可以直接说动作和对象。' } = {}) {
+function makeFallbackDecision({ action = 'reply', replyDraft = '这句我没理解具体要我做什么。可以直接说动作和对象。' } = {}) {
     return {
         status: 'error',
         reason: 'agent_llm_empty_message_content',
@@ -62,7 +62,7 @@ function makeAgentConfig(overrides = {}) {
     }
 }
 
-function validate({ confidence, traits, action = 'short_reply', replyDraft = '收到。' }) {
+function validate({ confidence, traits, action = 'reply', replyDraft = '收到。' }) {
     const llmDecision = makeDecision({ confidence, replyDraft })
     llmDecision.decision.action = action
     return validateDecisionPolicy({
@@ -109,40 +109,58 @@ function run() {
     assert.strictEqual(naturalRejected.accepted, false)
     assert.strictEqual(naturalRejected.reason, 'confidence_below_send_threshold')
 
+    const directEmptyDraftAcceptedForReplyer = validate({
+        confidence: 0.2,
+        replyDraft: '',
+        traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
+    })
+    assert.strictEqual(directEmptyDraftAcceptedForReplyer.accepted, true)
+    assert.strictEqual(directEmptyDraftAcceptedForReplyer.finalAction, 'reply')
+
+    const directListenForcedReply = validate({
+        confidence: 0.2,
+        action: 'listen',
+        replyDraft: '',
+        traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
+    })
+    assert.strictEqual(directListenForcedReply.accepted, true)
+    assert.strictEqual(directListenForcedReply.finalAction, 'reply')
+    assert.strictEqual(directListenForcedReply.reason, 'listen_direct_reply_forced')
+
     const directReactDowngraded = validate({
         confidence: 0.95,
-        action: 'react_only',
+        action: 'react',
         replyDraft: '我不是楠哥，我是B站助手。',
         traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
     })
     assert.strictEqual(directReactDowngraded.accepted, true)
-    assert.strictEqual(directReactDowngraded.finalAction, 'short_reply')
-    assert.strictEqual(directReactDowngraded.reason, 'react_only_reply_downgraded')
+    assert.strictEqual(directReactDowngraded.finalAction, 'reply')
+    assert.strictEqual(directReactDowngraded.reason, 'react_direct_reply_upgraded')
 
-    const directToolPlanDowngraded = validate({
+    const directToolAction = validate({
         confidence: 0.95,
-        action: 'tool_plan',
-        replyDraft: '我可以帮你查看配置，但现在只先说明计划。',
+        action: 'act',
+        replyDraft: '',
         traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
     })
-    assert.strictEqual(directToolPlanDowngraded.accepted, true)
-    assert.strictEqual(directToolPlanDowngraded.finalAction, 'short_reply')
-    assert.strictEqual(directToolPlanDowngraded.reason, 'tool_plan_reply_downgraded')
+    assert.strictEqual(directToolAction.accepted, false)
+    assert.strictEqual(directToolAction.finalAction, 'act')
+    assert.strictEqual(directToolAction.reason, 'tool_action_processed_before_reply_policy')
 
     const socialAccepted = validate({
         confidence: 0.9,
-        action: 'casual_interject',
+        action: 'react',
         replyDraft: '这个角度我觉得挺准。',
         traits: { mentionedBot: false, replyToBot: false, aliasMatched: false }
     })
     assert.strictEqual(socialAccepted.accepted, true)
-    assert.strictEqual(socialAccepted.finalAction, 'casual_interject')
+    assert.strictEqual(socialAccepted.finalAction, 'react')
 
     const socialWithToolIntent = makeDecision({
         confidence: 0.9,
         replyDraft: '这个角度我觉得挺准。'
     })
-    socialWithToolIntent.decision.action = 'casual_interject'
+    socialWithToolIntent.decision.action = 'react'
     socialWithToolIntent.decision.toolIntent = { name: 'browser.search_web', arguments: { query: 'test' } }
     const socialToolRejected = validateDecisionPolicy({
         agentConfig: makeAgentConfig(),
@@ -151,17 +169,17 @@ function run() {
         replyGuardDecision: { allowed: true }
     })
     assert.strictEqual(socialToolRejected.accepted, false)
-    assert.strictEqual(socialToolRejected.reason, 'social_action_with_tool_intent')
+    assert.strictEqual(socialToolRejected.reason, 'react_action_with_tool_intent')
 
     const directSocialDowngraded = validate({
         confidence: 0.9,
-        action: 'casual_interject',
+        action: 'react',
         replyDraft: '这个角度我觉得挺准。',
         traits: { mentionedBot: true, replyToBot: false, aliasMatched: false }
     })
     assert.strictEqual(directSocialDowngraded.accepted, true)
-    assert.strictEqual(directSocialDowngraded.finalAction, 'short_reply')
-    assert.strictEqual(directSocialDowngraded.reason, 'social_action_direct_reply_downgraded')
+    assert.strictEqual(directSocialDowngraded.finalAction, 'reply')
+    assert.strictEqual(directSocialDowngraded.reason, 'react_direct_reply_upgraded')
 
     const directLlmErrorFallback = validateDecisionPolicy({
         agentConfig: makeAgentConfig(),
@@ -170,7 +188,7 @@ function run() {
         replyGuardDecision: { allowed: true }
     })
     assert.strictEqual(directLlmErrorFallback.accepted, true)
-    assert.strictEqual(directLlmErrorFallback.finalAction, 'ask_clarify')
+    assert.strictEqual(directLlmErrorFallback.finalAction, 'reply')
     assert.strictEqual(directLlmErrorFallback.reason, 'llm_fallback:agent_llm_empty_message_content')
 
     const memberQqManageScore = scoreMessage({
@@ -221,7 +239,7 @@ function run() {
     const missingToolIntentGuardrail = evaluateDecisionGuardrails({
         status: 'ok',
         decision: {
-            action: 'tool_plan',
+            action: 'act',
             confidence: 0.8,
             replyDraft: '',
             toolIntent: null
@@ -237,7 +255,7 @@ function run() {
         policyDecision: {
             accepted: true,
             wouldSend: true,
-            finalAction: 'short_reply',
+            finalAction: 'reply',
             reason: 'accepted',
             replyDraft: longReply
         }
@@ -251,7 +269,7 @@ function run() {
         policyDecision: {
             accepted: true,
             wouldSend: true,
-            finalAction: 'casual_interject',
+            finalAction: 'react',
             reason: 'social_accepted',
             replyDraft: longReply
         }
@@ -264,7 +282,7 @@ function run() {
         policyDecision: {
             accepted: true,
             wouldSend: true,
-            finalAction: 'short_reply',
+            finalAction: 'reply',
             reason: 'accepted',
             replyDraft: 'sk-1234567890abcdefg'
         }
@@ -280,7 +298,7 @@ function run() {
         policyDecision: {
             accepted: true,
             wouldSend: true,
-            finalAction: 'ask_clarify',
+            finalAction: 'reply',
             reason: 'llm_fallback:decision_json_object_not_found',
             replyDraft: '我刚才没能正确解析这条请求。JSON decision 失败。'
         }

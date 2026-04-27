@@ -55,14 +55,14 @@ function deterministicRoll({ groupId, userId, topicId, timestamp, action }) {
     return (hash % 10000) / 10000
 }
 
-function checkSocialBudget({ agentConfig, groupId, userId, topicId = '', timestamp = nowMs(), action = 'casual_interject', score = 0, socialScore = null }) {
+function checkSocialBudget({ agentConfig, groupId, userId, topicId = '', timestamp = nowMs(), action = 'react', score = 0, socialScore = null }) {
     const config = normalizeSocialConfig(agentConfig)
     if (!config.enabled || config.mode === 'quiet') return { allowed: false, reason: 'social_disabled', config }
     if (config.avoidDuringRapidTwoPersonChat && socialScore?.rapidTwoPersonChat) {
         return { allowed: false, reason: 'social_rapid_two_person_chat', config }
     }
 
-    const minScore = action === 'ambient_react' ? config.minAmbientScore : config.minInterjectScore
+    const minScore = false ? config.minAmbientScore : config.minInterjectScore
     if (Number(score || 0) < minScore) return { allowed: false, reason: 'social_score_below_threshold', config }
 
     const state = getState(groupId)
@@ -88,7 +88,7 @@ function checkSocialBudget({ agentConfig, groupId, userId, topicId = '', timesta
     }
 
     if (config.mode !== 'debug') {
-        const probability = action === 'ambient_react' ? config.ambientReactProbability : config.interjectProbability
+        const probability = false ? config.ambientReactProbability : config.interjectProbability
         if (probability <= 0) return { allowed: false, reason: 'social_probability_skip', roll: null, probability, config }
         const roll = deterministicRoll({ groupId, userId, topicId: normalizedTopicId, timestamp, action })
         if (roll >= probability) return { allowed: false, reason: 'social_probability_skip', roll, probability, config }

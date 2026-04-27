@@ -19,6 +19,8 @@ const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPl
 const { scoreSocialInterject } = require('../social/socialInterjectScorer')
 const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget')
 const { isSocialAction } = require('../social/interjectPolicy')
+const { runAndRecordTimingGate } = require('../timing/timingGate')
+const { runReplyer } = require('../replyer/replyerService')
 
 const DETERMINISTIC_MEMORY_SOURCES = new Set([
     'explicit_memory_request',
@@ -35,6 +37,7 @@ function recordSessionOutcome(runState, result) {
     sessionStore.recordAgentOutcome({
         sessionId: conversationSession.sessionId,
         action: result?.policyDecision?.finalAction ||
+            result?.timingDecision?.timingAction ||
             toolOutcome?.decisionOverride?.action ||
             result?.llmDecision?.decision?.action ||
             result?.decision?.action ||
@@ -161,6 +164,7 @@ async function handleToolPlanResult(runState, runData) {
             messageTraits: runData.messageTraits,
             memoryWrite: runData.memoryWrite,
             topicSummaryWrite: runData.topicSummaryWrite,
+            timingDecision: runData.timingDecision,
             budgetDecision: runData.budgetDecision,
             inputGuardrail: runData.inputGuardrail,
             llmDecision: runData.llmDecision,
@@ -210,9 +214,124 @@ function logDecisions(runState, { decision, scoreResult, effectiveLlmDecision, p
     })
 }
 
+function makeTimingLlmDecision(timingDecision) {
+    const action = timingDecision?.timingAction === 'wait' ? 'wait' : 'listen'
+    return {
+        status: 'skipped',
+        reason: `timing_gate_${action}`,
+        decision: {
+            action,
+            confidence: 1,
+            reason: timingDecision?.reason || `timing_gate_${action}`,
+            topic: 'timing_gate',
+            replyStyle: 'none',
+            replyDraft: '',
+            participation: {
+                action,
+                targetMessageId: '',
+                topic: 'timing_gate',
+                relation: 'ambient',
+                participationLevel: 0,
+                reason: timingDecision?.reason || '',
+                styleHints: [],
+                toolPlan: null
+            },
+            targetMessageId: '',
+            styleHints: [],
+            memoryHints: [],
+            toolIntent: null
+        }
+    }
+}
+
+async function handleTimingStop(runState, scoreResult, decision, timingDecision) {
+    const { agentConfig, agentMessage, groupId, memoryObservation, sessionContext } = runState
+    const extractedMemoryHints = extractMemoryHints({ agentMessage })
+    const llmDecision = makeTimingLlmDecision(timingDecision)
+    const writableMemoryHints = filterMemoryHintsForWrite({
+        llmDecision,
+        extractedMemoryHints
+    })
+    const memoryHints = mergeMemoryHints(writableMemoryHints.llmHints, writableMemoryHints.extractedHints)
+    const memoryWrite = await longTermStore.storeMemoryHints({
+        hints: memoryHints,
+        sessionContext,
+        agentMessage,
+        decision: llmDecision.decision
+    })
+    const topicSummaryWrite = await maybeStoreTopicSummary({
+        agentConfig,
+        memoryObservation,
+        sessionContext,
+        agentMessage
+    })
+    const policyDecision = {
+        accepted: false,
+        finalAction: timingDecision.timingAction,
+        reason: timingDecision.reason,
+        llmAction: llmDecision.decision.action,
+        wouldSend: false
+    }
+    const execution = { executed: false, reason: `timing_gate_${timingDecision.timingAction}` }
+    logDecisions(runState, {
+        decision,
+        scoreResult,
+        effectiveLlmDecision: llmDecision,
+        policyDecision
+    })
+    const result = runState.baseResult({
+        score: scoreResult,
+        decision,
+        messageTraits: scoreResult.traits,
+        extractedMemoryHints,
+        memoryWrite,
+        topicSummaryWrite,
+        timingDecision,
+        llmDecision,
+        rawLlmDecision: llmDecision,
+        policyDecision,
+        execution
+    })
+    if (agentConfig.logTrajectory) {
+        await recordTrajectory({
+            type: 'observe_decision',
+            traceScope: sessionContext.traceScope,
+            groupId,
+            userId: agentMessage.userId,
+            messageId: agentMessage.id,
+            topicId: sessionContext.topicId,
+            rawTextPreview: agentMessage.rawText,
+            replyTarget: agentMessage.replyTarget,
+            decision,
+            timingDecision,
+            messageTraits: scoreResult.traits,
+            extractedMemoryHints,
+            memoryWrite,
+            topicSummaryWrite,
+            llmDecision,
+            rawLlmDecision: llmDecision,
+            policyDecision,
+            execution,
+            score: scoreResult,
+            actor: runState.actorSummary()
+        })
+    }
+    return result
+}
+
 async function runObserveDecision(runState, scoreResult) {
     const { agentConfig, agentMessage, groupId, memoryObservation, sessionContext } = runState
     const decision = decideReply({ scoreResult, agentConfig })
+    const timingDecision = runAndRecordTimingGate({
+        agentConfig,
+        agentMessage,
+        memoryObservation,
+        scoreResult
+    })
+    if (timingDecision.timingAction === 'listen' || timingDecision.timingAction === 'wait') {
+        return handleTimingStop(runState, scoreResult, decision, timingDecision)
+    }
+
     const budgetDecision = checkBudget({
         agentConfig,
         groupId,
@@ -293,6 +412,7 @@ async function runObserveDecision(runState, scoreResult) {
         extractedMemoryHints,
         memoryWrite,
         topicSummaryWrite,
+        timingDecision,
         budgetDecision,
         inputGuardrail,
         llmDecision: effectiveLlmDecision,
@@ -306,10 +426,12 @@ async function runObserveDecision(runState, scoreResult) {
         return handleToolPlanResult(runState, runData)
     }
 
+    const plannerReplyDraft = effectiveLlmDecision.decision?.replyDraft || ''
+    const plannerNeedsReplyer = ['reply', 'react'].includes(effectiveLlmDecision.decision?.action)
     let replyGuardDecision = checkReplyGuard({
         agentConfig,
         groupId,
-        replyDraft: effectiveLlmDecision.decision?.replyDraft || '',
+        replyDraft: plannerReplyDraft || (plannerNeedsReplyer ? '__replyer_pending__' : ''),
         timestamp: agentMessage.timestamp,
         bypassCooldown: Boolean(
             scoreResult.traits?.mentionedBot ||
@@ -340,6 +462,44 @@ async function runObserveDecision(runState, scoreResult) {
         messageTraits: scoreResult.traits || {},
         replyGuardDecision
     })
+    const replyerResult = await runReplyer({
+        agentConfig,
+        agentMessage,
+        memoryObservation,
+        longTermMemories,
+        llmDecision: effectiveLlmDecision,
+        policyDecision,
+        sessionContext
+    })
+    policyDecision = replyerResult.policyDecision || policyDecision
+    if (policyDecision.accepted && policyDecision.wouldSend) {
+        const finalReplyGuard = checkReplyGuard({
+            agentConfig,
+            groupId,
+            replyDraft: policyDecision.replyDraft || '',
+            timestamp: agentMessage.timestamp,
+            bypassCooldown: Boolean(
+                scoreResult.traits?.mentionedBot ||
+                scoreResult.traits?.replyToBot ||
+                scoreResult.traits?.aliasMatched
+            )
+        })
+        if (finalReplyGuard.allowed === false) {
+            policyDecision = {
+                ...policyDecision,
+                accepted: false,
+                wouldSend: false,
+                finalAction: 'listen',
+                reason: finalReplyGuard.reason,
+                replyGuardDecision: finalReplyGuard
+            }
+        } else {
+            policyDecision = {
+                ...policyDecision,
+                replyGuardDecision: finalReplyGuard
+            }
+        }
+    }
     const outputDecision = applyOutputGuardrails({
         agentConfig,
         policyDecision,
@@ -369,6 +529,7 @@ async function runObserveDecision(runState, scoreResult) {
     const result = runState.baseResult({
         ...runData,
         policyDecision,
+        replyerResult,
         outputGuardrail: outputDecision.outputGuardrail,
         execution
     })
@@ -389,12 +550,14 @@ async function runObserveDecision(runState, scoreResult) {
             extractedMemoryHints,
             memoryWrite,
             topicSummaryWrite,
+            timingDecision,
             budgetDecision,
             inputGuardrail,
             llmDecision: effectiveLlmDecision,
             rawLlmDecision: llmDecision,
             toolPlanResult,
             policyDecision,
+            replyerResult,
             decisionGuardrail,
             outputGuardrail: outputDecision.outputGuardrail,
             execution,

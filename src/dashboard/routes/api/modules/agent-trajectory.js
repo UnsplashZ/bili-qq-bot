@@ -83,6 +83,13 @@ function buildTrajectorySpans(event, item) {
         }))
     }
 
+    if (item.timingDecision) {
+        spans.push(makeSpan('timing_gate', item.timingDecision.timingAction || 'continue', item.timingDecision.reason, {
+            waitMs: item.timingDecision.waitMs || 0,
+            signals: item.timingDecision.signals || {}
+        }))
+    }
+
     if (item.llmDecision?.status || item.llmDecision?.action) {
         spans.push(makeSpan('llm_decision', item.llmDecision.status === 'ok' ? 'ok' : 'skipped', item.llmDecision.reason, {
             action: item.llmDecision.action,
@@ -130,6 +137,14 @@ function buildTrajectorySpans(event, item) {
         spans.push(makeSpan('tool_result_reply', item.tool.replyDecision.status || 'skipped', item.tool.replyDecision.reason, {
             action: item.tool.replyDecision.action,
             model: item.tool.replyDecision.model
+        }))
+    }
+
+    if (item.replyerResult) {
+        spans.push(makeSpan('replyer', item.replyerResult.status || 'skipped', item.replyerResult.reason, {
+            tone: item.replyerResult.tone,
+            confidence: item.replyerResult.confidence,
+            model: item.replyerResult.model
         }))
     }
 
@@ -191,6 +206,14 @@ function summarizeTrajectory(event) {
                 checks: safeArray(event.inputGuardrail.checks)
             }
             : null,
+        timingDecision: event.timingDecision
+            ? {
+                timingAction: event.timingDecision.timingAction || '',
+                waitMs: event.timingDecision.waitMs || 0,
+                reason: event.timingDecision.reason || '',
+                signals: event.timingDecision.signals || {}
+            }
+            : null,
         llmDecision: {
             status: llmDecision.status || '',
             action: llmDecisionBody.action || '',
@@ -214,6 +237,17 @@ function summarizeTrajectory(event) {
             reason: execution.reason || '',
             action: execution.action || ''
         },
+        replyerResult: event.replyerResult
+            ? {
+                status: event.replyerResult.status || '',
+                reason: event.replyerResult.reason || '',
+                textPreview: String(event.replyerResult.output?.text || '').slice(0, 160),
+                tone: event.replyerResult.output?.tone || '',
+                confidence: event.replyerResult.output?.confidence ?? null,
+                model: event.replyerResult.model || '',
+                totalTokens: event.replyerResult.usage?.total_tokens ?? null
+            }
+            : null,
         memoryWrite: event.memoryWrite || null,
         topicSummaryWrite: event.topicSummaryWrite || null,
         tool: toolSource

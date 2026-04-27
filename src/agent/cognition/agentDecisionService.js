@@ -42,7 +42,7 @@ function buildRepairMessages({ messages, invalidContent, errorMessage }) {
     ]
 }
 
-function makeSafeReplyDecision({ replyDraft, reason = 'llm_safe_fallback', topic = 'llm_fallback', confidence = 0.2, action = 'ask_clarify', replyStyle = 'clarify' }) {
+function makeSafeReplyDecision({ replyDraft, reason = 'llm_safe_fallback', topic = 'llm_fallback', confidence = 0.2, action = 'reply', replyStyle = 'clarify' }) {
     return {
         action,
         confidence,
@@ -70,7 +70,7 @@ function buildQqManagementFallbackDecision({ actor, errorMessage }) {
             replyDraft: '这个操作需要 QQ 群主或管理员权限，我不能替普通群成员执行禁言、撤回、踢人等群管理操作。',
             reason: `LLM decision failed; fallback to QQ management permission denial: ${errorMessage}`,
             topic: 'qq_management_permission',
-            action: 'short_reply',
+            action: 'reply',
             replyStyle: 'serious'
         })
     }
@@ -135,7 +135,7 @@ function buildErrorFallbackDecision({ agentMessage, memoryObservation, scoreResu
 
     if (addressed && /agent/i.test(text) && /(配置|状态|模式|开关|config|status)/i.test(text)) {
         return {
-            action: 'tool_plan',
+            action: 'act',
             confidence: 0.2,
             reason: `LLM decision failed; fallback to safe group config read: ${errorMessage}`,
             topic: 'agent_config',
@@ -157,7 +157,7 @@ function buildErrorFallbackDecision({ agentMessage, memoryObservation, scoreResu
         return buildSafeClarifyDecision({ text, errorMessage })
     }
 
-    return fallbackDecision(`LLM decision failed; fallback to observe_only: ${errorMessage}`)
+    return fallbackDecision(`LLM decision failed; fallback to listen: ${errorMessage}`)
 }
 
 async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, longTermMemories, scoreResult, ruleDecision, sessionContext, budgetDecision, inputGuardrail, socialScore }) {
@@ -273,7 +273,7 @@ function shouldFinalizeToolOutcome(toolOutcome) {
 }
 
 function isSendableToolReply(decision) {
-    return ['short_reply', 'full_reply', 'ask_clarify'].includes(decision?.action) &&
+    return decision?.action === 'reply' &&
         Boolean(String(decision?.replyDraft || '').trim())
 }
 

@@ -38,7 +38,7 @@ function run() {
     assert.strictEqual(isSafePublicHttpUrl('http://user:pass@example.com/a'), false)
 
     const readPlan = planFallbackTool({ text: zhihuText, addressed: true })
-    assert.strictEqual(readPlan.action, 'tool_plan')
+    assert.strictEqual(readPlan.action, 'act')
     assert.strictEqual(readPlan.toolIntent.name, 'browser.read_url')
     assert.strictEqual(readPlan.toolIntent.arguments.url, 'https://www.zhihu.com/question/2031494133160861736')
 
@@ -104,7 +104,7 @@ function run() {
         errorMessage: 'agent_llm_empty_message_content',
         sessionContext: { actor: { isRoot: true, qqRole: 'owner' } }
     })
-    assert.strictEqual(fallbackDecision.action, 'tool_plan')
+    assert.strictEqual(fallbackDecision.action, 'act')
     assert.strictEqual(fallbackDecision.toolIntent.name, 'browser.read_url')
 
     const contextualFallbackDecision = buildErrorFallbackDecision({
@@ -139,7 +139,7 @@ function run() {
         errorMessage: 'decision_json_object_not_found',
         sessionContext: { actor: { isRoot: true, qqRole: 'owner' } }
     })
-    assert.strictEqual(contextualFallbackDecision.action, 'tool_plan')
+    assert.strictEqual(contextualFallbackDecision.action, 'act')
     assert.strictEqual(contextualFallbackDecision.toolIntent.name, 'browser.screenshot_url')
     assert.strictEqual(contextualFallbackDecision.toolIntent.arguments.url, 'https://example.com/a')
 

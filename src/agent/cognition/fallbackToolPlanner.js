@@ -74,7 +74,7 @@ function makeToolPlanDecision({ toolName, url, reason, confidence = 0.35 }) {
         ? { url, viewportWidth: 1280, viewportHeight: 900 }
         : { url, maxChars: 5000 }
     return {
-        action: 'tool_plan',
+        action: 'act',
         confidence,
         reason,
         topic: 'browser_fallback',

@@ -5,7 +5,7 @@ function decideReply({ scoreResult, agentConfig }) {
 
     if (agentConfig.observeOnly) {
         return {
-            action: 'observe_only',
+            action: 'listen',
             score: scoreResult.score,
             reasons: [...reasons, 'observe_only_enabled'],
             penalties,
@@ -16,7 +16,7 @@ function decideReply({ scoreResult, agentConfig }) {
 
     if (scoreResult.score >= threshold) {
         return {
-            action: 'short_reply',
+            action: 'reply',
             score: scoreResult.score,
             reasons,
             penalties,
@@ -26,7 +26,7 @@ function decideReply({ scoreResult, agentConfig }) {
     }
 
     return {
-        action: 'observe_only',
+        action: 'listen',
         score: scoreResult.score,
         reasons,
         penalties,

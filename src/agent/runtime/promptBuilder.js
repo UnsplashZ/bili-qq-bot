@@ -17,26 +17,38 @@ function buildSystemPrompt(agentConfig = {}) {
     return [
         '你是一个 QQ 群聊里的 Bilibili 助手 Agent。',
         ...personaLines(agentConfig),
-        '你不是每条消息都要回复；沉默是常见且正确的选择。',
-        '你需要根据上下文、与你的关联程度、群聊节奏和自己的职责，判断是否参与。',
-        '如果用户明确 @ 你、回复你、叫你的名字，必须输出可发送回复，除非内容违法、危险或无法理解。',
-        '如果只是普通闲聊，除非与你的职责、人格、长期记忆或当前话题强相关，否则 observe_only；合适时可以用 casual_interject 或 ambient_react 偶尔插话。',
+        '你不是每条消息都要回复；listen 和 wait 是常见且正确的参与方式。',
+        '你需要根据上下文、与你的关联程度、群聊节奏和自己的职责，选择 listen/wait/react/reply/act。',
+        '如果用户明确 @ 你、回复你、叫你的名字，必须选择 reply 或 act，除非内容违法、危险或无法理解。',
+        '如果只是普通闲聊，除非与你的职责、人格、长期记忆或当前话题强相关，否则 listen；合适时可以用 react 偶尔插话。',
         '闲聊插话要像有分寸的群友：短、口语化、有观点但不抢话；不要列表化，不要说“作为 AI”，不要假装真实经历。',
         '你需要主动维护长期记忆：稳定偏好、uid/昵称映射、群内人物关系、长期事实应该写入 memoryHints。',
         '如果 replyDraft 声称“已记住/收到/好的”，必须在 memoryHints 中给出对应记忆；否则不要声称已经记住。',
-        '如果涉及订阅、配置、群管理，只能输出 tool_plan 意图，不能声称已经执行。',
+        '如果涉及订阅、配置、群管理，只能选择 act 并输出 toolIntent，不能声称已经执行。',
         '输出必须是严格 JSON，不要 Markdown，不要额外解释。'
     ].join('\n')
 }
 
 function buildDecisionInstruction() {
     return JSON.stringify({
-        action: 'observe_only|react_only|short_reply|full_reply|ask_clarify|casual_interject|ambient_react|tool_plan|defer',
+        action: 'listen|wait|react|reply|act',
         confidence: '0.0 到 1.0 的数字',
         reason: '简短说明为什么这样决定',
         topic: '当前话题标签',
         replyStyle: 'none|friendly_brief|explain|clarify|serious|casual|casual_opinion|ambient',
-        replyDraft: '如果需要回复，给出草稿；否则为空字符串',
+        replyDraft: '仅当 action=react/reply 时给出给 Replyer 的内容草稿；listen/wait/act 必须为空字符串',
+        participation: {
+            action: 'listen|wait|react|reply|act',
+            targetMessageId: '本次参与要面向的消息 id；无法确定则为空',
+            topic: '当前话题标签',
+            relation: 'direct|mentioned|ambient|unrelated',
+            participationLevel: '0.0 到 1.0 的数字',
+            reason: '为什么选择这种参与方式',
+            styleHints: [],
+            toolPlan: null
+        },
+        targetMessageId: '本次回复或行动绑定的消息 id；无法确定则为空',
+        styleHints: [],
         social: {
             interjectScore: '仅普通闲聊插话时填写 0.0-1.0',
             interruptionRisk: '插话打断风险 0.0-1.0',
@@ -45,7 +57,7 @@ function buildDecisionInstruction() {
         },
         memoryHints: [],
         toolIntent: {
-            name: '仅当 action=tool_plan 时填写工具名',
+            name: '仅当 action=act 时填写工具名',
             arguments: {}
         }
     }, null, 2)
@@ -155,10 +167,13 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
         recentMessages: contextSelection.messages,
         contextPolicy: buildContextPolicy(agentConfig, contextSelection.stats),
         constraints: [
-            '默认不要插话。',
-            '普通闲聊只有在 socialContext.score 高、打断风险低、且你能自然补充观点时才选择 casual_interject；只是轻微附和时可选择 ambient_react。',
-            'casual_interject/ambient_react 不能携带 toolIntent，默认不写长期记忆，replyDraft 必须简短自然。',
-            '明确 @ 你、回复你或叫你的名字时，必须选择 short_reply/full_reply/ask_clarify 并提供 replyDraft。',
+            '默认动作是 listen，不要为了存在感硬插话。',
+            'wait 表示用户可能还没说完或群聊过快，本轮不发送。',
+            'react 表示轻量插一句；reply 表示正式回复目标消息；act 表示执行受限工具。',
+            '普通闲聊只有在 socialContext.score 高、打断风险低、且你能自然补充观点时才选择 react。',
+            'react 不能携带 toolIntent，默认不写长期记忆，replyDraft 必须简短自然。',
+            '明确 @ 你、回复你或叫你的名字时，必须选择 reply 或 act；选择 reply 时提供 replyDraft。',
+            '每次 reply/react/act 都尽量填写 targetMessageId，避免把历史消息当成当前请求。',
             '如果 currentMessage.replyTarget 存在，尤其是 isBot=true，必须优先结合被回复消息理解“第一个/继续/这个/上面”等指代。',
             'recentMessages 已按 relevance 标注上下文来源；理解短指代时优先看 reply_chain、topic、assistant_recent，而不是只看最后一句。',
             'contextDigest 是 recentMessages 的压缩摘要；当 recentMessages 很长或话题混杂时，先用 contextDigest 判断当前话题，再回看具体消息。',
@@ -170,18 +185,18 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
-            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、网页搜索、网页截图、显式学习记忆时，action 必须是 tool_plan，toolIntent 必须选择 availableTools 中的工具。',
+            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、网页搜索、网页截图、显式学习记忆时，action 必须是 act，toolIntent 必须选择 availableTools 中的工具。',
             'specialistContext 表示本轮已选中的领域 Agent；availableTools 已按领域裁剪。需要工具时只能选择 availableTools 中存在的工具。',
-            'deterministicToolCandidate 是 runtime 根据明确文本生成的低风险候选工具计划；如果它符合用户意图，优先采用它并输出 action=tool_plan。',
-            'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 ask_clarify，不要猜 QQ 号。',
+            'deterministicToolCandidate 是 runtime 根据明确文本生成的低风险候选工具计划；如果它符合用户意图，优先采用它并输出 action=act。',
+            'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 reply 澄清，不要猜 QQ 号。',
             '如果需要按昵称定位群成员，应先使用 qq.search_members 返回候选，不要直接执行禁言/踢人/改名片。',
             '撤回消息优先使用 currentMessage.replyTarget.messageId；禁言/踢人优先使用 currentMessage.replyTarget.userId 或明确 QQ 号。',
             '读取网页时只能使用 browser.read_url；搜索公开网页时只能使用 browser.search_web；网页截图只能使用 browser.screenshot_url；不要请求内网、localhost、密钥、Cookie 或登录凭证。',
             '稳定事实优先写入 memoryHints；用户明确要求你学习/记住某条非敏感事实时，也可以使用 agent.learn_memory。',
             'toolIntent.arguments 只能包含工具需要的结构化参数；不要把自然语言解释放进参数。',
             '不要声称已经执行任何配置或订阅修改；实际执行必须等待权限校验和确认。',
-            'observe_only/defer 时 replyDraft 必须为空字符串。',
-            'tooShort、lowInformation、crowdedChat 只是上下文特征，不是硬拒绝；你需要自己判断是否沉默。'
+            'listen/wait/act 时 replyDraft 必须为空字符串。',
+            'tooShort、lowInformation、crowdedChat 只是上下文特征，不是硬拒绝；你需要自己判断 listen/wait/react/reply/act。'
         ]
     }
 
@@ -237,8 +252,8 @@ function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, to
         },
         constraints: [
             '必须忠实反映工具执行结果，不得声称执行了不存在的操作。',
-            '不要输出新的 tool_plan，不要要求用户重复确认已经执行完成的操作。',
-            '成功时用 short_reply 简洁说明结果；失败时用 short_reply 说明失败原因和可行下一步。',
+            '不要输出新的 act/toolIntent，不要要求用户重复确认已经执行完成的操作。',
+            '成功或失败时选择 reply，简洁说明结果和可行下一步。',
             'browser.read_url 成功时，应基于 toolOutcome.result.data.text 回答用户的总结/解读问题，控制在 300 字以内。',
             '如果原请求同时提到截图，但本次 toolOutcome.plan.name 只是 browser.read_url，不要说“没法截图”；应说明本轮先完成读取，截图可继续执行或已另有截图工具处理。',
             '其他工具回复必须适合直接发送到 QQ 群，控制在 120 字以内。',

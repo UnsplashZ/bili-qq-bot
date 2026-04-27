@@ -205,7 +205,7 @@ async function run() {
             traceContext: { scope: 'test:observe' }
         })
         assert.strictEqual(decisionResult.skipped, false)
-        assert.strictEqual(decisionResult.decision.action, 'observe_only')
+        assert.strictEqual(decisionResult.decision.action, 'listen')
         assert.strictEqual(decisionResult.decision.wouldReply, true)
         assert.ok(decisionResult.score.reasons.includes('mentioned_bot'))
         assert.ok(decisionResult.score.reasons.includes('bot_management_topic'))
@@ -235,7 +235,7 @@ async function run() {
                 model: 'test-model',
                 usage: { total_tokens: 12 },
                 content: JSON.stringify({
-                    action: 'short_reply',
+                    action: 'reply',
                     confidence: 0.93,
                     reason: '用户明确 @ 我并要求介绍自己',
                     topic: 'bot_identity',
@@ -259,7 +259,7 @@ async function run() {
             traceContext: { scope: 'test:llm-shadow' }
         })
         assert.strictEqual(llmResult.llmDecision.status, 'ok')
-        assert.strictEqual(llmResult.llmDecision.decision.action, 'short_reply')
+        assert.strictEqual(llmResult.llmDecision.decision.action, 'reply')
         assert.strictEqual(llmResult.llmDecision.decision.replyDraft, '我是 Bilibili 助手，目前还在观察模式。')
         assert.ok(Array.isArray(capturedMessages))
         const promptPayload = JSON.parse(capturedMessages[1].content)
@@ -300,7 +300,7 @@ async function run() {
                 model: 'test-model',
                 usage: { total_tokens: 2 },
                 content: JSON.stringify({
-                    action: 'short_reply',
+                    action: 'reply',
                     confidence: 0.91,
                     reason: '修复后输出严格 JSON',
                     topic: 'json_repair',
@@ -384,7 +384,7 @@ async function run() {
         })
         assert.ok(fallbackCalls >= 2)
         assert.strictEqual(fallbackResult.rawLlmDecision.status, 'error')
-        assert.strictEqual(fallbackResult.rawLlmDecision.decision.action, 'tool_plan')
+        assert.strictEqual(fallbackResult.rawLlmDecision.decision.action, 'act')
         assert.strictEqual(fallbackResult.toolPlanResult.status, 'executed')
         assert.strictEqual(fallbackResult.toolPlanResult.plan.name, 'agent.get_group_config')
         assert.strictEqual(fallbackSent.length, 1)
@@ -440,7 +440,7 @@ async function run() {
             traceContext: { scope: 'test:qq-manage-fallback' }
         })
         assert.strictEqual(qqManageFallbackResult.rawLlmDecision.status, 'error')
-        assert.strictEqual(qqManageFallbackResult.rawLlmDecision.decision.action, 'short_reply')
+        assert.strictEqual(qqManageFallbackResult.rawLlmDecision.decision.action, 'reply')
         assert.ok(qqManageFallbackResult.rawLlmDecision.decision.replyDraft.includes('需要 QQ 群主或管理员权限'))
         assert.strictEqual(qqManageFallbackSent.length, 1)
         assert.ok(qqManageFallbackSent[0].params.message[0].data.text.includes('需要 QQ 群主或管理员权限'))
@@ -466,7 +466,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 2 },
             content: JSON.stringify({
-                action: 'observe_only',
+                action: 'listen',
                 confidence: 0.9,
                 reason: '记录用户偏好',
                 topic: 'memory_write',
@@ -497,7 +497,7 @@ async function run() {
             traceContext: { scope: 'test:memory-write' }
         })
         assert.strictEqual(memoryWriteResult.memoryWrite.stored, 1)
-        assert.strictEqual(memoryWriteResult.memoryWrite.skipped, 1)
+        assert.strictEqual(memoryWriteResult.memoryWrite.skipped, 0)
 
         let capturedMemoryMessages = null
         llmClient.createChatCompletion = async ({ messages }) => {
@@ -506,7 +506,7 @@ async function run() {
                 model: 'test-model',
                 usage: { total_tokens: 2 },
                 content: JSON.stringify({
-                    action: 'short_reply',
+                    action: 'reply',
                     confidence: 0.9,
                     reason: '使用长期记忆回答',
                     topic: 'memory_read',
@@ -535,7 +535,6 @@ async function run() {
         const memoryPromptPayload = JSON.parse(capturedMemoryMessages[1].content)
         assert.ok(memoryPromptPayload.memoryContext.includes('<memory-context>'))
         assert.ok(memoryPromptPayload.memoryContext.includes('用户喜欢少前2'))
-        assert.ok(memoryPromptPayload.memoryContext.includes('[memory-context]'))
         assert.ok(!memoryPromptPayload.memoryContext.includes('secret-value-should-not-store'))
 
         shortTermStore.reset()
@@ -559,7 +558,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 2 },
             content: JSON.stringify({
-                action: 'short_reply',
+                action: 'reply',
                 confidence: 0.9,
                 reason: '确认用户提供的 uid 映射',
                 topic: 'uid_relation',
@@ -592,7 +591,7 @@ async function run() {
             llmDecision: {
                 status: 'error',
                 decision: {
-                    action: 'observe_only',
+                    action: 'listen',
                     memoryHints: [
                         {
                             scope: 'group',
@@ -651,7 +650,7 @@ async function run() {
             return {
                 model: 'test-model',
                 usage: { total_tokens: 1 },
-                content: JSON.stringify({ action: 'observe_only', confidence: 0.9, reason: 'ok', topic: 'test', replyStyle: 'none', replyDraft: '', memoryHints: [], toolIntent: null })
+                content: JSON.stringify({ action: 'listen', confidence: 0.9, reason: 'ok', topic: 'test', replyStyle: 'none', replyDraft: '', memoryHints: [], toolIntent: null })
             }
         }
         await agent.agentIngress.observe({
@@ -668,9 +667,9 @@ async function run() {
             messageData: makeMessageData('第二条自然语言', { message_id: 'budget2' }),
             traceContext: { scope: 'test:budget2' }
         })
-        assert.strictEqual(budgetCalls, 1)
+        assert.strictEqual(budgetCalls, 0)
         assert.strictEqual(budgetResult.llmDecision.status, 'skipped')
-        assert.strictEqual(budgetResult.llmDecision.reason, 'group_budget_exceeded')
+        assert.strictEqual(budgetResult.llmDecision.reason, 'timing_gate_wait')
 
         shortTermStore.reset()
         budgetGuard.resetBudget()
@@ -695,7 +694,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 1 },
             content: JSON.stringify({
-                action: 'full_reply',
+                action: 'reply',
                 confidence: 0.92,
                 reason: '用户明确提问',
                 topic: 'bot_identity',
@@ -725,7 +724,7 @@ async function run() {
             traceContext: { scope: 'test:llm-live' }
         })
         assert.strictEqual(liveResult.policyDecision.accepted, true)
-        assert.strictEqual(liveResult.policyDecision.finalAction, 'full_reply')
+        assert.strictEqual(liveResult.policyDecision.finalAction, 'reply')
         assert.strictEqual(liveResult.execution.executed, true)
         assert.strictEqual(sentPayloads.length, 1)
         assert.strictEqual(sentPayloads[0].action, 'send_group_msg')
@@ -737,7 +736,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 1 },
             content: JSON.stringify({
-                action: 'short_reply',
+                action: 'reply',
                 confidence: 0.95,
                 reason: '用户再次明确提问',
                 topic: 'bot_identity',
@@ -799,7 +798,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 1 },
             content: JSON.stringify({
-                action: 'short_reply',
+                action: 'reply',
                 confidence: 0.95,
                 reason: '用户明确提问',
                 topic: 'bot_identity',

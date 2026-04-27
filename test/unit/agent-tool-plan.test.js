@@ -172,7 +172,7 @@ async function run() {
         ],
         sessionContext: { groupId: '1000', userId: '42', topicId: 'topic_memory' },
         agentMessage: { id: 'memory_msg_1' },
-        decision: { action: 'short_reply' }
+        decision: { action: 'reply' }
     })
     await longTermStore.storeMemoryHints({
         hints: [
@@ -180,7 +180,7 @@ async function run() {
         ],
         sessionContext: { groupId: '1000', userId: '43', topicId: 'topic_memory' },
         agentMessage: { id: 'memory_msg_2' },
-        decision: { action: 'short_reply' }
+        decision: { action: 'reply' }
     })
     const memorySummaryPlan = toolRegistry.normalizeToolIntent({
         name: 'agent.get_memory_summary',
@@ -460,7 +460,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 20 },
             content: JSON.stringify({
-                action: 'tool_plan',
+                action: 'act',
                 confidence: 0.98,
                 reason: '管理员要求关闭 Agent 发言',
                 topic: 'agent_config',
@@ -503,7 +503,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 8 },
             content: JSON.stringify({
-                action: 'observe_only',
+                action: 'listen',
                 confidence: 0.2,
                 reason: '裸确认不是明确工具确认',
                 topic: 'tool_management',
@@ -553,7 +553,7 @@ async function run() {
             model: 'test-model',
             usage: { total_tokens: 10 },
             content: JSON.stringify({
-                action: 'short_reply',
+                action: 'reply',
                 confidence: 0.96,
                 reason: '根据工具执行结果生成最终回复',
                 topic: 'tool_result',
@@ -577,7 +577,7 @@ async function run() {
     assert.strictEqual(confirmResult.toolConfirmation.status, 'executed')
     assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, false)
     assert.strictEqual(confirmResult.toolConfirmation.toolReplyDecision.status, 'ok')
-    assert.strictEqual(llmCalls, 3)
+    assert.strictEqual(llmCalls, 2)
     assert.strictEqual(ws.sent.length, 2)
     assert.strictEqual(ws.sent[1].params.message[0].data.text, '已处理：本群 Agent 发言已关闭。')
     pendingConfirmations = confirmationStore.listPendingConfirmations({ groupId: '1000', userId: '42' })
@@ -589,7 +589,7 @@ async function run() {
         model: 'test-model',
         usage: { total_tokens: 20 },
         content: JSON.stringify({
-            action: 'tool_plan',
+            action: 'act',
             confidence: 0.98,
             reason: '普通成员尝试跨群关闭 Bot',
             topic: 'bot_config',
@@ -627,7 +627,7 @@ async function run() {
         model: 'test-model',
         usage: { total_tokens: 20 },
         content: JSON.stringify({
-            action: 'tool_plan',
+            action: 'act',
             confidence: 0.98,
             reason: '管理员要求开启 Agent 发言',
             topic: 'agent_config',
@@ -803,7 +803,7 @@ async function run() {
         llmDecision: {
             status: 'ok',
             decision: {
-                action: 'short_reply',
+                action: 'reply',
                 confidence: 1,
                 replyDraft: '已截取网页截图。',
                 messageChain: [
@@ -815,7 +815,7 @@ async function run() {
         policyDecision: {
             accepted: true,
             wouldSend: true,
-            finalAction: 'short_reply',
+            finalAction: 'reply',
             reason: 'test',
             replyDraft: '已截取网页截图。',
             messageChain: [

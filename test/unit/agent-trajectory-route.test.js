@@ -81,6 +81,12 @@ function run() {
         type: 'observe_decision',
         groupId: '1000',
         userId: '42',
+        timingDecision: {
+            timingAction: 'continue',
+            reason: 'direct_addressed',
+            waitMs: 0,
+            signals: { directAddressed: true }
+        },
         inputGuardrail: {
             allowed: true,
             reason: 'allowed',
@@ -103,6 +109,16 @@ function run() {
                 checks: [{ name: 'secret_leakage', passed: true, reason: 'ok' }]
             }
         },
+        replyerResult: {
+            status: 'ok',
+            model: 'test-model',
+            usage: { total_tokens: 5 },
+            output: {
+                text: '新 Replyer 文案',
+                tone: 'casual',
+                confidence: 0.8
+            }
+        },
         execution: {
             executed: true,
             reason: 'sent',
@@ -114,7 +130,11 @@ function run() {
     assert.strictEqual(matchesFilters(replyItem, { spanType: 'output_guardrail' }), true)
     assert.strictEqual(matchesFilters(replyItem, { spanType: 'input_guardrail' }), true)
     assert.strictEqual(replyItem.inputGuardrail.reason, 'allowed')
+    assert.strictEqual(replyItem.timingDecision.reason, 'direct_addressed')
+    assert.strictEqual(replyItem.replyerResult.textPreview, '新 Replyer 文案')
     assert.ok(replyItem.spans.some((span) => span.type === 'llm_decision'))
+    assert.ok(replyItem.spans.some((span) => span.type === 'timing_gate'))
+    assert.ok(replyItem.spans.some((span) => span.type === 'replyer'))
     assert.ok(replyItem.spans.some((span) => span.type === 'reply_sent'))
 
     const nativeSpanItem = summarizeTrajectory({
@@ -150,6 +170,8 @@ function run() {
     assert.strictEqual(summary.toolCount, 2)
     assert.strictEqual(summary.spanCounts.tool_plan, 2)
     assert.strictEqual(summary.spanCounts.reply_sent, 1)
+    assert.strictEqual(summary.spanCounts.timing_gate, 1)
+    assert.strictEqual(summary.spanCounts.replyer, 1)
     assert.strictEqual(summary.spanCounts.input_guardrail, 1)
 
     console.log('✓ Agent trajectory tool_plan 和 span 过滤正常')

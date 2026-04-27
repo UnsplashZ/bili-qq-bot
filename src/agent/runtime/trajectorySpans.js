@@ -20,6 +20,8 @@ function summarizeLlmDecision(llmDecision = {}) {
     const decision = llmDecision.decision || {}
     return {
         action: decision.action || '',
+        participationAction: decision.participation?.action || decision.action || '',
+        targetMessageId: decision.targetMessageId || decision.participation?.targetMessageId || '',
         model: llmDecision.model || '',
         totalTokens: llmDecision.usage?.total_tokens ?? null
     }
@@ -59,6 +61,13 @@ function buildNativeTrajectorySpans(event = {}) {
         spans.push(makeSpan('context_selected', 'ok', '', {
             topicId: String(event.topicId || ''),
             traitCount: Object.keys(event.messageTraits || event.score?.traits || {}).length
+        }))
+    }
+
+    if (event.timingDecision) {
+        spans.push(makeSpan('timing_gate', event.timingDecision.timingAction || 'continue', event.timingDecision.reason || '', {
+            waitMs: event.timingDecision.waitMs || 0,
+            signals: event.timingDecision.signals || {}
         }))
     }
 
@@ -110,6 +119,14 @@ function buildNativeTrajectorySpans(event = {}) {
         spans.push(makeSpan('tool_result_reply', toolSource.toolReplyDecision.status || 'skipped', toolSource.toolReplyDecision.reason || '', {
             action: toolSource.toolReplyDecision.decision?.action || '',
             model: toolSource.toolReplyDecision.model || ''
+        }))
+    }
+
+    if (event.replyerResult) {
+        spans.push(makeSpan('replyer', event.replyerResult.status || 'skipped', event.replyerResult.reason || '', {
+            tone: event.replyerResult.output?.tone || '',
+            confidence: event.replyerResult.output?.confidence ?? null,
+            model: event.replyerResult.model || ''
         }))
     }
 

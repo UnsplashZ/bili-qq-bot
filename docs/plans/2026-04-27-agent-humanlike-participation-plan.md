@@ -2,6 +2,14 @@
 
 > 目标：把当前 Agent 从“判断回复/不回复”的二分类模式，升级为“像群成员一样管理参与节奏”的多阶段机制。该方案参考 MaiBot 的 planner/replyer/timing gate/expression learning 思路，但不复用 MaiBot GPL 代码，只借鉴架构思想并在本项目内重新实现。
 
+## 0. 当前落地状态
+
+- 已完成：P0 动作模型与 Replyer 最小闭环，运行时主动作切换为 `listen/wait/react/reply/act`。
+- 已完成：P1 Timing Gate 前置节奏判断，明确寻址强制 `continue`，普通群聊可 `listen/wait`。
+- 已完成：trajectory 记录并展示 `timing_gate`、`llm_decision`、`replyer`、`reply_sent` 链路。
+- 待继续：`wait` 目前是本轮静默，不是延迟重入调度；表达学习、人物画像、回复效果和 WebUI 收口仍在后续阶段。
+
+
 ## 1. 背景与问题
 
 当前 Agent 已经具备 LLM 决策、上下文、记忆、工具、网页读取/搜索/截图、QQ 管理和社交插话能力，但拟人化仍有几个结构性问题：
@@ -68,6 +76,9 @@ flowchart TD
 
 ## 5. Phase 1：动作模型与 Schema 收敛
 
+状态：已完成。
+
+
 ### 目标
 
 把当前决策输出从“回复/沉默/工具”扩展为 `listen/wait/react/reply/act`，但外部行为尽量不变。
@@ -117,6 +128,9 @@ flowchart TD
 
 ## 6. Phase 2：Timing Gate 独立化
 
+状态：已完成最小闭环；延迟重入调度后续实现。
+
+
 ### 目标
 
 在进入完整 Planner 前，先判断群聊节奏，避免每条消息都做完整回复决策。
@@ -162,6 +176,9 @@ flowchart TD
 - trajectory 记录 timing decision。
 
 ## 7. Phase 3：Replyer 二阶段生成
+
+状态：已完成最小闭环。
+
 
 ### 目标
 
