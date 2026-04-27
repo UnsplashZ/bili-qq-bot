@@ -23,7 +23,7 @@ function selectTargetMessage(agentMessage, contextMessages = [], targetMessageId
     }
 }
 
-function buildReplyerMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories = [], llmDecision, policyDecision }) {
+function buildReplyerMessages({ agentConfig, agentMessage, memoryObservation, longTermMemories = [], personProfile = null, expressionHints = [], llmDecision, policyDecision }) {
     const decision = llmDecision?.decision || {}
     const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
     const replyMode = decision.action === 'react' || policyDecision?.finalAction === 'react' ? 'react' : 'reply'
@@ -63,6 +63,15 @@ function buildReplyerMessages({ agentConfig, agentMessage, memoryObservation, lo
         memoryHints: Array.isArray(longTermMemories)
             ? longTermMemories.slice(0, 5).map((memory) => compactText(memory.content || '', 180)).filter(Boolean)
             : [],
+        personProfile: personProfile || null,
+        expressionHints: Array.isArray(expressionHints)
+            ? expressionHints.slice(0, 3).map((item) => ({
+                id: item.id || '',
+                situation: compactText(item.situation || '', 120),
+                style: compactText(item.style || '', 160),
+                confidence: item.confidence ?? null
+            }))
+            : [],
         contextDigest: contextSelection.digest,
         threadContext: contextSelection.threads,
         recentMessages: contextSelection.messages,
@@ -74,6 +83,8 @@ function buildReplyerMessages({ agentConfig, agentMessage, memoryObservation, lo
             'react 要短、像群友自然插一句，通常 8-60 字，不列表化，不展开说教。',
             'reply 要回答目标消息，可以更完整，但仍要口语化、直接。',
             '如果 planner.draft 可用，可吸收其信息，但不要机械照抄。',
+            'personProfile 是当前用户画像，只用于避免认错人和贴合已知偏好，不要主动暴露画像来源。',
+            'expressionHints 是本群表达习惯，只能轻微借鉴语气，不要生硬复读，也不要模仿具体用户。',
             `text 最长 ${maxChars} 字。`
         ]
     }

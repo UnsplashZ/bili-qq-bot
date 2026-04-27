@@ -122,11 +122,38 @@ function buildNativeTrajectorySpans(event = {}) {
         }))
     }
 
+    if (event.expressionHints) {
+        spans.push(makeSpan('expression_select', safeArray(event.expressionHints).length > 0 ? 'ok' : 'skipped', '', {
+            ids: safeArray(event.expressionHints).map((item) => item.id).filter(Boolean)
+        }))
+    }
+
     if (event.replyerResult) {
         spans.push(makeSpan('replyer', event.replyerResult.status || 'skipped', event.replyerResult.reason || '', {
             tone: event.replyerResult.output?.tone || '',
             confidence: event.replyerResult.output?.confidence ?? null,
             model: event.replyerResult.model || ''
+        }))
+    }
+
+    if (event.replyEffectObservation) {
+        spans.push(makeSpan('reply_effect_observe', event.replyEffectObservation.status || 'skipped', event.replyEffectObservation.reason || '', {
+            label: event.replyEffectObservation.effect?.label || '',
+            score: event.replyEffectObservation.effect?.score ?? null
+        }))
+    }
+
+    if (event.expressionLearning) {
+        spans.push(makeSpan('expression_learning', event.expressionLearning.status || 'skipped', event.expressionLearning.reason || '', {
+            stored: event.expressionLearning.stored || 0,
+            ids: event.expressionLearning.ids || []
+        }))
+    }
+
+    if (event.personProfileWrite) {
+        spans.push(makeSpan('person_profile', event.personProfileWrite.status || 'skipped', event.personProfileWrite.reason || '', {
+            stored: event.personProfileWrite.stored || 0,
+            userId: event.personProfileWrite.profile?.userId || ''
         }))
     }
 

@@ -80,12 +80,17 @@ const DEFAULT_AGENT_CONFIG = {
         timingGateEnabled: true,
         replyerEnabled: true,
         expressionLearningEnabled: false,
-        replyEffectTrackingEnabled: false
+        replyEffectTrackingEnabled: false,
+        personProfileEnabled: true
     },
     replyer: {
         maxReactChars: 60,
         maxReplyChars: 500,
         allowQuoteReply: true
+    },
+    expression: {
+        learningMinMessages: 20,
+        learningMinIntervalMs: 10 * 60 * 1000
     },
     timing: {
         quietWindowMs: 2500,

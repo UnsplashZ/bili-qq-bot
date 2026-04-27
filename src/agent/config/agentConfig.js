@@ -96,11 +96,16 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     participation.replyerEnabled = participation.replyerEnabled !== false
     participation.expressionLearningEnabled = Boolean(participation.expressionLearningEnabled)
     participation.replyEffectTrackingEnabled = Boolean(participation.replyEffectTrackingEnabled)
+    participation.personProfileEnabled = participation.personProfileEnabled !== false
 
     const replyer = normalized.replyer
     replyer.maxReactChars = Math.max(20, Math.min(500, Math.trunc(parseNumber(replyer.maxReactChars, DEFAULT_AGENT_CONFIG.replyer.maxReactChars))))
     replyer.maxReplyChars = Math.max(80, Math.min(2000, Math.trunc(parseNumber(replyer.maxReplyChars, DEFAULT_AGENT_CONFIG.replyer.maxReplyChars))))
     replyer.allowQuoteReply = replyer.allowQuoteReply !== false
+
+    const expression = normalized.expression
+    expression.learningMinMessages = Math.max(6, Math.min(200, Math.trunc(parseNumber(expression.learningMinMessages, DEFAULT_AGENT_CONFIG.expression.learningMinMessages))))
+    expression.learningMinIntervalMs = Math.max(60 * 1000, Math.min(24 * 60 * 60 * 1000, Math.trunc(parseNumber(expression.learningMinIntervalMs, DEFAULT_AGENT_CONFIG.expression.learningMinIntervalMs))))
 
     const timing = normalized.timing
     timing.quietWindowMs = Math.max(0, Math.min(60 * 1000, Math.trunc(parseNumber(timing.quietWindowMs, DEFAULT_AGENT_CONFIG.timing.quietWindowMs))))
@@ -186,6 +191,9 @@ function getEffectiveAgentConfigForGroup(groupId, agentConfig = normalizeAgentCo
     }
     if (isPlainObject(groupConfig.replyer)) {
         effective.replyer = mergeDefaults(effective.replyer, groupConfig.replyer)
+    }
+    if (isPlainObject(groupConfig.expression)) {
+        effective.expression = mergeDefaults(effective.expression, groupConfig.expression)
     }
     return effective
 }

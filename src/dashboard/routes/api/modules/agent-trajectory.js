@@ -140,11 +140,37 @@ function buildTrajectorySpans(event, item) {
         }))
     }
 
+    if (item.expressionHints) {
+        spans.push(makeSpan('expression_select', safeArray(item.expressionHints).length > 0 ? 'ok' : 'skipped', '', {
+            ids: safeArray(item.expressionHints).map((expression) => expression.id).filter(Boolean)
+        }))
+    }
+
     if (item.replyerResult) {
         spans.push(makeSpan('replyer', item.replyerResult.status || 'skipped', item.replyerResult.reason, {
             tone: item.replyerResult.tone,
             confidence: item.replyerResult.confidence,
             model: item.replyerResult.model
+        }))
+    }
+
+    if (item.replyEffectObservation) {
+        spans.push(makeSpan('reply_effect_observe', item.replyEffectObservation.status || 'skipped', item.replyEffectObservation.reason, {
+            label: item.replyEffectObservation.label || '',
+            score: item.replyEffectObservation.score ?? null
+        }))
+    }
+
+    if (item.expressionLearning) {
+        spans.push(makeSpan('expression_learning', item.expressionLearning.status || 'skipped', item.expressionLearning.reason, {
+            stored: item.expressionLearning.stored || 0,
+            ids: item.expressionLearning.ids || []
+        }))
+    }
+
+    if (item.personProfileWrite) {
+        spans.push(makeSpan('person_profile', item.personProfileWrite.status || 'skipped', item.personProfileWrite.reason, {
+            stored: item.personProfileWrite.stored || 0
         }))
     }
 
@@ -237,6 +263,12 @@ function summarizeTrajectory(event) {
             reason: execution.reason || '',
             action: execution.action || ''
         },
+        expressionHints: safeArray(event.expressionHints).map((expression) => ({
+            id: expression.id || '',
+            situation: expression.situation || '',
+            style: expression.style || '',
+            confidence: expression.confidence ?? null
+        })),
         replyerResult: event.replyerResult
             ? {
                 status: event.replyerResult.status || '',
@@ -246,6 +278,33 @@ function summarizeTrajectory(event) {
                 confidence: event.replyerResult.output?.confidence ?? null,
                 model: event.replyerResult.model || '',
                 totalTokens: event.replyerResult.usage?.total_tokens ?? null
+            }
+            : null,
+        replyEffectObservation: event.replyEffectObservation
+            ? {
+                status: event.replyEffectObservation.status || '',
+                reason: event.replyEffectObservation.reason || '',
+                label: event.replyEffectObservation.effect?.label || '',
+                score: event.replyEffectObservation.effect?.score ?? null,
+                signals: event.replyEffectObservation.effect?.signals || {}
+            }
+            : null,
+        expressionLearning: event.expressionLearning
+            ? {
+                status: event.expressionLearning.status || '',
+                reason: event.expressionLearning.reason || '',
+                stored: event.expressionLearning.stored || 0,
+                skipped: event.expressionLearning.skipped || 0,
+                ids: event.expressionLearning.ids || []
+            }
+            : null,
+        personProfile: event.personProfile || null,
+        personProfileWrite: event.personProfileWrite
+            ? {
+                status: event.personProfileWrite.status || '',
+                reason: event.personProfileWrite.reason || '',
+                stored: event.personProfileWrite.stored || 0,
+                skipped: event.personProfileWrite.skipped || 0
             }
             : null,
         memoryWrite: event.memoryWrite || null,

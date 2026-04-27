@@ -47,7 +47,7 @@ function fallbackTextFromPlanner({ llmDecision, policyDecision, action }) {
     return '我在，具体想让我怎么处理？'
 }
 
-async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTermMemories, llmDecision, policyDecision, sessionContext }) {
+async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTermMemories, personProfile = null, expressionHints = [], llmDecision, policyDecision, sessionContext }) {
     const isSendablePolicy = Boolean(
         policyDecision?.accepted &&
         policyDecision?.wouldSend &&
@@ -70,6 +70,7 @@ async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTe
             status: 'skipped',
             reason: 'replyer_disabled',
             output: { text: text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text, confidence: 0 },
+            expressionHints,
             policyDecision: { ...policyDecision, replyDraft: text }
         }
     }
@@ -81,6 +82,7 @@ async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTe
             status: 'skipped',
             reason: skipReason,
             output: { text: text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text, confidence: 0 },
+            expressionHints,
             policyDecision: { ...policyDecision, replyDraft: text }
         }
     }
@@ -93,6 +95,8 @@ async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTe
                 agentMessage,
                 memoryObservation,
                 longTermMemories,
+                personProfile,
+                expressionHints,
                 llmDecision,
                 policyDecision
             }),
@@ -106,6 +110,7 @@ async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTe
             output,
             model: response.model,
             usage: response.usage,
+            expressionHints,
             policyDecision: {
                 ...policyDecision,
                 replyDraft: output.text,
@@ -124,6 +129,7 @@ async function runReplyer({ agentConfig, agentMessage, memoryObservation, longTe
             status: 'fallback',
             reason: errorMessage,
             output: { text: text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text, confidence: 0 },
+            expressionHints,
             policyDecision: {
                 ...policyDecision,
                 replyDraft: text

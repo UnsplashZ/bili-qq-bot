@@ -21,6 +21,10 @@ const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget'
 const { isSocialAction } = require('../social/interjectPolicy')
 const { runAndRecordTimingGate } = require('../timing/timingGate')
 const { runReplyer } = require('../replyer/replyerService')
+const { selectExpressionHints } = require('../expression/expressionSelector')
+const { maybeLearnExpressions } = require('../expression/expressionLearner')
+const { maybeRefreshPersonProfile, compactProfile } = require('../memory/personProfileBuilder')
+const { observeReplyEffect, trackSentReply } = require('../feedback/replyEffectTracker')
 
 const DETERMINISTIC_MEMORY_SOURCES = new Set([
     'explicit_memory_request',
@@ -244,7 +248,7 @@ function makeTimingLlmDecision(timingDecision) {
     }
 }
 
-async function handleTimingStop(runState, scoreResult, decision, timingDecision) {
+async function handleTimingStop(runState, scoreResult, decision, timingDecision, replyEffectObservation = null) {
     const { agentConfig, agentMessage, groupId, memoryObservation, sessionContext } = runState
     const extractedMemoryHints = extractMemoryHints({ agentMessage })
     const llmDecision = makeTimingLlmDecision(timingDecision)
@@ -287,6 +291,7 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision)
         memoryWrite,
         topicSummaryWrite,
         timingDecision,
+        replyEffectObservation,
         llmDecision,
         rawLlmDecision: llmDecision,
         policyDecision,
@@ -304,6 +309,7 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision)
             replyTarget: agentMessage.replyTarget,
             decision,
             timingDecision,
+            replyEffectObservation,
             messageTraits: scoreResult.traits,
             extractedMemoryHints,
             memoryWrite,
@@ -322,6 +328,11 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision)
 async function runObserveDecision(runState, scoreResult) {
     const { agentConfig, agentMessage, groupId, memoryObservation, sessionContext } = runState
     const decision = decideReply({ scoreResult, agentConfig })
+    const replyEffectObservation = await observeReplyEffect({
+        agentConfig,
+        agentMessage,
+        memoryObservation
+    })
     const timingDecision = runAndRecordTimingGate({
         agentConfig,
         agentMessage,
@@ -329,7 +340,7 @@ async function runObserveDecision(runState, scoreResult) {
         scoreResult
     })
     if (timingDecision.timingAction === 'listen' || timingDecision.timingAction === 'wait') {
-        return handleTimingStop(runState, scoreResult, decision, timingDecision)
+        return handleTimingStop(runState, scoreResult, decision, timingDecision, replyEffectObservation)
     }
 
     const budgetDecision = checkBudget({
@@ -355,6 +366,14 @@ async function runObserveDecision(runState, scoreResult) {
         text: agentMessage.normalizedText || agentMessage.rawText,
         limit: agentConfig.longTerm?.retrieveLimit || 5
     })
+    const personProfileWrite = await maybeRefreshPersonProfile({
+        agentConfig,
+        groupId,
+        userId: agentMessage.userId,
+        longTermMemories,
+        agentMessage
+    })
+    const personProfile = compactProfile(personProfileWrite.profile)
     const llmDecision = await decideWithLlm({
         agentConfig,
         agentMessage,
@@ -365,7 +384,8 @@ async function runObserveDecision(runState, scoreResult) {
         sessionContext,
         budgetDecision,
         inputGuardrail,
-        socialScore
+        socialScore,
+        replyEffectObservation
     })
     const extractedMemoryHints = extractMemoryHints({ agentMessage })
     const rawToolPlanResult = await processToolPlan({
@@ -409,6 +429,8 @@ async function runObserveDecision(runState, scoreResult) {
         decision,
         messageTraits: scoreResult.traits,
         longTermMemories,
+        personProfile,
+        personProfileWrite,
         extractedMemoryHints,
         memoryWrite,
         topicSummaryWrite,
@@ -419,7 +441,8 @@ async function runObserveDecision(runState, scoreResult) {
         rawLlmDecision: llmDecision,
         toolPlanResult,
         decisionGuardrail,
-        socialScore
+        socialScore,
+        replyEffectObservation
     }
 
     if (toolPlanResult?.decisionOverride) {
@@ -462,11 +485,19 @@ async function runObserveDecision(runState, scoreResult) {
         messageTraits: scoreResult.traits || {},
         replyGuardDecision
     })
+    const expressionHints = await selectExpressionHints({
+        agentConfig,
+        groupId,
+        agentMessage,
+        policyDecision
+    })
     const replyerResult = await runReplyer({
         agentConfig,
         agentMessage,
         memoryObservation,
         longTermMemories,
+        personProfile,
+        expressionHints,
         llmDecision: effectiveLlmDecision,
         policyDecision,
         sessionContext
@@ -526,11 +557,32 @@ async function runObserveDecision(runState, scoreResult) {
     if (execution.executed && isSocialAction(policyDecision.finalAction)) {
         recordSocialSend({ groupId, topicId: sessionContext.topicId, timestamp: agentMessage.timestamp })
     }
+    const replyEffectPending = execution.executed
+        ? trackSentReply({
+            agentConfig,
+            groupId,
+            userId: agentMessage.userId,
+            messageId: agentMessage.id,
+            topicId: sessionContext.topicId,
+            policyDecision,
+            replyerResult,
+            timestamp: Date.now()
+        })
+        : null
+    const expressionLearning = await maybeLearnExpressions({
+        agentConfig,
+        memoryObservation,
+        sessionContext
+    })
     const result = runState.baseResult({
         ...runData,
         policyDecision,
+        expressionHints,
         replyerResult,
         outputGuardrail: outputDecision.outputGuardrail,
+        replyEffectObservation,
+        replyEffectPending,
+        expressionLearning,
         execution
     })
 
@@ -547,6 +599,8 @@ async function runObserveDecision(runState, scoreResult) {
             decision,
             messageTraits: scoreResult.traits,
             longTermMemories,
+            personProfile,
+            personProfileWrite,
             extractedMemoryHints,
             memoryWrite,
             topicSummaryWrite,
@@ -557,7 +611,11 @@ async function runObserveDecision(runState, scoreResult) {
             rawLlmDecision: llmDecision,
             toolPlanResult,
             policyDecision,
+            expressionHints,
             replyerResult,
+            replyEffectObservation,
+            replyEffectPending,
+            expressionLearning,
             decisionGuardrail,
             outputGuardrail: outputDecision.outputGuardrail,
             execution,
