@@ -28,9 +28,33 @@ function extractJsonObject(text) {
     const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
     const candidate = fenced ? fenced[1].trim() : raw
     const start = candidate.indexOf('{')
-    const end = candidate.lastIndexOf('}')
-    if (start < 0 || end < start) throw new Error('decision_json_object_not_found')
-    return candidate.slice(start, end + 1)
+    if (start < 0) throw new Error('decision_json_object_not_found')
+
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let index = start; index < candidate.length; index += 1) {
+        const char = candidate[index]
+        if (escaped) {
+            escaped = false
+            continue
+        }
+        if (char === '\\') {
+            escaped = true
+            continue
+        }
+        if (char === '"') {
+            inString = !inString
+            continue
+        }
+        if (inString) continue
+        if (char === '{') depth += 1
+        if (char === '}') {
+            depth -= 1
+            if (depth === 0) return candidate.slice(start, index + 1)
+        }
+    }
+    throw new Error('decision_json_object_not_found')
 }
 
 function parseDecisionJson(text) {

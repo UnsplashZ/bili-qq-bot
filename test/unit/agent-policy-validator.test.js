@@ -27,7 +27,7 @@ function makeDecision({ confidence, replyDraft = '收到。' }) {
     }
 }
 
-function makeFallbackDecision({ action = 'ask_clarify', replyDraft = '我刚才没能正确解析这条请求。你可以再明确说一次吗？' } = {}) {
+function makeFallbackDecision({ action = 'ask_clarify', replyDraft = '这句我没理解具体要我做什么。可以直接说动作和对象。' } = {}) {
     return {
         status: 'error',
         reason: 'agent_llm_empty_message_content',
@@ -271,6 +271,23 @@ function run() {
     })
     assert.strictEqual(outputBlocked.policyDecision.accepted, false)
     assert.strictEqual(outputBlocked.policyDecision.reason, 'possible_secret_leakage')
+
+    const internalErrorRewritten = applyOutputGuardrails({
+        agentConfig: {},
+        llmDecision: makeFallbackDecision({
+            replyDraft: '我刚才没能正确解析这条请求。JSON decision 失败。'
+        }),
+        policyDecision: {
+            accepted: true,
+            wouldSend: true,
+            finalAction: 'ask_clarify',
+            reason: 'llm_fallback:decision_json_object_not_found',
+            replyDraft: '我刚才没能正确解析这条请求。JSON decision 失败。'
+        }
+    })
+    assert.strictEqual(internalErrorRewritten.policyDecision.accepted, true)
+    assert.ok(!internalErrorRewritten.policyDecision.replyDraft.includes('没能正确解析'))
+    assert.ok(internalErrorRewritten.outputGuardrail.checks.some((check) => check.name === 'internal_error_leakage' && check.reason === 'internal_error_rewritten'))
 
     const normalizedConfig = normalizeAgentConfig({
         tools: {

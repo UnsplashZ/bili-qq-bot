@@ -14,7 +14,13 @@ function getApiKey(llmConfig, env = process.env) {
     return ''
 }
 
-async function requestChatCompletion({ url, apiKey, llmConfig, messages, signal }) {
+function requestTemperature(llmConfig, purpose = '') {
+    if (purpose === 'decision' || purpose === 'tool_reply' || purpose === 'repair') return 0
+    const configured = Number(llmConfig?.temperature)
+    return Number.isFinite(configured) ? configured : 0
+}
+
+async function requestChatCompletion({ url, apiKey, llmConfig, messages, signal, purpose = '' }) {
     const response = await fetch(url, {
         method: 'POST',
         signal,
@@ -25,7 +31,7 @@ async function requestChatCompletion({ url, apiKey, llmConfig, messages, signal 
         body: JSON.stringify({
             model: llmConfig.model,
             messages,
-            temperature: llmConfig.temperature,
+            temperature: requestTemperature(llmConfig, purpose),
             max_tokens: llmConfig.maxTokens,
             response_format: { type: 'json_object' }
         })
@@ -55,7 +61,7 @@ async function requestChatCompletion({ url, apiKey, llmConfig, messages, signal 
     }
 }
 
-async function createChatCompletion({ llmConfig, messages, traceScope }) {
+async function createChatCompletion({ llmConfig, messages, traceScope, purpose = '' }) {
     const url = buildChatCompletionsUrl(llmConfig.baseURL)
     const apiKey = getApiKey(llmConfig)
 
@@ -75,7 +81,8 @@ async function createChatCompletion({ llmConfig, messages, traceScope }) {
                 apiKey,
                 llmConfig,
                 messages,
-                signal: controller.signal
+                signal: controller.signal,
+                purpose
             })
         } catch (error) {
             lastError = error
@@ -99,6 +106,7 @@ async function createChatCompletion({ llmConfig, messages, traceScope }) {
 module.exports = {
     buildChatCompletionsUrl,
     getApiKey,
+    requestTemperature,
     requestChatCompletion,
     createChatCompletion
 }

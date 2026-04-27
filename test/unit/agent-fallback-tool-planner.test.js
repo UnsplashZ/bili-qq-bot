@@ -6,6 +6,7 @@ const path = require('path')
 
 const {
     extractFirstHttpUrl,
+    findSafeContextUrl,
     isSafePublicHttpUrl,
     planFallbackTool
 } = require(path.join(__dirname, '../../src/agent/cognition/fallbackToolPlanner'))
@@ -47,6 +48,36 @@ function run() {
     })
     assert.strictEqual(screenshotPlan.toolIntent.name, 'browser.screenshot_url')
 
+    const contextualScreenshotPlan = planFallbackTool({
+        text: '@Bot 为什么不能截图？',
+        addressed: true,
+        replyTarget: {
+            isBot: true,
+            text: '本轮先完成网页读取，截图可继续执行。'
+        },
+        recentMessages: [
+            { normalizedText: '闲聊一句' },
+            { normalizedText: '@Bot 总结 https://example.com/a 这个页面，截个图给我' },
+            { role: 'assistant', normalizedText: '本轮先完成网页读取，截图可继续执行。' }
+        ]
+    })
+    assert.strictEqual(contextualScreenshotPlan.toolIntent.name, 'browser.screenshot_url')
+    assert.strictEqual(contextualScreenshotPlan.toolIntent.arguments.url, 'https://example.com/a')
+    const contextualInspectionPlan = planFallbackTool({
+        text: '@Bot 检查一下你截图的内容',
+        addressed: true,
+        replyTarget: {
+            isBot: true,
+            text: '已截取网页截图：https://example.com/a [图片]'
+        },
+        recentMessages: []
+    })
+    assert.strictEqual(contextualInspectionPlan.toolIntent.name, 'browser.read_url')
+    assert.strictEqual(contextualInspectionPlan.toolIntent.arguments.url, 'https://example.com/a')
+    assert.strictEqual(findSafeContextUrl({
+        recentMessages: [{ normalizedText: '不要访问 http://127.0.0.1:3000' }]
+    }), '')
+
     const unavailablePlan = planFallbackTool({
         text: '@Bot 总结 https://example.com',
         addressed: true,
@@ -75,6 +106,42 @@ function run() {
     })
     assert.strictEqual(fallbackDecision.action, 'tool_plan')
     assert.strictEqual(fallbackDecision.toolIntent.name, 'browser.read_url')
+
+    const contextualFallbackDecision = buildErrorFallbackDecision({
+        agentMessage: {
+            normalizedText: '@Bot 为什么不能截图？',
+            rawText: '@Bot 为什么不能截图？',
+            mentionsSelf: true,
+            aliasMatched: false,
+            replyToSelf: true,
+            replyTarget: {
+                isBot: true,
+                text: '本轮先完成网页读取，截图可继续执行。'
+            }
+        },
+        memoryObservation: {
+            groupState: {
+                recentMessages: [
+                    { normalizedText: '@Bot 总结 https://example.com/a 这个页面，截个图给我' }
+                ]
+            }
+        },
+        scoreResult: {
+            score: 1,
+            reasons: ['mentioned_bot', 'reply_context'],
+            penalties: [],
+            traits: {
+                mentionedBot: true,
+                replyToBot: true
+            }
+        },
+        ruleDecision: { wouldReply: true },
+        errorMessage: 'decision_json_object_not_found',
+        sessionContext: { actor: { isRoot: true, qqRole: 'owner' } }
+    })
+    assert.strictEqual(contextualFallbackDecision.action, 'tool_plan')
+    assert.strictEqual(contextualFallbackDecision.toolIntent.name, 'browser.screenshot_url')
+    assert.strictEqual(contextualFallbackDecision.toolIntent.arguments.url, 'https://example.com/a')
 
     const messages = buildDecisionMessages({
         agentConfig: {
@@ -141,6 +208,7 @@ function run() {
     const toolPayload = JSON.parse(toolResultMessages[1].content)
     assert.ok(toolPayload.toolOutcome.result.data.text.includes('网页正文'))
     assert.ok(toolPayload.constraints.some((item) => item.includes('browser.read_url')))
+    assert.ok(toolPayload.constraints.some((item) => item.includes('不要说“没法截图”')))
 
     console.log('✓ Agent fallback 工具规划正常')
 }

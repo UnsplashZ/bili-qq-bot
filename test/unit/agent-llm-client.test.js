@@ -10,8 +10,10 @@ const originalFetch = global.fetch
 
 async function run() {
     let calls = 0
-    global.fetch = async () => {
+    const requestBodies = []
+    global.fetch = async (_url, options) => {
         calls += 1
+        requestBodies.push(JSON.parse(options.body))
         return {
             ok: true,
             async text() {
@@ -43,9 +45,16 @@ async function run() {
         })
         assert.strictEqual(calls, 2)
         assert.strictEqual(result.content, '{"action":"observe_only"}')
+        assert.strictEqual(requestBodies[0].response_format.type, 'json_object')
+        assert.strictEqual(requestBodies[0].temperature, 0)
     } finally {
         global.fetch = originalFetch
     }
+
+    assert.strictEqual(llmClient.requestTemperature({ temperature: 0.8 }, 'decision'), 0)
+    assert.strictEqual(llmClient.requestTemperature({ temperature: 0.8 }, 'repair'), 0)
+    assert.strictEqual(llmClient.requestTemperature({ temperature: 0.8 }, 'tool_reply'), 0)
+    assert.strictEqual(llmClient.requestTemperature({ temperature: 0.8 }, 'chat'), 0.8)
 
     console.log('✓ Agent LLM 空响应重试正常')
 }

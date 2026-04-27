@@ -9,6 +9,13 @@ function extractFirstHttpUrl(text) {
     return match[0].replace(/[),.;，。！？、]+$/g, '')
 }
 
+function extractHttpUrls(text) {
+    const matches = String(text || '').match(/https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/g) || []
+    return matches
+        .map((url) => url.replace(/[),.;，。！？、]+$/g, ''))
+        .filter(Boolean)
+}
+
 function isPrivateIPv4(hostname) {
     const parts = String(hostname || '').split('.').map(Number)
     if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
@@ -48,6 +55,15 @@ function hasScreenshotIntent(text) {
     return /截图|截个图|截屏|截一下|页面图|网页图/.test(String(text || ''))
 }
 
+function hasContextFollowupIntent(text) {
+    return /这个|那个|上面|刚才|继续|为什么不能|补一下|再来|也要/.test(String(text || ''))
+}
+
+function hasScreenshotInspectionIntent(text) {
+    return /检查|看看|看下|看一下|内容|是不是|对不对|有没有|空白|白屏/.test(String(text || '')) &&
+        hasScreenshotIntent(text)
+}
+
 function toolAvailable(toolName, availableToolNames) {
     if (!Array.isArray(availableToolNames) || availableToolNames.length === 0) return true
     return availableToolNames.includes(toolName)
@@ -72,14 +88,32 @@ function makeToolPlanDecision({ toolName, url, reason, confidence = 0.35 }) {
     }
 }
 
-function planFallbackTool({ text, addressed = false, availableToolNames } = {}) {
+function findSafeContextUrl({ replyTarget, recentMessages } = {}) {
+    const texts = []
+    if (replyTarget?.text) texts.push(replyTarget.text)
+    if (Array.isArray(recentMessages)) {
+        for (const message of recentMessages.slice().reverse()) {
+            texts.push(message?.normalizedText || message?.rawText || '')
+            if (message?.replyTarget?.text) texts.push(message.replyTarget.text)
+        }
+    }
+
+    for (const contextText of texts) {
+        for (const url of extractHttpUrls(contextText)) {
+            if (isSafePublicHttpUrl(url)) return url
+        }
+    }
+    return ''
+}
+
+function planFallbackTool({ text, addressed = false, availableToolNames, replyTarget, recentMessages } = {}) {
     const normalizedText = String(text || '')
     if (!addressed) return null
 
     const url = extractFirstHttpUrl(normalizedText)
-    if (!url || !isSafePublicHttpUrl(url)) return null
+    if (url && !isSafePublicHttpUrl(url)) return null
 
-    if (hasReadIntent(normalizedText) && toolAvailable('browser.read_url', availableToolNames)) {
+    if (url && hasReadIntent(normalizedText) && toolAvailable('browser.read_url', availableToolNames)) {
         return makeToolPlanDecision({
             toolName: 'browser.read_url',
             url,
@@ -87,7 +121,7 @@ function planFallbackTool({ text, addressed = false, availableToolNames } = {}) 
         })
     }
 
-    if (hasScreenshotIntent(normalizedText) && toolAvailable('browser.screenshot_url', availableToolNames)) {
+    if (url && hasScreenshotIntent(normalizedText) && toolAvailable('browser.screenshot_url', availableToolNames)) {
         return makeToolPlanDecision({
             toolName: 'browser.screenshot_url',
             url,
@@ -95,13 +129,41 @@ function planFallbackTool({ text, addressed = false, availableToolNames } = {}) 
         })
     }
 
+    if (
+        !url &&
+        hasScreenshotIntent(normalizedText) &&
+        (replyTarget?.isBot || hasContextFollowupIntent(normalizedText)) &&
+        (
+            toolAvailable('browser.screenshot_url', availableToolNames) ||
+            toolAvailable('browser.read_url', availableToolNames)
+        )
+    ) {
+        const contextUrl = findSafeContextUrl({ replyTarget, recentMessages })
+        if (contextUrl) {
+            const toolName = hasScreenshotInspectionIntent(normalizedText) && toolAvailable('browser.read_url', availableToolNames)
+                ? 'browser.read_url'
+                : 'browser.screenshot_url'
+            if (!toolAvailable(toolName, availableToolNames)) return null
+            return makeToolPlanDecision({
+                toolName,
+                url: contextUrl,
+                reason: `deterministic contextual URL screenshot fallback for: ${compactText(normalizedText, 120)}`,
+                confidence: 0.3
+            })
+        }
+    }
+
     return null
 }
 
 module.exports = {
     extractFirstHttpUrl,
+    extractHttpUrls,
     isSafePublicHttpUrl,
     hasReadIntent,
     hasScreenshotIntent,
+    hasContextFollowupIntent,
+    hasScreenshotInspectionIntent,
+    findSafeContextUrl,
     planFallbackTool
 }

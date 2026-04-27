@@ -42,6 +42,19 @@ function buildRepairMessages({ messages, invalidContent, errorMessage }) {
     ]
 }
 
+function makeSafeReplyDecision({ replyDraft, reason = 'llm_safe_fallback', topic = 'llm_fallback', confidence = 0.2, action = 'ask_clarify', replyStyle = 'clarify' }) {
+    return {
+        action,
+        confidence,
+        reason,
+        topic,
+        replyStyle,
+        replyDraft,
+        memoryHints: [],
+        toolIntent: null
+    }
+}
+
 function isQqManagementText(text) {
     return /禁言|解禁|撤回|踢出?|群名片|全员禁言|精华|加群|好友申请|在线状态|输入状态|公告|头衔|申请/.test(String(text || ''))
 }
@@ -53,31 +66,46 @@ function canManageQq(actor) {
 
 function buildQqManagementFallbackDecision({ actor, errorMessage }) {
     if (!canManageQq(actor)) {
-        return {
-            action: 'short_reply',
-            confidence: 0.2,
+        return makeSafeReplyDecision({
+            replyDraft: '这个操作需要 QQ 群主或管理员权限，我不能替普通群成员执行禁言、撤回、踢人等群管理操作。',
             reason: `LLM decision failed; fallback to QQ management permission denial: ${errorMessage}`,
             topic: 'qq_management_permission',
-            replyStyle: 'serious',
-            replyDraft: '这个操作需要 QQ 群主或管理员权限，我不能替普通群成员执行禁言、撤回、踢人等群管理操作。',
-            memoryHints: [],
-            toolIntent: null
-        }
+            action: 'short_reply',
+            replyStyle: 'serious'
+        })
     }
 
-    return {
-        action: 'ask_clarify',
-        confidence: 0.2,
+    return makeSafeReplyDecision({
+        replyDraft: '这个群管理操作还缺少可靠参数。请明确动作、目标和必要参数，例如“禁言 123456 60 秒”，或回复目标消息说“撤回这条”。',
         reason: `LLM decision failed; fallback to QQ management clarification: ${errorMessage}`,
-        topic: 'qq_management_fallback',
-        replyStyle: 'clarify',
-        replyDraft: '我识别到这是 QQ 群管理操作，但刚才没有可靠解析出目标或参数。请明确动作、目标和必要参数，例如“禁言 123456 60 秒”，或回复目标消息说“撤回这条”。',
-        memoryHints: [],
-        toolIntent: null
-    }
+        topic: 'qq_management_fallback'
+    })
 }
 
-function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, errorMessage, sessionContext }) {
+function buildSafeClarifyDecision({ text, errorMessage }) {
+    const normalizedText = String(text || '')
+    if (/截图|截屏|网页图|页面图/.test(normalizedText)) {
+        return makeSafeReplyDecision({
+            replyDraft: '这条截图请求还缺少可用的原网页链接。请把链接发出来，或回复我上一条带链接的消息。',
+            reason: `LLM decision failed; fallback to screenshot clarification: ${errorMessage}`,
+            topic: 'browser_screenshot_fallback'
+        })
+    }
+    if (/网页|链接|网址|url|http/i.test(normalizedText)) {
+        return makeSafeReplyDecision({
+            replyDraft: '这条网页请求还缺少可用链接或动作。你可以直接说“总结这个链接”或“截这个网页”。',
+            reason: `LLM decision failed; fallback to browser clarification: ${errorMessage}`,
+            topic: 'browser_fallback'
+        })
+    }
+    return makeSafeReplyDecision({
+        replyDraft: '这句我没理解具体要我做什么。可以直接说动作和对象，比如“总结这个链接”“截图这个网页”或“禁言某人 60 秒”。',
+        reason: `LLM decision failed; fallback to safe clarify: ${errorMessage}`,
+        topic: 'llm_fallback'
+    })
+}
+
+function buildErrorFallbackDecision({ agentMessage, memoryObservation, scoreResult, ruleDecision, errorMessage, sessionContext }) {
     const text = String(agentMessage?.normalizedText || agentMessage?.rawText || '')
     const traits = scoreResult?.traits || {}
     const addressed = Boolean(
@@ -91,7 +119,12 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
     )
     const actor = sessionContext?.actor || {}
 
-    const fallbackToolPlan = planFallbackTool({ text, addressed })
+    const fallbackToolPlan = planFallbackTool({
+        text,
+        addressed,
+        replyTarget: agentMessage?.replyTarget || sessionContext?.replyTarget,
+        recentMessages: memoryObservation?.groupState?.recentMessages
+    })
     if (fallbackToolPlan) {
         return {
             ...fallbackToolPlan,
@@ -121,16 +154,7 @@ function buildErrorFallbackDecision({ agentMessage, scoreResult, ruleDecision, e
     }
 
     if (addressed) {
-        return {
-            action: 'ask_clarify',
-            confidence: 0.2,
-            reason: `LLM decision failed; fallback to clarify: ${errorMessage}`,
-            topic: 'llm_fallback',
-            replyStyle: 'clarify',
-            replyDraft: '我刚才没能正确解析这条请求。你可以再明确说一次吗？',
-            memoryHints: [],
-            toolIntent: null
-        }
+        return buildSafeClarifyDecision({ text, errorMessage })
     }
 
     return fallbackDecision(`LLM decision failed; fallback to observe_only: ${errorMessage}`)
@@ -180,7 +204,8 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
         const response = await llmClient.createChatCompletion({
             llmConfig: agentConfig.llm,
             messages,
-            traceScope: sessionContext.traceScope
+            traceScope: sessionContext.traceScope,
+            purpose: 'decision'
         })
         let decision
         let repaired = false
@@ -201,7 +226,8 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
                     invalidContent: response.content,
                     errorMessage: logger.getErrorMessage(parseError)
                 }),
-                traceScope: sessionContext.traceScope
+                traceScope: sessionContext.traceScope,
+                purpose: 'repair'
             })
             decision = parseAndNormalizeDecision(repairResponse.content)
             finalResponse = repairResponse
@@ -232,6 +258,7 @@ async function decideWithLlm({ agentConfig, agentMessage, memoryObservation, lon
             reason: errorMessage,
             decision: buildErrorFallbackDecision({
                 agentMessage,
+                memoryObservation,
                 scoreResult,
                 ruleDecision,
                 errorMessage,
@@ -277,7 +304,8 @@ async function finalizeToolResultReply({ agentConfig, agentMessage, sessionConte
                 sessionContext,
                 toolOutcome
             }),
-            traceScope: sessionContext.traceScope
+            traceScope: sessionContext.traceScope,
+            purpose: 'tool_reply'
         })
         const decision = parseAndNormalizeDecision(response.content)
         if (!isSendableToolReply(decision)) {
@@ -322,5 +350,6 @@ module.exports = {
     validateLlmConfig,
     buildRepairMessages,
     buildErrorFallbackDecision,
+    buildSafeClarifyDecision,
     isQqManagementText
 }

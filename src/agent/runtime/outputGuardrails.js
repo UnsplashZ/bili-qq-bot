@@ -4,6 +4,15 @@ const SECRET_PATTERNS = [
     /authorization\s*:\s*bearer\s+[A-Za-z0-9._-]{12,}/i
 ]
 
+const INTERNAL_ERROR_PATTERNS = [
+    /我刚才没能正确解析/,
+    /解析失败/,
+    /agent_llm_/i,
+    /decision_json_object_not_found/i,
+    /(?:JSON|LLM|decision|schema).{0,20}(失败|错误|解析|格式|输出)/i,
+    /(失败|错误|解析|格式|输出).{0,20}(JSON|LLM|decision|schema)/i
+]
+
 function makeCheck(name, passed, reason = 'ok', detail = {}) {
     return {
         name,
@@ -34,6 +43,24 @@ function containsSecret(text) {
     return SECRET_PATTERNS.some((pattern) => pattern.test(String(text || '')))
 }
 
+function containsInternalError(text) {
+    return INTERNAL_ERROR_PATTERNS.some((pattern) => pattern.test(String(text || '')))
+}
+
+function safeFallbackReply(policyDecision = {}, llmDecision = {}) {
+    const reasonText = `${policyDecision.reason || ''} ${llmDecision.reason || ''} ${llmDecision.decision?.reason || ''}`
+    if (/screenshot|browser_screenshot|截图|截屏|网页图|页面图/i.test(reasonText)) {
+        return '这条截图请求还缺少可用的原网页链接。请把链接发出来，或回复我上一条带链接的消息。'
+    }
+    if (/browser|read_url|search_web|网页|链接|url|http/i.test(reasonText)) {
+        return '这条网页请求还缺少可用链接或动作。你可以直接说“总结这个链接”或“截这个网页”。'
+    }
+    if (/qq_management|禁言|撤回|踢|群管理|加群|好友/i.test(reasonText)) {
+        return '这个操作需要明确目标、参数和权限。请补充对象和必要参数后再发一次。'
+    }
+    return '这句我没理解具体要我做什么。可以直接说动作和对象，比如“总结这个链接”“截图这个网页”或“禁言某人 60 秒”。'
+}
+
 function trimReplyDraft(replyDraft, limit) {
     const text = String(replyDraft || '').trim()
     if (text.length <= limit) return text
@@ -45,7 +72,7 @@ function evaluateOutputGuardrails({ agentConfig, policyDecision, llmDecision }) 
     const wouldSend = Boolean(policyDecision?.accepted && policyDecision?.wouldSend)
     const originalReplyDraft = String(policyDecision?.replyDraft || llmDecision?.decision?.replyDraft || '').trim()
     const limit = maxReplyCharsForDecision(agentConfig, policyDecision)
-    const replyDraft = wouldSend ? trimReplyDraft(originalReplyDraft, limit) : originalReplyDraft
+    let replyDraft = wouldSend ? trimReplyDraft(originalReplyDraft, limit) : originalReplyDraft
 
     checks.push(makeCheck('sendable_policy', wouldSend || !originalReplyDraft, wouldSend ? 'ok' : (policyDecision?.reason || 'not_sending')))
 
@@ -59,6 +86,11 @@ function evaluateOutputGuardrails({ agentConfig, policyDecision, llmDecision }) 
         ))
         const hasSecret = containsSecret(originalReplyDraft)
         checks.push(makeCheck('secret_leakage', !hasSecret, hasSecret ? 'possible_secret_leakage' : 'ok'))
+        const hasInternalError = containsInternalError(replyDraft)
+        checks.push(makeCheck('internal_error_leakage', !hasInternalError, hasInternalError ? 'internal_error_rewritten' : 'ok'))
+        if (hasInternalError) {
+            replyDraft = trimReplyDraft(safeFallbackReply(policyDecision, llmDecision), limit)
+        }
     }
 
     const secretFailure = checks.find((check) => check.reason === 'possible_secret_leakage')
@@ -108,5 +140,7 @@ function applyOutputGuardrails({ agentConfig, policyDecision, llmDecision }) {
 
 module.exports = {
     evaluateOutputGuardrails,
-    applyOutputGuardrails
+    applyOutputGuardrails,
+    containsInternalError,
+    safeFallbackReply
 }

@@ -94,6 +94,8 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
     const deterministicToolCandidate = planFallbackTool({
         text: agentMessage.normalizedText || agentMessage.rawText,
         addressed,
+        replyTarget: agentMessage.replyTarget,
+        recentMessages: memoryObservation?.groupState?.recentMessages,
         availableToolNames: specialistContext.availableTools.map((tool) => tool.name)
     })
     const userPayload = {
@@ -238,6 +240,7 @@ function buildToolResultMessages({ agentConfig, agentMessage, sessionContext, to
             '不要输出新的 tool_plan，不要要求用户重复确认已经执行完成的操作。',
             '成功时用 short_reply 简洁说明结果；失败时用 short_reply 说明失败原因和可行下一步。',
             'browser.read_url 成功时，应基于 toolOutcome.result.data.text 回答用户的总结/解读问题，控制在 300 字以内。',
+            '如果原请求同时提到截图，但本次 toolOutcome.plan.name 只是 browser.read_url，不要说“没法截图”；应说明本轮先完成读取，截图可继续执行或已另有截图工具处理。',
             '其他工具回复必须适合直接发送到 QQ 群，控制在 120 字以内。',
             'memoryHints 必须为空数组，toolIntent 必须为 null。'
         ]

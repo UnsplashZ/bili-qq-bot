@@ -684,7 +684,8 @@ async function run() {
     assert.strictEqual(llmFallbackResult.policyDecision.reason, 'llm_fallback:agent_llm_empty_message_content')
     assert.strictEqual(llmFallbackResult.execution.executed, true)
     assert.strictEqual(llmFallbackWs.sent.length, 1)
-    assert.ok(llmFallbackWs.sent[0].params.message[0].data.text.includes('没能正确解析'))
+    assert.ok(!llmFallbackWs.sent[0].params.message[0].data.text.includes('没能正确解析'))
+    assert.ok(llmFallbackWs.sent[0].params.message[0].data.text.includes('动作和对象'))
 
     notificationService.callAction = async () => ({
         status: 'ok',
