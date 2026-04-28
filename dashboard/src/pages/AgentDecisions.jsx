@@ -6,13 +6,18 @@ import { useToast } from '../hooks/useToast';
 
 const ACTIONS = [
   '',
+  'listen',
+  'wait',
+  'react',
+  'reply',
+  'act',
+  'tool_plan',
   'observe_only',
   'short_reply',
   'full_reply',
   'ask_clarify',
   'casual_interject',
   'ambient_react',
-  'tool_plan',
   'defer',
 ];
 
@@ -21,6 +26,7 @@ const SPAN_TYPES = [
   'message_received',
   'input_guardrail',
   'context_selected',
+  'timing_gate',
   'llm_decision',
   'decision_guardrail',
   'tool_plan',
@@ -28,6 +34,11 @@ const SPAN_TYPES = [
   'tool_confirmation',
   'tool_execute',
   'tool_result_reply',
+  'expression_select',
+  'replyer',
+  'expression_learning',
+  'reply_effect_observe',
+  'person_profile',
   'output_guardrail',
   'reply_sent',
 ];
@@ -47,18 +58,24 @@ function formatTime(value) {
 }
 
 function badgeClass(action) {
-  if (['short_reply', 'full_reply', 'ask_clarify'].includes(action)) {
+  if (['reply', 'short_reply', 'full_reply', 'ask_clarify'].includes(action)) {
     return 'bg-blue-500/15 text-blue-200 border-blue-400/30';
   }
-  if (action === 'casual_interject') return 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-400/30';
+  if (['react', 'casual_interject'].includes(action)) return 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-400/30';
   if (action === 'ambient_react') return 'bg-cyan-500/15 text-cyan-100 border-cyan-400/30';
-  if (action === 'tool_plan') return 'bg-amber-500/15 text-amber-200 border-amber-400/30';
-  if (action === 'observe_only' || action === 'defer') return 'bg-slate-500/15 text-slate-200 border-slate-400/30';
+  if (['act', 'tool_plan'].includes(action)) return 'bg-amber-500/15 text-amber-200 border-amber-400/30';
+  if (['listen', 'wait', 'observe_only', 'defer'].includes(action)) return 'bg-slate-500/15 text-slate-200 border-slate-400/30';
   return 'bg-purple-500/15 text-purple-200 border-purple-400/30';
 }
 
 function compactList(value) {
   return Array.isArray(value) && value.length > 0 ? value.join(', ') : '-';
+}
+
+function compactSignals(value) {
+  if (!value || typeof value !== 'object') return '-';
+  const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined && entryValue !== null && entryValue !== '');
+  return entries.length > 0 ? entries.slice(0, 5).map(([key, entryValue]) => `${key}:${entryValue}`).join(' / ') : '-';
 }
 
 function formatPercent(count, total) {
@@ -182,6 +199,54 @@ function DecisionCard({ item }) {
               <div className="text-xs text-amber-100/90">
                 结果回复：{item.tool.replyDecision.status || '-'} · {item.tool.replyDecision.action || '-'}
                 {item.tool.replyDecision.replyDraftPreview ? ` · ${item.tool.replyDecision.replyDraftPreview}` : ''}
+              </div>
+            )}
+          </div>
+        )}
+        {(item.replyerResult || item.expressionHints?.length > 0 || item.replyEffectObservation || item.expressionLearning || item.personProfile || item.personProfileWrite) && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {item.replyerResult && (
+              <div className="text-sm text-blue-100 bg-blue-500/10 border border-blue-400/20 rounded-lg p-3 space-y-1">
+                <div className="font-medium">Replyer</div>
+                <div>状态：{item.replyerResult.status || '-'} · tone：{item.replyerResult.tone || '-'} · 置信度：{item.replyerResult.confidence ?? '-'}</div>
+                <div className="text-xs text-blue-100/80">模型：{item.replyerResult.model || '-'} · Tokens：{item.replyerResult.totalTokens ?? '-'}</div>
+                {item.replyerResult.reason && <div className="text-xs text-blue-100/80">原因：{item.replyerResult.reason}</div>}
+                {item.replyerResult.textPreview && <div className="text-xs text-blue-50/90 break-words">{item.replyerResult.textPreview}</div>}
+              </div>
+            )}
+            {item.expressionHints?.length > 0 && (
+              <div className="text-sm text-fuchsia-100 bg-fuchsia-500/10 border border-fuchsia-400/20 rounded-lg p-3 space-y-1">
+                <div className="font-medium">表达习惯注入</div>
+                {item.expressionHints.slice(0, 3).map((expression) => (
+                  <div key={expression.id || expression.style} className="text-xs text-fuchsia-100/85 break-words">
+                    {expression.id || '-'} · {expression.style || '-'} · {expression.confidence ?? '-'}
+                  </div>
+                ))}
+              </div>
+            )}
+            {item.replyEffectObservation && (
+              <div className="text-sm text-emerald-100 bg-emerald-500/10 border border-emerald-400/20 rounded-lg p-3 space-y-1">
+                <div className="font-medium">回复效果观察</div>
+                <div>状态：{item.replyEffectObservation.status || '-'} · 标签：{item.replyEffectObservation.label || '-'} · 分数：{item.replyEffectObservation.score ?? '-'}</div>
+                <div className="text-xs text-emerald-100/80">信号：{compactSignals(item.replyEffectObservation.signals)}</div>
+                {item.replyEffectObservation.reason && <div className="text-xs text-emerald-100/80">原因：{item.replyEffectObservation.reason}</div>}
+              </div>
+            )}
+            {item.expressionLearning && (
+              <div className="text-sm text-purple-100 bg-purple-500/10 border border-purple-400/20 rounded-lg p-3 space-y-1">
+                <div className="font-medium">表达学习</div>
+                <div>状态：{item.expressionLearning.status || '-'} · 写入：{item.expressionLearning.stored ?? 0} · 跳过：{item.expressionLearning.skipped ?? 0}</div>
+                <div className="text-xs text-purple-100/80 break-words">IDs：{compactList(item.expressionLearning.ids)}</div>
+                {item.expressionLearning.reason && <div className="text-xs text-purple-100/80">原因：{item.expressionLearning.reason}</div>}
+              </div>
+            )}
+            {(item.personProfile || item.personProfileWrite) && (
+              <div className="text-sm text-cyan-100 bg-cyan-500/10 border border-cyan-400/20 rounded-lg p-3 space-y-1">
+                <div className="font-medium">人物画像</div>
+                {item.personProfileWrite && <div>写入：{item.personProfileWrite.status || '-'} · 存储：{item.personProfileWrite.stored ?? 0} · 跳过：{item.personProfileWrite.skipped ?? 0}</div>}
+                {item.personProfile?.displayNames && <div className="text-xs text-cyan-100/80">昵称：{compactList(item.personProfile.displayNames)}</div>}
+                {item.personProfile?.preferences && <div className="text-xs text-cyan-100/80 break-words">偏好：{compactList(item.personProfile.preferences)}</div>}
+                {item.personProfileWrite?.reason && <div className="text-xs text-cyan-100/80">原因：{item.personProfileWrite.reason}</div>}
               </div>
             )}
           </div>

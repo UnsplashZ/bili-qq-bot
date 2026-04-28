@@ -84,6 +84,41 @@ function assignFloat(target, source, key, min, max) {
     if (source[key] !== undefined) target[key] = parseFloatRange(source[key], key, min, max)
 }
 
+
+function sanitizeParticipationPatch(value, fieldPrefix = 'participation') {
+    if (!isPlainObject(value)) return null
+    const patch = {}
+    for (const key of ['enabled', 'timingGateEnabled', 'replyerEnabled', 'expressionLearningEnabled', 'replyEffectTrackingEnabled', 'personProfileEnabled']) {
+        assignBoolean(patch, value, key)
+    }
+    return patch
+}
+
+function sanitizeTimingPatch(value, fieldPrefix = 'timing') {
+    if (!isPlainObject(value)) return null
+    const patch = {}
+    assignInteger(patch, value, 'quietWindowMs', 0, 60 * 1000)
+    assignInteger(patch, value, 'maxWaitMs', 0, 5 * 60 * 1000)
+    return patch
+}
+
+function sanitizeReplyerPatch(value, fieldPrefix = 'replyer') {
+    if (!isPlainObject(value)) return null
+    const patch = {}
+    assignInteger(patch, value, 'maxReactChars', 20, 500)
+    assignInteger(patch, value, 'maxReplyChars', 80, 2000)
+    assignBoolean(patch, value, 'allowQuoteReply')
+    return patch
+}
+
+function sanitizeExpressionPatch(value, fieldPrefix = 'expression') {
+    if (!isPlainObject(value)) return null
+    const patch = {}
+    assignInteger(patch, value, 'learningMinMessages', 6, 200)
+    assignInteger(patch, value, 'learningMinIntervalMs', 60 * 1000, 24 * 60 * 60 * 1000)
+    return patch
+}
+
 function sanitizeGlobalPatch(body = {}) {
     if (!isPlainObject(body)) throw new Error('request body must be an object')
     const patch = {}
@@ -135,6 +170,15 @@ function sanitizeGlobalPatch(body = {}) {
         assignFloat(patch.replyPolicy, body.replyPolicy, 'minReplyScore', 0, 1)
         assignInteger(patch.replyPolicy, body.replyPolicy, 'cooldownMs', 0, 60 * 60 * 1000)
     }
+
+    const participationPatch = sanitizeParticipationPatch(body.participation)
+    if (participationPatch) patch.participation = participationPatch
+    const timingPatch = sanitizeTimingPatch(body.timing)
+    if (timingPatch) patch.timing = timingPatch
+    const replyerPatch = sanitizeReplyerPatch(body.replyer)
+    if (replyerPatch) patch.replyer = replyerPatch
+    const expressionPatch = sanitizeExpressionPatch(body.expression)
+    if (expressionPatch) patch.expression = expressionPatch
 
     if (isPlainObject(body.social)) {
         patch.social = {}
@@ -204,6 +248,31 @@ function sanitizeGroupPatch(body = {}) {
         assignFloat(patch.replyPolicy, body.replyPolicy, 'minReplyScore', 0, 1)
         assignInteger(patch.replyPolicy, body.replyPolicy, 'cooldownMs', 0, 60 * 60 * 1000)
     }
+    if (body.participation === null) {
+        patch.participation = null
+    } else {
+        const participationPatch = sanitizeParticipationPatch(body.participation)
+        if (participationPatch) patch.participation = participationPatch
+    }
+    if (body.timing === null) {
+        patch.timing = null
+    } else {
+        const timingPatch = sanitizeTimingPatch(body.timing)
+        if (timingPatch) patch.timing = timingPatch
+    }
+    if (body.replyer === null) {
+        patch.replyer = null
+    } else {
+        const replyerPatch = sanitizeReplyerPatch(body.replyer)
+        if (replyerPatch) patch.replyer = replyerPatch
+    }
+    if (body.expression === null) {
+        patch.expression = null
+    } else {
+        const expressionPatch = sanitizeExpressionPatch(body.expression)
+        if (expressionPatch) patch.expression = expressionPatch
+    }
+
     if (body.social === null) {
         patch.social = null
     } else if (isPlainObject(body.social)) {

@@ -57,6 +57,105 @@ function defaultSocialDraft(agent) {
   };
 }
 
+
+function defaultParticipationDraft(agent) {
+  return {
+    enabled: agent?.participation?.enabled ?? true,
+    timingGateEnabled: agent?.participation?.timingGateEnabled ?? true,
+    replyerEnabled: agent?.participation?.replyerEnabled ?? true,
+    expressionLearningEnabled: agent?.participation?.expressionLearningEnabled ?? false,
+    replyEffectTrackingEnabled: agent?.participation?.replyEffectTrackingEnabled ?? false,
+    personProfileEnabled: agent?.participation?.personProfileEnabled ?? true,
+  };
+}
+
+function defaultTimingDraft(agent) {
+  return {
+    quietWindowMs: agent?.timing?.quietWindowMs ?? 2500,
+    maxWaitMs: agent?.timing?.maxWaitMs ?? 12000,
+  };
+}
+
+function defaultReplyerDraft(agent) {
+  return {
+    maxReactChars: agent?.replyer?.maxReactChars ?? 60,
+    maxReplyChars: agent?.replyer?.maxReplyChars ?? 500,
+    allowQuoteReply: agent?.replyer?.allowQuoteReply ?? true,
+  };
+}
+
+function defaultExpressionDraft(agent) {
+  return {
+    learningMinMessages: agent?.expression?.learningMinMessages ?? 20,
+    learningMinIntervalMs: agent?.expression?.learningMinIntervalMs ?? 600000,
+  };
+}
+
+function HumanlikeConfigFields({ participation, timing, replyer, expression, onChange, disabled = false }) {
+  const updateParticipation = (key, value) => onChange({ participation: { ...participation, [key]: value } });
+  const updateTiming = (key, value) => onChange({ timing: { ...timing, [key]: value } });
+  const updateReplyer = (key, value) => onChange({ replyer: { ...replyer, [key]: value } });
+  const updateExpression = (key, value) => onChange({ expression: { ...expression, [key]: value } });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Toggle
+          label="参与机制"
+          description="总开关：保留 Agent，但可关闭拟人化参与链路。"
+          checked={participation?.enabled !== false}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('enabled', checked)}
+        />
+        <Toggle
+          label="Timing Gate"
+          description="先判断群聊节奏，避免抢话。"
+          checked={participation?.timingGateEnabled !== false}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('timingGateEnabled', checked)}
+        />
+        <Toggle
+          label="Replyer"
+          description="二阶段生成最终拟人化文本。"
+          checked={participation?.replyerEnabled !== false}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('replyerEnabled', checked)}
+        />
+        <Toggle
+          label="表达学习"
+          description="从群聊中学习抽象表达习惯。"
+          checked={Boolean(participation?.expressionLearningEnabled)}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('expressionLearningEnabled', checked)}
+        />
+        <Toggle
+          label="回复效果观察"
+          description="观察用户反馈并调整表达习惯置信度。"
+          checked={Boolean(participation?.replyEffectTrackingEnabled)}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('replyEffectTrackingEnabled', checked)}
+        />
+        <Toggle
+          label="人物画像"
+          description="根据长期记忆聚合当前用户偏好。"
+          checked={participation?.personProfileEnabled !== false}
+          disabled={disabled}
+          onChange={(checked) => updateParticipation('personProfileEnabled', checked)}
+        />
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <NumberInput label="静默窗口" min="0" max="60000" value={timing?.quietWindowMs} suffix="ms" disabled={disabled} onChange={(value) => updateTiming('quietWindowMs', value)} />
+        <NumberInput label="最长等待" min="0" max="300000" value={timing?.maxWaitMs} suffix="ms" disabled={disabled} onChange={(value) => updateTiming('maxWaitMs', value)} />
+        <NumberInput label="React 最长" min="20" max="500" value={replyer?.maxReactChars} suffix="字符" disabled={disabled} onChange={(value) => updateReplyer('maxReactChars', value)} />
+        <NumberInput label="Reply 最长" min="80" max="2000" value={replyer?.maxReplyChars} suffix="字符" disabled={disabled} onChange={(value) => updateReplyer('maxReplyChars', value)} />
+        <Toggle label="允许引用回复" description="后续可用于 quote target。" checked={replyer?.allowQuoteReply !== false} disabled={disabled} onChange={(checked) => updateReplyer('allowQuoteReply', checked)} />
+        <NumberInput label="学习最少消息" min="6" max="200" value={expression?.learningMinMessages} suffix="条" disabled={disabled} onChange={(value) => updateExpression('learningMinMessages', value)} />
+        <NumberInput label="学习最小间隔" min="60000" max="86400000" value={expression?.learningMinIntervalMs} suffix="ms" disabled={disabled} onChange={(value) => updateExpression('learningMinIntervalMs', value)} />
+      </div>
+    </div>
+  );
+}
+
 function NumberInput({ label, value, onChange, min, max, step = 1, suffix = '', disabled = false }) {
   return (
     <label className="space-y-1.5">
@@ -259,6 +358,11 @@ const AgentSettings = () => {
     },
     socialMode: 'inherit',
     social: defaultSocialDraft(null),
+    humanlikeMode: 'inherit',
+    participation: defaultParticipationDraft(null),
+    timing: defaultTimingDraft(null),
+    replyer: defaultReplyerDraft(null),
+    expression: defaultExpressionDraft(null),
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -326,6 +430,10 @@ const AgentSettings = () => {
       sendEnabled: fromOverrideValue(groupDraft.sendEnabled),
       replyPolicy: groupDraft.replyPolicyMode === 'custom' ? groupDraft.replyPolicy : null,
       social: groupDraft.socialMode === 'custom' ? groupDraft.social : null,
+      participation: groupDraft.humanlikeMode === 'custom' ? groupDraft.participation : null,
+      timing: groupDraft.humanlikeMode === 'custom' ? groupDraft.timing : null,
+      replyer: groupDraft.humanlikeMode === 'custom' ? groupDraft.replyer : null,
+      expression: groupDraft.humanlikeMode === 'custom' ? groupDraft.expression : null,
     };
     setSaving(true);
     try {
@@ -370,6 +478,23 @@ const AgentSettings = () => {
       social: {
         ...defaultSocialDraft(agent),
         ...(config.social || {}),
+      },
+      humanlikeMode: (config.participation || config.timing || config.replyer || config.expression) ? 'custom' : 'inherit',
+      participation: {
+        ...defaultParticipationDraft(agent),
+        ...(config.participation || {}),
+      },
+      timing: {
+        ...defaultTimingDraft(agent),
+        ...(config.timing || {}),
+      },
+      replyer: {
+        ...defaultReplyerDraft(agent),
+        ...(config.replyer || {}),
+      },
+      expression: {
+        ...defaultExpressionDraft(agent),
+        ...(config.expression || {}),
       },
     });
   };
@@ -660,6 +785,25 @@ const AgentSettings = () => {
             该层只控制普通闲聊的偶尔参与；明确 @、回复 Bot、命令、B 站链接仍走原有入口和工具边界。
           </div>
         </GlassCard>
+
+        <GlassCard>
+          <h2 className="text-xl font-semibold mb-4">拟人化参与</h2>
+          <HumanlikeConfigFields
+            participation={agent.participation || defaultParticipationDraft(agent)}
+            timing={agent.timing || defaultTimingDraft(agent)}
+            replyer={agent.replyer || defaultReplyerDraft(agent)}
+            expression={agent.expression || defaultExpressionDraft(agent)}
+            onChange={(patch) => updateAgent((next) => {
+              if (patch.participation) next.participation = patch.participation;
+              if (patch.timing) next.timing = patch.timing;
+              if (patch.replyer) next.replyer = patch.replyer;
+              if (patch.expression) next.expression = patch.expression;
+            })}
+          />
+          <div className="text-xs text-gray-500 mt-4">
+            Timing Gate 负责等一等，Replyer 负责最终口吻，表达学习和回复效果观察只影响后续拟人化，不绕过工具权限。
+          </div>
+        </GlassCard>
       </div>
 
       <GlassCard>
@@ -792,6 +936,30 @@ const AgentSettings = () => {
           />
         </div>
 
+        <div className="mt-6">
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input
+              type="checkbox"
+              checked={groupDraft.humanlikeMode === 'custom'}
+              onChange={(event) => setGroupDraft((prev) => ({
+                ...prev,
+                humanlikeMode: event.target.checked ? 'custom' : 'inherit',
+              }))}
+            />
+            覆盖本群拟人化参与配置；不勾选则继承全局配置
+          </label>
+        </div>
+        <div className="mt-4">
+          <HumanlikeConfigFields
+            participation={groupDraft.participation}
+            timing={groupDraft.timing}
+            replyer={groupDraft.replyer}
+            expression={groupDraft.expression}
+            disabled={groupDraft.humanlikeMode !== 'custom'}
+            onChange={(patch) => setGroupDraft((prev) => ({ ...prev, ...patch }))}
+          />
+        </div>
+
         <div className="mt-6 grid gap-3">
           {groups.length === 0 && <div className="text-gray-500 text-sm">暂无群级 Agent 覆盖配置。</div>}
           {groups.map(([targetGroupId, config]) => (
@@ -802,6 +970,7 @@ const AgentSettings = () => {
                   入口 {formatOverride(config.enabled)} · 仅观察 {formatOverride(config.observeOnly)} · 发言 {formatOverride(config.sendEnabled)}
                   {config.replyPolicy && ` · 阈值 ${config.replyPolicy.minReplyScore ?? '-'} · 冷却 ${config.replyPolicy.cooldownMs ?? '-'}ms`}
                   {config.social && ` · 社交 ${formatBool(config.social.enabled)} / ${config.social.mode || 'quiet'}`}
+                  {(config.participation || config.timing || config.replyer || config.expression) && ` · 拟人化 覆盖`}
                 </div>
               </div>
               <div className="flex gap-2">
