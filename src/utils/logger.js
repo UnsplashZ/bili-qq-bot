@@ -200,6 +200,8 @@ function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = ''
 function buildEvent(level, channel, scope, message, fields = {}) {
     const normalizedLevel = normalizeLevel(level)
     const eventTimestamp = new Date()
+    const formatOptions = parseLoggerEnv()
+    const cleanFormatOptions = { ...formatOptions, color: false }
     const event = {
         timestamp: eventTimestamp,
         timestampText: formatTimestamp(eventTimestamp),
@@ -217,7 +219,7 @@ function buildEvent(level, channel, scope, message, fields = {}) {
         message: event.action,
         fields: event.fields,
         timestamp: event.timestamp
-    })
+    }, cleanFormatOptions)
     event.message = event.rendered
     return event
 }
@@ -270,7 +272,14 @@ logger.logEvent = (level, channel, scope, message, fields = {}) => {
     listeners.forEach((cb) => cb(event))
 
     if (shouldEmitToStdout(event)) {
-        process.stdout.write(`${event.rendered}\n`)
+        process.stdout.write(`${formatEvent({
+            level: event.level,
+            channel: event.channel,
+            scope: event.scope,
+            message: event.action,
+            fields: event.fields,
+            timestamp: event.timestamp
+        })}\n`)
     }
 
     logger[event.level](event.rendered)

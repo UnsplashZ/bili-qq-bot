@@ -67,7 +67,8 @@
 ## Test Script Tracking Rule
 
 - Automated test scripts under `test/` may be tracked when they are part of the product's repeatable verification suite.
-- Keep committed tests organized under stable paths such as `test/unit/**`.
+- Keep committed tests organized under stable categorized paths such as `test/unit/<category>/**`.
+- Keep reusable local test helpers under `test/tools/**`, and keep test runners under `test/runners/**`.
 - Local verification artifacts must remain untracked, including generated previews in `test/output/**`, temporary scripts like `test/temp_*`, and files under `test/debug/**`.
 - Do not commit one-off debugging helpers or generated files under `test/`.
 
@@ -89,3 +90,8 @@
 ## References
 
 - Read `CLAUDE.md` for more details on development commands, project architecture, and key directories.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

@@ -14,14 +14,9 @@
 - [🖥️ WebUI 管理面板](#webui-管理面板)
 - [🤖 Agent 功能](#agent-功能)
 - [⚙️ 配置说明](#配置说明)
-- [💬 指令列表](#指令列表)
-- [🛠️ 其他部署方式](#其他部署方式)
+- [🧪 开发与测试](#开发与测试)
 - [📂 项目结构](#项目结构)
-- [📝 日志标签说明](#日志标签说明)
-- [🎛️ 日志显示控制](#日志显示控制)
-- [❓ 常见问题](#常见问题-faq)
-- [🙏 致谢](#致谢-acknowledgments)
-- [⚠️ 免责声明](#免责声明)
+- [💬 指令列表](#指令列表)
 
 ---
 
@@ -311,6 +306,58 @@ Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key�
 | QQ 管理 | `@Bot 禁言 @某人 1分钟` | 校验用户权限和 Bot 群管权限，中高风险要求确认 |
 | 申请处理 | `@Bot 查看加群申请` / `同意第一个申请` | 读取/处理申请，写操作按风险确认 |
 | 偶尔插话 | 群内持续闲聊 | 社交模式开启后，Agent 在预算和冷却内低频插话 |
+
+## 开发与测试
+
+本地开发建议使用仓库内的固定入口，避免新增一次性调试脚本：
+
+```bash
+# Node/MJS 单元测试
+npm test
+
+# Python Bilibili 服务相关单测
+venv/bin/python -m pytest test/unit/bilibili
+
+# Dashboard 检查
+cd dashboard && npm run lint
+```
+
+预览卡片和渲染回归使用 `test/tools/` 下的复用工具，生成的图片、HTML、JSON 等本地验证产物统一写入 `test/output/`：
+
+```bash
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
+node test/tools/preview-lab-web.js
+```
+
+## 项目结构
+
+```text
+bili-qq-bot/
+├── src/                    # Node.js bot、命令、服务、渲染和 Dashboard 后端
+├── dashboard/              # React/Vite WebUI
+├── test/
+│   ├── runners/            # 测试运行入口，例如 run-unit-tests.js
+│   ├── tools/              # 可复用本地验证工具，例如 Preview Lab
+│   ├── fixtures/           # 稳定测试夹具
+│   ├── unit/               # 按领域分类的单元测试
+│   │   ├── agent/
+│   │   ├── bilibili/
+│   │   ├── commands/
+│   │   ├── config/
+│   │   ├── dashboard/
+│   │   ├── links/
+│   │   ├── messages/
+│   │   ├── preview/
+│   │   ├── rendering/
+│   │   ├── services/
+│   │   └── subscriptions/
+│   └── output/             # 本地预览/测试输出，不作为源码管理目标
+├── docs/                   # 计划、归档记录、图片和接口文档
+├── config/                 # 启动配置和示例
+├── data/                   # 运行时数据，默认不提交
+├── logs/                   # 应用日志
+└── napcat/                 # NapCat QQ 客户端数据
+```
 
 ## 指令列表
 

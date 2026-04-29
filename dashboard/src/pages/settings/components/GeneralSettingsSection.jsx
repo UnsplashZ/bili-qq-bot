@@ -78,8 +78,12 @@ const GeneralSettingsSection = ({
     const triggerRefs = useRef({})
 
     useEffect(() => {
-        setGradientInputs(previewGradientConfig)
-        setGradientErrors({})
+        const frameId = window.requestAnimationFrame(() => {
+            setGradientInputs(previewGradientConfig)
+            setGradientErrors({})
+        })
+
+        return () => window.cancelAnimationFrame(frameId)
     }, [previewGradientConfig])
 
     const effectivePreviewColors = useMemo(

@@ -118,16 +118,16 @@
 建议在 QQ 实测前后运行：
 
 ```bash
-node test/unit/agent-observer.test.js
-node test/unit/agent-policy-validator.test.js
-node test/unit/agent-prompt-builder.test.js
-node test/unit/agent-tool-plan.test.js
-node test/unit/agent-trajectory-route.test.js
-node test/unit/agent-long-term-memory.test.js
-node test/unit/agent-memory-extractor.test.js
-node test/unit/agent-memory-command.test.js
-node test/unit/agent-qq-admin-tools.test.js
-node test/unit/agent-browser-memory-tools.test.js
+node test/unit/agent/agent-observer.test.js
+node test/unit/agent/agent-policy-validator.test.js
+node test/unit/agent/agent-prompt-builder.test.js
+node test/unit/agent/agent-tool-plan.test.js
+node test/unit/agent/agent-trajectory-route.test.js
+node test/unit/agent/agent-long-term-memory.test.js
+node test/unit/agent/agent-memory-extractor.test.js
+node test/unit/agent/agent-memory-command.test.js
+node test/unit/agent/agent-qq-admin-tools.test.js
+node test/unit/agent/agent-browser-memory-tools.test.js
 ```
 
 完整回归：
@@ -150,16 +150,16 @@ docker compose up --build
 结果：通过。
 
 - Agent 相关单测已通过：
-  - `node test/unit/agent-observer.test.js`
-  - `node test/unit/agent-policy-validator.test.js`
-  - `node test/unit/agent-prompt-builder.test.js`
-  - `node test/unit/agent-tool-plan.test.js`
-  - `node test/unit/agent-trajectory-route.test.js`
-  - `node test/unit/agent-long-term-memory.test.js`
-  - `node test/unit/agent-memory-extractor.test.js`
-  - `node test/unit/agent-memory-command.test.js`
-  - `node test/unit/agent-qq-admin-tools.test.js`
-  - `node test/unit/agent-browser-memory-tools.test.js`
+  - `node test/unit/agent/agent-observer.test.js`
+  - `node test/unit/agent/agent-policy-validator.test.js`
+  - `node test/unit/agent/agent-prompt-builder.test.js`
+  - `node test/unit/agent/agent-tool-plan.test.js`
+  - `node test/unit/agent/agent-trajectory-route.test.js`
+  - `node test/unit/agent/agent-long-term-memory.test.js`
+  - `node test/unit/agent/agent-memory-extractor.test.js`
+  - `node test/unit/agent/agent-memory-command.test.js`
+  - `node test/unit/agent/agent-qq-admin-tools.test.js`
+  - `node test/unit/agent/agent-browser-memory-tools.test.js`
 - 已执行本地镜像构建：`docker build -t unsplash/bili-qq-bot:latest .`
 - 已执行本地启动：`docker compose up -d --pull never`
 - `bili-qq-bot` 和 `napcat` 容器均为 `Up`。

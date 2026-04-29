@@ -36,7 +36,21 @@ bili-qq-bot/
 │   │   └── utils/          # Frontend helpers
 │   └── dist/               # Production build (served by bot)
 ├── test/                   # Test files and generated outputs
-│   ├── unit/               # Unit tests (*.test.js)
+│   ├── runners/            # Test runners
+│   ├── tools/              # Reusable local verification tools
+│   ├── unit/               # Categorized unit tests (*.test.js, *.test.mjs, *_test.py)
+│   │   ├── agent/          # Agent runtime and tool-planning tests
+│   │   ├── bilibili/       # Bilibili API/service contract tests
+│   │   ├── commands/       # Command behavior tests
+│   │   ├── config/         # Config/cache tests
+│   │   ├── dashboard/      # Dashboard API/UI tests
+│   │   ├── links/          # Link extraction and routing tests
+│   │   ├── messages/       # Message handler tests
+│   │   ├── preview/        # Preview Lab tests
+│   │   ├── rendering/      # Card/rendering tests
+│   │   ├── services/       # Shared service/logging tests
+│   │   └── subscriptions/  # Subscription/update checker tests
+│   ├── fixtures/           # Test fixtures
 │   └── output/             # Local generated preview images
 ├── docs/                   # Documentation
 │   ├── plans/              # Active plans (work in progress)
@@ -50,14 +64,13 @@ bili-qq-bot/
 ├── config/                 # Configuration files
 ├── fonts/                  # Custom fonts for image rendering
 ├── logs/                   # Application logs
-├── tools/                  # Local helper scripts
-│   ├── preview-lab.js      # Preview Lab CLI
-│   └── preview-lab-web.js  # Preview Lab Web
 └── napcat/                 # NapCat QQ client data
 ```
 
 **Key Directories:**
-- **test/unit/** - Unit tests (`*.test.js`)
+- **test/runners/** - Test runner entry points such as `run-unit-tests.js`
+- **test/tools/** - Reusable local verification tools such as Preview Lab and Agent replay eval
+- **test/unit/** - Categorized unit tests (`*.test.js`, `*.test.mjs`, `*_test.py`)
 - **test/output/** - Local generated preview outputs (including image preview tests)
 - **docs/plans/** - New plan documents (active work) must be created here
 - **docs/done/** - Completed plans are moved here after execution
@@ -110,20 +123,20 @@ curl http://localhost:10001/health
 
 ### Targeted Preview / Regression Checks
 
-Use `tools/preview-lab.js` for local preview regression checks and write generated files to `test/output/`; use `tools/preview-lab-web.js` for browser-based manual inspection.
+Use `test/tools/preview-lab.js` for local preview regression checks and write generated files to `test/output/`; use `test/tools/preview-lab-web.js` for browser-based manual inspection.
 
 ```bash
 # 文章型 opus
-node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
 
 # read/cv 专栏
-node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
+node test/tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
 
 # 长正文动态
-node tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
+node test/tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
 
 # Preview Lab Web
-node tools/preview-lab-web.js
+node test/tools/preview-lab-web.js
 ```
 
 Current expectations:
@@ -411,18 +424,18 @@ Use the existing verification paths in this repository before adding new ad-hoc 
 npm test
 
 # Run one test file when narrowing a regression
-node test/unit/detectChargingContent.test.js
+node test/unit/rendering/detectChargingContent.test.js
 
 # Dashboard frontend checks
 cd dashboard && npm run lint
 cd dashboard && npm run build
 ```
 
-`npm test` is a real entry point and runs `mocha --exit "test/unit/**/*.test.js"`.
+`npm test` is a real entry point and runs `node test/runners/run-unit-tests.js`, which discovers categorized JS/MJS unit tests under `test/unit/**`.
 
 **Preview and rendering checks:**
-- Use `tools/preview-lab.js` for targeted local preview regression and write outputs to `test/output/`
-- Use `tools/preview-lab-web.js` for browser-based manual inspection when comparing layouts or styles
+- Use `test/tools/preview-lab.js` for targeted local preview regression and write outputs to `test/output/`
+- Use `test/tools/preview-lab-web.js` for browser-based manual inspection when comparing layouts or styles
 - Prefer these tools over temporary one-off render scripts for preview/card issues
 
 **Service and runtime checks:**
@@ -435,20 +448,35 @@ cd dashboard && npm run build
 **Directory Structure:**
 ```
 test/
-├── unit/               # Unit tests
+├── runners/            # Test runner entry points
+├── tools/              # Reusable local verification tools
+├── fixtures/           # Stable fixtures used by tests/tools
+├── unit/               # Categorized unit tests
+│   ├── agent/
+│   ├── bilibili/
+│   ├── commands/
+│   ├── config/
+│   ├── dashboard/
+│   ├── links/
+│   ├── messages/
+│   ├── preview/
+│   ├── rendering/
+│   ├── services/
+│   └── subscriptions/
 └── output/             # Generated files from local test runs
 ```
 
 **Naming Convention:**
-- Test files: `*.test.js`
+- JavaScript tests: `*.test.js` / `*.test.mjs`
+- Python tests: `*_test.py`
 - Generated previews: write directly to `test/output/`
 
 ### Choosing the Fastest Check
 
 - **Node/backend logic change:** start with `npm test`
 - **Dashboard UI/config change:** run `cd dashboard && npm run lint && npm run build`
-- **Preview card/rendering change:** run `node tools/preview-lab.js ...` and inspect output in `test/output/`
-- **Browser/manual preview comparison:** run `node tools/preview-lab-web.js`
+- **Preview card/rendering change:** run `node test/tools/preview-lab.js ...` and inspect output in `test/output/`
+- **Browser/manual preview comparison:** run `node test/tools/preview-lab-web.js`
 - **Python/Bilibili service issue:** run `/health` and inspect logs before changing code
 
 ## Documentation Organization
@@ -598,7 +626,7 @@ Check these in order before changing code:
 1. **Dashboard Logs page** - fastest way to inspect recent runtime behavior from the Web UI
 2. **Application logs** - inspect `logs/application.log` locally or container logs in Docker
 3. **Python health check** - confirm the service is actually alive: `curl http://localhost:10001/health`
-4. **Preview tools** - reproduce card/rendering issues with `tools/preview-lab.js` or `tools/preview-lab-web.js`
+4. **Preview tools** - reproduce card/rendering issues with `test/tools/preview-lab.js` or `test/tools/preview-lab-web.js`
 5. **Targeted tests/builds** - run `npm test`, `cd dashboard && npm run lint`, or `cd dashboard && npm run build` depending on the change surface
 
 Only add temporary instrumentation after the existing logs and checks are insufficient.
@@ -632,10 +660,10 @@ For preview card issues, prefer the existing tools over ad-hoc debug scripts:
 
 ```bash
 # CLI preview regression
-node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
 
 # Browser-based preview inspection
-node tools/preview-lab-web.js
+node test/tools/preview-lab-web.js
 ```
 
 Write generated outputs to `test/output/` and compare there.

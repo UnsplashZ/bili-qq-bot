@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import GlassCard from '../components/GlassCard';
 import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
 import { useLogsStream } from './logs/useLogsStream';
@@ -80,14 +80,14 @@ const Logs = () => {
     scrollTargetModeRef.current = scrollTargetMode;
   }, [scrollTargetMode]);
 
-  const resolveLogRowHeight = (container) => {
+  const resolveLogRowHeight = useCallback((container) => {
     const row = container?.querySelector('[data-log-row]');
     if (!row) return undefined;
     const rect = row.getBoundingClientRect();
     return rect.height || row.offsetHeight || undefined;
-  };
+  }, []);
 
-  const getPageScrollMetrics = () => {
+  const getPageScrollMetrics = useCallback(() => {
     const doc = document.documentElement;
     const scrollTop = window.scrollY || doc.scrollTop || 0;
     const clientHeight = window.innerHeight || doc.clientHeight || 0;
@@ -97,9 +97,9 @@ const Logs = () => {
       clientHeight,
       scrollHeight,
     };
-  };
+  }, []);
 
-  const updateScrollState = (container, syncAutoFollow = false) => {
+  const updateScrollState = useCallback((container, syncAutoFollow = false) => {
     if (!container) return;
 
     const threshold = getBottomThreshold(resolveLogRowHeight(container));
@@ -121,9 +121,9 @@ const Logs = () => {
     if (syncAutoFollow) {
       setAutoFollow(nearBottom);
     }
-  };
+  }, [getPageScrollMetrics, resolveLogRowHeight]);
 
-  const scrollToActiveTarget = (target, behavior = 'smooth') => {
+  const scrollToActiveTarget = useCallback((target, behavior = 'smooth') => {
     const container = scrollContainerRef.current;
     const targetMode = scrollTargetModeRef.current;
     if (targetMode === 'page') {
@@ -139,17 +139,19 @@ const Logs = () => {
       top: target === 'top' ? 0 : container.scrollHeight,
       behavior,
     });
-  };
+  }, [getPageScrollMetrics]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     if (logs.length === 0) {
-      setHasScrollableOverflow(false);
-      setIsNearBottomPosition(true);
-      setAutoFollow(true);
-      return;
+      const frameId = window.requestAnimationFrame(() => {
+        setHasScrollableOverflow(false);
+        setIsNearBottomPosition(true);
+        setAutoFollow(true);
+      });
+      return () => window.cancelAnimationFrame(frameId);
     }
 
     if (!hasMeasuredInitialLogsRef.current) {
@@ -165,7 +167,7 @@ const Logs = () => {
     }
 
     updateScrollState(container);
-  }, [logs, isPaused]);
+  }, [logs, isPaused, scrollToActiveTarget, updateScrollState]);
 
   useEffect(() => {
     const handleWindowScroll = () => {
@@ -188,7 +190,7 @@ const Logs = () => {
       window.removeEventListener('scroll', handleWindowScroll);
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [updateScrollState]);
 
   const handleScroll = (event) => {
     updateScrollState(event.currentTarget, true);
