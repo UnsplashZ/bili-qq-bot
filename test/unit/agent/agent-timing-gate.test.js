@@ -5,6 +5,12 @@ const assert = require('assert')
 const path = require('path')
 
 const { runTimingGate } = require(path.join(__dirname, '../../../src/agent/timing/timingGate'))
+const {
+    scheduleTimingReentry,
+    getScheduledTimingReentryCount,
+    resetTimingState
+} = require(path.join(__dirname, '../../../src/agent/timing/timingStateStore'))
+const { AgentRunState } = require(path.join(__dirname, '../../../src/agent/runtime/runState'))
 
 function message(id, userId, timestamp, text = '闲聊') {
     return {
@@ -20,7 +26,12 @@ function message(id, userId, timestamp, text = '闲聊') {
     }
 }
 
-function run() {
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function run() {
+    resetTimingState()
     const config = {
         participation: { timingGateEnabled: true },
         timing: { quietWindowMs: 2500, maxWaitMs: 12000 },
@@ -59,13 +70,47 @@ function run() {
     })
     assert.strictEqual(twoPerson.timingAction, 'listen')
 
+    let firstRan = false
+    let secondRan = false
+    scheduleTimingReentry({
+        groupId: '1000',
+        waitMs: 30,
+        run: () => {
+            firstRan = true
+        }
+    })
+    scheduleTimingReentry({
+        groupId: '1000',
+        waitMs: 5,
+        run: () => {
+            secondRan = true
+        }
+    })
+    assert.strictEqual(getScheduledTimingReentryCount(), 1)
+    await sleep(30)
+    assert.strictEqual(firstRan, false)
+    assert.strictEqual(secondRan, true)
+    assert.strictEqual(getScheduledTimingReentryCount(), 0)
+
+    const runState = new AgentRunState({
+        context: {},
+        groupId: '1000',
+        agentConfig: { sendEnabled: true },
+        agentMessage: message('m10', 'u1', 1000),
+        actor: {},
+        memoryObservation: { topicSnapshot: {} },
+        sessionContext: {}
+    })
+    const reentryState = runState.createTimingReentry({ agentConfig: { sendEnabled: false } })
+    assert.strictEqual(reentryState.timingReentry, true)
+    assert.strictEqual(reentryState.agentConfig.sendEnabled, false)
+
     console.log('✓ Agent timing gate 节奏判断正常')
 }
 
-try {
-    run()
-    process.exit(0)
-} catch (error) {
-    console.error(error)
-    process.exit(1)
-}
+run()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error)
+        process.exit(1)
+    })

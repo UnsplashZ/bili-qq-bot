@@ -90,6 +90,14 @@ function buildTrajectorySpans(event, item) {
         }))
     }
 
+    if (item.timingReentrySchedule) {
+        spans.push(makeSpan('timing_reentry', item.timingReentrySchedule.scheduled ? 'scheduled' : 'skipped', item.timingReentrySchedule.reason, {
+            waitMs: item.timingReentrySchedule.waitMs || 0
+        }))
+    } else if (item.timingReentry) {
+        spans.push(makeSpan('timing_reentry', 'ok', 'timing_reentry'))
+    }
+
     if (item.llmDecision?.status || item.llmDecision?.action) {
         spans.push(makeSpan('llm_decision', item.llmDecision.status === 'ok' ? 'ok' : 'skipped', item.llmDecision.reason, {
             action: item.llmDecision.action,
@@ -238,6 +246,14 @@ function summarizeTrajectory(event) {
                 waitMs: event.timingDecision.waitMs || 0,
                 reason: event.timingDecision.reason || '',
                 signals: event.timingDecision.signals || {}
+            }
+            : null,
+        timingReentry: Boolean(event.timingReentry),
+        timingReentrySchedule: event.timingReentrySchedule
+            ? {
+                scheduled: Boolean(event.timingReentrySchedule.scheduled),
+                waitMs: event.timingReentrySchedule.waitMs || 0,
+                reason: event.timingReentrySchedule.reason || ''
             }
             : null,
         llmDecision: {

@@ -2,6 +2,7 @@ const logger = require('../../utils/logger')
 const { runWithAgentSession } = require('../session/agentSessionContext')
 const sessionStore = require('../session/sessionStore')
 const longTermStore = require('../memory/longTermStore')
+const { normalizeAgentConfig, isEnabledForGroup, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const { maybeStoreTopicSummary } = require('../memory/topicSummaryRecorder')
 const { extractMemoryHints, mergeMemoryHints } = require('../memory/memoryHintExtractor')
 const { scoreMessage } = require('../cognition/relevanceScorer')
@@ -20,6 +21,7 @@ const { scoreSocialInterject } = require('../social/socialInterjectScorer')
 const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget')
 const { isSocialAction } = require('../social/interjectPolicy')
 const { runAndRecordTimingGate } = require('../timing/timingGate')
+const { scheduleTimingReentry } = require('../timing/timingStateStore')
 const { runReplyer } = require('../replyer/replyerService')
 const { selectExpressionHints } = require('../expression/expressionSelector')
 const { maybeLearnExpressions } = require('../expression/expressionLearner')
@@ -277,6 +279,46 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision,
         wouldSend: false
     }
     const execution = { executed: false, reason: `timing_gate_${timingDecision.timingAction}` }
+    let timingReentrySchedule = null
+    if (timingDecision.timingAction === 'wait') {
+        timingReentrySchedule = scheduleTimingReentry({
+            groupId,
+            waitMs: timingDecision.waitMs,
+            run: async () => {
+                try {
+                    const latestAgentConfig = normalizeAgentConfig()
+                    if (!isEnabledForGroup(groupId, latestAgentConfig)) {
+                        logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'timing-reentry-skipped', {
+                            groupId,
+                            userId: agentMessage.userId,
+                            messageId: agentMessage.id,
+                            reason: 'agent_disabled'
+                        })
+                        return
+                    }
+                    const reentryState = runState.createTimingReentry({
+                        agentConfig: getEffectiveAgentConfigForGroup(groupId, latestAgentConfig)
+                    })
+                    await runAgent(reentryState)
+                } catch (error) {
+                    logger.logEvent('warn', 'AGENT', sessionContext.traceScope, 'timing-reentry-failed', {
+                        groupId,
+                        userId: agentMessage.userId,
+                        messageId: agentMessage.id,
+                        error: logger.getErrorMessage(error)
+                    })
+                }
+            }
+        })
+        if (timingReentrySchedule?.scheduled) {
+            logger.logEvent('info', 'AGENT', sessionContext.traceScope, 'timing-reentry-scheduled', {
+                groupId,
+                userId: agentMessage.userId,
+                messageId: agentMessage.id,
+                waitMs: timingReentrySchedule.waitMs
+            })
+        }
+    }
     logDecisions(runState, {
         decision,
         scoreResult,
@@ -291,6 +333,7 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision,
         memoryWrite,
         topicSummaryWrite,
         timingDecision,
+        timingReentrySchedule,
         replyEffectObservation,
         llmDecision,
         rawLlmDecision: llmDecision,
@@ -309,6 +352,7 @@ async function handleTimingStop(runState, scoreResult, decision, timingDecision,
             replyTarget: agentMessage.replyTarget,
             decision,
             timingDecision,
+            timingReentrySchedule,
             replyEffectObservation,
             messageTraits: scoreResult.traits,
             extractedMemoryHints,
@@ -333,12 +377,26 @@ async function runObserveDecision(runState, scoreResult) {
         agentMessage,
         memoryObservation
     })
-    const timingDecision = runAndRecordTimingGate({
-        agentConfig,
-        agentMessage,
-        memoryObservation,
-        scoreResult
-    })
+    const timingDecision = runState.timingReentry
+        ? {
+            status: 'ok',
+            timingAction: 'continue',
+            waitMs: 0,
+            reason: 'timing_reentry',
+            signals: {
+                directAddressed: false,
+                rapidConversation: false,
+                twoPersonChat: false,
+                userLikelyStillTyping: false,
+                topicOpenForBot: true
+            }
+        }
+        : runAndRecordTimingGate({
+            agentConfig,
+            agentMessage,
+            memoryObservation,
+            scoreResult
+        })
     if (timingDecision.timingAction === 'listen' || timingDecision.timingAction === 'wait') {
         return handleTimingStop(runState, scoreResult, decision, timingDecision, replyEffectObservation)
     }
@@ -435,6 +493,7 @@ async function runObserveDecision(runState, scoreResult) {
         memoryWrite,
         topicSummaryWrite,
         timingDecision,
+        timingReentry: runState.timingReentry,
         budgetDecision,
         inputGuardrail,
         llmDecision: effectiveLlmDecision,
@@ -605,6 +664,7 @@ async function runObserveDecision(runState, scoreResult) {
             memoryWrite,
             topicSummaryWrite,
             timingDecision,
+            timingReentry: runState.timingReentry,
             budgetDecision,
             inputGuardrail,
             llmDecision: effectiveLlmDecision,

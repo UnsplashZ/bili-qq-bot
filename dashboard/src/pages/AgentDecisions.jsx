@@ -27,6 +27,7 @@ const SPAN_TYPES = [
   'input_guardrail',
   'context_selected',
   'timing_gate',
+  'timing_reentry',
   'llm_decision',
   'decision_guardrail',
   'tool_plan',

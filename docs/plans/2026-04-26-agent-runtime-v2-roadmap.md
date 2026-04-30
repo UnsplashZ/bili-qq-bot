@@ -15,9 +15,9 @@
 - 支持 B 站查询、订阅管理、Bot/Agent 配置查询和修改。
 - 支持 QQ 群管理、加群/好友审批、在线状态、输入状态。
 - 支持受限只读浏览器工具和显式自学习工具。
-- 支持 WebUI 的 Agent 配置、轨迹查看、记忆管理和工具观测。
+- 支持 WebUI 的 Agent 配置、轨迹查看、长期记忆、人物画像、表达习惯、回复效果和工具观测。
 
-但当前实现仍然偏“功能逐步叠加”，下一步重点不应继续堆新工具，而应把 Agent Runtime 整理成稳定、可扩展、可观测、可长期运行的架构。
+当前目标范围内的 Runtime V2 收敛、QQ 实测记录和拟人化参与机制已完成；后续不再把独立 agent-sandbox 作为当前目标，保留现有受限浏览器工具和 SSRF 防护。
 
 ## 2. 已完成范围
 
@@ -82,16 +82,16 @@
 
 ### 2.7 Phase 6：可靠性和实测收口
 
-状态：大部分完成，仍需文档和实测矩阵收尾。
+状态：完成。
 
 - Docker 本地构建启动已多轮验证。
-- QQ 实测覆盖过 @Bot、普通聊天、工具确认、记忆、上下文、群管等关键路径。
+- QQ 实测覆盖过 @Bot、普通聊天、工具确认、记忆、上下文、群管等关键路径，并已由用户确认基本完成。
 - 多个 review 问题已修复。
-- 仍需要把最终测试清单、README 使用说明、安全边界同步到文档。
+- 最终测试清单、使用说明和安全边界已同步到文档。
 
 ### 2.8 Phase 7：领域工具和工具结果闭环
 
-状态：功能已落地，计划文档需补齐。
+状态：完成。
 
 - B 站用户查询已实现。
 - B 站视频查询已实现。
@@ -101,7 +101,7 @@
 
 ### 2.9 Phase 8：QQ 管理、浏览器、自学习
 
-状态：功能已落地，仍需实测矩阵补齐。
+状态：完成。
 
 - QQ 群信息、禁言列表、精华消息、公告、系统消息查询已实现。
 - QQ 成员查询、搜索、禁言、解禁、踢人、改群名片已实现。
@@ -113,13 +113,13 @@
 - 受限 `browser.screenshot_url` 已实现，使用容器内 Chromium 对公开网页截图，复用 URL 安全校验并通过 NapCat 共享目录发送图片。
 - `agent.learn_memory` 显式学习工具已实现。
 
-## 3. 当前全部待办
+## 3. 当前收口结果
 
-### 3.1 P0：必须先完成
+### 3.1 P0：已完成
 
-1. 更新总计划文档，把 Phase 7/8 已完成能力补入主线。
-2. 更新 README，说明新 Agent 配置、环境变量、WebUI 页面、QQ 实测方式和安全边界。
-3. 补齐 QQ 实测矩阵记录：
+1. 已更新总计划文档，把 Phase 7/8 已完成能力补入主线。
+2. README 已记录新 Agent 配置、环境变量、WebUI 页面、QQ 实测方式和安全边界。
+3. QQ 实测矩阵已按用户确认收口：
    - @Bot 必须回复。
    - 回复 Bot 的上下文追问。
    - 普通自然语言低频参与。
@@ -130,10 +130,10 @@
    - 加群申请、好友申请、在线状态、输入状态。
    - 越权用户触发工具应被拒绝。
    - 高风险工具必须短码确认。
-4. 对现有 Agent 单测跑一次完整回归。
-5. 对 Docker 本地构建启动流程再验证一次，确认不会拉取远端 `bili-qq-bot` 镜像。
+4. 已对现有 Agent 关键单测和 Dashboard 前端构建执行回归。
+5. Docker 本地构建启动流程已在 Phase 9 记录中验证，确认不会拉取远端 `bili-qq-bot` 镜像。
 
-### 3.2 P1：Runtime V2 架构收敛
+### 3.2 P1：Runtime V2 架构收敛已完成
 
 1. 抽象 `AgentRunner`：
    - 每条 QQ 消息对应一个 `RunState`。
@@ -158,7 +158,7 @@
    - 工具错误要能在 Dashboard 解释。
    - LLM 最终回复不能声称执行了失败工具。
 
-### 3.3 P1：上下文和记忆治理
+### 3.3 P1：上下文和记忆治理已完成
 
 1. 把现有 relevance window 正式整理为：
    - `SessionStore`
@@ -180,7 +180,7 @@
    - 过期记忆自动清理。
    - 冲突记忆保留来源和更新轨迹。
 
-### 3.4 P1：Trace Span 可观测性
+### 3.4 P1：Trace Span 可观测性已完成
 
 1. 将 trajectory 升级为 span 模型：
    - `message_received`
@@ -203,7 +203,7 @@
    - 为什么要求确认。
    - 为什么拒绝或沉默。
 
-### 3.5 P2：Specialist Agents / Handoff
+### 3.5 P2：Specialist Agents / Handoff 当前范围已完成
 
 1. 主 Agent 保持群聊人格、上下文判断和路由能力。
 2. 拆出领域 Agent：
@@ -217,7 +217,7 @@
 
 ### 3.6 P2：能力扩展候选
 
-以下不建议立刻做，除非 Runtime V2 收敛后再排期：
+以下不纳入当前目标范围，除非后续重新排期：
 
 1. 网页搜索工具：
    - 只读。
@@ -240,11 +240,13 @@
 
 目标：把当前功能状态、使用方式和测试矩阵补齐，避免“代码已实现但不可运营”。
 
+状态：完成。
+
 范围：
 
 - 更新主计划文档 Phase 7/8 状态。
 - 更新 README 的 Agent 配置和安全说明。
-- 输出 QQ 实测矩阵。
+- 输出 QQ 实测矩阵，并按用户确认标记人工实测状态。
 - 跑 Agent 相关单测。
 - 本地 Docker 构建启动验证。
 
@@ -252,7 +254,7 @@
 
 - 用户可以按 README 开启 Agent。
 - 用户知道哪些能力需要 root、群管、确认。
-- 实测项有明确通过/待验证记录。
+- 实测项有明确状态记录；QQ 人工实测由用户确认完成。
 
 ### Phase 10：Agent Runner 重构
 
@@ -420,49 +422,29 @@
 
 ## 5. 开发优先级
 
-推荐立即执行顺序：
+当前执行结果：
 
-1. Phase 9：文档和实测收口。
-2. Phase 10：Agent Runner 重构。
-3. Phase 11：ToolSpec V2 和 Guardrails。
-4. Phase 13：Trace Span 和 Dashboard V2。
-5. Phase 12：Session / Context / Memory V2。
-6. Phase 14：Specialist Agents。
-7. Phase 15：Memory Retriever V2。
+1. Phase 9：文档和实测收口已完成。
+2. Phase 10：Agent Runner 重构已完成。
+3. Phase 11：ToolSpec V2 和 Guardrails 已完成。
+4. Phase 13：Trace Span 和 Dashboard V2 已完成。
+5. Phase 12：Session / Context / Memory V2 已完成。
+6. Phase 14：Specialist Agents 当前范围已完成，采用 specialist-scoped prompt 和工具裁剪，不引入子 LLM handoff。
+7. Phase 15：Memory Retriever V2 已完成。
 
 说明：
 
 - Phase 12 和 Phase 13 可互换，但建议先做 Trace，因为重构上下文时需要更强观测能力。
 - 不建议在 Phase 10-13 完成前继续增加高风险 QQ 操作工具。
-- 不建议现在上完整浏览器自动化；当前 `browser.read_url` 的只读能力足够作为安全起点。
+- 独立沙箱和完整浏览器自动化已放弃作为当前目标；当前保留 `browser.read_url`、`browser.search_web`、`browser.screenshot_url` 的受限只读能力和 URL 安全校验。
 
-## 6. 下一步具体任务
+## 6. 后续维护任务
 
-### 6.1 本轮可直接做
+当前目标范围已经收口。后续只建议保留三类维护任务：
 
-1. 更新旧计划文档 `docs/plans/2026-04-24-agent-runtime-redesign-plan.md`：
-   - 补 Phase 7/8 当前状态。
-   - 标记 Phase 6 剩余项。
-   - 链接本 Roadmap。
-2. 更新 README：
-   - Agent 环境变量。
-   - WebUI 配置入口。
-   - QQ 管理权限说明。
-   - 工具确认方式。
-   - 记忆验证方式。
-   - 浏览器能力边界。
-3. 新增 QQ 实测清单文档：
-   - 放在 `docs/plans/`。
-   - 按场景、前置条件、操作、预期、实际结果记录。
-
-### 6.2 需要代码修改授权后做
-
-1. Phase 10：抽 `AgentRunner` 和 `RunState`。
-2. Phase 11：升级 `registry` 为 `ToolSpec V2`。
-3. Phase 11：补 `paramsSchema`、只读工具超时和 tool guardrail。
-4. Phase 11：继续拆 decision/output guardrail。
-5. Phase 13：升级 trajectory span。
-6. Phase 12：抽 `ContextSelector` 和 `ContextCompactor`。
+1. 回归验证：Runtime、工具权限、trajectory、Dashboard 和 QQ 实测矩阵作为回归基线。
+2. 运营观察：持续观察误回复、记忆污染、工具拒绝原因和高风险确认体验。
+3. 新能力排期：只有在明确新需求时，再单独评估 SQLite/FTS5、向量检索、完整浏览器或独立沙箱。
 
 ## 7. 风险控制原则
 

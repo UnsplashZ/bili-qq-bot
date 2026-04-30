@@ -71,6 +71,14 @@ function buildNativeTrajectorySpans(event = {}) {
         }))
     }
 
+    if (event.timingReentrySchedule) {
+        spans.push(makeSpan('timing_reentry', event.timingReentrySchedule.scheduled ? 'scheduled' : 'skipped', event.timingReentrySchedule.reason || '', {
+            waitMs: event.timingReentrySchedule.waitMs || 0
+        }))
+    } else if (event.timingReentry) {
+        spans.push(makeSpan('timing_reentry', 'ok', 'timing_reentry'))
+    }
+
     if (event.llmDecision?.status) {
         spans.push(makeSpan(
             'llm_decision',

@@ -20,7 +20,6 @@ __pycache__/
 .env
 config/.env
 config/config.json
-config/mcp_servers.json
 config/.jwtSecret
 
 # Data (Runtime)

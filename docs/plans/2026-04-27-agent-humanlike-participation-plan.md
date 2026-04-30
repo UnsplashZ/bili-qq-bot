@@ -7,8 +7,9 @@
 - 已完成：P0 动作模型与 Replyer 最小闭环，运行时主动作切换为 `listen/wait/react/reply/act`。
 - 已完成：P1 Timing Gate 前置节奏判断，明确寻址强制 `continue`，普通群聊可 `listen/wait`。
 - 已完成：trajectory 记录并展示 `timing_gate`、`llm_decision`、`replyer`、`reply_sent` 链路。
-- 已完成：表达习惯学习与注入、当前用户画像聚合、回复效果观察与表达置信度反哺的最小闭环。
-- 待继续：`wait` 目前是本轮静默，不是延迟重入调度；WebUI 配置收口和更完整的画像/效果页面仍在后续阶段。
+- 已完成：`wait` 支持按群延迟重入调度，新的 wait 会替换旧 timer，重入时绕过 Timing Gate 进入 Planner。
+- 已完成：表达习惯学习与注入、当前用户画像聚合、回复效果观察与表达置信度反哺的闭环。
+- 已完成：Agent 决策页展示 timing reentry，Agent 记忆页展示长期记忆、人物画像、表达习惯和回复效果。
 
 
 ## 1. 背景与问题
@@ -48,7 +49,7 @@
 | 新动作 | 现有近似动作 | 兼容策略 |
 | :--- | :--- | :--- |
 | `listen` | `observe_only` / `ignore` | 先映射到不发送，但 trajectory 记录新动作 |
-| `wait` | `defer` | 先复用延迟机制，后续升级为可恢复 timing state |
+| `wait` | `defer` | 使用按群内存 timer 延迟重入；新的 wait 会替换旧 timer |
 | `react` | `reply` | 走新 replyer，但限制长度和展开程度 |
 | `reply` | `reply` | 走新 replyer，目标消息必须明确 |
 | `act` | `tool_plan` | 复用工具管线、权限和确认 |
@@ -129,7 +130,7 @@ flowchart TD
 
 ## 6. Phase 2：Timing Gate 独立化
 
-状态：已完成最小闭环；延迟重入调度后续实现。
+状态：已完成，包含 Timing Gate 前置判断和 `wait` 延迟重入调度。
 
 
 ### 目标
@@ -139,7 +140,7 @@ flowchart TD
 ### 修改范围
 
 - 新增：`src/agent/timing/timingGate.js`
-- 新增：`src/agent/timing/timingPromptBuilder.js`
+- 采用规则式 Timing Gate；未保留独立 LLM prompt builder。
 - 新增：`src/agent/timing/timingStateStore.js`（可先内存态）
 - 修改：`src/agent/runtime/agentRunner.js`
 - 修改：`src/agent/runtime/promptBuilder.js`
@@ -174,7 +175,7 @@ flowchart TD
 
 - 用户连续发 2-3 条消息时，Agent 不抢第一条回复。
 - `@Bot` 不被 wait 阻断。
-- trajectory 记录 timing decision。
+- trajectory 记录 timing decision 和 timing reentry。
 
 ## 7. Phase 3：Replyer 二阶段生成
 
@@ -237,7 +238,7 @@ flowchart TD
 
 ## 8. Phase 4：表达习惯学习与注入
 
-状态：已完成最小闭环；WebUI 独立管理页后续实现。
+状态：已完成，包含表达习惯学习、选择注入、置信度反哺和 WebUI 只读展示。
 
 ### 目标
 
@@ -269,7 +270,7 @@ flowchart TD
 - 新增：`src/agent/expression/expressionSelector.js`
 - 修改：`src/agent/replyer/replyerPromptBuilder.js`
 - 修改：`src/agent/runtime/agentRunner.js`
-- WebUI 后置：可先不做页面，只在 trajectory 展示选中的 expression IDs。
+- WebUI：Agent 记忆页已增加表达习惯 tab，支持按群筛选和只读查看。
 
 ### 学习触发
 
@@ -294,7 +295,7 @@ flowchart TD
 
 ## 9. Phase 5：人物画像聚合
 
-状态：已完成当前用户画像聚合与 Replyer 注入；全量画像刷新和 WebUI 展示后续实现。
+状态：已完成，包含当前用户画像聚合、Replyer 注入和 WebUI 只读展示。
 
 ### 目标
 
@@ -335,7 +336,7 @@ flowchart TD
 
 - 同一群多用户同时聊天时，Agent 能区分“谁是谁”。
 - 用户偏好类信息不需要每次重新检索大量原始记忆。
-- WebUI 记忆页后续可展示画像摘要和来源。
+- WebUI 记忆页可展示画像摘要和来源。
 
 ## 10. Phase 6：回复效果观察与反哺
 
@@ -381,6 +382,8 @@ Bot 发言后观察后续群聊反应，给该次回复打分，并用于调整�
 
 ## 11. Phase 7：WebUI 与配置收口
 
+状态：已完成当前目标范围；配置开关、决策链路和记忆扩展页已收口。
+
 ### 目标
 
 把新拟人化机制做成可配置、可观测、可回滚。
@@ -414,14 +417,14 @@ Bot 发言后观察后续群聊反应，给该次回复打分，并用于调整�
 
 1. Agent 设置页：开关 `timingGate/replyer/expressionLearning/replyEffect`。
 2. Agent 决策页：展示 timing → planner → replyer → send → effect 全链路。
-3. Agent 记忆页：后续增加表达习惯和人物画像 tab。
+3. Agent 记忆页：展示长期记忆、人物画像、表达习惯和回复效果 tab。
 4. 群级覆盖：允许不同群配置不同插话和表达学习强度。
 
 ### 验收
 
 - 可以单独关闭 replyer 回退到旧模式。
 - 可以单独关闭 expression learning。
-- 可以在决策页定位为什么 wait/listen/react/reply。
+- 可以在决策页定位为什么 wait/listen/react/reply，以及 wait 后为何重入。
 
 ## 12. 测试计划
 
@@ -457,10 +460,10 @@ Bot 发言后观察后续群聊反应，给该次回复打分，并用于调整�
 
 ## 14. 推荐执行顺序
 
-1. **先做 Phase 1 + Phase 3**：动作模型和 Replyer 二阶段，最快改善“回复生硬”。
-2. **再做 Phase 2**：Timing Gate 独立化，改善抢话和连续消息。
-3. **再做 Phase 6**：回复效果观察，用真实反馈调节 react/reply。
-4. **最后做 Phase 4 + Phase 5 + Phase 7**：表达习惯、人物画像和 WebUI 完整化。
+1. **Phase 1 + Phase 3 已完成**：动作模型和 Replyer 二阶段已落地。
+2. **Phase 2 已完成**：Timing Gate 独立化和 wait 延迟重入已落地。
+3. **Phase 6 已完成**：回复效果观察可反哺表达习惯置信度。
+4. **Phase 4 + Phase 5 + Phase 7 已完成**：表达习惯、人物画像和 WebUI 展示已收口。
 
 如果只做一个最小闭环，建议范围是：
 

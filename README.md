@@ -164,8 +164,8 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、关注同步、视频下载（继承/覆盖） |
 | **全局设置** | 常规配置（轮询间隔等）、全局黑名单、B站登录、视频下载全局策略、应用重启 |
 | **Agent 设置** | 新 Agent 的全局开关、Persona、LLM 引用、预算、工具策略和群级覆盖 |
-| **Agent 决策** | 查看 Agent 的 rule score、LLM decision、policy、工具确认/执行、发送结果和筛选统计 |
-| **Agent 记忆** | 查看、筛选、删除和清理长期记忆 |
+| **Agent 决策** | 查看 Agent 的 timing、LLM decision、policy、工具确认/执行、发送结果、重入调度和筛选统计 |
+| **Agent 记忆** | 查看长期记忆、人物画像、表达习惯和回复效果；长期记忆支持筛选、删除和清理 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
 > 说明：WebUI 仅管理真实群聊（数字群号），不支持私聊会话（`private_*`）管理。
@@ -210,8 +210,8 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 ### 验证方式
 
-- 在 WebUI 的 **Agent 决策** 页查看每条消息的 LLM 决策、policy、工具计划、确认和发送结果。
-- 在 **Agent 记忆** 页查看长期记忆是否写入、是否有来源和置信度。
+- 在 WebUI 的 **Agent 决策** 页查看每条消息的 timing、LLM 决策、policy、工具计划、确认、重入调度和发送结果。
+- 在 **Agent 记忆** 页查看长期记忆、人物画像、表达习惯和回复效果；长期记忆可继续删除或按筛选清理。
 - QQ 群实测建议参考 `docs/plans/2026-04-26-agent-qq-test-matrix.md`。
 
 </details>

@@ -6,7 +6,8 @@ class AgentRunState {
         agentMessage,
         actor,
         memoryObservation,
-        sessionContext
+        sessionContext,
+        timingReentry = false
     }) {
         this.context = context
         this.groupId = groupId
@@ -15,6 +16,7 @@ class AgentRunState {
         this.actor = actor
         this.memoryObservation = memoryObservation
         this.sessionContext = sessionContext
+        this.timingReentry = timingReentry
     }
 
     actorSummary() {
@@ -34,8 +36,28 @@ class AgentRunState {
             message: this.agentMessage,
             session: this.sessionContext,
             topic: this.memoryObservation.topicSnapshot,
+            timingReentry: this.timingReentry,
             ...extra
         }
+    }
+
+    createTimingReentry(overrides = {}) {
+        return new AgentRunState({
+            context: this.context,
+            groupId: this.groupId,
+            agentConfig: overrides.agentConfig || this.agentConfig,
+            agentMessage: {
+                ...this.agentMessage,
+                timestamp: Date.now()
+            },
+            actor: this.actor,
+            memoryObservation: this.memoryObservation,
+            sessionContext: {
+                ...this.sessionContext,
+                timingReentry: true
+            },
+            timingReentry: true
+        })
     }
 }
 

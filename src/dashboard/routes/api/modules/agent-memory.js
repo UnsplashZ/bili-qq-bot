@@ -1,5 +1,8 @@
 const express = require('express')
 const longTermStore = require('../../../../agent/memory/longTermStore')
+const expressionStore = require('../../../../agent/expression/expressionStore')
+const personProfileStore = require('../../../../agent/memory/personProfileStore')
+const replyEffectStore = require('../../../../agent/feedback/replyEffectStore')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -56,6 +59,61 @@ router.post('/agent/memories/clear', async (req, res) => {
             error: error.message
         })
         res.status(500).json({ error: 'Failed to clear agent memories' })
+    }
+})
+
+router.get('/agent/expressions', async (req, res) => {
+    try {
+        const expressions = await expressionStore.listExpressions({
+            groupId: req.query.groupId ? String(req.query.groupId).trim() : '',
+            limit: parseLimit(req.query.limit)
+        })
+        res.json({ expressions })
+    } catch (error) {
+        dashLog(req, 'error', 'agent-expression-list-failed', {
+            error: error.message
+        })
+        res.status(500).json({ error: 'Failed to list agent expressions' })
+    }
+})
+
+router.get('/agent/profiles', async (req, res) => {
+    try {
+        const groupId = req.query.groupId ? String(req.query.groupId).trim() : ''
+        const userId = req.query.userId ? String(req.query.userId).trim() : ''
+        if (groupId && userId) {
+            const profile = await personProfileStore.getProfile({ groupId, userId })
+            return res.json({ profiles: profile ? [profile] : [] })
+        }
+        const profiles = await personProfileStore.listProfiles({
+            groupId,
+            limit: parseLimit(req.query.limit)
+        })
+        res.json({
+            profiles: userId
+                ? profiles.filter((profile) => String(profile.userId || '') === userId)
+                : profiles
+        })
+    } catch (error) {
+        dashLog(req, 'error', 'agent-profile-list-failed', {
+            error: error.message
+        })
+        res.status(500).json({ error: 'Failed to list agent profiles' })
+    }
+})
+
+router.get('/agent/reply-effects', async (req, res) => {
+    try {
+        const effects = replyEffectStore.listEffects({
+            groupId: req.query.groupId ? String(req.query.groupId).trim() : '',
+            limit: parseLimit(req.query.limit)
+        })
+        res.json({ effects })
+    } catch (error) {
+        dashLog(req, 'error', 'agent-reply-effect-list-failed', {
+            error: error.message
+        })
+        res.status(500).json({ error: 'Failed to list agent reply effects' })
     }
 })
 
