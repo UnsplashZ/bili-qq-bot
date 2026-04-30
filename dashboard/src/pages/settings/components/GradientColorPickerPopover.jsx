@@ -199,7 +199,7 @@ export default function GradientColorPickerPopover({
         <div
             ref={popoverRef}
             style={style}
-            className="absolute z-30 w-[408px] max-w-[calc(100%-1rem)] overflow-hidden rounded-[24px] border border-white/18 bg-gray-900/95 shadow-[0_30px_90px_rgba(2,6,23,0.46)] backdrop-blur-sm"
+            className="absolute z-30 w-[408px] max-w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-white/18 bg-gray-900/95 shadow-[0_18px_48px_rgba(2,6,23,0.38)]"
         >
             <span
                 className="absolute top-full h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-white/18 bg-gray-900/95"
@@ -216,14 +216,14 @@ export default function GradientColorPickerPopover({
                     <div
                         ref={saturationRef}
                         onPointerDown={startSaturationDrag}
-                        className="relative h-60 cursor-crosshair overflow-hidden rounded-[20px] border border-white/15"
+                        className="relative h-60 cursor-crosshair overflow-hidden rounded-lg border border-white/15"
                         style={{
                             backgroundColor: `hsl(${hsv.h} 100% 50%)`,
                             backgroundImage: 'linear-gradient(to top, black, transparent), linear-gradient(to right, white, transparent)'
                         }}
                     >
                         <span
-                            className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.18)]"
+                            className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-lg border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.18)]"
                             style={saturationCursorStyle}
                         />
                     </div>
@@ -231,20 +231,20 @@ export default function GradientColorPickerPopover({
                     <div
                         ref={hueRef}
                         onPointerDown={startHueDrag}
-                        className="relative cursor-row-resize overflow-hidden rounded-[20px] border border-white/15"
+                        className="relative cursor-row-resize overflow-hidden rounded-lg border border-white/15"
                         style={{
                             backgroundImage: 'linear-gradient(to bottom, #ff004c, #ff8a00, #ffe500, #3adf6d, #00d4ff, #3a6dff, #b248ff, #ff004c)'
                         }}
                     >
                         <span
-                            className="absolute left-1/2 h-2 w-[22px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_2px_12px_rgba(0,0,0,0.24)]"
+                            className="absolute left-1/2 h-2 w-[22px] -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_2px_12px_rgba(0,0,0,0.24)]"
                             style={hueCursorStyle}
                         />
                     </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-4">
-                    <div className="h-16 flex-1 rounded-2xl border border-white/15" style={buildPreviewStyle(draftHex)} />
+                    <div className="h-16 flex-1 rounded-lg border border-white/15" style={buildPreviewStyle(draftHex)} />
                     <div className="min-w-[120px] text-right text-xs text-white/60">
                         当前颜色
                         <strong className="mt-1 block text-sm text-white">{draftHex}</strong>

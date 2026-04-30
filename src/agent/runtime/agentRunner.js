@@ -1,4 +1,5 @@
 const logger = require('../../utils/logger')
+const runtimeMetricsService = require('../../services/runtimeMetricsService')
 const { runWithAgentSession } = require('../session/agentSessionContext')
 const sessionStore = require('../session/sessionStore')
 const longTermStore = require('../memory/longTermStore')
@@ -688,7 +689,7 @@ async function runObserveDecision(runState, scoreResult) {
 }
 
 async function runAgent(runState) {
-    return runWithAgentSession(runState.sessionContext, async () => {
+    return runtimeMetricsService.track('aiReply', () => runWithAgentSession(runState.sessionContext, async () => {
         const scoreResult = scoreMessage({
             agentMessage: runState.agentMessage,
             memoryObservation: runState.memoryObservation,
@@ -707,7 +708,7 @@ async function runAgent(runState) {
         const result = await runObserveDecision(runState, scoreResult)
         recordSessionOutcome(runState, result)
         return result
-    })
+    }), { latest: runState.timingReentry ? 'timing_reentry' : 'observe' })
 }
 
 module.exports = {

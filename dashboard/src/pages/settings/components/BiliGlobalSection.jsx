@@ -16,9 +16,8 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
             <GlassCard>
                 {biliGlobalStatus.isLoggedIn ? (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                        <div className="flex items-center justify-between gap-4 border-l border-emerald-300/60 bg-emerald-300/10 p-4">
                             <div className="flex items-center gap-3">
-                                <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse" />
                                 <div>
                                     <p className="text-white font-medium">
                                         {biliGlobalStatus.username}{' '}
@@ -38,14 +37,14 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
                                 <button
                                     onClick={onLogout}
                                     disabled={biliLoading}
-                                    className="px-3 py-1.5 bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 rounded-lg text-sm transition-colors disabled:opacity-50"
+                                    className="px-3 py-1.5 text-red-300 hover:bg-red-500/10 border border-red-500/25 rounded-lg text-sm transition-colors disabled:opacity-50"
                                 >
                                     退出登录
                                 </button>
                                 <button
                                     onClick={onLogin}
                                     disabled={biliLoading}
-                                    className="px-3 py-1.5 bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 border border-pink-500/30 rounded-lg text-sm transition-colors disabled:opacity-50"
+                                    className="px-3 py-1.5 text-cyan-100 hover:bg-cyan-500/10 border border-cyan-300/25 rounded-lg text-sm transition-colors disabled:opacity-50"
                                 >
                                     重新登录
                                 </button>
@@ -53,15 +52,14 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between bg-gray-500/10 border border-gray-500/20 rounded-lg p-4">
+                    <div className="flex items-center justify-between gap-4 border-l border-slate-500 bg-slate-500/10 p-4">
                         <div className="flex items-center gap-3">
-                            <div className="w-3 h-3 rounded-full bg-gray-500" />
                             <p className="text-gray-400">未登录</p>
                         </div>
                         <button
                             onClick={onLogin}
                             disabled={biliLoading}
-                            className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                            className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-100 rounded-lg transition-colors disabled:opacity-50"
                         >
                             {biliLoading ? '加载中...' : '扫码登录'}
                         </button>

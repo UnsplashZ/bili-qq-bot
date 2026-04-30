@@ -52,12 +52,12 @@ const useGroupForm = ({
   }, [selectedGroupId, groups, globalConfig.showId]);
 
   const handleSave = useCallback(async () => {
-    if (!selectedGroupId) return;
+    if (!selectedGroupId) return false;
 
     const nightModeError = validateNightMode(formData.nightMode);
     if (nightModeError) {
       show(nightModeError, 'error');
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -75,9 +75,11 @@ const useGroupForm = ({
       }
 
       show('配置保存成功', 'success');
+      return true;
     } catch (err) {
       console.error('Failed to save config', err);
       show('保存配置失败', 'error');
+      return false;
     } finally {
       setSaving(false);
     }

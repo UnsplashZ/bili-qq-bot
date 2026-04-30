@@ -1,19 +1,21 @@
 import React from 'react';
-import { X, Activity, Bot, Brain, Home, Users, Settings, Terminal } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
+import { NAV_ITEMS } from './navigation';
 
 const MobileMenuItem = ({ icon, label, href, active, onClick }) => {
   return (
     <Link
       to={href}
       onClick={onClick}
-      className={`flex items-center gap-3 px-4 sm:px-5 py-3 sm:py-4 rounded-lg transition-colors ${
+      className={`relative flex items-center gap-3 rounded-lg px-4 py-3 transition-colors sm:px-5 sm:py-4 ${
         active
-          ? 'bg-white/10 text-white'
-          : 'text-gray-400 hover:bg-white/5 hover:text-white'
+          ? 'bg-cyan-300/10 text-white'
+          : 'text-slate-400 hover:bg-white/5 hover:text-white'
       }`}
     >
-      {React.createElement(icon, { size: 22 })}
+      {active && <span className="absolute left-0 top-2 bottom-2 w-px rounded bg-cyan-300" />}
+      {React.createElement(icon, { size: 21 })}
       <span className="text-base sm:text-lg font-medium">{label}</span>
     </Link>
   );
@@ -29,15 +31,13 @@ const MobileMenu = ({ isOpen, onClose }) => {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden"
+        className="fixed inset-0 z-40 bg-black/55 md:hidden"
         onClick={onClose}
       />
 
-      {/* Menu Panel */}
-      <div className="fixed inset-y-0 left-0 w-72 sm:w-80 max-w-[86vw] bg-gradient-to-br from-gray-900 via-slate-800 to-black border-r border-white/10 z-50 md:hidden overflow-y-auto">
-        {/* Header */}
+      <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[86vw] overflow-y-auto border-r border-white/10 bg-[#080d15] sm:w-80 md:hidden">
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-white/10">
-          <h1 className="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
+          <h1 className="text-xl font-semibold tracking-wide text-slate-100 sm:text-2xl">
             控制面板
           </h1>
           <button
@@ -48,57 +48,17 @@ const MobileMenu = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="p-3 sm:p-4 space-y-2">
-          <MobileMenuItem
-            icon={Home}
-            label="运行状态"
-            href="/"
-            active={path === '/'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Users}
-            label="群组管理"
-            href="/groups"
-            active={path === '/groups'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Settings}
-            label="系统设置"
-            href="/settings"
-            active={path === '/settings'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Bot}
-            label="Agent 管理"
-            href="/agent-settings"
-            active={path === '/agent-settings'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Activity}
-            label="Agent 决策"
-            href="/agent-decisions"
-            active={path === '/agent-decisions'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Brain}
-            label="Agent 记忆"
-            href="/agent-memory"
-            active={path === '/agent-memory'}
-            onClick={onClose}
-          />
-          <MobileMenuItem
-            icon={Terminal}
-            label="系统日志"
-            href="/logs"
-            active={path === '/logs'}
-            onClick={onClose}
-          />
+          {NAV_ITEMS.map((item) => (
+            <MobileMenuItem
+              key={item.href}
+              icon={item.icon}
+              label={item.label}
+              href={item.href}
+              active={path === item.href}
+              onClick={onClose}
+            />
+          ))}
         </nav>
       </div>
     </>

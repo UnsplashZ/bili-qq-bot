@@ -31,7 +31,7 @@ const Toast = ({ id, message, type = 'info', onClose }) => {
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
       layout
       className={clsx(
-        'pointer-events-auto flex w-full max-w-sm rounded-lg shadow-lg ring-1 backdrop-blur-md p-4 mb-3 border',
+        'pointer-events-auto flex w-full max-w-sm rounded-lg shadow-lg ring-1 p-4 mb-3 border',
         styles[type] || styles.info
       )}
     >

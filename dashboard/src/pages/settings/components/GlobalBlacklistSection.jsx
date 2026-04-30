@@ -17,20 +17,19 @@ const GlobalBlacklistSection = ({
             </div>
             <GlassCard>
                 <div className="mb-4">
-                    <p className="text-sm text-gray-400 mb-4">在此列表中的 QQ 号将无法触发机器人的任何指令。</p>
                     <div className="flex gap-2">
                         <input
                             type="text"
                             value={newBlacklistQQ}
                             onChange={(e) => onNewBlacklistQQChange(e.target.value)}
                             placeholder="输入 QQ 号"
-                            className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                            className="field-control flex-1 px-3 py-2"
                             onKeyDown={(e) => e.key === 'Enter' && onAddBlacklist()}
                         />
                         <button
                             onClick={onAddBlacklist}
                             disabled={addingBlacklist || !newBlacklistQQ}
-                            className="px-4 py-2 bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30 rounded-lg transition-colors disabled:opacity-50"
+                            className="px-4 py-2 text-red-300 border border-red-500/30 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
                         >
                             添加
                         </button>
@@ -43,7 +42,7 @@ const GlobalBlacklistSection = ({
                     ) : (
                         <div className="flex flex-wrap gap-2">
                             {blacklist.map((qq) => (
-                                <div key={qq} className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-full text-red-200">
+                                <div key={qq} className="flex items-center gap-2 rounded-lg border border-red-500/20 px-3 py-1.5 text-red-200">
                                     <span>{qq}</span>
                                     <button
                                         onClick={() => onRemoveBlacklist(qq)}

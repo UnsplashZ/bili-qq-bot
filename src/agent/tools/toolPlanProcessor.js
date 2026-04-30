@@ -1,4 +1,5 @@
 const logger = require('../../utils/logger')
+const runtimeMetricsService = require('../../services/runtimeMetricsService')
 const { normalizeToolIntent, executeToolPlan } = require('./registry')
 const { evaluateToolGuardrails } = require('./toolGuardrails')
 const confirmationStore = require('./confirmationStore')
@@ -63,6 +64,7 @@ function formatToolError(errorMessage) {
 }
 
 async function executePlanWithAudit({ plan, sessionContext, actor, traceScope }) {
+    const metricStartedAt = Date.now()
     await recordToolAudit({
         event: 'tool_execute_start',
         traceScope,
@@ -90,6 +92,11 @@ async function executePlanWithAudit({ plan, sessionContext, actor, traceScope })
             plan,
             result
         })
+        runtimeMetricsService.record('toolCall', {
+            ok: true,
+            durationMs: Date.now() - metricStartedAt,
+            latest: plan?.name || 'tool'
+        })
         return {
             status: 'executed',
             plan,
@@ -105,6 +112,11 @@ async function executePlanWithAudit({ plan, sessionContext, actor, traceScope })
             userId: sessionContext.userId,
             plan,
             error: errorMessage
+        })
+        runtimeMetricsService.record('toolCall', {
+            ok: false,
+            durationMs: Date.now() - metricStartedAt,
+            latest: plan?.name || errorMessage
         })
         return {
             status: 'failed',

@@ -23,13 +23,13 @@ function compactSignals(signals) {
     .join(', ') || '-';
 }
 
-function badgeClass(scope) {
-  if (scope === 'user') return 'bg-blue-500/15 text-blue-200 border-blue-400/30';
-  if (scope === 'group') return 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30';
-  if (scope === 'topic') return 'bg-purple-500/15 text-purple-200 border-purple-400/30';
-  if (scope === 'positive') return 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30';
-  if (scope === 'negative') return 'bg-rose-500/15 text-rose-200 border-rose-400/30';
-  return 'bg-slate-500/15 text-slate-200 border-slate-400/30';
+function statusTextClass(scope) {
+  if (scope === 'user') return 'text-blue-200';
+  if (scope === 'group') return 'text-emerald-200';
+  if (scope === 'topic') return 'text-purple-200';
+  if (scope === 'positive') return 'text-emerald-200';
+  if (scope === 'negative') return 'text-rose-200';
+  return 'text-slate-200';
 }
 
 const TABS = [
@@ -116,7 +116,7 @@ const AgentMemory = () => {
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`px-2.5 py-1 rounded-full text-xs border ${badgeClass(memory.scope)}`}>
+            <span className={`text-xs font-medium ${statusTextClass(memory.scope)}`}>
               {memory.scope}/{memory.type}
             </span>
             <span className="text-xs text-gray-400 font-mono">{memory.id}</span>
@@ -153,7 +153,7 @@ const AgentMemory = () => {
     <GlassCard key={profile.id}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`px-2.5 py-1 rounded-full text-xs border ${badgeClass('user')}`}>profile</span>
+          <span className={`text-xs font-medium ${statusTextClass('user')}`}>profile</span>
           <span className="text-xs text-gray-400 font-mono">{profile.id}</span>
         </div>
         <div className="grid gap-2 text-sm text-gray-400 md:grid-cols-2">
@@ -178,7 +178,7 @@ const AgentMemory = () => {
     <GlassCard key={expression.id}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`px-2.5 py-1 rounded-full text-xs border ${badgeClass('topic')}`}>expression</span>
+          <span className={`text-xs font-medium ${statusTextClass('topic')}`}>expression</span>
           <span className="text-xs text-gray-400 font-mono">{expression.id}</span>
         </div>
         <div className="text-lg text-white break-words">{expression.situation}</div>
@@ -199,7 +199,7 @@ const AgentMemory = () => {
     <GlassCard key={effect.id}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`px-2.5 py-1 rounded-full text-xs border ${badgeClass(effect.label)}`}>
+          <span className={`text-xs font-medium ${statusTextClass(effect.label)}`}>
             {effect.label || 'effect'}
           </span>
           <span className="text-xs text-gray-400 font-mono">{effect.id}</span>
@@ -229,13 +229,10 @@ const AgentMemory = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold flex items-center gap-3">
+        <h1 className="flex items-center gap-3 text-2xl font-semibold">
           <Brain className="text-purple-300" />
           Agent 记忆
         </h1>
-        <p className="text-gray-400 mt-2">
-          查看长期记忆、人物画像、表达习惯和回复效果；错误长期记忆可直接删除。
-        </p>
       </div>
 
       <GlassCard>
@@ -278,7 +275,7 @@ const AgentMemory = () => {
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="flex overflow-x-auto border-b border-white/10">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.key;
@@ -286,10 +283,10 @@ const AgentMemory = () => {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-3 rounded-lg border flex items-center justify-center gap-2 text-sm transition-colors ${
+              className={`flex shrink-0 items-center justify-center gap-2 border-b px-4 py-3 text-sm transition-colors ${
                 active
-                  ? 'bg-purple-500/20 border-purple-400/40 text-purple-100'
-                  : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                  ? 'border-purple-300 text-purple-100'
+                  : 'border-transparent text-gray-300 hover:text-white'
               }`}
             >
               <Icon size={18} />

@@ -4,6 +4,7 @@ const { generateHelpCard } = require('./generators/helpCard');
 const { isNightMode } = require('./core/theme');
 const { formatPubTime, formatNumber } = require('./core/formatters');
 const browserManager = require('./core/browser');
+const runtimeMetricsService = require('../runtimeMetricsService');
 
 /**
  * ImageGenerator 主类
@@ -34,7 +35,11 @@ class ImageGenerator {
      * @returns {Promise<String>} Base64编码的图片
      */
     async generatePreviewCard(data, type, groupId, show_id = true) {
-        return generatePreviewCard(data, type, groupId, show_id);
+        return runtimeMetricsService.track(
+            'previewGeneration',
+            () => generatePreviewCard(data, type, groupId, show_id),
+            { latest: type || 'preview' }
+        );
     }
 
     /**

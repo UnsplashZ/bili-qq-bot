@@ -31,15 +31,14 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-black flex items-center justify-center p-4">
+    <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-md">
         <GlassCard className="p-8">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center mb-4 text-blue-400">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
               <Lock size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-white">管理员登录</h1>
-            <p className="text-gray-400 mt-2">请输入密码以继续</p>
+            <h1 className="text-2xl font-semibold text-white">管理员登录</h1>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -52,7 +51,7 @@ const Login = () => {
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-blue-500 text-white placeholder-gray-500 transition-colors"
+                className="field-control w-full px-4 py-3 placeholder-gray-500 transition-colors"
                 placeholder="请输入管理员密码"
                 disabled={loading}
               />
@@ -61,7 +60,7 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02]"
+              className="flex w-full items-center justify-center rounded-lg bg-cyan-500/20 px-4 py-3 font-semibold text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <>

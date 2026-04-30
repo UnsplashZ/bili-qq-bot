@@ -5,6 +5,7 @@ const biliApi = require('./biliApi')
 const notificationService = require('./notificationService')
 const logger = require('../utils/logger')
 const config = require('../config')
+const runtimeMetricsService = require('./runtimeMetricsService')
 const {
     isVideoDownloadEnabledForGroup,
     getVideoDownloadResolutionForGroup,
@@ -211,7 +212,16 @@ class VideoDownloadService {
      * @param {number} pageIndex - 分P索引（0-based），默认 0
      */
     async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
-        if (!isVideoDownloadEnabledForGroup(groupId)) return { ok: false, reason: 'disabled', silent: true }
+        const metricStartedAt = Date.now()
+        const finishMetric = (result) => {
+            runtimeMetricsService.record('videoDownload', {
+                ok: Boolean(result?.ok || result?.silent),
+                durationMs: Date.now() - metricStartedAt,
+                latest: result?.reason || (result?.ok ? bvid : '失败')
+            })
+            return result
+        }
+        if (!isVideoDownloadEnabledForGroup(groupId)) return finishMetric({ ok: false, reason: 'disabled', silent: true })
         const taskScope = this._taskScope(groupId, bvid, pageIndex)
         const startedAt = Date.now()
 
@@ -224,7 +234,7 @@ class VideoDownloadService {
                 pageIndex,
                 reason: 'duplicate'
             }, taskScope)
-            return { ok: false, reason: 'duplicate', silent: true }
+            return finishMetric({ ok: false, reason: 'duplicate', silent: true })
         }
 
         // 并发限制
@@ -239,7 +249,7 @@ class VideoDownloadService {
             this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
             ], false)
-            return { ok: false, reason: 'max_concurrent', silent: true }
+            return finishMetric({ ok: false, reason: 'max_concurrent', silent: true })
         }
 
         const duration = this._getEffectiveDuration(videoInfo, pageIndex)
@@ -252,7 +262,7 @@ class VideoDownloadService {
             this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: `⚠️ 视频时长 ${durationMin} 分钟，超出当前限制（${limitMin} 分钟），已跳过下载` } }
             ], false)
-            return { ok: false, reason: 'duration_exceeded', silent: true }
+            return finishMetric({ ok: false, reason: 'duration_exceeded', silent: true })
         }
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
@@ -266,7 +276,7 @@ class VideoDownloadService {
             this._notifyTarget(ws, groupId, [
                 { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
             ], false)
-            return { ok: false, reason: 'disk_space_full', silent: true }
+            return finishMetric({ ok: false, reason: 'disk_space_full', silent: true })
         }
 
         const resolution = getVideoDownloadResolutionForGroup(groupId)
@@ -314,7 +324,7 @@ class VideoDownloadService {
                 pageIndex,
                 error: logger.getErrorMessage(e)
             }, taskScope)
-            return { ok: false, reason: e.message }
+            return finishMetric({ ok: false, reason: e.message })
         } finally {
             this._activeDownloads--
             _inProgressDownloads.delete(downloadKey)
@@ -327,7 +337,7 @@ class VideoDownloadService {
                 pageIndex,
                 error: result.message
             }, taskScope)
-            return { ok: false, reason: result.message }
+            return finishMetric({ ok: false, reason: result.message })
         }
 
         const sent = await this._sendForwardMessage(ws, groupId, result, taskScope)
@@ -350,7 +360,7 @@ class VideoDownloadService {
             sent,
             durationMs: Date.now() - startedAt
         }, taskScope)
-        return { ok: sent }
+        return finishMetric({ ok: sent, reason: sent ? 'sent' : 'send_failed' })
     }
 
     /**
@@ -511,8 +521,19 @@ class VideoDownloadService {
      * 按群独立过滤时长限制，取所有目标群中最高的分辨率下载
      */
     async downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0) {
+        const metricStartedAt = Date.now()
+        const finishMetric = (ok, latest) => {
+            runtimeMetricsService.record('videoDownload', {
+                ok,
+                durationMs: Date.now() - metricStartedAt,
+                latest
+            })
+        }
         const enabledGroups = groupIds.filter(gid => canReceiveSubscriptionVideoDownload(gid))
-        if (enabledGroups.length === 0) return
+        if (enabledGroups.length === 0) {
+            finishMetric(true, '无目标')
+            return
+        }
 
         const downloadKey = `subscription:${bvid}:${pageIndex}`
         const taskScope = logger.createScope('task', 'subscription-download', bvid || 'unknown', pageIndex + 1)
@@ -523,6 +544,7 @@ class VideoDownloadService {
                 pageIndex,
                 reason: 'duplicate_subscription'
             }, taskScope)
+            finishMetric(true, 'duplicate_subscription')
             return
         }
 
@@ -533,6 +555,7 @@ class VideoDownloadService {
                 reason: 'max_concurrent',
                 maxConcurrent: MAX_CONCURRENT_DOWNLOADS
             }, taskScope)
+            finishMetric(true, 'max_concurrent')
             return
         }
 
@@ -549,6 +572,7 @@ class VideoDownloadService {
                 reason: 'duration_exceeded_all_groups',
                 durationMinutes: Math.round(duration / 60)
             }, taskScope)
+            finishMetric(true, 'duration_exceeded_all_groups')
             return
         }
 
@@ -564,6 +588,7 @@ class VideoDownloadService {
                     { type: 'text', data: { text: `⚠️ 下载目录空间不足（超过 5GB），已跳过订阅视频 ${bvid} 的下载。可使用 /清理下载 释放空间` } }
                 ], 'VideoDownload', false)
             }
+            finishMetric(true, 'disk_space_full')
             return
         }
 
@@ -603,6 +628,7 @@ class VideoDownloadService {
                 pageIndex,
                 error: logger.getErrorMessage(e)
             }, taskScope)
+            finishMetric(false, logger.getErrorMessage(e))
             return
         } finally {
             this._activeDownloads--
@@ -615,6 +641,7 @@ class VideoDownloadService {
                 pageIndex,
                 error: result.message
             }, taskScope)
+            finishMetric(false, result.message)
             return
         }
 
@@ -639,6 +666,7 @@ class VideoDownloadService {
             sentCount,
             groupCount: filteredGroups.length
         }, taskScope)
+        finishMetric(sentCount > 0, `${sentCount}/${filteredGroups.length}`)
 
         // 所有群都发完后再清理文件，延迟按群数量系数放大
         this._scheduleCleanup(result.file_path, filteredGroups.length)

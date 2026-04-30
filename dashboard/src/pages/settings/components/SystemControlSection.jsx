@@ -9,7 +9,7 @@ const SystemControlSection = ({ onRestart }) => {
                         <Activity className="text-red-400" />
                         系统控制
                     </h2>
-                    <p className="text-gray-400 text-sm mt-1">影响整个机器人的系统级操作。</p>
+                    <p className="text-red-300/80 text-sm mt-1">重启会短暂中断当前服务。</p>
                 </div>
                 <button
                     onClick={onRestart}

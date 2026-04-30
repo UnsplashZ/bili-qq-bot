@@ -2,6 +2,7 @@ const { notificationService, imageGenerator, config, logger, notificationHistory
 const { normalizeSourceList } = require('../helpers/sourceMap')
 const { resolveDedupKey } = require('../helpers/dedupKey')
 const { canReceiveSubscriptionNotification } = require('../helpers/groupReachability')
+const runtimeMetricsService = require('../../../runtimeMetricsService')
 
 function subLog(level, message, fields = {}, scope = 'svc:notify') {
     logger.logEvent(level, 'SUB', scope, message, fields)
@@ -62,6 +63,7 @@ module.exports = {
     },
 
     async notifyGroupsWithImage(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
+        const startedAt = Date.now()
         const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
@@ -71,7 +73,14 @@ module.exports = {
         const dedupId = resolveDedupKey(type, data)
 
         const result = createNotifyResult(dedupId)
-        if (!this.ws || groupIds.length === 0) return result
+        if (!this.ws || groupIds.length === 0) {
+            runtimeMetricsService.record('subscriptionPush', {
+                ok: true,
+                durationMs: Date.now() - startedAt,
+                latest: '无目标'
+            })
+            return result
+        }
 
         // Filter out groups that already received this notification
         const pendingGroupIds = []
@@ -93,7 +102,14 @@ module.exports = {
             pendingGroupIds.push(...groupIds)
         }
 
-        if (pendingGroupIds.length === 0) return result
+        if (pendingGroupIds.length === 0) {
+            runtimeMetricsService.record('subscriptionPush', {
+                ok: true,
+                durationMs: Date.now() - startedAt,
+                latest: '去重跳过'
+            })
+            return result
+        }
 
         // Group by config signature to handle Night Mode / Show ID differences
         const groupsByConfig = new Map() // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
@@ -213,6 +229,11 @@ module.exports = {
             }
         }
 
+        runtimeMetricsService.record('subscriptionPush', {
+            ok: result.failedGroups.length === 0,
+            durationMs: Date.now() - startedAt,
+            latest: `${result.successGroups.length}/${result.successGroups.length + result.failedGroups.length}`
+        })
         return result
     },
 

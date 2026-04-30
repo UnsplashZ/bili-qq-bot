@@ -10,6 +10,7 @@ import RestartConfirmModal from './settings/components/RestartConfirmModal'
 import BiliQrModal from './settings/components/BiliQrModal'
 import useSettingsData from './settings/hooks/useSettingsData'
 import useBiliLogin from './settings/hooks/useBiliLogin'
+import { Save } from 'lucide-react'
 
 const Settings = () => {
   const { show } = useToast()
@@ -40,22 +41,28 @@ const Settings = () => {
     return <div className="text-white p-8 text-center">正在加载设置...</div>
   }
 
+  const savingSettings = settingsData.savingGeneral || settingsData.savingPreviewGradient || settingsData.savingVideoDownload
+
   return (
-    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 space-y-5 md:space-y-8 pb-8 md:pb-12">
-      <header>
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">系统设置</h1>
-        <p className="text-sm md:text-base text-gray-400">管理常规选项、全局黑名单、B站登录和系统控制。</p>
+    <div className="space-y-5 pb-8 md:space-y-7 md:pb-12">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold text-white">系统设置</h1>
+        <button
+          type="button"
+          onClick={settingsData.saveAllSettings}
+          disabled={savingSettings}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500/20 px-4 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:opacity-50"
+        >
+          <Save size={16} />
+          {savingSettings ? '保存中...' : '保存设置'}
+        </button>
       </header>
 
       <GeneralSettingsSection
         generalConfig={settingsData.generalConfig}
-        savingGeneral={settingsData.savingGeneral}
         onGeneralChange={settingsData.handleGeneralChange}
-        onSaveGeneral={settingsData.saveGeneralSettings}
         previewGradientConfig={settingsData.previewGradientConfig}
-        savingPreviewGradient={settingsData.savingPreviewGradient}
         onPreviewGradientChange={settingsData.handlePreviewGradientChange}
-        onSavePreviewGradient={settingsData.savePreviewGradientSettings}
         onResetPreviewGradient={settingsData.resetPreviewGradientSettings}
       />
 
@@ -77,9 +84,7 @@ const Settings = () => {
 
       <VideoDownloadSection
         videoDownloadConfig={settingsData.videoDownloadConfig}
-        savingVideoDownload={settingsData.savingVideoDownload}
         onVideoDownloadChange={(field, value) => settingsData.setVideoDownloadConfig(p => ({ ...p, [field]: value }))}
-        onSaveVideoDownload={settingsData.saveVideoDownloadSettings}
       />
 
       <SystemControlSection onRestart={handleRestart} />

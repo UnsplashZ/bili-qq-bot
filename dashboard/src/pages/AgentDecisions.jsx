@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, Filter, RefreshCw } from 'lucide-react';
+import { Activity, RefreshCw } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
@@ -58,15 +58,15 @@ function formatTime(value) {
   return date.toLocaleString();
 }
 
-function badgeClass(action) {
+function statusTextClass(action) {
   if (['reply', 'short_reply', 'full_reply', 'ask_clarify'].includes(action)) {
-    return 'bg-blue-500/15 text-blue-200 border-blue-400/30';
+    return 'text-blue-200';
   }
-  if (['react', 'casual_interject'].includes(action)) return 'bg-fuchsia-500/15 text-fuchsia-100 border-fuchsia-400/30';
-  if (action === 'ambient_react') return 'bg-cyan-500/15 text-cyan-100 border-cyan-400/30';
-  if (['act', 'tool_plan'].includes(action)) return 'bg-amber-500/15 text-amber-200 border-amber-400/30';
-  if (['listen', 'wait', 'observe_only', 'defer'].includes(action)) return 'bg-slate-500/15 text-slate-200 border-slate-400/30';
-  return 'bg-purple-500/15 text-purple-200 border-purple-400/30';
+  if (['react', 'casual_interject'].includes(action)) return 'text-fuchsia-200';
+  if (action === 'ambient_react') return 'text-cyan-200';
+  if (['act', 'tool_plan'].includes(action)) return 'text-amber-200';
+  if (['listen', 'wait', 'observe_only', 'defer'].includes(action)) return 'text-slate-300';
+  return 'text-purple-200';
 }
 
 function compactList(value) {
@@ -98,10 +98,24 @@ function topSpanText(summary) {
   return spans.length > 0 ? spans.map(([key, count]) => `${key}:${count}`).join(' / ') : '-';
 }
 
-function spanBadgeClass(status) {
-  if (status === 'blocked' || status === 'failed') return 'bg-red-500/15 text-red-200 border-red-400/25';
-  if (status === 'skipped' || status === 'pending') return 'bg-slate-500/15 text-slate-200 border-slate-400/25';
-  return 'bg-cyan-500/15 text-cyan-100 border-cyan-400/25';
+function spanTextClass(status) {
+  if (status === 'blocked' || status === 'failed') return 'text-red-200';
+  if (status === 'skipped' || status === 'pending') return 'text-slate-300';
+  return 'text-cyan-100';
+}
+
+function DetailBlock({ title, children, tone = 'slate' }) {
+  const toneClass = tone === 'amber'
+    ? 'border-amber-300/30 text-amber-100'
+    : tone === 'emerald'
+      ? 'border-emerald-300/30 text-emerald-100'
+      : 'border-white/10 text-gray-300';
+  return (
+    <div className={`space-y-1 border-l pl-3 text-sm ${toneClass}`}>
+      {title && <div className="font-medium text-white">{title}</div>}
+      {children}
+    </div>
+  );
 }
 
 function DecisionCard({ item }) {
@@ -115,17 +129,18 @@ function DecisionCard({ item }) {
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`px-2.5 py-1 rounded-full text-xs border ${badgeClass(finalAction || llmAction)}`}>
+              <span className={`text-xs font-medium ${statusTextClass(finalAction || llmAction)}`}>
                 {finalAction || llmAction}
               </span>
-              <span className={`px-2.5 py-1 rounded-full text-xs ${sent ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-500/20 text-slate-300'}`}>
+              <span className="text-slate-600">/</span>
+              <span className={`text-xs font-medium ${sent ? 'text-emerald-200' : 'text-slate-300'}`}>
                 {sent ? '已发送' : '未发送'}
               </span>
               {item.llmDecision?.repaired && (
-                <span className="px-2.5 py-1 rounded-full text-xs bg-amber-500/20 text-amber-200">JSON repaired</span>
+                <span className="text-xs font-medium text-amber-200">JSON repaired</span>
               )}
               {item.tool && (
-                <span className="px-2.5 py-1 rounded-full text-xs bg-orange-500/20 text-orange-200">
+                <span className="text-xs font-medium text-orange-200">
                   {item.tool.status || 'tool'}
                 </span>
               )}
@@ -140,9 +155,11 @@ function DecisionCard({ item }) {
         </div>
 
         {item.rawTextPreview && (
-          <div className="rounded-lg bg-black/20 border border-white/10 p-3 text-gray-200 break-words">
+          <DetailBlock>
+            <div className="break-words text-gray-200">
             {item.rawTextPreview}
-          </div>
+            </div>
+          </DetailBlock>
         )}
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -176,14 +193,14 @@ function DecisionCard({ item }) {
           </div>
         )}
         {item.llmDecision?.replyDraftPreview && (
-          <div className="text-sm text-blue-100 bg-blue-500/10 border border-blue-400/20 rounded-lg p-3">
+          <DetailBlock title="回复草稿">
             {item.llmDecision.replyDraftPreview}
-          </div>
+          </DetailBlock>
         )}
         {item.tool && (
-          <div className="text-sm text-amber-100 bg-amber-500/10 border border-amber-400/20 rounded-lg p-3 space-y-1">
+          <DetailBlock title="工具" tone="amber">
             <div>
-              工具：{item.tool.name || '-'} · 状态：{item.tool.status || '-'} · 风险：{item.tool.risk || '-'}
+              {item.tool.name || '-'} · 状态：{item.tool.status || '-'} · 风险：{item.tool.risk || '-'}
             </div>
             <div>{item.tool.summary || item.tool.reason || '-'}</div>
             {item.tool.confirmation?.shortId && (
@@ -202,78 +219,72 @@ function DecisionCard({ item }) {
                 {item.tool.replyDecision.replyDraftPreview ? ` · ${item.tool.replyDecision.replyDraftPreview}` : ''}
               </div>
             )}
-          </div>
+          </DetailBlock>
         )}
         {(item.replyerResult || item.expressionHints?.length > 0 || item.replyEffectObservation || item.expressionLearning || item.personProfile || item.personProfileWrite) && (
           <div className="grid gap-3 md:grid-cols-2">
             {item.replyerResult && (
-              <div className="text-sm text-blue-100 bg-blue-500/10 border border-blue-400/20 rounded-lg p-3 space-y-1">
-                <div className="font-medium">Replyer</div>
+              <DetailBlock title="Replyer">
                 <div>状态：{item.replyerResult.status || '-'} · tone：{item.replyerResult.tone || '-'} · 置信度：{item.replyerResult.confidence ?? '-'}</div>
                 <div className="text-xs text-blue-100/80">模型：{item.replyerResult.model || '-'} · Tokens：{item.replyerResult.totalTokens ?? '-'}</div>
                 {item.replyerResult.reason && <div className="text-xs text-blue-100/80">原因：{item.replyerResult.reason}</div>}
                 {item.replyerResult.textPreview && <div className="text-xs text-blue-50/90 break-words">{item.replyerResult.textPreview}</div>}
-              </div>
+              </DetailBlock>
             )}
             {item.expressionHints?.length > 0 && (
-              <div className="text-sm text-fuchsia-100 bg-fuchsia-500/10 border border-fuchsia-400/20 rounded-lg p-3 space-y-1">
-                <div className="font-medium">表达习惯注入</div>
+              <DetailBlock title="表达习惯注入">
                 {item.expressionHints.slice(0, 3).map((expression) => (
                   <div key={expression.id || expression.style} className="text-xs text-fuchsia-100/85 break-words">
                     {expression.id || '-'} · {expression.style || '-'} · {expression.confidence ?? '-'}
                   </div>
                 ))}
-              </div>
+              </DetailBlock>
             )}
             {item.replyEffectObservation && (
-              <div className="text-sm text-emerald-100 bg-emerald-500/10 border border-emerald-400/20 rounded-lg p-3 space-y-1">
-                <div className="font-medium">回复效果观察</div>
+              <DetailBlock title="回复效果观察">
                 <div>状态：{item.replyEffectObservation.status || '-'} · 标签：{item.replyEffectObservation.label || '-'} · 分数：{item.replyEffectObservation.score ?? '-'}</div>
                 <div className="text-xs text-emerald-100/80">信号：{compactSignals(item.replyEffectObservation.signals)}</div>
                 {item.replyEffectObservation.reason && <div className="text-xs text-emerald-100/80">原因：{item.replyEffectObservation.reason}</div>}
-              </div>
+              </DetailBlock>
             )}
             {item.expressionLearning && (
-              <div className="text-sm text-purple-100 bg-purple-500/10 border border-purple-400/20 rounded-lg p-3 space-y-1">
-                <div className="font-medium">表达学习</div>
+              <DetailBlock title="表达学习">
                 <div>状态：{item.expressionLearning.status || '-'} · 写入：{item.expressionLearning.stored ?? 0} · 跳过：{item.expressionLearning.skipped ?? 0}</div>
                 <div className="text-xs text-purple-100/80 break-words">IDs：{compactList(item.expressionLearning.ids)}</div>
                 {item.expressionLearning.reason && <div className="text-xs text-purple-100/80">原因：{item.expressionLearning.reason}</div>}
-              </div>
+              </DetailBlock>
             )}
             {(item.personProfile || item.personProfileWrite) && (
-              <div className="text-sm text-cyan-100 bg-cyan-500/10 border border-cyan-400/20 rounded-lg p-3 space-y-1">
-                <div className="font-medium">人物画像</div>
+              <DetailBlock title="人物画像">
                 {item.personProfileWrite && <div>写入：{item.personProfileWrite.status || '-'} · 存储：{item.personProfileWrite.stored ?? 0} · 跳过：{item.personProfileWrite.skipped ?? 0}</div>}
                 {item.personProfile?.displayNames && <div className="text-xs text-cyan-100/80">昵称：{compactList(item.personProfile.displayNames)}</div>}
                 {item.personProfile?.preferences && <div className="text-xs text-cyan-100/80 break-words">偏好：{compactList(item.personProfile.preferences)}</div>}
                 {item.personProfileWrite?.reason && <div className="text-xs text-cyan-100/80">原因：{item.personProfileWrite.reason}</div>}
-              </div>
+              </DetailBlock>
             )}
           </div>
         )}
         {Array.isArray(item.spans) && item.spans.length > 0 && (
-          <div className="rounded-lg bg-cyan-500/10 border border-cyan-400/20 p-3 space-y-2">
-            <div className="text-sm font-medium text-cyan-100">Trace Spans</div>
+          <DetailBlock title="Trace Spans">
             <div className="flex flex-wrap gap-2">
               {item.spans.map((span, spanIndex) => (
                 <span
                   key={`${span.type}-${spanIndex}`}
-                  className={`px-2.5 py-1 rounded-full text-xs border ${spanBadgeClass(span.status)}`}
+                  className={`text-xs ${spanTextClass(span.status)}`}
                   title={span.reason || ''}
                 >
                   {span.type}:{span.status || 'ok'}
                 </span>
               ))}
             </div>
-          </div>
+          </DetailBlock>
         )}
         {(item.memoryWrite || item.topicSummaryWrite) && (
-          <div className="text-xs text-emerald-100 bg-emerald-500/10 border border-emerald-400/20 rounded-lg p-3">
+          <DetailBlock tone="emerald">
             记忆：写入 {item.memoryWrite?.stored ?? 0}，跳过 {item.memoryWrite?.skipped ?? 0}
             {item.topicSummaryWrite?.stored ? ` · 话题摘要 ${item.topicSummaryWrite.stored}` : ''}
             {item.memoryWrite?.error ? ` · 错误：${item.memoryWrite.error}` : ''}
-          </div>
+          </DetailBlock>
         )}
       </div>
     </GlassCard>
@@ -282,7 +293,7 @@ function DecisionCard({ item }) {
 
 function PendingConfirmationCard({ confirmation }) {
   return (
-    <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-4 space-y-2">
+    <div className="space-y-2 border-l border-amber-300/30 py-2 pl-3">
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="font-medium text-amber-100">
@@ -356,15 +367,12 @@ const AgentDecisions = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="flex items-center gap-3 text-2xl font-semibold">
             <Activity className="text-cyan-300" />
             Agent 决策
           </h1>
-          <p className="text-gray-400 mt-2">
-            查看 Agent 最近的 rule score、LLM decision、policy validator 和发送结果，用于调试为什么回复或不回复。
-          </p>
         </div>
         <button
           onClick={loadItems}
@@ -445,45 +453,26 @@ const AgentDecisions = () => {
             />
           </label>
         </div>
-        <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
-          <Filter size={14} />
-          日期为空时会读取所有轨迹文件并返回最近记录；页面只展示已脱敏摘要。
-        </div>
       </GlassCard>
 
       {summary && (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <GlassCard>
-            <div className="text-sm text-gray-400">轨迹总数</div>
-            <div className="text-2xl font-semibold text-white mt-1">{summary.total || 0}</div>
-            <div className="text-xs text-gray-500 mt-1">当前筛选返回范围</div>
-          </GlassCard>
-          <GlassCard>
-            <div className="text-sm text-gray-400">发送比例</div>
-            <div className="text-2xl font-semibold text-blue-100 mt-1">
-              {summary.sent || 0} / {formatPercent(summary.sent, summary.total)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">实际发出普通/系统回复</div>
-          </GlassCard>
-          <GlassCard>
-            <div className="text-sm text-gray-400">工具轨迹</div>
-            <div className="text-2xl font-semibold text-amber-100 mt-1">{summary.toolCount || 0}</div>
-            <div className="text-xs text-gray-500 mt-1">tool_plan / confirmation</div>
-          </GlassCard>
-          <GlassCard>
-            <div className="text-sm text-gray-400">记忆写入</div>
-            <div className="text-2xl font-semibold text-emerald-100 mt-1">{summary.memoryStored || 0}</div>
-            <div className="text-xs text-gray-500 mt-1">跳过 {summary.memorySkipped || 0}</div>
-          </GlassCard>
-          <GlassCard>
-            <div className="text-sm text-gray-400">主要拒绝/策略原因</div>
-            <div className="text-sm text-gray-200 mt-2 break-words">{topReasonText(summary)}</div>
-          </GlassCard>
-          <GlassCard>
-            <div className="text-sm text-gray-400">主要 Span</div>
-            <div className="text-sm text-gray-200 mt-2 break-words">{topSpanText(summary)}</div>
-          </GlassCard>
-        </div>
+        <GlassCard className="overflow-hidden p-0">
+          <div className="grid divide-y divide-white/10 text-sm md:grid-cols-3 md:divide-x md:divide-y-0 xl:grid-cols-6">
+            {[
+              ['轨迹总数', summary.total || 0],
+              ['发送比例', `${summary.sent || 0} / ${formatPercent(summary.sent, summary.total)}`],
+              ['工具轨迹', summary.toolCount || 0],
+              ['记忆写入', `${summary.memoryStored || 0} / 跳过 ${summary.memorySkipped || 0}`],
+              ['主要策略原因', topReasonText(summary)],
+              ['主要 Span', topSpanText(summary)],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0 px-4 py-3">
+                <div className="text-xs text-slate-500">{label}</div>
+                <div className="mt-1 truncate text-slate-100">{value}</div>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
       )}
 
       {confirmations.length > 0 && (
@@ -491,11 +480,8 @@ const AgentDecisions = () => {
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-white">待确认工具</h2>
-              <p className="text-sm text-gray-400 mt-1">
-                这里只展示当前进程内仍未过期的受限工具确认，不在 WebUI 直接执行。
-              </p>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-xs bg-amber-500/20 text-amber-200">
+            <span className="text-sm font-medium text-amber-200">
               {confirmations.length}
             </span>
           </div>

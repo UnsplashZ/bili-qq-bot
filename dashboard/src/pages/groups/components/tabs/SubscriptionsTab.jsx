@@ -1,4 +1,3 @@
-import { Tab } from '@headlessui/react';
 import { Bell, Plus, Trash2 } from 'lucide-react';
 import personalVerifyBadgeUrl from '../../../../assets/verify/PERSONAL_OFFICIAL_VERIFY.svg';
 import organizationVerifyBadgeUrl from '../../../../assets/verify/ORGANIZATION_OFFICIAL_VERIFY.svg';
@@ -71,7 +70,7 @@ const SubscriptionsTab = ({
   onDeleteSubscription
 }) => {
   return (
-    <Tab.Panel className="focus:outline-none h-full flex flex-col">
+    <div className="focus:outline-none h-full flex flex-col">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium text-white">订阅列表</h3>
         <button
@@ -145,7 +144,7 @@ const SubscriptionsTab = ({
           </table>
         )}
       </div>
-    </Tab.Panel>
+    </div>
   );
 };
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Bot, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
+import SettingRow from '../components/SettingRow';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 
@@ -99,7 +100,7 @@ function HumanlikeConfigFields({ participation, timing, replyer, expression, onC
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div>
         <Toggle
           label="参与机制"
           description="总开关：保留 Agent，但可关闭拟人化参与链路。"
@@ -148,10 +149,10 @@ function HumanlikeConfigFields({ participation, timing, replyer, expression, onC
         <NumberInput label="最长等待" min="0" max="300000" value={timing?.maxWaitMs} suffix="ms" disabled={disabled} onChange={(value) => updateTiming('maxWaitMs', value)} />
         <NumberInput label="React 最长" min="20" max="500" value={replyer?.maxReactChars} suffix="字符" disabled={disabled} onChange={(value) => updateReplyer('maxReactChars', value)} />
         <NumberInput label="Reply 最长" min="80" max="2000" value={replyer?.maxReplyChars} suffix="字符" disabled={disabled} onChange={(value) => updateReplyer('maxReplyChars', value)} />
-        <Toggle label="允许引用回复" description="后续可用于 quote target。" checked={replyer?.allowQuoteReply !== false} disabled={disabled} onChange={(checked) => updateReplyer('allowQuoteReply', checked)} />
         <NumberInput label="学习最少消息" min="6" max="200" value={expression?.learningMinMessages} suffix="条" disabled={disabled} onChange={(value) => updateExpression('learningMinMessages', value)} />
         <NumberInput label="学习最小间隔" min="60000" max="86400000" value={expression?.learningMinIntervalMs} suffix="ms" disabled={disabled} onChange={(value) => updateExpression('learningMinIntervalMs', value)} />
       </div>
+      <Toggle label="允许引用回复" description="后续可用于 quote target。" checked={replyer?.allowQuoteReply !== false} disabled={disabled} onChange={(checked) => updateReplyer('allowQuoteReply', checked)} />
     </div>
   );
 }
@@ -169,7 +170,7 @@ function NumberInput({ label, value, onChange, min, max, step = 1, suffix = '', 
           value={value ?? ''}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white disabled:opacity-60"
+          className="field-control w-full px-3 py-2.5 disabled:opacity-60"
         />
         {suffix && <span className="text-sm text-gray-500 shrink-0">{suffix}</span>}
       </div>
@@ -186,7 +187,7 @@ function TextInput({ label, value, onChange, placeholder = '', disabled = false 
         disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500 disabled:opacity-60"
+        className="field-control w-full px-3 py-2.5 placeholder:text-gray-500 disabled:opacity-60"
       />
     </label>
   );
@@ -194,24 +195,100 @@ function TextInput({ label, value, onChange, placeholder = '', disabled = false 
 
 function Toggle({ label, description, checked, onChange, disabled = false }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`text-left p-4 rounded-xl border transition-colors ${
-        checked
-          ? 'bg-emerald-500/10 border-emerald-400/30'
-          : 'bg-black/20 border-white/10 hover:bg-white/5'
-      } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-medium text-white">{label}</span>
-        <span className={`px-2.5 py-1 rounded-full text-xs ${checked ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-500/20 text-slate-300'}`}>
-          {formatBool(checked)}
-        </span>
-      </div>
-      {description && <p className="text-sm text-gray-400 mt-2">{description}</p>}
-    </button>
+    <SettingRow
+      title={label}
+      description={description}
+      status={formatBool(checked)}
+      control={(
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(!checked)}
+          className={`flex h-7 w-11 items-center rounded-md border px-1 transition-colors ${
+            checked
+              ? 'border-cyan-300/40 bg-cyan-300/15'
+              : 'border-white/15 bg-black/20 hover:bg-white/5'
+          } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+          aria-pressed={checked}
+          aria-label={label}
+        >
+          <span
+            className={`block h-4 w-4 rounded-sm transition-transform ${
+              checked ? 'translate-x-4 bg-cyan-100' : 'translate-x-0 bg-slate-500'
+            }`}
+          />
+        </button>
+      )}
+    />
+  );
+}
+
+function CheckboxRow({ label, checked, disabled = false, onChange, trailing }) {
+  return (
+    <label className={`flex items-center gap-3 border-b border-white/10 py-3 last:border-b-0 ${disabled ? 'opacity-60' : ''}`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="text-sm text-gray-200">{label}</span>
+      {trailing && <span className="text-xs text-gray-500">{trailing}</span>}
+    </label>
+  );
+}
+
+function FieldRow({ title, description, children, status }) {
+  return (
+    <SettingRow
+      title={title}
+      description={description}
+      status={status}
+      control={(
+        <div className="w-full min-w-0 md:w-72">
+          {children}
+        </div>
+      )}
+    />
+  );
+}
+
+function PlainStatus({ children, tone = 'slate' }) {
+  const toneClass = tone === 'amber' ? 'border-amber-300/30 text-amber-200' : 'border-white/10 text-gray-400';
+  return (
+    <div className={`mt-4 space-y-1 border-l pl-3 text-sm ${toneClass}`}>
+      {children}
+    </div>
+  );
+}
+
+function GroupDraftToggle({ checked, onChange, children }) {
+  return (
+    <label className="flex items-center gap-3 border-b border-white/10 py-3 text-sm text-gray-300 last:border-b-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {children}
+    </label>
+  );
+}
+
+function ModeSelect({ value, disabled, onChange }) {
+  return (
+    <FieldRow title="活跃模式">
+      <select
+        value={value || 'quiet'}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white disabled:opacity-60"
+      >
+        {SOCIAL_MODES.map((mode) => (
+          <option key={mode.value} value={mode.value}>{mode.label} / {mode.value}</option>
+        ))}
+      </select>
+    </FieldRow>
   );
 }
 
@@ -222,7 +299,7 @@ function OverrideSelect({ label, value, onChange }) {
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white"
+        className="field-control w-full px-3 py-2.5"
       >
         <option value="inherit">继承全局</option>
         <option value="true">开启</option>
@@ -237,7 +314,7 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
+      <div>
         <Toggle
           label="允许偶尔插话"
           description="开启后，普通闲聊可由 Agent 判断是否自然参与。"
@@ -252,19 +329,13 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
           disabled={disabled}
           onChange={(checked) => update('avoidDuringRapidTwoPersonChat', checked)}
         />
-        <label className="space-y-1.5">
-          <span className="text-sm text-gray-300">活跃模式</span>
-          <select
-            value={value?.mode || 'quiet'}
-            disabled={disabled}
-            onChange={(event) => update('mode', event.target.value)}
-            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white disabled:opacity-60"
-          >
-            {SOCIAL_MODES.map((mode) => (
-              <option key={mode.value} value={mode.value}>{mode.label} / {mode.value}</option>
-            ))}
-          </select>
-        </label>
+        <ModeSelect
+          value={value?.mode || 'quiet'}
+          disabled={disabled}
+          onChange={(nextValue) => update('mode', nextValue)}
+        />
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
         <NumberInput
           label="插话概率"
           min="0"
@@ -343,7 +414,6 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
 const AgentSettings = () => {
   const { show } = useToast();
   const [agent, setAgent] = useState(null);
-  const [defaults, setDefaults] = useState(null);
   const [llmEnv, setLlmEnv] = useState({});
   const [aliasesText, setAliasesText] = useState('');
   const [groupId, setGroupId] = useState('');
@@ -373,7 +443,6 @@ const AgentSettings = () => {
       const response = await api.get('/api/agent/config');
       const nextAgent = response.data.agent;
       setAgent(nextAgent);
-      setDefaults(response.data.defaults || null);
       setLlmEnv(response.data.llmEnv || {});
       setAliasesText(Array.isArray(nextAgent.aliases) ? nextAgent.aliases.join('\n') : '');
     } catch (error) {
@@ -397,8 +466,13 @@ const AgentSettings = () => {
     });
   };
 
-  const saveGlobal = async () => {
+  const saveAll = async () => {
     if (!agent) return;
+    const normalizedGroupId = groupId.trim();
+    if (normalizedGroupId && !/^\d+$/.test(normalizedGroupId)) {
+      show('请输入有效群号，或清空群号后只保存全局配置', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -406,43 +480,29 @@ const AgentSettings = () => {
         aliases: aliasesText,
       };
       const response = await api.put('/api/agent/config', payload);
-      setAgent(response.data.agent);
+      let nextAgent = response.data.agent;
       setLlmEnv(response.data.llmEnv || {});
-      setAliasesText(Array.isArray(response.data.agent.aliases) ? response.data.agent.aliases.join('\n') : '');
-      show('Agent 全局配置已保存', 'success');
+      setAliasesText(Array.isArray(nextAgent.aliases) ? nextAgent.aliases.join('\n') : '');
+      if (normalizedGroupId) {
+        const groupPayload = {
+          enabled: fromOverrideValue(groupDraft.enabled),
+          observeOnly: fromOverrideValue(groupDraft.observeOnly),
+          sendEnabled: fromOverrideValue(groupDraft.sendEnabled),
+          replyPolicy: groupDraft.replyPolicyMode === 'custom' ? groupDraft.replyPolicy : null,
+          social: groupDraft.socialMode === 'custom' ? groupDraft.social : null,
+          participation: groupDraft.humanlikeMode === 'custom' ? groupDraft.participation : null,
+          timing: groupDraft.humanlikeMode === 'custom' ? groupDraft.timing : null,
+          replyer: groupDraft.humanlikeMode === 'custom' ? groupDraft.replyer : null,
+          expression: groupDraft.humanlikeMode === 'custom' ? groupDraft.expression : null,
+        };
+        const groupResponse = await api.put(`/api/agent/groups/${encodeURIComponent(normalizedGroupId)}`, groupPayload);
+        nextAgent = groupResponse.data.agent;
+      }
+      setAgent(nextAgent);
+      show(normalizedGroupId ? `Agent 全局和群 ${normalizedGroupId} 覆盖配置已保存` : 'Agent 配置已保存', 'success');
     } catch (error) {
       console.error('Failed to save agent config:', error);
       show(error.response?.data?.error || '保存 Agent 配置失败', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveGroup = async () => {
-    const normalizedGroupId = groupId.trim();
-    if (!/^\d+$/.test(normalizedGroupId)) {
-      show('请输入有效群号', 'error');
-      return;
-    }
-    const payload = {
-      enabled: fromOverrideValue(groupDraft.enabled),
-      observeOnly: fromOverrideValue(groupDraft.observeOnly),
-      sendEnabled: fromOverrideValue(groupDraft.sendEnabled),
-      replyPolicy: groupDraft.replyPolicyMode === 'custom' ? groupDraft.replyPolicy : null,
-      social: groupDraft.socialMode === 'custom' ? groupDraft.social : null,
-      participation: groupDraft.humanlikeMode === 'custom' ? groupDraft.participation : null,
-      timing: groupDraft.humanlikeMode === 'custom' ? groupDraft.timing : null,
-      replyer: groupDraft.humanlikeMode === 'custom' ? groupDraft.replyer : null,
-      expression: groupDraft.humanlikeMode === 'custom' ? groupDraft.expression : null,
-    };
-    setSaving(true);
-    try {
-      const response = await api.put(`/api/agent/groups/${encodeURIComponent(normalizedGroupId)}`, payload);
-      setAgent(response.data.agent);
-      show(`群 ${normalizedGroupId} 的 Agent 覆盖配置已保存`, 'success');
-    } catch (error) {
-      console.error('Failed to save agent group config:', error);
-      show(error.response?.data?.error || '保存群级 Agent 配置失败', 'error');
     } finally {
       setSaving(false);
     }
@@ -515,36 +575,33 @@ const AgentSettings = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="flex items-center gap-3 text-2xl font-semibold">
             <Bot className="text-cyan-300" />
             Agent 管理
           </h1>
-          <p className="text-gray-400 mt-2">
-            管理新 Agent 的运行模式、LLM 决策、回复闸门、预算和受限工具；不会恢复旧 AI/MCP 配置。
-          </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={loadConfig}
             disabled={loading}
-            className="px-4 py-2.5 rounded-lg bg-white/10 text-white hover:bg-white/15 disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2.5 rounded-lg border border-white/10 text-white hover:bg-white/5 disabled:opacity-50 flex items-center gap-2"
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             刷新
           </button>
           <button
-            onClick={saveGlobal}
+            onClick={saveAll}
             disabled={saving}
-            className="px-4 py-2.5 rounded-lg bg-blue-500/20 text-blue-100 hover:bg-blue-500/30 disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 flex items-center gap-2"
           >
             <Save size={18} />
-            保存全局
+            保存设置
           </button>
         </div>
       </div>
 
       <GlassCard>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div>
           <Toggle
             label="Agent 入口"
             description="关闭后自然语言不进入 Agent。"
@@ -650,14 +707,14 @@ const AgentSettings = () => {
               onChange={(event) => setAliasesText(event.target.value)}
               placeholder="每行一个，例如：小助手"
               rows={4}
-              className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500"
+              className="field-control w-full px-3 py-2.5 placeholder:text-gray-500"
             />
           </label>
         </GlassCard>
 
         <GlassCard>
           <h2 className="text-xl font-semibold mb-4">LLM 与预算</h2>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div>
             <Toggle
               label="LLM 启用"
               description="关闭后只走规则/回退。"
@@ -670,6 +727,8 @@ const AgentSettings = () => {
               checked={agent.budget?.enabled}
               onChange={(value) => updateAgent((next) => { next.budget.enabled = value; })}
             />
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <TextInput
               label="Provider"
               value={agent.llm?.provider}
@@ -721,12 +780,12 @@ const AgentSettings = () => {
               onChange={(value) => updateAgent((next) => { next.budget.maxLlmCallsPerUserPerMinute = value; })}
             />
           </div>
-          <div className="mt-4 p-3 rounded-lg bg-black/20 border border-white/10 text-sm text-gray-400 space-y-1">
-            <div>API Key 状态：{llmEnv.apiKeyConfigured ? '已通过环境变量配置' : '未检测到环境变量'}</div>
+          <PlainStatus tone={llmEnv.apiKeyConfigured ? 'slate' : 'amber'}>
+            <div>API Key：{llmEnv.apiKeyConfigured ? '已配置' : '未配置'}</div>
             {(llmEnv.providerOverridden || llmEnv.baseURLOverridden || llmEnv.modelOverridden || llmEnv.apiKeyEnvOverridden) && (
               <div className="text-amber-300">部分 LLM 字段由 `.env` 覆盖，保存后运行时仍以环境变量为准。</div>
             )}
-          </div>
+          </PlainStatus>
         </GlassCard>
 
         <GlassCard>
@@ -751,7 +810,7 @@ const AgentSettings = () => {
                 })}
                 rows={3}
                 maxLength={500}
-                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500"
+                className="field-control w-full px-3 py-2.5 placeholder:text-gray-500"
               />
             </label>
             <label className="block space-y-1.5">
@@ -764,12 +823,9 @@ const AgentSettings = () => {
                 })}
                 rows={3}
                 maxLength={500}
-                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder:text-gray-500"
+                className="field-control w-full px-3 py-2.5 placeholder:text-gray-500"
               />
             </label>
-            <div className="text-xs text-gray-500">
-              Persona 会进入 Agent system prompt，但不会绕过命令、链接、权限和工具确认边界。
-            </div>
           </div>
         </GlassCard>
 
@@ -781,9 +837,6 @@ const AgentSettings = () => {
               next.social = value;
             })}
           />
-          <div className="text-xs text-gray-500 mt-4">
-            该层只控制普通闲聊的偶尔参与；明确 @、回复 Bot、命令、B 站链接仍走原有入口和工具边界。
-          </div>
         </GlassCard>
 
         <GlassCard>
@@ -800,9 +853,6 @@ const AgentSettings = () => {
               if (patch.expression) next.expression = patch.expression;
             })}
           />
-          <div className="text-xs text-gray-500 mt-4">
-            Timing Gate 负责等一等，Replyer 负责最终口吻，表达学习和回复效果观察只影响后续拟人化，不绕过工具权限。
-          </div>
         </GlassCard>
       </div>
 
@@ -811,13 +861,15 @@ const AgentSettings = () => {
           <ShieldCheck className="text-emerald-300" />
           受限工具
         </h2>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div>
           <Toggle
             label="允许工具执行"
             description="开启后 Agent 可输出 tool_plan，经权限和确认后执行白名单工具。"
             checked={agent.tools?.enabled}
             onChange={(value) => updateAgent((next) => { next.tools.enabled = value; })}
           />
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
           <NumberInput
             label="确认有效期"
             min="10000"
@@ -827,30 +879,28 @@ const AgentSettings = () => {
             onChange={(value) => updateAgent((next) => { next.tools.confirmationTtlMs = value; })}
           />
         </div>
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4">
           {RISK_LEVELS.map((risk) => (
-            <label key={risk.value} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 border border-white/10">
-              <input
-                type="checkbox"
-                checked={risk.value === 'high' || (agent.tools?.requireConfirmationFor || []).includes(risk.value)}
-                disabled={risk.value === 'high'}
-                onChange={(event) => updateAgent((next) => {
+            <CheckboxRow
+              key={risk.value}
+              label={`${risk.label} 需要确认`}
+              checked={risk.value === 'high' || (agent.tools?.requireConfirmationFor || []).includes(risk.value)}
+              disabled={risk.value === 'high'}
+              trailing={risk.value === 'high' ? '强制' : ''}
+              onChange={(checked) => updateAgent((next) => {
                   const current = new Set(next.tools.requireConfirmationFor || []);
-                  if (event.target.checked) current.add(risk.value);
+                  if (checked) current.add(risk.value);
                   else current.delete(risk.value);
                   next.tools.requireConfirmationFor = Array.from(current);
                 })}
-              />
-              <span className="text-sm text-gray-200">{risk.label} 需要确认</span>
-              {risk.value === 'high' && <span className="text-xs text-gray-500">强制</span>}
-            </label>
+            />
           ))}
         </div>
       </GlassCard>
 
       <GlassCard>
         <h2 className="text-xl font-semibold mb-4">群级覆盖</h2>
-        <div className="grid gap-4 md:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-4">
           <TextInput label="群号" value={groupId} onChange={setGroupId} placeholder="例如 123456789" />
           <OverrideSelect
             label="入口"
@@ -867,27 +917,17 @@ const AgentSettings = () => {
             value={groupDraft.sendEnabled}
             onChange={(value) => setGroupDraft((prev) => ({ ...prev, sendEnabled: value }))}
           />
-          <button
-            onClick={saveGroup}
-            disabled={saving}
-            className="self-end px-4 py-2.5 rounded-lg bg-blue-500/20 text-blue-100 hover:bg-blue-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Save size={18} />
-            保存群配置
-          </button>
         </div>
         <div className="mt-4">
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={groupDraft.replyPolicyMode === 'custom'}
-              onChange={(event) => setGroupDraft((prev) => ({
-                ...prev,
-                replyPolicyMode: event.target.checked ? 'custom' : 'inherit',
-              }))}
-            />
-            覆盖本群回复阈值和冷却；不勾选则继承全局配置
-          </label>
+          <GroupDraftToggle
+            checked={groupDraft.replyPolicyMode === 'custom'}
+            onChange={(checked) => setGroupDraft((prev) => ({
+              ...prev,
+              replyPolicyMode: checked ? 'custom' : 'inherit',
+            }))}
+          >
+            覆盖本群回复阈值和冷却
+          </GroupDraftToggle>
         </div>
         <div className="grid gap-4 mt-4 md:grid-cols-2">
           <NumberInput
@@ -916,17 +956,15 @@ const AgentSettings = () => {
           />
         </div>
         <div className="mt-6">
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={groupDraft.socialMode === 'custom'}
-              onChange={(event) => setGroupDraft((prev) => ({
-                ...prev,
-                socialMode: event.target.checked ? 'custom' : 'inherit',
-              }))}
-            />
-            覆盖本群社交插话配置；不勾选则继承全局配置
-          </label>
+          <GroupDraftToggle
+            checked={groupDraft.socialMode === 'custom'}
+            onChange={(checked) => setGroupDraft((prev) => ({
+              ...prev,
+              socialMode: checked ? 'custom' : 'inherit',
+            }))}
+          >
+            覆盖本群社交插话配置
+          </GroupDraftToggle>
         </div>
         <div className="mt-4">
           <SocialConfigFields
@@ -937,17 +975,15 @@ const AgentSettings = () => {
         </div>
 
         <div className="mt-6">
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={groupDraft.humanlikeMode === 'custom'}
-              onChange={(event) => setGroupDraft((prev) => ({
-                ...prev,
-                humanlikeMode: event.target.checked ? 'custom' : 'inherit',
-              }))}
-            />
-            覆盖本群拟人化参与配置；不勾选则继承全局配置
-          </label>
+          <GroupDraftToggle
+            checked={groupDraft.humanlikeMode === 'custom'}
+            onChange={(checked) => setGroupDraft((prev) => ({
+              ...prev,
+              humanlikeMode: checked ? 'custom' : 'inherit',
+            }))}
+          >
+            覆盖本群拟人化参与配置
+          </GroupDraftToggle>
         </div>
         <div className="mt-4">
           <HumanlikeConfigFields
@@ -963,7 +999,7 @@ const AgentSettings = () => {
         <div className="mt-6 grid gap-3">
           {groups.length === 0 && <div className="text-gray-500 text-sm">暂无群级 Agent 覆盖配置。</div>}
           {groups.map(([targetGroupId, config]) => (
-            <div key={targetGroupId} className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-4 rounded-xl bg-black/20 border border-white/10">
+            <div key={targetGroupId} className="flex flex-col gap-3 border-l border-white/10 py-3 pl-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <div className="font-mono text-white">{targetGroupId}</div>
                 <div className="text-sm text-gray-400 mt-1">
@@ -976,7 +1012,7 @@ const AgentSettings = () => {
               <div className="flex gap-2">
                 <button
                   onClick={() => loadGroupDraft(targetGroupId, config)}
-                  className="px-3 py-2 rounded-lg bg-white/10 text-white hover:bg-white/15"
+                  className="rounded-lg border border-white/10 px-3 py-2 text-white hover:bg-white/5"
                 >
                   编辑
                 </button>
@@ -992,12 +1028,6 @@ const AgentSettings = () => {
           ))}
         </div>
       </GlassCard>
-
-      {defaults && (
-        <div className="text-xs text-gray-500">
-          默认模式：{defaults.decisionMode}；默认工具开关：{formatBool(defaults.tools?.enabled)}。
-        </div>
-      )}
     </div>
   );
 };

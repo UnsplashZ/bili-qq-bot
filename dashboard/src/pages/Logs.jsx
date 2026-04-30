@@ -41,11 +41,11 @@ function getMessageText(log) {
 
 function getLevelBadgeClass(level) {
   const normalized = String(level || '').toUpperCase();
-  if (normalized.includes('FTL')) return 'text-rose-200 bg-rose-600/40 border border-rose-400/30';
-  if (normalized.includes('ERR')) return 'text-rose-300 bg-rose-500/10 border border-rose-500/20';
-  if (normalized.includes('WRN')) return 'text-amber-300 bg-amber-500/10 border border-amber-500/20';
-  if (normalized.includes('DBG') || normalized.includes('TRC')) return 'text-sky-300 bg-sky-500/10 border border-sky-500/20';
-  return 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20';
+  if (normalized.includes('FTL')) return 'text-rose-200 border-rose-400/40';
+  if (normalized.includes('ERR')) return 'text-rose-300 border-rose-500/30';
+  if (normalized.includes('WRN')) return 'text-amber-300 border-amber-500/30';
+  if (normalized.includes('DBG') || normalized.includes('TRC')) return 'text-sky-300 border-sky-500/30';
+  return 'text-emerald-300 border-emerald-500/30';
 }
 
 function getConnectionLabel(connectionState) {
@@ -224,10 +224,10 @@ const Logs = () => {
   });
 
   return (
-    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 flex flex-col space-y-3 md:space-y-4 pb-5 md:pb-6 min-h-[calc(100vh-7rem)] md:min-h-[calc(100vh-8rem)]">
+    <div className="flex min-h-[calc(100vh-7rem)] flex-col space-y-3 pb-5 md:min-h-[calc(100vh-8rem)] md:space-y-4 md:pb-6">
       <header className="flex justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">系统日志</h1>
+          <h1 className="text-2xl font-semibold text-white">系统日志</h1>
         </div>
         <div className="flex w-full sm:w-auto justify-end gap-2">
           <button
@@ -239,7 +239,7 @@ const Logs = () => {
           </button>
           <button
             onClick={() => setIsPaused(!isPaused)}
-            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm md:text-base font-medium transition-colors ${isPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm md:text-base font-medium transition-colors ${isPaused ? 'border border-amber-400/30 text-amber-300' : 'border border-white/10 text-white hover:bg-white/5'}`}
           >
             {isPaused ? <Play className="w-4 h-4 md:w-[18px] md:h-[18px]" /> : <Pause className="w-4 h-4 md:w-[18px] md:h-[18px]" />}
             {isPaused ? '继续' : '暂停'}
@@ -254,7 +254,7 @@ const Logs = () => {
             <select
               value={filters.level}
               onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
-              className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              className="field-control w-full px-3 py-2 text-sm text-gray-100"
             >
               {LEVEL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value} className="bg-slate-900 text-gray-100">
@@ -270,7 +270,7 @@ const Logs = () => {
               value={filters.keyword}
               onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
               placeholder="搜索 action / scope / fields"
-              className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              className="field-control w-full px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500"
             />
           </div>
         </div>
@@ -288,7 +288,7 @@ const Logs = () => {
                   key={channel}
                   type="button"
                   onClick={() => toggleChannel(channel)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold tracking-[0.18em] transition-colors ${active ? 'bg-sky-500/20 text-sky-200 border border-sky-400/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold tracking-[0.12em] transition-colors ${active ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-100' : 'border-white/10 text-gray-400 hover:bg-white/5'}`}
                 >
                   {channel}
                 </button>
@@ -310,11 +310,11 @@ const Logs = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] gap-3 px-3 sm:px-4 py-2 border-b border-white/5 text-[10px] uppercase tracking-[0.28em] text-gray-600 font-semibold">
+        <div className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 px-3 py-2 border-b border-white/5 text-[10px] uppercase tracking-[0.18em] text-gray-600 font-semibold sm:px-4 md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] md:tracking-[0.28em]">
           <span>Timestamp</span>
           <span>Level</span>
-          <span>Channel</span>
-          <span>Scope</span>
+          <span className="hidden md:block">Channel</span>
+          <span className="hidden md:block">Scope</span>
           <span>Message</span>
         </div>
 
@@ -330,14 +330,14 @@ const Logs = () => {
             <div
               key={`${log.timestamp}-${log.channel}-${log.action}-${index}`}
               data-log-row
-              className="grid grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] gap-3 px-2 py-1.5 rounded hover:bg-white/5 items-start"
+              className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 px-2 py-1.5 rounded hover:bg-white/5 items-start md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]"
             >
-              <span className="text-gray-500 whitespace-nowrap">{log.timestampText}</span>
-              <span className={`inline-flex w-fit rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>
+              <span className="text-gray-500 whitespace-nowrap truncate">{log.timestampText}</span>
+              <span className={`inline-flex w-fit border-l pl-2 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>
                 {log.level}
               </span>
-              <span className="text-sky-200">{log.channel || '-'}</span>
-              <span className="text-gray-500 break-all">{log.scope || '-'}</span>
+              <span className="hidden text-sky-200 md:block">{log.channel || '-'}</span>
+              <span className="hidden text-gray-500 break-all md:block">{log.scope || '-'}</span>
               <span className="text-gray-300 whitespace-pre-wrap break-all leading-relaxed">
                 {getMessageText(log)}
               </span>
@@ -351,7 +351,7 @@ const Logs = () => {
         <button
           type="button"
           onClick={floatingButtonMode === 'top' ? jumpToTop : jumpToBottom}
-          className="fixed bottom-5 right-4 md:bottom-7 md:right-8 z-40 inline-flex items-center gap-2 rounded-full border border-sky-300/20 bg-slate-950/88 px-3 py-2 text-xs font-semibold text-sky-100 shadow-[0_10px_28px_rgba(2,6,23,0.5)] backdrop-blur-sm transition-colors hover:bg-slate-900"
+          className="fixed bottom-5 right-4 md:bottom-7 md:right-8 z-40 inline-flex items-center gap-2 rounded-lg border border-sky-300/20 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-sky-100 shadow-[0_10px_28px_rgba(2,6,23,0.5)] transition-colors hover:bg-slate-900"
           title={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
           aria-label={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
         >

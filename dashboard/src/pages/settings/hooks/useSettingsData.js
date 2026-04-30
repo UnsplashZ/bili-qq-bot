@@ -133,11 +133,9 @@ export default function useSettingsData(show) {
         )
     }
 
-    const resetPreviewGradientSettings = async () => {
-        await persistPreviewGradientSettings(
-            { ...PREVIEW_GRADIENT_DEFAULTS },
-            '已恢复默认渐变色！'
-        )
+    const resetPreviewGradientSettings = () => {
+        setPreviewGradientConfig({ ...PREVIEW_GRADIENT_DEFAULTS })
+        show('已恢复默认氛围色，保存后生效', 'success')
     }
 
     const handleAddBlacklist = async () => {
@@ -184,6 +182,28 @@ export default function useSettingsData(show) {
         }
     }
 
+    const saveAllSettings = async () => {
+        setSavingGeneral(true)
+        setSavingPreviewGradient(true)
+        setSavingVideoDownload(true)
+        try {
+            await api.post('/api/config', {
+                ...generalConfig,
+                ...previewGradientConfig,
+                ...videoDownloadConfig
+            })
+            show('设置已保存！', 'success')
+        } catch (error) {
+            console.error('Failed to save settings:', error)
+            const errorMsg = error.response?.data?.error || '保存设置失败'
+            show(errorMsg, 'error')
+        } finally {
+            setSavingGeneral(false)
+            setSavingPreviewGradient(false)
+            setSavingVideoDownload(false)
+        }
+    }
+
     return {
         loading,
         generalConfig,
@@ -206,6 +226,7 @@ export default function useSettingsData(show) {
         setVideoDownloadConfig,
         savingVideoDownload,
         saveVideoDownloadSettings,
+        saveAllSettings,
         biliGlobalStatus,
         setBiliGlobalStatus
     }

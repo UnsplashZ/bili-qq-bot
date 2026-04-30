@@ -17,7 +17,7 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="fixed inset-0 bg-black/60" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -34,7 +34,7 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
               <Dialog.Panel
                 className={twMerge(
                   clsx(
-                    'w-full max-w-md transform overflow-hidden rounded-2xl bg-gray-900/80 backdrop-blur-xl border border-white/10 p-6 text-left align-middle shadow-xl transition-all text-white',
+                    'w-full max-w-md transform overflow-hidden rounded-lg bg-gray-900/95 border border-white/10 p-6 text-left align-middle shadow-xl transition-all text-white',
                     className
                   )
                 )}
@@ -48,7 +48,7 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="rounded-full p-1 hover:bg-white/10 transition-colors text-gray-400 hover:text-white focus:outline-none"
+                    className="rounded-lg p-1 hover:bg-white/10 transition-colors text-gray-400 hover:text-white focus:outline-none"
                   >
                     <X size={20} />
                   </button>
