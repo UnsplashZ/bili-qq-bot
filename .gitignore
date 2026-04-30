@@ -14,6 +14,7 @@ lib/
 share/
 pyvenv.cfg
 *.pyc
+.pytest_cache/
 __pycache__/
 
 # Environment & Secrets
@@ -33,6 +34,8 @@ logs/
 # AI tools
 .claude/
 .trae/
+.superpowers/
+.playwright-mcp/
 
 # Editor/IDE
 .vscode/
