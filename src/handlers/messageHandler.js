@@ -17,6 +17,41 @@ const LINK_EMOJI = {
     SHUSH:    '128164',  // 💤 睡觉 —— 全部链接在冷却期，跳过
 }
 
+function parsePositiveInteger(value, fallback) {
+    const parsed = parseInt(value, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const MESSAGE_DEDUP_TTL_MS = parsePositiveInteger(
+    process.env.MESSAGE_DEDUP_TTL_MS || process.env.AI_MESSAGE_DEDUP_TTL_MS,
+    120000
+)
+const MESSAGE_DEDUP_MAX_SIZE = parsePositiveInteger(
+    process.env.MESSAGE_DEDUP_MAX_ENTRIES || process.env.AI_MESSAGE_DEDUP_MAX_ENTRIES,
+    50000
+)
+const processedMessageIds = new Map()
+
+function markMessageIfNew(dedupKey, now = Date.now()) {
+    for (const [key, timestamp] of processedMessageIds) {
+        if (now - timestamp <= MESSAGE_DEDUP_TTL_MS) break
+        processedMessageIds.delete(key)
+    }
+
+    if (processedMessageIds.has(dedupKey)) {
+        return false
+    }
+
+    processedMessageIds.set(dedupKey, now)
+    if (processedMessageIds.size > MESSAGE_DEDUP_MAX_SIZE) {
+        const oldestKey = processedMessageIds.keys().next().value
+        if (oldestKey !== undefined) {
+            processedMessageIds.delete(oldestKey)
+        }
+    }
+    return true
+}
+
 class MessageHandler {
     /**
      * Send a private message to a user
@@ -121,6 +156,18 @@ class MessageHandler {
             scope: messageData.traceContext?.scope || logger.createMessageScope(groupId || 'unknown', userId || 'unknown', messageId || Date.now()),
             receivedLogged: Boolean(messageData.traceContext?.receivedLogged)
         };
+
+        if (messageId) {
+            const scopeId = groupId || `private_${userId || 'unknown'}`
+            const dedupKey = `${scopeId}:${userId || 'unknown'}:${messageId}`
+            if (!markMessageIfNew(dedupKey)) {
+                logger.logEvent('info', 'BOT', traceContext.scope, 'duplicate-ignored', {
+                    dedupKey
+                })
+                return
+            }
+        }
+
         if (!traceContext.receivedLogged) {
             logger.logEvent('info', 'BOT', traceContext.scope, 'recv', {
                 groupId,
@@ -343,3 +390,5 @@ class MessageHandler {
 }
 
 module.exports = new MessageHandler();
+module.exports._markMessageIfNew = markMessageIfNew
+module.exports._processedMessageIds = processedMessageIds

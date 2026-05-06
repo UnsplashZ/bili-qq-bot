@@ -766,6 +766,30 @@ async function run() {
         traceScope: 'test:reply-fallback'
     }), true)
 
+    notificationService.callAction = async () => {
+        throw new Error('get_msg_timeout')
+    }
+    const failedLookupReplyContext = await resolveReplyContext({
+        ws: { readyState: 1 },
+        agentMessage: {
+            id: 'reply-failed-lookup-test',
+            hasReply: true,
+            replyMessageId: 'reply-source',
+            selfId: '999'
+        },
+        messageData: {
+            reply: {
+                message_id: 'reply-source',
+                sender: { user_id: '999' }
+            }
+        },
+        traceScope: 'test:reply-lookup-failed'
+    })
+    assert.strictEqual(failedLookupReplyContext.replyToSelf, true)
+    assert.strictEqual(failedLookupReplyContext.replyTarget.messageId, 'reply-source')
+    assert.strictEqual(failedLookupReplyContext.replyTarget.userId, '999')
+    assert.strictEqual(failedLookupReplyContext.replyTarget.isBot, true)
+
     const listedTools = toolRegistry.listToolDefinitions()
     assert.ok(listedTools.length >= 40)
     for (const tool of listedTools) {

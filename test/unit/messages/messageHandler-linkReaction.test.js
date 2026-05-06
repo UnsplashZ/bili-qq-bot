@@ -85,6 +85,7 @@ async function test(name, fn) {
         linkService.handleIncomingMessageLinks = _originals.handleIncomingMessageLinks
         linkService.isCached = _originals.isCached
         commandManager.dispatch = _originals.dispatch
+        handler._processedMessageIds.clear()
     }
 }
 
@@ -286,6 +287,57 @@ async function runTests() {
             ['dispatch', '/命令 原始文本 https://www.bilibili.com/video/BVcmd123']
         ])
         assert.strictEqual(ws._getEmojiActions().length, 0)
+    })
+
+    // === 场景 9: WebSocket 重连/重放同一 message_id 时只处理一次 ===
+    await test('重复 message_id 的消息不会再次进入命令或链接处理', async () => {
+        let prepareCount = 0
+        let handleCount = 0
+        let dispatchCount = 0
+        linkService.prepareIncomingMessageLinks = async ({ rawMessage }) => {
+            prepareCount++
+            return {
+                rawMessage,
+                safeRawMessage: rawMessage,
+                descriptors: [{ cacheKey: 'video|BVreplay|123456', match: 'BVreplay', type: 'video', id: 'BVreplay' }]
+            }
+        }
+        linkService.isCached = () => false
+        linkService.handleIncomingMessageLinks = async () => {
+            handleCount++
+            return {
+                allCached: false,
+                foundCount: 1,
+                skippedCachedCount: 0,
+                successCount: 1,
+                failureCount: 0,
+                results: [{ status: 'sent_card' }]
+            }
+        }
+        commandManager.dispatch = async () => {
+            dispatchCount++
+            return false
+        }
+
+        const ws = makeMockWs()
+        const firstDelivery = makeMessageData('https://bilibili.com/video/BVreplay', 'replay-1')
+        const replayDelivery = makeMessageData('https://bilibili.com/video/BVreplay', 'replay-1')
+        await handler.handleMessage(ws, firstDelivery)
+        await handler.handleMessage(ws, replayDelivery)
+
+        assert.strictEqual(prepareCount, 1)
+        assert.strictEqual(dispatchCount, 1)
+        assert.strictEqual(handleCount, 1)
+        assert.strictEqual(ws._getEmojiActions().length, 3)
+    })
+
+    await test('去重窗口容量不会在 2000 条后提前淘汰仍在 TTL 内的消息', async () => {
+        const now = 100000
+        assert.strictEqual(handler._markMessageIfNew('pressure:oldest', now), true)
+        for (let i = 0; i < 2001; i++) {
+            assert.strictEqual(handler._markMessageIfNew(`pressure:${i}`, now), true)
+        }
+        assert.strictEqual(handler._markMessageIfNew('pressure:oldest', now + 1000), false)
     })
 
 

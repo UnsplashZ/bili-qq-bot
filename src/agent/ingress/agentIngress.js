@@ -70,7 +70,10 @@ async function resolveReplyContext({ ws, agentMessage, messageData, traceScope }
             replyMessageId: agentMessage.replyMessageId,
             error: logger.getErrorMessage(error)
         })
-        return { replyToSelf: false, replyTarget: null }
+        return {
+            replyToSelf: Boolean(embeddedTarget?.isBot),
+            replyTarget: embeddedTarget
+        }
     }
 }
 
