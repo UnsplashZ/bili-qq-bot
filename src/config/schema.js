@@ -41,42 +41,97 @@ const DEFAULT_LABEL_CONFIG = {
     variety: true
 }
 
-const AI_EDITOR_SNAPSHOT_FIELDS = [
-    'aiApiUrl',
-    'aiApiKey',
-    'aiProbability',
-    'aiContextLimit',
-    'aiTemperature',
-    'aiHistoryMaxSize',
-    'aiEnableVectorCache',
-    'aiVectorSimilarityThreshold',
-    'aiVectorSearchLimit',
-    'aiMemorySafetyLimit',
-    'aiChatApiUrl',
-    'aiChatApiKey',
-    'aiChatModel',
-    'aiChatProxy',
-    'aiChatSystemPrompt',
-    'aiChatBaseTimeoutSeconds',
-    'aiChatToolTimeoutSeconds',
-    'aiChatMaxTimeoutSeconds',
-    'aiEmbeddingApiUrl',
-    'aiEmbeddingApiKey',
-    'aiEmbeddingModel',
-    'aiEmbeddingProxy',
-    'aiEnabled',
-    'aiRagEnabled',
-    'aiProfileEnabled'
-]
-
-const AI_SENSITIVE_FIELDS = new Set([
-    'aiApiUrl',
-    'aiApiKey',
-    'aiChatApiUrl',
-    'aiChatApiKey',
-    'aiEmbeddingApiUrl',
-    'aiEmbeddingApiKey'
-])
+const DEFAULT_AGENT_CONFIG = {
+    enabled: false,
+    observeOnly: true,
+    logTrajectory: true,
+    defaultGroupEnabled: false,
+    decisionMode: 'rule_only',
+    sendEnabled: false,
+    aliases: [],
+    persona: {
+        displayName: 'Bilibili 助手',
+        style: '友好、简洁、不过度热情；优先少说废话。',
+        boundaries: '专注 B 站链接、订阅、群聊上下文和 Bot 配置管理；普通闲聊默认保持克制。'
+    },
+    shortTerm: {
+        maxRecentMessagesPerGroup: 100,
+        topicIdleMs: 30 * 60 * 1000,
+        crowdedMessagesPerMinute: 8,
+        promptRecentMessages: 16,
+        promptTopicMessages: 20,
+        promptAssistantMessages: 6,
+        promptMaxMessages: 32,
+        promptMaxCharsPerMessage: 220,
+        promptMaxContextChars: 6000
+    },
+    longTerm: {
+        retrieveLimit: 5,
+        topicSummaryEnabled: true,
+        topicSummaryMinMessages: 6,
+        topicSummaryMinIntervalMs: 10 * 60 * 1000
+    },
+    replyPolicy: {
+        minReplyScore: 0.65,
+        cooldownMs: 5 * 1000
+    },
+    participation: {
+        enabled: true,
+        timingGateEnabled: true,
+        replyerEnabled: true,
+        expressionLearningEnabled: false,
+        replyEffectTrackingEnabled: false,
+        personProfileEnabled: true
+    },
+    replyer: {
+        maxReactChars: 60,
+        maxReplyChars: 500,
+        allowQuoteReply: true
+    },
+    expression: {
+        learningMinMessages: 20,
+        learningMinIntervalMs: 10 * 60 * 1000
+    },
+    timing: {
+        quietWindowMs: 2500,
+        maxWaitMs: 12000
+    },
+    social: {
+        enabled: false,
+        mode: 'quiet',
+        interjectProbability: 0.18,
+        ambientReactProbability: 0.08,
+        minInterjectScore: 0.72,
+        minAmbientScore: 0.62,
+        cooldownMs: 90 * 1000,
+        dailyInterjectLimit: 30,
+        perTopicInterjectLimit: 2,
+        avoidDuringRapidTwoPersonChat: true,
+        maxCasualReplyChars: 120
+    },
+    tools: {
+        enabled: false,
+        confirmationTtlMs: 60 * 1000,
+        requireConfirmationFor: ['medium', 'high']
+    },
+    llm: {
+        enabled: false,
+        provider: 'openai-compatible',
+        baseURL: '',
+        model: '',
+        apiKeyEnv: 'AGENT_API_KEY',
+        timeoutMs: 12 * 1000,
+        temperature: 0.2,
+        maxTokens: 500
+    },
+    budget: {
+        enabled: true,
+        windowMs: 60 * 1000,
+        maxLlmCallsPerGroupPerMinute: 60,
+        maxLlmCallsPerUserPerMinute: 20
+    },
+    groups: {}
+}
 
 const parsers = {
     string: (val) => String(val),
@@ -132,129 +187,6 @@ function parseValue(val, type) {
 const META = {
     wsUrl: { env: 'WS_URL', def: 'ws://localhost:3001', type: 'string' },
     wsToken: { env: 'WS_TOKEN', def: '', type: 'string' },
-
-    aiApiUrl: { env: 'AI_API_URL', def: 'https://api.openai.com/v1/chat/completions', type: 'string' },
-    aiApiKey: { env: 'AI_API_KEY', def: '', type: 'string' },
-    aiModel: { env: 'AI_MODEL', def: 'gpt-3.5-turbo', type: 'string' },
-    aiSystemPrompt: { env: 'AI_SYSTEM_PROMPT', def: '你是一个有用的助手。', type: 'string' },
-    aiProbability: { env: 'AI_PROBABILITY', def: 0.1, type: 'float' },
-    aiContextLimit: { env: null, def: 10, type: 'int' },
-    aiTemperature: { env: 'AI_TEMPERATURE', def: 1.0, type: 'float' },
-
-    aiEnabled: { env: 'AI_ENABLED', def: true, type: 'bool' },
-    aiRagEnabled: { env: 'AI_RAG_ENABLED', def: true, type: 'bool' },
-
-    aiChatApiUrl: {
-        env: 'AI_CHAT_API_URL',
-        def: null,
-        type: 'string',
-        get: function(overrides) {
-            if ('aiChatApiUrl' in overrides) return overrides.aiChatApiUrl
-            const envVal = process.env.AI_CHAT_API_URL
-            if (envVal) return envVal
-            if ('aiApiUrl' in overrides) return overrides.aiApiUrl
-            return process.env.AI_API_URL || 'https://api.openai.com/v1/chat/completions'
-        }
-    },
-    aiChatApiKey: {
-        env: 'AI_CHAT_API_KEY',
-        def: null,
-        type: 'string',
-        get: function(overrides) {
-            if ('aiChatApiKey' in overrides) return overrides.aiChatApiKey
-            const envVal = process.env.AI_CHAT_API_KEY
-            if (envVal) return envVal
-            if ('aiApiKey' in overrides) return overrides.aiApiKey
-            return process.env.AI_API_KEY || ''
-        }
-    },
-    aiChatModel: {
-        env: 'AI_CHAT_MODEL',
-        def: 'gpt-3.5-turbo',
-        type: 'string',
-        get: function(overrides) {
-            if ('aiChatModel' in overrides) return overrides.aiChatModel
-            const envVal = process.env.AI_CHAT_MODEL
-            if (envVal) return envVal
-            if ('aiModel' in overrides) return overrides.aiModel
-            return process.env.AI_MODEL || this.def
-        }
-    },
-    aiChatProxy: { env: 'AI_CHAT_PROXY', def: null, type: 'string' },
-    aiChatSystemPrompt: {
-        env: 'AI_CHAT_SYSTEM_PROMPT',
-        def: '你是一个有用的助手',
-        type: 'string',
-        get: function(overrides) {
-            if ('aiChatSystemPrompt' in overrides) return overrides.aiChatSystemPrompt
-            const envVal = process.env.AI_CHAT_SYSTEM_PROMPT
-            if (envVal) return envVal
-            if ('aiSystemPrompt' in overrides) return overrides.aiSystemPrompt
-            return process.env.AI_SYSTEM_PROMPT || this.def
-        }
-    },
-    aiChatBaseTimeoutSeconds: { env: null, def: 30, type: 'int' },
-    aiChatToolTimeoutSeconds: { env: null, def: 2, type: 'int' },
-    aiChatMaxTimeoutSeconds: { env: null, def: 45, type: 'int' },
-
-    aiEmbeddingApiUrl: {
-        env: 'AI_EMBEDDING_API_URL',
-        def: 'https://api.openai.com/v1/embeddings',
-        type: 'string',
-        get: function(overrides) {
-            if ('aiEmbeddingApiUrl' in overrides) return overrides.aiEmbeddingApiUrl
-            const envVal = process.env.AI_EMBEDDING_API_URL
-            if (envVal) return envVal
-            const aiApiUrl = process.env.AI_API_URL
-            if (aiApiUrl) return aiApiUrl.replace('/chat/completions', '/embeddings')
-            return this.def
-        }
-    },
-    aiEmbeddingApiKey: {
-        env: 'AI_EMBEDDING_API_KEY',
-        def: '',
-        type: 'string',
-        get: function(overrides) {
-            if ('aiEmbeddingApiKey' in overrides) return overrides.aiEmbeddingApiKey
-            const envVal = process.env.AI_EMBEDDING_API_KEY
-            if (envVal) return envVal
-            return process.env.AI_API_KEY || ''
-        }
-    },
-    aiEmbeddingModel: { env: 'AI_EMBEDDING_MODEL', def: 'text-embedding-3-small', type: 'string' },
-    aiEmbeddingProxy: { env: 'AI_EMBEDDING_PROXY', def: null, type: 'string' },
-
-    aiHistoryMaxSize: { env: null, def: 200 * 1024 * 1024, type: 'int' },
-    aiVectorMaxSize: { env: null, def: 200 * 1024 * 1024, type: 'int' },
-    aiVectorSimilarityThreshold: { env: null, def: 0.4, type: 'float' },
-    aiVectorSearchLimit: { env: null, def: 3, type: 'int' },
-    aiShortMessageThreshold: { env: null, def: 5, type: 'int' },
-    aiMemorySafetyLimit: { env: null, def: 5000, type: 'int' },
-    aiVectorMemoryLimit: { env: null, def: 10000, type: 'int' },
-    aiTrimRatio: { env: null, def: 0.1, type: 'float' },
-    aiVectorBatchLoadSize: { env: null, def: 1000, type: 'int' },
-    aiEnableVectorCache: { env: null, def: true, type: 'bool' },
-    aiEnableSmartTrim: { env: null, def: true, type: 'bool' },
-    aiStructuredContextEnabled: { env: null, def: true, type: 'bool' },
-    aiIdentityRagMode: { env: null, def: 'strict', type: 'string' },
-    aiAdminClaimRequiresTool: { env: null, def: true, type: 'bool' },
-    aiReplyGateEnabled: { env: null, def: true, type: 'bool' },
-    aiContextSelectorEnabled: { env: null, def: true, type: 'bool' },
-    aiResponseModeEnabled: { env: null, def: true, type: 'bool' },
-    aiPromptAssemblerEnabled: { env: null, def: true, type: 'bool' },
-    aiReplyScoreThreshold: { env: null, def: 45, type: 'int' },
-    aiBusyReplyScoreThreshold: { env: null, def: 80, type: 'int' },
-    aiBusyWindowSeconds: { env: null, def: 10, type: 'int' },
-    aiBusyMessageCount: { env: null, def: 12, type: 'int' },
-    aiReplyCooldownMs: { env: null, def: 15000, type: 'int' },
-    aiMaxRepliesPerWindow: { env: null, def: 3, type: 'int' },
-    aiBotName: { env: null, def: '', type: 'string' },
-    aiBotAliases: { env: null, def: [], type: 'array', lazyInit: true },
-
-    aiProfileEnabled: { env: null, def: false, type: 'bool' },
-    aiProfileMinMessages: { env: null, def: 30, type: 'int' },
-    aiProfileUpdateInterval: { env: null, def: 50, type: 'int' },
-    aiProfileMaxLength: { env: null, def: 200, type: 'int' },
 
     pythonPath: {
         env: 'PYTHON_PATH',
@@ -314,7 +246,8 @@ const META = {
             return overrides.labelConfig
         }
     },
-    groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true }
+    groupConfigs: { env: null, def: {}, type: 'object', lazyInit: true },
+    agent: { env: null, def: DEFAULT_AGENT_CONFIG, type: 'object', lazyInit: true }
 }
 
 module.exports = {
@@ -324,6 +257,5 @@ module.exports = {
     SUBSCRIPTION_AT_ALL_SOURCE_KEYS,
     SUBSCRIPTION_AT_ALL_CATEGORY_KEYS,
     DEFAULT_LABEL_CONFIG,
-    AI_EDITOR_SNAPSHOT_FIELDS,
-    AI_SENSITIVE_FIELDS
+    DEFAULT_AGENT_CONFIG
 }

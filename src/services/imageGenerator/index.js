@@ -1,10 +1,10 @@
 const { generatePreviewCard } = require('./generators/previewCard');
 const { generateSubscriptionList } = require('./generators/subscriptionList');
 const { generateHelpCard } = require('./generators/helpCard');
-const { generateAIHelpCard } = require('./generators/aiHelpCard');
 const { isNightMode } = require('./core/theme');
 const { formatPubTime, formatNumber } = require('./core/formatters');
 const browserManager = require('./core/browser');
+const runtimeMetricsService = require('../runtimeMetricsService');
 
 /**
  * ImageGenerator 主类
@@ -35,7 +35,11 @@ class ImageGenerator {
      * @returns {Promise<String>} Base64编码的图片
      */
     async generatePreviewCard(data, type, groupId, show_id = true) {
-        return generatePreviewCard(data, type, groupId, show_id);
+        return runtimeMetricsService.track(
+            'previewGeneration',
+            () => generatePreviewCard(data, type, groupId, show_id),
+            { latest: type || 'preview' }
+        );
     }
 
     /**
@@ -58,15 +62,6 @@ class ImageGenerator {
      */
     async generateHelpCard(type = 'user', groupId) {
         return generateHelpCard(type, groupId);
-    }
-
-    /**
-     * 生成AI配置帮助卡片图片
-     * @param {String} groupId - 群组ID
-     * @returns {Promise<String>} Base64编码的图片
-     */
-    async generateAIHelpCard(groupId) {
-        return generateAIHelpCard(groupId);
     }
 
     /**

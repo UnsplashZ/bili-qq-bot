@@ -1,6 +1,7 @@
 'use strict'
 
 const logger = require('../../utils/logger')
+const runtimeMetricsService = require('../runtimeMetricsService')
 const { buildTokenInfo, parseStructuredToken } = require('./structuredLinkParser')
 const { parseRegexToken } = require('./regexLinkParser')
 
@@ -27,12 +28,18 @@ function appendUniqueLink(links, link) {
 }
 
 function extractLinksFromMessage(rawMessage, groupId, traceContext = null) {
+    const startedAt = Date.now()
     const scope = getScope(traceContext)
     if (!rawMessage || typeof rawMessage !== 'string') {
-        logger.logEvent('warn', 'LINK', scope, 'extract-skipped', {
+        logger.logEvent('debug', 'LINK', scope, 'extract-skipped', {
             groupId,
             reason: 'invalid_message_type',
             valueType: typeof rawMessage
+        })
+        runtimeMetricsService.record('linkParsing', {
+            ok: true,
+            durationMs: Date.now() - startedAt,
+            latest: '跳过'
         })
         return []
     }
@@ -48,6 +55,11 @@ function extractLinksFromMessage(rawMessage, groupId, traceContext = null) {
         logger.logEvent('debug', 'LINK', scope, 'extract-skipped', {
             groupId,
             reason: 'domain_not_found'
+        })
+        runtimeMetricsService.record('linkParsing', {
+            ok: true,
+            durationMs: Date.now() - startedAt,
+            latest: '无链接'
         })
         return []
     }
@@ -83,6 +95,11 @@ function extractLinksFromMessage(rawMessage, groupId, traceContext = null) {
     logger.logEvent('info', 'LINK', scope, 'extract', {
         groupId,
         count: links.length
+    })
+    runtimeMetricsService.record('linkParsing', {
+        ok: true,
+        durationMs: Date.now() - startedAt,
+        latest: links.length > 0 ? `解析 ${links.length} 个` : '无链接'
     })
     return links
 }

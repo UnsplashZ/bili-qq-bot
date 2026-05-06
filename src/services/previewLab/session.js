@@ -7,7 +7,6 @@ const { isNightMode } = require('../imageGenerator/core/theme')
 const { resolvePreviewInput } = require('./inputResolver')
 const { resolvePreviewTarget } = require('./targetResolver')
 const { buildPreviewDebugHtml } = require('./htmlReport')
-const { generatePreviewLabAIHelpCard } = require('./structureAiHelpCard')
 const { buildMockPreviewTarget, normalizeStructureOptions } = require('./mockData')
 
 function ensureDirectory(dirPath) {
@@ -70,14 +69,6 @@ async function generateStructureArtifacts(previewTarget, options = {}, deps = {}
             base64: await (deps.generateHelpCard || generateHelpCard)('admin', options.groupId || null),
             html: '',
             debugMeta: createGeneratorDebugMeta('管理面板', '⚙️', options.groupId)
-        }
-    }
-
-    if (mockType === 'ai_help') {
-        return {
-            base64: await (deps.generatePreviewLabAIHelpCard || generatePreviewLabAIHelpCard)(options.groupId || null),
-            html: '',
-            debugMeta: createGeneratorDebugMeta('AI 配置', '🤖', options.groupId)
         }
     }
 

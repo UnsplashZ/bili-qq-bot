@@ -1,6 +1,7 @@
 const express = require('express')
 const si = require('systeminformation')
 const logger = require('../../../../utils/logger')
+const runtimeMetricsService = require('../../../../services/runtimeMetricsService')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -53,7 +54,8 @@ router.get('/monitor', async (req, res) => {
                 up: tx_sec,
                 down: rx_sec
             },
-            uptime: processUptime
+            uptime: processUptime,
+            processReport: runtimeMetricsService.snapshot()
         }
 
         dashLog(req, 'info', 'system-monitor-fetched', {

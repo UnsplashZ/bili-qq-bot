@@ -1,20 +1,20 @@
 const subscriptionCommand = require('./subscription');
-const aiCommand = require('./ai');
 const settingsCommand = require('./settings');
 const adminCommand = require('./admin');
 const helpCommand = require('./help');
 const downloadCommand = require('./download');
+const agentMemoryCommand = require('./agentMemory');
 const logger = require('../utils/logger');
 
 class CommandManager {
     constructor() {
         this.commands = [
             subscriptionCommand,
-            aiCommand,
             settingsCommand,
             adminCommand,
             helpCommand,
             downloadCommand,
+            agentMemoryCommand,
         ];
     }
 

@@ -12,7 +12,7 @@ const GroupListPanel = ({
 }) => {
   return (
     <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[38vh] sm:max-h-[45vh] lg:max-h-none">
-      <div className="p-3 sm:p-4 border-b border-white/10 bg-white/5">
+      <div className="p-3 sm:p-4 border-b border-white/10">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <MessageSquare size={18} />
           群组 ({groups.length})
@@ -29,15 +29,18 @@ const GroupListPanel = ({
               key={group.id}
               onClick={() => onSelectGroup(group.id)}
               className={clsx(
-                'flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all',
+                'relative flex items-center gap-2.5 rounded-lg p-2.5 transition-colors sm:gap-3 sm:p-3',
                 'hover:bg-white/5',
                 selectedGroupId === group.id
-                  ? 'bg-blue-500/20 ring-2 ring-blue-500'
-                  : 'bg-white/5',
+                  ? 'bg-cyan-300/10'
+                  : 'bg-transparent',
                 !group.isEnabled && 'opacity-50',
                 !group.isInGroup && 'opacity-60 grayscale'
               )}
             >
+              {selectedGroupId === group.id && (
+                <span className="absolute left-0 top-2 bottom-2 w-px rounded bg-cyan-300" />
+              )}
               {group.isInGroup ? (
                 <button
                   type="button"
@@ -66,7 +69,7 @@ const GroupListPanel = ({
                 <div className="flex items-center gap-2">
                   <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
                   {!group.isInGroup && (
-                    <span className="text-xs text-red-400 px-2 py-0.5 bg-red-500/20 rounded flex-shrink-0">
+                    <span className="shrink-0 text-xs text-red-300">
                       已退群
                     </span>
                   )}
@@ -74,7 +77,7 @@ const GroupListPanel = ({
                 <div className="text-xs text-white/50">ID: {group.id}</div>
               </div>
               {group.isInGroup && !group.isEnabled && (
-                <span className="text-xs text-white/40 px-2 py-1 bg-white/5 rounded">
+                <span className="text-xs text-slate-500">
                   已禁用
                 </span>
               )}

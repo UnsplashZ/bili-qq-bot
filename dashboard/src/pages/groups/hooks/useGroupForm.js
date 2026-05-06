@@ -5,14 +5,8 @@ import { createDefaultGroupFormData, mapGroupConfigToFormData } from '../utils/g
 import { validateNightMode } from '../utils/validators';
 
 const DEFAULT_GLOBAL_CONFIG = {
-  aiProbability: 0.1,
-  aiContextLimit: 10,
-  aiTemperature: 1.0,
   rootAdminQQ: undefined,
-  showId: true,
-  aiEnabled: true,
-  aiRagEnabled: true,
-  aiProfileEnabled: false
+  showId: true
 };
 
 const useGroupForm = ({
@@ -34,14 +28,8 @@ const useGroupForm = ({
         const res = await api.get('/api/config');
         if (res.data) {
           setGlobalConfig({
-            aiProbability: res.data.aiProbability ?? 0.1,
-            aiContextLimit: res.data.aiContextLimit || 10,
-            aiTemperature: res.data.aiTemperature ?? 1.0,
             rootAdminQQ: res.data.rootAdminQQ,
-            showId: res.data.showId ?? true,
-            aiEnabled: res.data.aiEnabled ?? true,
-            aiRagEnabled: res.data.aiRagEnabled ?? true,
-            aiProfileEnabled: res.data.aiProfileEnabled ?? false
+            showId: res.data.showId ?? true
           });
         }
       } catch (err) {
@@ -64,12 +52,12 @@ const useGroupForm = ({
   }, [selectedGroupId, groups, globalConfig.showId]);
 
   const handleSave = useCallback(async () => {
-    if (!selectedGroupId) return;
+    if (!selectedGroupId) return false;
 
     const nightModeError = validateNightMode(formData.nightMode);
     if (nightModeError) {
       show(nightModeError, 'error');
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -87,9 +75,11 @@ const useGroupForm = ({
       }
 
       show('配置保存成功', 'success');
+      return true;
     } catch (err) {
       console.error('Failed to save config', err);
       show('保存配置失败', 'error');
+      return false;
     } finally {
       setSaving(false);
     }

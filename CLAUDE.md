@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to Bilibili content via NapCat (OneBot v11 protocol). It parses Bilibili URLs, generates preview cards using Puppeteer, and includes AI chat with RAG-based memory and subscription monitoring.
+Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to Bilibili content via NapCat (OneBot v11 protocol). It parses Bilibili URLs, generates preview cards using Puppeteer, and supports subscription monitoring.
+
+Current scope intentionally excludes the removed legacy AI/MCP stack. Do not reintroduce AI chat, vector memory, user profile, or MCP tool wiring through the old files or config keys; any future intelligent entry point should be designed as a new Agent architecture with explicit command-vs-agent routing.
 
 **Tech Stack:** Node.js 18+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
 
@@ -17,9 +19,8 @@ bili-qq-bot/
 │   ├── config.js           # Compatibility entry re-exporting src/config/
 │   ├── config/             # Modular configuration system
 │   ├── commands/           # Command modules
-│   ├── handlers/           # Message, link, AI handlers
+│   ├── handlers/           # Message and link handlers
 │   ├── services/           # Core services
-│   │   ├── ai/             # AI chat, memory, profile, prompt helpers
 │   │   ├── bili_server_core/ # Python API backend
 │   │   ├── bili_server.py   # Python compatibility entry
 │   │   ├── imageGenerator/  # Preview card rendering and generation
@@ -35,7 +36,21 @@ bili-qq-bot/
 │   │   └── utils/          # Frontend helpers
 │   └── dist/               # Production build (served by bot)
 ├── test/                   # Test files and generated outputs
-│   ├── unit/               # Unit tests (*.test.js)
+│   ├── runners/            # Test runners
+│   ├── tools/              # Reusable local verification tools
+│   ├── unit/               # Categorized unit tests (*.test.js, *.test.mjs, *_test.py)
+│   │   ├── agent/          # Agent runtime and tool-planning tests
+│   │   ├── bilibili/       # Bilibili API/service contract tests
+│   │   ├── commands/       # Command behavior tests
+│   │   ├── config/         # Config/cache tests
+│   │   ├── dashboard/      # Dashboard API/UI tests
+│   │   ├── links/          # Link extraction and routing tests
+│   │   ├── messages/       # Message handler tests
+│   │   ├── preview/        # Preview Lab tests
+│   │   ├── rendering/      # Card/rendering tests
+│   │   ├── services/       # Shared service/logging tests
+│   │   └── subscriptions/  # Subscription/update checker tests
+│   ├── fixtures/           # Test fixtures
 │   └── output/             # Local generated preview images
 ├── docs/                   # Documentation
 │   ├── plans/              # Active plans (work in progress)
@@ -44,22 +59,18 @@ bili-qq-bot/
 │   └── napcat_interface/   # NapCat interface docs/assets
 ├── data/                   # Persistent data (not in git)
 │   ├── cache/              # API response cache
-│   ├── contexts/           # AI conversation history
-│   ├── vectors/            # Vector embeddings
 │   ├── cookies.json        # Bilibili credentials
 │   └── subscriptions.json  # Subscription mappings
 ├── config/                 # Configuration files
-│   └── mcp_servers.json    # MCP tool definitions
 ├── fonts/                  # Custom fonts for image rendering
 ├── logs/                   # Application logs
-├── tools/                  # Local helper scripts
-│   ├── preview-lab.js      # Preview Lab CLI
-│   └── preview-lab-web.js  # Preview Lab Web
 └── napcat/                 # NapCat QQ client data
 ```
 
 **Key Directories:**
-- **test/unit/** - Unit tests (`*.test.js`)
+- **test/runners/** - Test runner entry points such as `run-unit-tests.js`
+- **test/tools/** - Reusable local verification tools such as Preview Lab and Agent replay eval
+- **test/unit/** - Categorized unit tests (`*.test.js`, `*.test.mjs`, `*_test.py`)
 - **test/output/** - Local generated preview outputs (including image preview tests)
 - **docs/plans/** - New plan documents (active work) must be created here
 - **docs/done/** - Completed plans are moved here after execution
@@ -112,20 +123,20 @@ curl http://localhost:10001/health
 
 ### Targeted Preview / Regression Checks
 
-Use `tools/preview-lab.js` for local preview regression checks and write generated files to `test/output/`; use `tools/preview-lab-web.js` for browser-based manual inspection.
+Use `test/tools/preview-lab.js` for local preview regression checks and write generated files to `test/output/`; use `test/tools/preview-lab-web.js` for browser-based manual inspection.
 
 ```bash
 # 文章型 opus
-node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
 
 # read/cv 专栏
-node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
+node test/tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
 
 # 长正文动态
-node tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
+node test/tools/preview-lab.js "https://t.bilibili.com/1181751663738748928" --fresh --out-name long-dynamic-check
 
 # Preview Lab Web
-node tools/preview-lab-web.js
+node test/tools/preview-lab-web.js
 ```
 
 Current expectations:
@@ -159,20 +170,10 @@ Follow existing code style:
 
 - Normalize group and private conversation identity
 - Apply early guards for self messages, permissions, blacklist, and enablement
-- Persist context inputs before reply selection
 - Dispatch commands before link handling
-- Hand off link previews and AI replies to dedicated handlers
+- Hand off link previews to dedicated handlers
 - Keep private-session scope separate from group scope
 
-### AI Pipeline
-
-The AI path is split across `messageHandler.js`, `handlers/aiHandler.js`, and the AI support services under `/src/services/ai/`. `aiHandler.js` is now a thin orchestration entry that assembles runtime dependencies and delegates message sanitization, identity policy, retrieval augmentation, LLM chat, persistence, and reply orchestration to dedicated services.
-
-- Separate reply admission from prompt construction and model invocation
-- Keep context, response shaping, and execution safety in distinct services
-- Centralize top-level orchestration in `aiHandler.js` while keeping implementation details in `services/ai/`
-- Treat memory, bot facts, and tool control as supporting layers
-- Avoid duplicating the detailed AI step sequence from later sections
 
 ### Subscription Architecture
 
@@ -218,16 +219,6 @@ The Python implementation under `/src/services/bili_server_core/` is the Bilibil
 - `/src/handlers/linkHandler.js` — compatibility facade for legacy link callers during migration
 - `/src/services/notificationService.js` — outbound message delivery
 
-#### AI pipeline
-- `/src/handlers/aiHandler.js` — AI orchestration entry and runtime assembly
-- `/src/services/ai/messageSanitizerService.js` — message sanitization and tag-safe normalization
-- `/src/services/ai/identityPolicyService.js` — identity intent detection, speaker parsing, and admin action guards
-- `/src/services/ai/retrievalAugmentService.js` — retrieval augmentation and RAG search option selection
-- `/src/services/ai/replyRuntimeService.js` — runtime dependency assembly for replies
-- `/src/services/ai/replyOrchestratorService.js` — high-level reply loop orchestration
-- `/src/services/ai/replyPersistenceService.js` — reply persistence helpers
-- `/src/services/ai/llmChatService.js` — chat API execution and fallback behavior
-- `/src/services/ai/` — broader AI support services for memory, gating, context, prompts, and execution control
 
 #### Subscriptions and update checking
 - `/src/services/subscription/subscriptionManager.js` — subscription state and cookie followings
@@ -274,7 +265,7 @@ groupConfig.myNewKey = 'group-specific value'
 await sysConfig.saveConfigDebounced()
 ```
 
-4. If the key also needs Dashboard exposure or AI editor snapshots, update the relevant builders in `/src/config/aiConfig.js` or the Dashboard API allowlists together.
+4. If the key also needs Dashboard exposure, update the Dashboard snapshot builder and API allowlists together.
 
 ### Config Persistence
 
@@ -283,48 +274,13 @@ await sysConfig.saveConfigDebounced()
 - schema and defaults: `/src/config/schema.js`
 - override loading and save flow: `/src/config/store.js`
 - group-level helpers: `/src/config/groupConfig.js`
-- AI and dashboard snapshots: `/src/config/aiConfig.js`
+- dashboard snapshots: `/src/config/dashboardConfig.js`
 - auth and admin helpers: `/src/config/authConfig.js`
 - JWT secret ownership/compatibility: `/src/config/jwtSecretOwner.js`
 - shape normalization helpers: `/src/config/normalizers.js`
 
 All `config.json` writes are still debounced (500ms) via `saveConfigDebounced()` to prevent I/O storms.
 
-### AI Function Toggles
-
-AI features use both global and group-level switches.
-
-**Global config (`META`):**
-- `aiEnabled`: global AI switch (default `true`)
-- `aiRagEnabled`: global RAG switch (default `true`)
-
-**Group config (`groupConfigs[groupId]`):**
-```javascript
-{
-  aiEnabled?: boolean,      // optional, inherits the global value when unset
-  aiRagEnabled?: boolean    // optional, inherits the global value when unset
-}
-```
-
-**Helper checks:**
-```javascript
-// Check whether AI is enabled for the group
-config.isAiEnabledForGroup(groupId)
-
-// Check whether RAG is enabled for the group (depends on AI)
-config.isRagEnabledForGroup(groupId)
-```
-
-**Dependency rules:**
-- RAG requires AI to be enabled, so disabling AI also disables RAG
-- Group-level config takes precedence over the global setting
-- The global switches can force the feature off for every group
-
-**Used in:**
-- `aiHandler.js` - checks `isAiEnabledForGroup()` before generating an AI reply
-- `aiHandler.js` - checks `isRagEnabledForGroup()` before vector retrieval
-- Dashboard Settings - manages the global switches
-- Dashboard Groups - manages the group-level switches
 
 ### Cookie Management
 
@@ -345,27 +301,18 @@ When a message arrives from QQ, `messageHandler.js` processes it in this order:
    - Check whether the target group is enabled
    - Extract JSON mini-program payloads when present
 
-2. **Context recording**:
-   - Save non-command conversation context to `/data/contexts/{groupId}.json`
-   - Record inputs that may later be used by AI memory/profile flows even when no reply is sent
-
-3. **Command handling**:
+2. **Command handling**:
    - Commands start with `/` (for example `/订阅用户 123456`)
    - Run permission checks (user → group admin → root admin)
    - Dispatch through `/src/commands/index.js`
    - Return early when a command fully handles the message
 
-4. **Link processing**:
+3. **Link processing**:
    - Extract supported Bilibili URLs from the remaining message text
    - Apply link cache checks (`linkCacheTimeout`)
    - Fetch normalized data through `BiliApi` → Python service
    - Generate preview images through `ImageGenerator`
 
-5. **AI processing**:
-   - Check reply admission (`aiProbability`, mentions, and related gating)
-   - Search vector memory for relevant context when enabled
-   - Build the prompt from history and retrieved context
-   - Call the configured LLM endpoint
 
 ## Bilibili Content Types
 
@@ -436,55 +383,6 @@ if (!context.isAdmin && !context.isRoot) {
 }
 ```
 
-## AI System Integration
-
-### Context Building
-
-AI responses use multiple sources:
-1. **Recent History:** Last N messages from `contexts/{groupId}.json` (N = `aiContextLimit`)
-2. **Vector Memories:** Top K similar past messages via cosine similarity (K = `aiVectorSearchLimit`)
-3. **System Prompt:** From `AI_SYSTEM_PROMPT` env var
-4. **Timestamp Info:** Current time added to prompt for temporal awareness
-
-### Message Flow
-
-```javascript
-// In aiHandler.js
-async function getReply(groupId, message, userId) {
-    // 1. Get conversation history
-    let history = await aiContextService.getContext(groupId)
-
-    // 2. Vector search for relevant memories
-    let memories = await vectorMemoryService.searchSimilar(groupId, message)
-
-    // 3. Build prompt with context
-    let prompt = buildPrompt(history, memories, message)
-
-    // 4. Call LLM
-    let response = await callLLM(prompt)
-
-    // 5. Save to context
-    await aiContextService.addMessage(groupId, { role: 'assistant', content: response })
-
-    return response
-}
-```
-
-### Adding MCP Tool Support
-
-MCP (Model Context Protocol) tools are defined in `/config/mcp_servers.json`:
-
-```json
-{
-  "myTool": {
-    "command": "node",
-    "args": ["tool-server.js"],
-    "transport": "stdio"
-  }
-}
-```
-
-MCPManager automatically discovers tools and makes them available to AI via function calling.
 
 ## Dashboard Architecture
 
@@ -526,18 +424,18 @@ Use the existing verification paths in this repository before adding new ad-hoc 
 npm test
 
 # Run one test file when narrowing a regression
-node test/unit/detectChargingContent.test.js
+node test/unit/rendering/detectChargingContent.test.js
 
 # Dashboard frontend checks
 cd dashboard && npm run lint
 cd dashboard && npm run build
 ```
 
-`npm test` is a real entry point and runs `mocha --exit "test/unit/**/*.test.js"`.
+`npm test` is a real entry point and runs `node test/runners/run-unit-tests.js`, which discovers categorized JS/MJS unit tests under `test/unit/**`.
 
 **Preview and rendering checks:**
-- Use `tools/preview-lab.js` for targeted local preview regression and write outputs to `test/output/`
-- Use `tools/preview-lab-web.js` for browser-based manual inspection when comparing layouts or styles
+- Use `test/tools/preview-lab.js` for targeted local preview regression and write outputs to `test/output/`
+- Use `test/tools/preview-lab-web.js` for browser-based manual inspection when comparing layouts or styles
 - Prefer these tools over temporary one-off render scripts for preview/card issues
 
 **Service and runtime checks:**
@@ -550,20 +448,35 @@ cd dashboard && npm run build
 **Directory Structure:**
 ```
 test/
-├── unit/               # Unit tests
+├── runners/            # Test runner entry points
+├── tools/              # Reusable local verification tools
+├── fixtures/           # Stable fixtures used by tests/tools
+├── unit/               # Categorized unit tests
+│   ├── agent/
+│   ├── bilibili/
+│   ├── commands/
+│   ├── config/
+│   ├── dashboard/
+│   ├── links/
+│   ├── messages/
+│   ├── preview/
+│   ├── rendering/
+│   ├── services/
+│   └── subscriptions/
 └── output/             # Generated files from local test runs
 ```
 
 **Naming Convention:**
-- Test files: `*.test.js`
+- JavaScript tests: `*.test.js` / `*.test.mjs`
+- Python tests: `*_test.py`
 - Generated previews: write directly to `test/output/`
 
 ### Choosing the Fastest Check
 
 - **Node/backend logic change:** start with `npm test`
 - **Dashboard UI/config change:** run `cd dashboard && npm run lint && npm run build`
-- **Preview card/rendering change:** run `node tools/preview-lab.js ...` and inspect output in `test/output/`
-- **Browser/manual preview comparison:** run `node tools/preview-lab-web.js`
+- **Preview card/rendering change:** run `node test/tools/preview-lab.js ...` and inspect output in `test/output/`
+- **Browser/manual preview comparison:** run `node test/tools/preview-lab-web.js`
 - **Python/Bilibili service issue:** run `/health` and inspect logs before changing code
 
 ## Documentation Organization
@@ -713,7 +626,7 @@ Check these in order before changing code:
 1. **Dashboard Logs page** - fastest way to inspect recent runtime behavior from the Web UI
 2. **Application logs** - inspect `logs/application.log` locally or container logs in Docker
 3. **Python health check** - confirm the service is actually alive: `curl http://localhost:10001/health`
-4. **Preview tools** - reproduce card/rendering issues with `tools/preview-lab.js` or `tools/preview-lab-web.js`
+4. **Preview tools** - reproduce card/rendering issues with `test/tools/preview-lab.js` or `test/tools/preview-lab-web.js`
 5. **Targeted tests/builds** - run `npm test`, `cd dashboard && npm run lint`, or `cd dashboard && npm run build` depending on the change surface
 
 Only add temporary instrumentation after the existing logs and checks are insufficient.
@@ -747,10 +660,10 @@ For preview card issues, prefer the existing tools over ad-hoc debug scripts:
 
 ```bash
 # CLI preview regression
-node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
 
 # Browser-based preview inspection
-node tools/preview-lab-web.js
+node test/tools/preview-lab-web.js
 ```
 
 Write generated outputs to `test/output/` and compare there.
@@ -790,7 +703,7 @@ Only after logs, health checks, preview tools, and tests/builds are not enough:
 
 ### File Naming
 
-- **JavaScript:** camelCase (`messageHandler.js`, `aiContextService.js`)
+- **JavaScript:** camelCase (`messageHandler.js`, `subscriptionService.js`)
 - **Python:** snake_case (`bili_server.py`, `video_service.py`)
 - **React Components:** PascalCase (`GlassCard.jsx`, `Groups.jsx`)
 
@@ -804,9 +717,8 @@ Only after logs, health checks, preview tools, and tests/builds are not enough:
 
 ### Input Validation
 
-- CQ code sanitization in AI messages (prevent code injection)
 - URL regex validation before API calls
-- Command parameter bounds checking (e.g., `/AI 上下文 <1-50>`)
+- Command parameter bounds checking (for example numeric intervals and IDs)
 
 ### Authorization Checks
 
@@ -828,7 +740,7 @@ if (!isRoot) {
 Private-chat entry is limited to the root administrator (`ADMIN_QQ`).
 
 1. Private messages from non-root users are rejected immediately with the message indicating that the feature is admin-only.
-2. Root private chat can use chat, AI, link parsing, and download features.
+2. Root private chat can use link parsing and download features.
 3. Root private chat cannot use group-management features such as `/设置`, `/管理`, or subscription management commands (`/订阅*`, `/取消订阅*`, `/查询订阅`); those flows must be handled in the target group or through the Web UI.
 4. The Web UI group-management scope only accepts numeric group IDs. Requests using `private_*` return `400 WebUI 不支持私聊会话管理`.
 
@@ -840,12 +752,9 @@ Group admins who are not root cannot use private-chat entry.
 
 - **Link Cache:** TTL-based (default 600s), per-group isolation
 - **API Response Cache:** LRU eviction (1GB limit), stored in `/data/cache/`
-- **Vector Query Cache:** 20 queries per group, 5min TTL
 
 ### Memory Management
 
-- **Vector Service:** Auto-trim at 200MB (10% reduction)
-- **AI Context:** Auto-trim at 200MB (removes oldest messages)
 - **Debounced Saves:** Config writes batched (500ms delay)
 
 ### Image Generation
@@ -854,9 +763,16 @@ Group admins who are not root cannot use private-chat entry.
 - **Viewport Optimization:** Fixed width (420px), dynamic height
 - **Font Loading:** Pre-loaded system fonts (no network requests)
 
+## Dependency Notes
+
+- Keep `package.json` dependencies limited to runtime imports used by the bot, dashboard backend, rendering, logging, and WebSocket layers.
+- Keep `dashboard/package.json` dependencies limited to React UI/runtime packages and Vite/ESLint/Tailwind build tooling.
+- `requirements.txt` currently pins both direct Python service dependencies and transitive packages needed by `aiohttp` / `bilibili-api-python`; do not remove transitive pins without rebuilding the Docker image and running Python endpoint checks.
+- Removed legacy AI/MCP packages and SDKs should not be added back unless the new Agent design explicitly requires them.
+
 ## Common Pitfalls
 
-1. **Stringify `groupId` early**: JavaScript object keys are string-keyed in practice. Convert all group session IDs to `String(groupId)` before they touch config, caches, context storage, or Dashboard APIs, otherwise you can hit subtle mismatches such as `groupConfigs[123] !== groupConfigs["123"]`.
+1. **Stringify `groupId` early**: JavaScript object keys are string-keyed in practice. Convert all group session IDs to `String(groupId)` before they touch config, caches, or Dashboard APIs, otherwise you can hit subtle mismatches such as `groupConfigs[123] !== groupConfigs["123"]`.
 
 2. **A private session is not a numeric group**: Private conversations use the `private_<userId>` form and must not be treated as numeric group IDs. The Web UI group-management scope accepts only numeric groups, so passing `private_*` into that path causes semantic errors or a direct `400` response.
 

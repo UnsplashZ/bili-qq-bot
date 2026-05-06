@@ -2,7 +2,9 @@
 
 ![License](https://img.shields.io/badge/license-ISC-blue.svg) ![Docker](https://img.shields.io/badge/docker-ready-blue) ![Node](https://img.shields.io/badge/node-%3E%3D18-green) ![Python](https://img.shields.io/badge/python-%3E%3D3.8-yellow)
 
-基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的Bilibili链接解析机器人。它能智能识别并解析B站各种类型的链接，并为这些内容生成高清预览卡片。
+基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的 Bilibili 链接解析机器人。它能智能识别并解析 B 站各种类型的链接，并为这些内容生成高清预览卡片。
+
+> 旧版 AI 对话、向量记忆、用户画像、MCP 工具调用等实验性能力已移除。当前分支使用新的 Agent 架构：命令和 B 站链接仍走确定性系统链路，自然语言消息可进入受限 Agent，由 LLM 判断是否回复、记忆或调用白名单工具。
 
 ## 目录
 
@@ -10,26 +12,23 @@
 - [📸 预览效果](#预览效果)
 - [🚀 一键快速部署](#一键快速部署)
 - [🖥️ WebUI 管理面板](#webui-管理面板)
+- [🤖 Agent 功能](#agent-功能)
 - [⚙️ 配置说明](#配置说明)
-- [💬 指令列表](#指令列表)
-- [🛠️ 其他部署方式](#其他部署方式)
+- [🧪 开发与测试](#开发与测试)
 - [📂 项目结构](#项目结构)
-- [📝 日志标签说明](#日志标签说明)
-- [🎛️ 日志显示控制](#日志显示控制)
-- [❓ 常见问题](#常见问题-faq)
-- [🙏 致谢](#致谢-acknowledgments)
-- [⚠️ 免责声明](#免责声明)
+- [💬 指令列表](#指令列表)
 
 ---
 
 ## 核心特性
 
 *   🚀 **全类型解析**：精准识别并解析以下内容
-    *   视频 (BV/av)、番剧 (ss/ep)、直播间 (live)
+    *   视频 (BV/av)、番剧/影视 (ss/ep/md)、直播间 (live)
     *   专栏文章 (cv) - 统一渲染为紧凑预览卡，支持封面、标题、三行摘要、作者装扮与统计信息
     *   动态 (t.bilibili.com) - 支持长文、多图、转发动态，完美还原装扮卡片与粉丝编号
     *   用户主页 (space) - 展示用户数据，自动抓取并展示最新一条动态
     *   Opus 图文 (opus) - 自动区分普通动态与“文章型 opus”，文章型 opus 按专栏语义解析并渲染
+    *   收藏夹、音频/歌单、话题、合集/系列、文集、笔记、课堂视频等扩展类型
     *   小程序/短链 (b23.tv) - 自动还原目标链接
 
 *   🎨 **高颜值预览**
@@ -39,22 +38,20 @@
     *   SVG 矢量图标 & Emoji，无乱码，视觉统一
     *   专栏作者头部支持头像框、认证、等级，以及可从动态装扮卡回补的粉丝装扮卡与编号
 
-*   🤖 **智能 AI 对话**
-    *   群组记忆 (RAG)：内置向量记忆系统，支持长期记忆与语义检索
-    *   用户身份感知：向量记忆保留 `userId/userName`，降低群聊记忆串线
-    *   用户画像：按群可开关，自动生成参与者画像并注入个性化回复
-    *   智能记忆管理：自动去重、重要性评分、智能保留策略、上下文和时间感知
-    *   MCP支持：通过简单的配置文件，即可让Bot调用其他工具
-    *   支持概率回复和 `@机器人` 触发
-
 *   ⬇️ **视频下载**
     *   解析到 B 站视频链接后可异步自动下载并发送 MP4（不阻塞预览卡片）
     *   支持多 P 视频续下：`/下载 P{n}`，并支持订阅推送视频下载扇出
     *   支持全局与分群配置：开关、默认分辨率、最大时长、自动清理
 
-*   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、直播、番剧更新
+*   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、视频、专栏、直播与番剧更新
 
-*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、AI/RAG/画像开关、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
+*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
+
+*   🤖 **受限 Agent（实验性）**
+    *   自然语言消息可进入 Agent，由 LLM 结合上下文、群聊节奏、记忆和人格决定回复或沉默
+    *   命令消息和 B 站链接不进 LLM，继续走确定性系统 handler
+    *   支持长期记忆、短期上下文、工具确认、权限闸门、审计日志和 WebUI 观测
+    *   支持受限工具：订阅管理、Agent/Bot 配置、B 站查询、QQ 群管理、申请处理、网页读取/搜索/截图和显式学习记忆
 
 *   🐳 **Docker 化部署**：一键部署，内置 Noto CJK、多语种 Noto 与 Emoji 字体，并包含 FFmpeg 依赖
 
@@ -66,7 +63,6 @@
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-浅色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
     <td align="center"><img src="docs/images/管理菜单-浅色模式.webp" height="400" /><br /><b>管理菜单</b></td>
-    <td align="center"><img src="docs/images/AI帮助菜单-浅色模式.png" height="400" /><br /><b>AI功能菜单</b></td>
   </tr>
 </table>
 
@@ -97,7 +93,6 @@
   <tr>
     <td align="center"><img src="docs/images/帮助菜单-深色模式.webp" height="400" /><br /><b>帮助菜单</b></td>
     <td align="center"><img src="docs/images/管理菜单-深色模式.webp" height="400" /><br /><b>管理菜单</b></td>
-    <td align="center"><img src="docs/images/AI帮助菜单-深色模式.png" height="400" /><br /><b>AI功能菜单</b></td>
   </tr>
 </table>
 
@@ -139,11 +134,10 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 **部署流程：**
 1.  **环境检查**：自动安装 docker 等必要依赖。
-2.  **配置引导**：脚本会引导您输入 Bot QQ 号，自动生成 NapCat 配置。
-3.  **服务启动**：自动拉取镜像并启动容器。
+2.  **配置引导**：脚本会引导您输入 Bot QQ 号、WebUI 密码，并可选配置 Agent LLM Provider/API Key。
+3.  **服务启动**：自动拉取镜像并启动容器。注意：一键部署使用发布镜像，只有镜像发布后才包含最新开发分支能力。
 4.  **扫码登录**：直接在终端显示 NapCat 日志和二维码，扫码即可完成登录。
 
-如需使用AI功能、接入MCP或修改高级配置，请在部署完成后编辑 `config/.env` 文件（参考 [配置说明](#配置说明)），然后重启容器。
 
 ## WebUI 管理面板
 
@@ -167,11 +161,58 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | 模块 | 说明 |
 | :--- | :--- |
 | **仪表盘** | 实时监控 CPU、内存、网络等系统状态，可视化图表展示 |
-| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、AI 参数覆盖、关注同步、视频下载（继承/覆盖） |
-| **全局设置** | 常规配置（轮询间隔等）、MCP 服务管理、全局黑名单、B站登录、AI 参数（模型/密钥/系统提示词）、AI/RAG/画像开关、视频下载全局策略、应用重启 |
+| **群组管理** | 分群配置：启用/禁用群组、链接冷却、标签开关、深色模式、黑名单、管理员、关注同步、视频下载（继承/覆盖） |
+| **全局设置** | 常规配置（轮询间隔等）、全局黑名单、B站登录、视频下载全局策略、应用重启 |
+| **Agent 设置** | 新 Agent 的全局开关、Persona、LLM 引用、预算、工具策略和群级覆盖 |
+| **Agent 决策** | 查看 Agent 的 timing、LLM decision、policy、工具确认/执行、发送结果、重入调度和筛选统计 |
+| **Agent 记忆** | 查看长期记忆、人物画像、表达习惯和回复效果；长期记忆支持筛选、删除和清理 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
 > 说明：WebUI 仅管理真实群聊（数字群号），不支持私聊会话（`private_*`）管理。
+
+</details>
+
+## Agent 功能
+
+<details>
+<summary><b>展开查看 Agent 说明</b></summary>
+
+Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎参与者 + 受限业务操作者”，不是收到消息就回复的聊天机器人。
+
+### 处理边界
+
+| 消息/事件 | 处理方式 |
+| :--- | :--- |
+| `/` 开头的显式指令 | 不进 LLM，直接走命令系统 |
+| B 站链接、短链、小程序分享 | 不进 LLM，直接走链接解析链路 |
+| 黑名单、群禁用、Agent 未启用 | 硬拒绝，不进入 Agent |
+| 普通自然语言 | 进入 Agent，由 LLM 判断回复、沉默、延迟或工具计划 |
+| @Bot、回复 Bot、叫昵称 | 高相关消息，原则上应由 Agent 认真回应 |
+| 配置、订阅、群管理意图 | LLM 只能输出 `tool_plan`，实际执行由权限和确认系统决定 |
+
+### 权限模型
+
+| 权限来源 | 能力范围 |
+| :--- | :--- |
+| 普通群成员 | 聊天、查询、提出请求 |
+| 配置群管理员 | 管理本群 Bot/Agent 配置和订阅 |
+| QQ 群管理员/群主 | 基于 QQ 权限管理本群配置和群聊操作 |
+| `ADMIN_QQ` Root | 全局配置、跨群管理、QQ 账号级工具 |
+
+### 工具和确认
+
+- Agent 只能调用白名单工具，不能执行 shell、不能任意读写文件、不能动态接入 MCP。
+- 中高风险工具会进入短码确认流程；确认必须来自同群同用户，并携带短码或明确回复 Bot。
+- 高风险工具不可通过 WebUI 配置关闭确认。
+- QQ 群管理工具会检查用户权限和 Bot 当前 QQ 群权限。
+- 浏览器能力包括 `browser.read_url`、`browser.search_web` 和 `browser.screenshot_url`；拒绝 localhost、内网地址、带凭证 URL 和 DNS 解析到内网的地址。
+- QQ 管理工具包括群信息查询、成员查询、禁言/解禁、踢人、撤回、精华、全员禁言、加群申请、好友申请、在线状态和输入状态；写操作受 QQ 权限、Bot 权限、风险确认和审计日志约束。
+
+### 验证方式
+
+- 在 WebUI 的 **Agent 决策** 页查看每条消息的 timing、LLM 决策、policy、工具计划、确认、重入调度和发送结果。
+- 在 **Agent 记忆** 页查看长期记忆、人物画像、表达习惯和回复效果；长期记忆可继续删除或按筛选清理。
+- QQ 群实测建议参考 `docs/plans/2026-04-26-agent-qq-test-matrix.md`。
 
 </details>
 
@@ -179,11 +220,13 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 
 本项目采用双重配置系统：`config/.env` 用于启动/敏感信息，`config.json` 用于运行时动态配置。
 
+> `.env` 保存启动参数、敏感信息和 Agent LLM Provider/API Key；`config.json` 保存运行时动态配置。旧 MCP 配置不再保留。
+
 <details>
 <summary><b>展开查看具体配置</b></summary>
 
 ### 1. 基础配置 (.env)
-复制 `config/.env.example` 为 `config/.env`，填入 WebSocket 连接与 AI 密钥等启动参数：
+复制 `config/.env.example` 为 `config/.env`，填入 WebSocket 连接等启动参数：
 
 | 变量名 | 说明 | 示例 / 默认值 |
 | :--- | :--- | :--- |
@@ -191,56 +234,36 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `WS_TOKEN` | WebSocket 连接 Token (可选，留空则不启用身份验证) | 需与 NapCat 配置一致 |
 | `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
 | `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
-| `AI_API_URL` | AI 接口地址 (OpenAI 兼容) | `https://api.openai.com/v1/chat/completions` |
-| `AI_API_KEY` | AI 接口密钥 | `sk-xxxxxxxx` |
-| `AI_MODEL` | 使用的模型名称 | `gpt-3.5-turbo` |
-| `AI_CHAT_API_URL` | AI 聊天专用接口地址 (可选，优先于 `AI_API_URL`) | 留空 (默认跟随 `AI_API_URL`) |
-| `AI_CHAT_API_KEY` | AI 聊天专用密钥 (可选，优先于 `AI_API_KEY`) | 留空 (默认跟随 `AI_API_KEY`) |
-| `AI_CHAT_MODEL` | AI 聊天专用模型 (可选，优先于 `AI_MODEL`) | 留空 (默认跟随 `AI_MODEL`) |
-| `AI_CHAT_SYSTEM_PROMPT` | AI 聊天专用系统提示词 (可选，优先于 `AI_SYSTEM_PROMPT`) | 留空 (默认跟随 `AI_SYSTEM_PROMPT`) |
-| `AI_PROBABILITY` | AI 随机插话概率 (0-1) | `0.1` |
-| `AI_TEMPERATURE` | AI 采样温度 (影响回复发散度) | `1.0` |
-| `AI_SYSTEM_PROMPT` | AI 人设提示词 | `你是一个可爱的猫娘...` |
-| `AI_EMBEDDING_API_URL` | 向量嵌入接口地址 (用于记忆) | `https://api.openai.com/v1/embeddings` |
-| `AI_EMBEDDING_API_KEY` | 向量嵌入密钥 (留空则同上) | `sk-xxxxxxxx` |
-| `AI_EMBEDDING_MODEL` | 向量嵌入模型名称 | `text-embedding-3-small` |
-| `AI_CHAT_PROXY` | AI 聊天接口代理地址 (可选) | `http://127.0.0.1:7890` |
-| `AI_EMBEDDING_PROXY` | AI 嵌入接口代理地址 (可选) | `http://127.0.0.1:7890` |
-| `MCP_CALL_DELAY_MS` | MCP 工具调用之间的延迟（毫秒） | `100` |
 | `PUPPETEER_EXECUTABLE_PATH` | 指定浏览器可执行文件路径（可选） | 留空（自动检测） |
+| `CHROMIUM_PATH` | Agent 网页读取/截图使用的 Chromium 路径（可选） | 留空（自动检测） |
 | `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
 | `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
 | `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
 | `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
+| `AGENT_LLM_ENABLED` | 是否启用 Agent LLM 调用；默认关闭，开启后仍需在运行时配置中启用 Agent/群级开关 | `false` |
+| `AGENT_LLM_PROVIDER` | LLM Provider，目前支持 OpenAI-compatible | `openai-compatible` |
+| `AGENT_LLM_BASE_URL` | OpenAI-compatible Base URL | `https://api.example.com` |
+| `AGENT_LLM_MODEL` | Agent 决策模型名 | `model-name` |
+| `AGENT_LLM_API_KEY_ENV` | 保存 API Key 的环境变量名 | `AGENT_API_KEY` |
+| `AGENT_API_KEY` | Agent LLM API Key（本地填写，示例文件留空） | 留空 |
+| `AGENT_LLM_TIMEOUT_MS` | LLM 请求超时（毫秒） | `12000` |
+| `AGENT_LLM_TEMPERATURE` | LLM 决策温度 | `0.2` |
+| `AGENT_LLM_MAX_TOKENS` | LLM 最大输出 token；不是上下文窗口大小，群聊上下文由 `config.json` 的 `agent.shortTerm.*` 控制 | `500` |
+| `AGENT_BUDGET_ENABLED` | 是否启用 Agent LLM 调用预算 | `true` |
+| `AGENT_BUDGET_WINDOW_MS` | 预算统计窗口（毫秒） | `60000` |
+| `AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE` | 每群每分钟最大 LLM 调用数 | `60` |
+| `AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE` | 每用户每分钟最大 LLM 调用数 | `20` |
 | `JWT_SECRET` | Dashboard JWT 签名密钥（可选，不填则自动生成并持久化） | 留空 |
 | `DASHBOARD_PASSWORD` | WebUI 管理面板登录密码 | `admin` |
 | `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
 
 ### 2. 动态配置 (config.json)
-这些配置随 bot 运行自动创建，支持热更新（通过 `/设置` 和 `/AI` 相关指令），无需手动修改。
+这些配置随 bot 运行自动创建，支持热更新（通过 `/设置` 相关指令和 WebUI），无需手动修改。
 
-内部实现现已拆分为模块化配置子系统：`src/config.js` 作为兼容入口，实际逻辑位于 `src/config/` 目录（如 `schema.js`、`store.js`、`groupConfig.js`、`aiConfig.js`、`authConfig.js`、`jwtSecretOwner.js`、`normalizers.js`）。对外调用方式保持兼容，仍可通过 `require('./src/config')` 或现有 `config` 入口访问。
+内部实现现已拆分为模块化配置子系统：`src/config.js` 作为兼容入口，实际逻辑位于 `src/config/` 目录（如 `schema.js`、`store.js`、`groupConfig.js`、`authConfig.js`、`jwtSecretOwner.js`、`normalizers.js`）。对外调用方式保持兼容，仍可通过 `require('./src/config')` 或现有 `config` 入口访问。
 
 | 字段名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `aiEnabled` | 全局 AI 开关 | `true` |
-| `aiRagEnabled` | 全局 RAG 开关（依赖 AI 开启） | `true` |
-| `aiProfileEnabled` | 全局用户画像开关（依赖 AI 开启） | `false` |
-| `aiContextLimit` | AI 上下文保留条数 (发送给 API 的消息数) | `10` |
-| `aiHistoryMaxSize` | AI 历史对话文件大小限制 (字节) | `209715200` (200MB) |
-| `aiVectorMaxSize` | AI 向量记忆文件大小限制 (字节) | `209715200` (200MB) |
-| `aiVectorMemoryLimit` | 内存中向量记忆条数上限 (防止内存溢出) | `10000` |
-| `aiVectorSimilarityThreshold` | 向量搜索相似度阈值 (0-1，越高越严格) | `0.4` |
-| `aiVectorSearchLimit` | 返回的相关记忆数量 | `3` |
-| `aiShortMessageThreshold` | 短消息过滤阈值 (字符数) | `5` |
-| `aiMemorySafetyLimit` | 内存中消息安全上限 (防止内存溢出) | `5000` |
-| `aiTrimRatio` | 文件修剪比例 (0-1) | `0.1` (10%) |
-| `aiVectorBatchLoadSize` | 向量批量加载大小 (预留) | `1000` |
-| `aiEnableVectorCache` | 启用向量搜索缓存 | `true` |
-| `aiEnableSmartTrim` | 启用智能记忆保留策略 | `true` |
-| `aiProfileMinMessages` | 首次生成画像所需最小发言数 | `30` |
-| `aiProfileUpdateInterval` | 画像增量更新触发间隔（新增发言数） | `50` |
-| `aiProfileMaxLength` | 单条画像最大长度（字） | `200` |
 | `blacklistedQQs` | 黑名单 QQ 列表 | `[]` |
 | `enabledGroups` | 允许响应的群组 (空为全部) | `[]` |
 | `linkCacheTimeout` | 链接解析缓存时间 (秒) | `600` |
@@ -251,15 +274,95 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | `videoDownloadAutoClean` | 视频文件发送后自动清理 | `true` |
 | `videoDownloadCleanTimeout` | 下载目录兜底清理超时（小时） | `6` |
 | `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
-| `labelConfig` | 标签显示配置 | `{"video": true, ...}` |
+| `labelConfig` | 标签显示配置（视频、番剧、动态、专栏、直播及扩展类型） | `{"video": true, ...}` |
 | `showId` | 是否在卡片中显示 UID | `true` |
 | `groupConfigs` | 群级配置覆盖 (每个群可独立配置) | `{}` |
+| `agent` | 新 Agent 运行时配置，包括开关、Persona、短期/长期记忆、回复策略、工具策略、预算和群级覆盖 | `{"enabled": false, ...}` |
+
+### 3. Agent 开启建议
+
+Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key，不会自动让 Agent 在群里发言；建议按阶段开启：
+
+1. WebUI 或 `config.json` 设置 `agent.enabled=true`、目标群 `agent.groups.<群号>.enabled=true`。
+2. 先保持 `agent.observeOnly=true`、`agent.sendEnabled=false`，在 Agent 决策页观察 LLM 判断。
+3. 确认效果后切到 `decisionMode=llm_live`，再开启 `sendEnabled=true`。
+4. 需要自然语言管理订阅、配置或 QQ 群时，再开启 `agent.tools.enabled=true`。
+5. 中高风险工具保留确认，尤其是禁言、踢人、撤回、关闭 Bot、处理申请等操作。
+6. 如需偶尔插话，在 Agent 设置中开启 `agent.social.enabled=true`，并逐步调高插话概率和每日上限。
 </details>
+
+
+### Agent 实测建议
+
+开启 Agent 后，建议在 QQ 群中按风险从低到高验证：
+
+| 场景 | 示例 | 预期 |
+| :--- | :--- | :--- |
+| 自然语言 | `@Bot 你现在能做什么？` | Agent 正常回复，WebUI Agent 决策可见轨迹 |
+| 网页读取 | `@Bot 总结 https://example.com` | 调用 `browser.read_url` 并给出摘要 |
+| 网页搜索 | `@Bot 搜一下 B 站最新动态` | 调用 `browser.search_web`，返回搜索摘要 |
+| 网页截图 | `@Bot 截图 https://example.com` | 调用 `browser.screenshot_url` 并发送截图；风控页返回受限提示 |
+| 记忆 | `@Bot 记住我喜欢简短回答` | 写入长期记忆，WebUI Agent 记忆可见 |
+| QQ 管理 | `@Bot 禁言 @某人 1分钟` | 校验用户权限和 Bot 群管权限，中高风险要求确认 |
+| 申请处理 | `@Bot 查看加群申请` / `同意第一个申请` | 读取/处理申请，写操作按风险确认 |
+| 偶尔插话 | 群内持续闲聊 | 社交模式开启后，Agent 在预算和冷却内低频插话 |
+
+## 开发与测试
+
+本地开发建议使用仓库内的固定入口，避免新增一次性调试脚本：
+
+```bash
+# Node/MJS 单元测试
+npm test
+
+# Python Bilibili 服务相关单测
+venv/bin/python -m pytest test/unit/bilibili
+
+# Dashboard 检查
+cd dashboard && npm run lint
+```
+
+预览卡片和渲染回归使用 `test/tools/` 下的复用工具，生成的图片、HTML、JSON 等本地验证产物统一写入 `test/output/`：
+
+```bash
+node test/tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name local-check
+node test/tools/preview-lab-web.js
+```
+
+## 项目结构
+
+```text
+bili-qq-bot/
+├── src/                    # Node.js bot、命令、服务、渲染和 Dashboard 后端
+├── dashboard/              # React/Vite WebUI
+├── test/
+│   ├── runners/            # 测试运行入口，例如 run-unit-tests.js
+│   ├── tools/              # 可复用本地验证工具，例如 Preview Lab
+│   ├── fixtures/           # 稳定测试夹具
+│   ├── unit/               # 按领域分类的单元测试
+│   │   ├── agent/
+│   │   ├── bilibili/
+│   │   ├── commands/
+│   │   ├── config/
+│   │   ├── dashboard/
+│   │   ├── links/
+│   │   ├── messages/
+│   │   ├── preview/
+│   │   ├── rendering/
+│   │   ├── services/
+│   │   └── subscriptions/
+│   └── output/             # 本地预览/测试输出，不作为源码管理目标
+├── docs/                   # 计划、归档记录、图片和接口文档
+├── config/                 # 启动配置和示例
+├── data/                   # 运行时数据，默认不提交
+├── logs/                   # 应用日志
+└── napcat/                 # NapCat QQ 客户端数据
+```
 
 ## 指令列表
 
 所有指令均以 `/` 开头，部分指令仅限管理员使用。
-Root 可使用私聊能力，但私聊仅支持聊天/AI/链接解析/下载；`/设置`、`/管理`、订阅管理指令需在群聊或 WebUI 操作。
+Root 可使用私聊能力，但私聊仅支持链接解析/下载；`/设置`、`/管理`、订阅管理指令需在群聊或 WebUI 操作。
 
 <details>
 <summary><b>展开查看完整指令列表</b></summary>
@@ -268,8 +371,7 @@ Root 可使用私聊能力，但私聊仅支持聊天/AI/链接解析/下载；`
 | 指令 | 说明 | 作用域 | 权限 |
 | :--- | :--- | :--- | :--- |
 | `/菜单` / `/帮助` | 查看用户帮助菜单 | 当前群 | 所有人 |
-| `/设置 帮助` | 查看管理配置面板 | 当前群 | 所有人 |
-| `/AI 帮助` | 查看AI配置面板 | 当前群 | 所有人 |
+| `/设置 帮助` | 查看管理配置面板 | 当前群 | 群管/Root |
 | `/订阅列表` | 查看本群当前的订阅列表 (用户与番剧) | 当前群 | 所有人 |
 
 ### 视频下载指令
@@ -306,475 +408,3 @@ Root 可使用私聊能力，但私聊仅支持聊天/AI/链接解析/下载；`
 | `/设置 显示UID` | `<开\|关>` | 开关卡片中 UID 的显示 | **当前群** |
 | `/设置 深色模式` | `<开\|关\|定时> [时间]` | 配置深色模式。定时格式如 `21:00-07:00` | **当前群** |
 | `/设置 管理员` | `<添加\|移除> <QQ>` | (仅 Root) 设置本群的管理员 | **当前群** |
-
-### AI 配置指令
-
-AI相关配置通过独立的 `/AI` 指令体系管理。
-
-| 指令 | 参数 | 说明 | 作用域 | 权限 |
-| :--- | :--- | :--- | :--- | :--- |
-| `/AI 帮助` | 无 | 显示AI配置菜单 | - | 所有人 |
-| `/AI 上下文 <条数>` | `<1-50>` | 设置本群AI上下文消息数（默认10） | **当前群** | 群管/Root |
-| `/AI 概率 <0-1>` | `<0.0-1.0>` | 设置本群AI随机回复概率（默认0.1） | **当前群** | 群管/Root |
-| `/AI 新对话 [群号]` | `[群号]` | 重置AI对话记忆 | **指定群** | 群管/Root |
-| `/AI 向量阈值 <0-1>` | `<0.0-1.0>` | 设置记忆相似度阈值（默认0.4） | **全局** | Root |
-| `/AI 向量数量 <数量>` | `<1-10>` | 设置返回的相关记忆数量（默认3） | **全局** | Root |
-| `/AI 短消息过滤 <字符>` | `<1-50>` | 设置短消息过滤阈值（默认5） | **全局** | Root |
-| `/AI 缓存 <开\|关>` | `<开\|关>` | 开关向量搜索缓存（默认开启） | **全局** | Root |
-| `/AI 智能保留 <开\|关>` | `<开\|关>` | 开关智能记忆保留（默认开启） | **全局** | Root |
-
-**配置作用域说明**：
-- **当前群**：仅影响发送指令的群组，支持群级个性化配置
-- **全局**：影响所有群组，仅Root管理员可修改
-
-
-### 系统指令 (仅限 Root 管理员)
-| 指令 | 参数 | 说明 | 作用域 |
-| :--- | :--- | :--- | :--- |
-| `/设置 轮询` | `<秒数>` | 设置订阅更新的轮询间隔 | **全局** |
-| `/管理 清理` | `[群号]` | 清理指定群组的配置和订阅数据 | 指定群 |
-| `/管理 群列表` | (无) | 查看当前已配置的群组状态 | **全局** |
-
-</details>
-
-## 其他部署方式
-
-<details>
-<summary><b>本地 Docker 部署 (Git Clone)</b></summary>
-
-如果您希望手动管理项目文件：
-
-1.  **下载项目**
-    ```bash
-    git clone https://github.com/UnsplashZ/bili-qq-bot.git
-    cd bili-qq-bot
-    ```
-
-2.  **配置环境**
-    复制配置文件模板并进行修改：
-    ```bash
-    cp config/.env.example config/.env
-    # 编辑 .env 文件，填入必要信息
-    nano config/.env
-    ```
-
-3.  **启动服务**
-    ```bash
-    docker compose up -d
-    ```
-
-4.  **查看日志与登录**
-    ```bash
-    docker logs -f napcat
-    ```
-
-**高级选项：**
-*   **自行构建镜像**：修改 `docker-compose.yml`，注释掉 `image: ...`，取消注释 `build: .`，使用 `docker compose up -d --build` 构建并启动。
-*   **已有 NapCat**：如果您已有 NapCat 服务，可自行修改 `docker-compose.yml` ，并更新 `config/.env` 中的 `WS_URL` (如 `ws://localhost:3001`) 和 `NAPCAT_TEMP_PATH` 路径映射。
-
-</details>
-
-<details>
-<summary><b>本地 NPM 运行</b></summary>
-
-适用于开发调试或非 Docker 环境。
-
-1.  **环境准备**：确保安装 Node.js (v18+), Python (v3.8+), Microsoft Edge/Chrome/Chromium。
-    同时需要系统可用的 `ffmpeg`（用于下载后合并音视频流）。
-
-2.  **克隆项目**：
-    ```bash
-    git clone https://github.com/UnsplashZ/bili-qq-bot.git
-    cd bili-qq-bot
-    ```
-
-3.  **安装 Node.js 依赖**：
-    ```bash
-    npm install
-    ```
-
-4.  **安装 Python 依赖**：
-    如果使用虚拟环境，请先激活环境，并更新 `config/.env` 中的 `PYTHON_PATH` 为虚拟环境中的 Python 解释器路径。
-    ```bash
-    # 使用 requirements.txt 安装所有依赖
-    pip install -r requirements.txt
-
-    # 或使用虚拟环境（推荐）
-    python3 -m venv venv
-    source venv/bin/activate  # Windows: venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
-
-5.  **构建 WebUI**：
-    ```bash
-    cd dashboard
-    npm install
-    npm run build  # 构建生产版本
-    cd ..
-    ```
-
-6.  **配置**：复制并编辑 `config/.env`。
-    ```bash
-    cp config/.env.example config/.env
-    nano config/.env  # 或使用其他编辑器
-    ```
-    **注意**：本地运行时，请确保 `config/.env` 中的 `NAPCAT_TEMP_PATH` 指向宿主机真实路径，且该路径已被映射到 NapCat 容器中。
-
-7.  **运行**：
-    ```bash
-    npm start
-    ```
-
-8.  **访问 WebUI**：打开浏览器访问 `http://localhost:3000`
-
-### 本地预览实验台（可选）
-
-适用于只想调试“链接解析 -> 数据获取 -> 预览渲染”链路，而不想先启动完整 Bot、Docker 或 WebUI 的场景。
-
-#### 1. 一次性 CLI 出图
-
-每次执行都会使用最新代码，并将产物写入 `test/output/`：
-
-```bash
-node tools/preview-lab.js "https://www.bilibili.com/read/cv45123193"
-
-# 可选参数示例
-node tools/preview-lab.js "https://t.bilibili.com/1180316687231090707" --fresh --html --out-name dynamic-video
-
-# 文章型 opus（应渲染 article 卡）
-node tools/preview-lab.js "https://www.bilibili.com/opus/1183668934980665366" --fresh --out-name article-opus-check
-
-# read/cv 专栏（应渲染 article 卡，且无大会员标签）
-node tools/preview-lab.js "https://www.bilibili.com/read/cv17878862/?opus_fallback=1" --fresh --out-name article-cv-check
-```
-
-支持的常用参数：
-
-| 参数 | 说明 |
-| :--- | :--- |
-| `--fresh` | 跳过 previewLab 进程内缓存，强制重新抓取 |
-| `--html` | 额外生成本地 HTML 调试页 |
-| `--show-id` | 覆盖用户卡是否显示 UID |
-| `--out-name <name>` | 自定义输出文件名前缀 |
-| `--group-id <gid>` | 指定调试使用的群号上下文 |
-
-默认会在 `test/output/` 生成：
-
-*   预览图 PNG
-*   标准化 JSON
-*   manifest JSON
-*   调试 HTML（仅在启用 `--html` 时生成）
-
-当前 article / dynamic 预览规则摘要：
-
-*   普通动态正文 `.text-content` 的最大可见高度为 `800px`，约 15 行，超出后底部渐隐
-*   article 封面按原图比例显示，不再强制裁成 `21:9`
-*   article 卡片的正文区域是三行摘要预览，不展示大会员标签
-*   文章型 `opus` 会自动映射到 article 渲染链路
-
-#### 2. 本地 Web 调试页
-
-如需在浏览器里输入链接并直接查看预览图、解析摘要、标准化 JSON 和渲染 HTML，可启动独立本地调试页：
-
-```bash
-node tools/preview-lab-web.js
-```
-
-然后访问 `http://127.0.0.1:17870`。
-
-> 说明：
-> *   这是独立本地工具，不依赖 `npm start`、dashboard 或 docker。
-> *   当前为单任务串行执行；如果一个任务尚未完成，新的执行请求会返回 busy。
-> *   该工具使用 previewLab 自己的进程内缓存，不会写入生产运行时的共享缓存。
-
-### WebUI 前端开发（可选）
-
-WebUI 基于 React + Vite + Tailwind CSS 构建，开发时可独立运行：
-
-```bash
-cd dashboard
-npm install
-npm run dev     # 开发服务器 (端口 5173，自动代理 API 至 3000)
-npm run build   # 生产构建，输出至 dashboard/dist
-```
-
-构建后由主服务 (端口 3000) 托管静态文件，无需额外部署。
-</details>
-
-## 项目结构
-
-<details>
-<summary><b>展开查看项目结构</b></summary>
-
-*   `setup.sh`: 一键部署脚本
-*   `Dockerfile` / `docker-compose.yml`: Docker 部署配置
-*   `tools/`: 本地调试工具
-    *   `preview-lab.js`: 一次性本地预览 CLI
-    *   `preview-lab-web.js`: 独立本地 Web 调试页启动入口
-*   `config/`:
-    *   `config/.env`: **核心配置文件** (API Key, WS 地址等)
-    *   `config.json`: 运行时动态配置 (黑名单, 自动保存)
-*   `napcat/`: NapCat 配置文件与数据目录 (自动生成)
-*   `logs/`: 运行日志目录
-*   `data/`: 数据持久化目录
-    *   `cache/`: API 数据缓存，加速解析并降低请求频率 (LRU 策略，1GB 上限)
-    *   `contexts/`: AI 对话上下文历史 (每个群一个文件，最大 200MB)
-    *   `vectors/`: AI 向量记忆库 (用于长期记忆检索，每个群一个文件，最大 200MB)
-    *   `profiles/`: AI 用户画像数据 (按群存储用户画像与活跃元数据)
-    *   `downloads/`: 视频下载临时文件目录 (自动清理)
-    *   `cookies.json`: Bilibili 登录凭证 (用于获取高清资源/会员内容)
-    *   `subscriptions.json`: 订阅配置信息 (UP主/番剧/关键词监控)
-    *   `subfollowers.json`: 订阅推送目标列表 (群组/用户映射关系)
-*   `fonts/`: 字体文件目录 (支持热更新)
-*   `dashboard/`: WebUI 前端 (React + Vite + Tailwind CSS)
-    *   `src/pages/`: 页面组件 (Dashboard, Groups, Settings, Logs, Login)
-    *   `src/components/`: 通用组件 (GlassCard, GlassModal)
-    *   `dist/`: 生产构建输出 (由主服务托管)
-*   `src/`: 源代码
-    *   `bot.js`: 程序入口，WebSocket 连接与消息分发
-    *   `config.js`: 配置兼容入口（转发到模块化配置实现）
-    *   `config/`: 配置子模块（schema、store、groupConfig、aiConfig、authConfig、jwtSecretOwner、normalizers）
-    *   `dashboard/`: WebUI 后端
-        *   `server.js`: Express 应用，静态文件托管与 WebSocket 日志推送
-        *   `routes/api.js`: 兼容入口壳（转发到模块化实现）
-        *   `routes/api/`: 模块化 RESTful API（配置、群组、订阅、B站登录等）
-        *   `middleware/auth.js`: JWT 认证中间件
-    *   `handlers/`: 消息与 AI 处理逻辑
-        *   `messageHandler.js`: 链接解析、指令系统、权限管理
-        *   `aiHandler.js`: AI 回复入口与总编排，具体能力下沉到 `src/services/ai/`
-    *   `services/`: B站 API, 绘图服务, 订阅服务
-        *   `biliApi.js`: Bilibili API 调用 (通过 Python 子进程)
-        *   `previewLab/`: 本地预览实验台共享内核（输入解析、目标获取、会话落盘、Web 调试页）
-        *   `imageGenerator/`: **Puppeteer 图片生成服务** (模块化架构，17 个文件)
-            *   `index.js`: 主入口，导出单例 ImageGenerator 类
-            *   `core/`: 核心模块
-                *   `browser.js`: Puppeteer 浏览器管理 (单例模式)
-                *   `theme.js`: 主题系统 (深色/浅色模式，配色计算)
-                *   `formatters.js`: 格式化工具 (时间、数字、HTML 转义)
-            *   `renderers/`: 内容渲染器 (纯函数，HTML 生成)
-                *   `video.js`, `bangumi.js`, `article.js`, `live.js`, `user.js`, `dynamic.js`: 各类型内容渲染
-                *   `icons.js`: SVG 图标常量
-                *   `components/`: 可复用组件
-                    *   `richtext.js`: 富文本解析 (@用户、表情、话题)
-                    *   `vote.js`: 投票卡片组件
-                    *   `media.js`: 媒体 (图片/视频) 组件
-            *   `generators/`: 图片生成器 (整合渲染器与浏览器)
-                *   `previewCard.js`: 预览卡片生成 (6 种内容类型)
-                *   `subscriptionList.js`: 订阅列表生成
-                *   `helpCard.js`: 帮助卡片生成 (用户/管理员菜单)
-        *   `subscriptionService.js`: 订阅轮询与推送系统
-        *   `vectorMemoryService.js`: 向量嵌入与相似度检索
-        *   `userProfileService.js`: 用户画像生成与存储
-        *   `videoDownloadService.js`: 视频下载、发送与清理调度
-        *   `ai/`: AI 子模块
-            *   `messageSanitizerService.js`: 消息清洗、名称与标记规范化
-            *   `identityPolicyService.js`: 身份意图识别、发言者/提及解析、管理动作保护
-            *   `retrievalAugmentService.js`: RAG 检索参数与增强信息收集
-            *   `replyRuntimeService.js`: AI 运行时装配
-            *   `replyOrchestratorService.js`: LLM 对话循环与总编排
-            *   `replyPersistenceService.js`: 回复持久化
-            *   `llmChatService.js`: 聊天模型请求与回退链路
-    *   `utils/`: 工具函数
-        *   `logger.js`: 日志系统 (log4js)
-        *   `cacheManager.js`: LRU 缓存管理器
-        *   `designSystem.js`: 统一设计系统与主题配置
-        *   `proxyUtils.js`: 代理配置工具
-*   `src/services/`: Python 服务
-    *   `bili_server.py`: 兼容入口壳（启动参数解析与 `create_app` 导出）
-    *   `bili_server_core/`: Python 服务核心实现
-        *   `app.py` / `main.py`: aiohttp 应用装配与启动
-        *   `web/`: 路由与 HTTP handlers
-        *   `services/`: 按业务域拆分的 B 站能力实现
-        *   `auth/` / `media/` / `download/`: 凭证、媒体工具、下载子系统
-
-</details>
-
-## 日志标签说明
-
-<details>
-<summary><b>展开查看日志等级、Channel、Scope 与常见动作说明</b></summary>
-
-### 1. 等级标签
-
-| 标签 | 含义 |
-| :--- | :--- |
-| `TRC` | 超细调试 |
-| `DBG` | 调试信息 |
-| `INF` | 正常关键流程 |
-| `WRN` | 可恢复异常、降级、跳过 |
-| `ERR` | 明确失败 |
-| `FTL` | 致命错误 |
-
-### 2. Channel 标签
-
-| 标签 | 含义 |
-| :--- | :--- |
-| `BOT` | 机器人主进程、NapCat WebSocket、消息入口、命令入口 |
-| `LINK` | B 站链接识别、取数、卡片生成、降级 |
-| `AI` | AI 主链路、上下文、RAG、工具调用、回复生成 |
-| `SUB` | 订阅轮询、订阅项检查、状态推进 |
-| `SEND` | 消息发送、图片/视频发送、下载投递 |
-| `DASH` | Dashboard 后端业务操作 |
-| `AUTH` | 登录、JWT、CSRF、Cookie/凭证刷新 |
-| `STORE` | 配置、缓存、持久化、画像、审批等存储相关 |
-| `MCP` | MCP 服务初始化、工具调用、清理 |
-| `RPC` | Node 和 Python 之间的一次请求调用 |
-| `PY` | Python 服务生命周期和桥接日志 |
-| `HTTP` | Dashboard 或 Python 服务的 HTTP 请求摘要 |
-| `SERVICE` | Python 内部业务步骤，或少量 Node 基础服务步骤 |
-
-### 3. Scope 标签
-
-方括号中的内容表示这条日志属于哪条链路。
-
-| 标签示例 | 含义 |
-| :--- | :--- |
-| `[svc:lifecycle]` | 服务生命周期，如启动、停止、重连 |
-| `[msg:群号:用户号:消息ID]` | 一条 QQ 消息主链路 |
-| `[req:xxxxxx]` | 一次 HTTP / RPC 请求链路 |
-| `[sub:...]` | 某个订阅对象 |
-| `[poll:...]` | 某次订阅轮询周期 |
-| `[py:stdout]` / `[py:stderr]` | 未被结构化桥接的 Python 原始输出 |
-
-### 4. 常见动作名
-
-| 动作 | 含义 |
-| :--- | :--- |
-| `recv` | 收到请求 / 消息 |
-| `start` / `done` / `fail` | 开始 / 完成 / 失败 |
-| `card-ready` | 预览卡片已生成 |
-| `fallback-text` | 降级为纯文本 |
-| `login-succeeded` | 登录成功 |
-| `tool-start` / `tool-done` | AI 工具调用开始 / 结束 |
-
-### 5. 字段说明
-
-动作名后的 `key=value` 是关键摘要字段，常见如：
-
-- `groupId=...`
-- `userId=...`
-- `bvid=...`
-- `dynamicId=...`
-- `duration=842ms`
-- `status=success`
-- `error=timeout`
-
-日志示例：
-
-```text
-INF LINK     [msg:1000:2:555] card-ready requestId=LH-... linkType=video linkId=BV... url=https://...
-```
-
-含义：
-- `INF`：正常流程
-- `LINK`：链接处理链路
-- `[msg:1000:2:555]`：来自群 `1000` 用户 `2` 的消息 `555`
-- `card-ready`：卡片已准备好
-- 后面的字段是这次动作的关键参数
-
-</details>
-
-## 日志显示控制
-
-<details>
-<summary><b>展开查看 docker logs / WebUI 日志显示相关配置</b></summary>
-
-### 1. 环境变量
-
-| 变量 | 默认值 | 作用 |
-| :--- | :--- | :--- |
-| `LOG_LEVEL` | `info` | 终端最低显示等级，支持 `trace/debug/info/warn/error/fatal` |
-| `LOG_CHANNELS` | 空 | 仅显示指定 Channel，多个值用逗号分隔 |
-| `LOG_EXCLUDE_CHANNELS` | 空 | 排除指定 Channel，多个值用逗号分隔 |
-| `LOG_COLOR` | `true` | 是否启用终端 ANSI 颜色 |
-| `LOG_TIMESTAMP` | `true` | 是否显示完整时间戳，格式固定为 `yyyy/mm/dd hh:mm:ss` |
-| `LOG_PRETTY` | `true` | 是否使用人眼可读的单行摘要格式 |
-| `LOG_STACKS` | `error` | 控制堆栈输出，支持 `off/error/all` |
-| `LOG_BUFFER_SIZE` | `2000` | WebUI 日志页内存缓存条数上限 |
-
-### 2. 常见 docker logs 调试组合
-
-只看警告和错误，并排除 HTTP 请求摘要：
-
-```env
-LOG_LEVEL=warn
-LOG_EXCLUDE_CHANNELS=HTTP
-LOG_COLOR=true
-LOG_TIMESTAMP=true
-```
-
-排查 Node 与 Python 之间的调用链，只保留 `RPC/PY/AUTH`：
-
-```env
-LOG_LEVEL=debug
-LOG_CHANNELS=RPC,PY,AUTH
-LOG_COLOR=true
-LOG_TIMESTAMP=true
-```
-
-### 3. 设计说明
-
-- 终端 / `docker logs` 的等级与 Channel 过滤在 `src/utils/logger.js` 生效。
-- WebUI 日志页会先读取后端 ring buffer 的最近日志，再接入实时 WebSocket，因此刷新页面不会丢失全部日志。
-- `LOG_STACKS=error` 时，仅错误级别日志会展开多行堆栈；普通摘要日志仍保持单行。
-
-</details>
-
-
-## 常见问题 (FAQ)
-
-<details>
-<summary><b>Q: Root 管理员和群管理员有什么区别?</b></summary>
-
-**Root 管理员** (`config/.env` 中的 `ADMIN_QQ`)：拥有全局最高权限，可执行所有管理指令、设置群管理员、修改全局配置。
-
-**群管理员** (`/设置 管理员` 添加)：仅在指定群组拥有管理权限，可管理本群订阅、黑名单、配置等，无法修改全局配置。
-</details>
-
-<details>
-<summary><b>Q: 如何为不同的群设置不同的配置?</b></summary>
-
-Bot 支持分群配置覆盖。在群聊中发送 `/设置` 指令时，默认仅对当前群生效。每个群的配置独立存储在 `config.json` 的 `groupConfigs` 字段中。
-</details>
-
-<details>
-<summary><b>Q: 为什么订阅列表有 120 秒冷却时间?</b></summary>
-
-为避免频繁查询导致性能问题，`/订阅列表` 指令设有 120 秒冷却。如需立即查看单个用户，可使用 `/查询订阅 <UID>`。
-</details>
-
-<details>
-<summary><b>Q: AI 聊天不回复怎么办?</b></summary>
-
-检查 `config/.env` 中的 `AI_API_URL`、`AI_API_KEY`、`AI_MODEL` 是否正确（若配置了 `AI_CHAT_*`，则以 `AI_CHAT_*` 为准）。尝试 `@机器人` 发送消息（必定触发回复）。检查 `AI_PROBABILITY` 设置（0.1 表示 10% 概率插话），可使用 `/AI 概率 1` 测试（群管/Root）。
-</details>
-
-<details>
-<summary><b>Q: 如何登录 B 站账号以获取高清封面?</b></summary>
-
-1. 在群内发送 `/设置 登录`（群管理员/Root）
-2. 使用 B 站 APP 扫描返回的二维码
-3. 机器人将自动检测扫码状态，登录成功后会发送通知（约30秒超时）。
-4. 如遇自动检测超时，可使用 `/设置 验证 <key>` 手动验证。
-
-**注意**：登录凭证**全局生效**。登录后，本群可访问会员专属内容和高清封面。
-</details>
-
-<details>
-<summary><b>Q: 订阅推送不工作?</b></summary>
-
-检查订阅轮询间隔 (`/设置 轮询 <秒数>`)、查看日志 (`logs/application.log`) 是否有错误、确认已订阅用户/番剧 (`/订阅列表`)。注意：首次订阅只记录状态，不会立即推送，需等待下次更新。可使用 `/查询订阅 <UID>` 手动触发检查。
-</details>
-
-## 致谢 (Acknowledgments)
-
-本项目默认使用 **Noto Sans CJK SC + Noto Sans Sinhala + Noto Color Emoji** 字体链，以兼顾中文可读性与跨脚本字符兼容性。
-
-特别感谢以下 AI 模型与工具在开发过程中的强力支持：
-
-*   **Gemini**/**Claude**/**CodeX**
-*   **Trae**
-
-## 免责声明
-
-本工具仅用于学习交流，请勿用于非法用途。Bilibili 相关接口由 `bilibili-api-python` 提供，请遵守 B 站相关规定。

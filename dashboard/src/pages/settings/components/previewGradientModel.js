@@ -7,6 +7,11 @@ const {
     DEFAULT_PREVIEW_ATMOSPHERE_COLOR2
 } = sharedPreviewGradientModel
 
+export {
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR1,
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR2
+}
+
 export const FIELD_LABELS = {
     previewGradientColor1: '氛围色 1',
     previewGradientColor2: '氛围色 2'

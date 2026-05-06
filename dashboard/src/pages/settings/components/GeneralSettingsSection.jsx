@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlassCard from '../../../components/GlassCard'
+import SettingRow from '../../../components/SettingRow'
 import GradientColorPickerPopover from './GradientColorPickerPopover'
 import PreviewGradientModal from './PreviewGradientModal'
-import { Save, Clock, Palette, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react'
-import { FIELD_DESCRIPTIONS, FIELD_LABELS, resolveEffectivePreviewGradientColors } from './previewGradientModel'
+import { Palette, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react'
+import {
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR1,
+    DEFAULT_PREVIEW_ATMOSPHERE_COLOR2,
+    FIELD_DESCRIPTIONS,
+    FIELD_LABELS,
+    resolveEffectivePreviewGradientColors
+} from './previewGradientModel'
 
 const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
 
@@ -53,6 +60,10 @@ function buildChipPreview(color) {
 }
 
 const GRADIENT_FIELDS = ['previewGradientColor1', 'previewGradientColor2']
+const DEFAULT_GRADIENT_INPUTS = {
+    previewGradientColor1: DEFAULT_PREVIEW_ATMOSPHERE_COLOR1,
+    previewGradientColor2: DEFAULT_PREVIEW_ATMOSPHERE_COLOR2
+}
 const DEFAULT_PICKER_SIZE = {
     width: 408,
     height: 420
@@ -60,13 +71,9 @@ const DEFAULT_PICKER_SIZE = {
 
 const GeneralSettingsSection = ({
     generalConfig,
-    savingGeneral,
     onGeneralChange,
-    onSaveGeneral,
     previewGradientConfig,
-    savingPreviewGradient,
     onPreviewGradientChange,
-    onSavePreviewGradient,
     onResetPreviewGradient
 }) => {
     const [gradientInputs, setGradientInputs] = useState(previewGradientConfig)
@@ -78,8 +85,12 @@ const GeneralSettingsSection = ({
     const triggerRefs = useRef({})
 
     useEffect(() => {
-        setGradientInputs(previewGradientConfig)
-        setGradientErrors({})
+        const frameId = window.requestAnimationFrame(() => {
+            setGradientInputs(previewGradientConfig)
+            setGradientErrors({})
+        })
+
+        return () => window.cancelAnimationFrame(frameId)
     }, [previewGradientConfig])
 
     const effectivePreviewColors = useMemo(
@@ -178,21 +189,11 @@ const GeneralSettingsSection = ({
         setPickerState(null)
     }
 
-    const handleSavePreviewGradient = () => {
-        const nextErrors = {}
-        for (const field of GRADIENT_FIELDS) {
-            if (!isValidHexColor(gradientInputs[field])) {
-                nextErrors[field] = '请输入 #RRGGBB 格式的颜色代码'
-            }
-        }
-        setGradientErrors(nextErrors)
-        if (Object.keys(nextErrors).length > 0) return
-        onSavePreviewGradient()
-    }
-
     const handleResetPreviewGradient = () => {
         setPickerState(null)
         setIsPreviewModalOpen(false)
+        setGradientInputs(DEFAULT_GRADIENT_INPUTS)
+        setGradientErrors({})
         onResetPreviewGradient()
     }
 
@@ -218,66 +219,50 @@ const GeneralSettingsSection = ({
                 <h2 className="text-xl font-semibold text-white">常规设置</h2>
             </div>
             <GlassCard>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            <div className="flex items-center gap-2">
-                                <Clock size={16} />
-                                订阅检查间隔 (秒)
-                            </div>
-                        </label>
+                <div className="divide-y divide-white/10">
+                    <SettingRow
+                        title="订阅检查间隔"
+                        description="系统检查订阅更新的频率，建议不少于 60 秒。"
+                        status="秒"
+                        control={
                         <input
                             type="number"
                             min="10"
                             value={generalConfig.subscriptionCheckInterval}
                             onChange={(e) => onGeneralChange('subscriptionCheckInterval', parseInt(e.target.value, 10) || 0)}
-                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:outline-none"
+                            className="field-control w-full px-3 py-2 md:w-40"
                         />
-                        <p className="text-xs text-gray-500 mt-1">系统检查订阅更新的频率，建议不少于 60 秒。</p>
-                    </div>
+                        }
+                    />
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            <div className="flex items-center gap-2">
-                                <Clock size={16} />
-                                链接冷却时间 (秒)
-                            </div>
-                        </label>
+                    <SettingRow
+                        title="链接冷却时间"
+                        description="同一链接重复解析的全局冷却时间。"
+                        status="秒"
+                        control={
                         <input
                             type="number"
                             min="0"
                             value={generalConfig.linkCacheTimeout}
                             onChange={(e) => onGeneralChange('linkCacheTimeout', parseInt(e.target.value, 10) || 0)}
-                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500 focus:outline-none"
+                            className="field-control w-full px-3 py-2 md:w-40"
                         />
-                        <p className="text-xs text-gray-500 mt-1">同一链接重复解析的全局冷却时间。</p>
-                    </div>
+                        }
+                    />
 
-                    <div className="md:col-span-2">
-                        <label className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer">
-                            <div>
-                                <p className="text-sm font-medium text-white">显示 UID</p>
-                                <p className="text-xs text-gray-500 mt-1">控制用户类卡片与订阅列表是否显示 UID。</p>
-                            </div>
+                    <SettingRow
+                        title="显示 UID"
+                        description="控制用户类卡片与订阅列表是否显示 UID。"
+                        status={generalConfig.showId ? '开启' : '关闭'}
+                        control={
                             <input
                                 type="checkbox"
                                 checked={!!generalConfig.showId}
                                 onChange={(e) => onGeneralChange('showId', e.target.checked)}
-                                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-900"
+                                className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-950"
                             />
-                        </label>
-                    </div>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                    <button
-                        onClick={onSaveGeneral}
-                        disabled={savingGeneral}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-white font-medium transition-colors disabled:opacity-50"
-                    >
-                        <Save size={18} />
-                        {savingGeneral ? '保存中...' : '保存常规设置'}
-                    </button>
+                        }
+                    />
                 </div>
 
                 <div ref={previewGradientSectionRef} className="relative mt-8 border-t border-white/10 pt-8">
@@ -285,79 +270,64 @@ const GeneralSettingsSection = ({
                         <Palette className="text-pink-300" size={18} />
                         <h3 className="text-lg font-semibold text-white">预览图氛围色</h3>
                     </div>
-                    <p className="mb-4 text-xs text-white/55">固定底板保持整体中性，下面两种颜色只控制轻量氛围层。</p>
-
-                    <div className="space-y-4">
+                    <div className="divide-y divide-white/10">
                         {GRADIENT_FIELDS.map((field) => (
-                            <div key={field} className="rounded-[18px] border border-white/10 bg-white/5 p-4">
-                                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <SettingRow
+                                key={field}
+                                title={FIELD_LABELS[field]}
+                                description={FIELD_DESCRIPTIONS[field]}
+                                control={
                                     <div>
-                                        <p className="text-sm font-medium text-white">{FIELD_LABELS[field]}</p>
-                                        <p className="mt-1 text-xs text-white/55">{FIELD_DESCRIPTIONS[field]}</p>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                type="button"
+                                                ref={(node) => {
+                                                    triggerRefs.current[field] = node
+                                                }}
+                                                onClick={() => handleTogglePicker(field)}
+                                                className={`grid h-14 w-14 place-items-center rounded-lg border bg-black/20 transition-colors ${pickerState?.field === field ? 'border-cyan-300/60' : 'border-white/20 hover:border-white/30'}`}
+                                            >
+                                                <span className="h-10 w-10 rounded-md shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(effectivePreviewColors[field])} />
+                                            </button>
+                                            <input
+                                                type="text"
+                                                value={gradientInputs[field]}
+                                                onChange={(e) => handleGradientInputChange(field, e.target.value)}
+                                                className={`h-11 w-36 rounded-lg border bg-black/30 px-4 font-mono text-sm tracking-[0.03em] text-white outline-none transition-colors ${gradientErrors[field] ? 'border-rose-400/70 focus:border-rose-300' : 'border-white/20 focus:border-cyan-300/70'}`}
+                                            />
+                                        </div>
+                                        {gradientErrors[field] && (
+                                            <p className="mt-2 text-xs text-rose-300">{gradientErrors[field]}</p>
+                                        )}
                                     </div>
-
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            type="button"
-                                            ref={(node) => {
-                                                triggerRefs.current[field] = node
-                                            }}
-                                            onClick={() => handleTogglePicker(field)}
-                                            className={`grid h-14 w-14 place-items-center rounded-2xl border bg-white/5 transition-colors ${pickerState?.field === field ? 'border-pink-300/60' : 'border-white/15 hover:border-white/25'}`}
-                                        >
-                                            <span className="h-10 w-10 rounded-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(effectivePreviewColors[field])} />
-                                        </button>
-                                        <input
-                                            type="text"
-                                            value={gradientInputs[field]}
-                                            onChange={(e) => handleGradientInputChange(field, e.target.value)}
-                                            className={`h-11 w-36 rounded-xl border bg-black/30 px-4 font-mono text-sm tracking-[0.03em] text-white outline-none transition-colors ${gradientErrors[field] ? 'border-rose-400/70 focus:border-rose-300' : 'border-white/15 focus:border-pink-300/70'}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {gradientErrors[field] && (
-                                    <p className="mt-3 text-xs text-rose-300">{gradientErrors[field]}</p>
-                                )}
-                            </div>
+                                }
+                            />
                         ))}
+
+                        <SettingRow
+                            title="预览效果"
+                            description="查看当前氛围色合成后的卡片观感"
+                            control={
+                                <button
+                                    type="button"
+                                    onClick={handleOpenPreviewModal}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-transparent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
+                                >
+                                    <Eye size={16} />
+                                    查看预览
+                                </button>
+                            }
+                        />
                     </div>
 
-                    <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div>
-                                <p className="text-sm font-medium text-white">预览效果</p>
-                                <p className="mt-1 text-xs text-white/55">查看固定底板与当前氛围色合成后的卡片观感</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleOpenPreviewModal}
-                                className="inline-flex items-center gap-2 self-start rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 md:self-auto"
-                            >
-                                <Eye size={16} />
-                                查看预览
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="mt-5 flex flex-wrap justify-end gap-3">
+                    <div className="mt-5 flex flex-wrap justify-end">
                         <button
                             type="button"
                             onClick={handleResetPreviewGradient}
-                            disabled={savingPreviewGradient}
-                            className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10 disabled:opacity-50"
+                            className="flex items-center gap-2 rounded-lg border border-white/20 bg-transparent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5 disabled:opacity-50"
                         >
                             <RotateCcw size={16} />
                             恢复默认氛围色
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleSavePreviewGradient}
-                            disabled={savingPreviewGradient}
-                            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
-                        >
-                            <Save size={16} />
-                            {savingPreviewGradient ? '保存中...' : '保存预览图氛围色'}
                         </button>
                     </div>
 

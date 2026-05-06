@@ -10,14 +10,61 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background-color: #111827; /* gray-900 match */
+  background-color: #070b12;
   color: white;
   overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
-  background: linear-gradient(to bottom right, #111827, #1e293b, #000000);
+  background:
+    radial-gradient(circle at 78% 8%, rgba(34, 211, 238, 0.12), transparent 30rem),
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.028) 1px, transparent 1px),
+    linear-gradient(135deg, #070b12 0%, #0d1420 52%, #06080d 100%);
+  background-size: auto, 36px 36px, 36px 36px, auto;
+}
+
+@keyframes tab-panel-forward {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tab-panel-backward {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.field-control {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.28);
+  color: #f8fafc;
+}
+
+.field-control:focus {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.56);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+}
+
+.status-text {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: #94a3b8;
 }
 
 /* 移动端优化 */

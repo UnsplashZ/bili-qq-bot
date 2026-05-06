@@ -17,9 +17,6 @@ export const createDefaultGroupFormData = () => ({
   cookieSyncGroupNames: [],
   blacklistedQQs: [],
   admins: [],
-  aiProbability: null,
-  aiContextLimit: null,
-  aiTemperature: null,
   nightMode: createDefaultNightMode()
 });
 
@@ -45,12 +42,6 @@ export const mapGroupConfigToFormData = (config, globalShowId) => {
     cookieSyncGroupNames: resolveCookieSyncGroupNames(safeConfig.cookieSyncGroupNames),
     blacklistedQQs: Array.isArray(safeConfig.blacklistedQQs) ? safeConfig.blacklistedQQs : [],
     admins: Array.isArray(safeConfig.admins) ? safeConfig.admins : [],
-    aiProbability: safeConfig.aiProbability ?? null,
-    aiContextLimit: safeConfig.aiContextLimit ?? null,
-    aiTemperature: safeConfig.aiTemperature ?? null,
-    aiEnabled: safeConfig.aiEnabled ?? null,
-    aiRagEnabled: safeConfig.aiRagEnabled ?? null,
-    aiProfileEnabled: safeConfig.aiProfileEnabled ?? null,
     nightMode: safeConfig.nightMode || createDefaultNightMode()
   };
 };

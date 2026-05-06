@@ -7,10 +7,6 @@ const {
     getNumericGroupIdsInBotGroupList,
     isInBotGroupList
 } = require('../shared/group-guard')
-const {
-    AiConfigValidationError,
-    normalizeAiConfigField
-} = require('../../../../services/ai/validation')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -145,19 +141,8 @@ router.post('/groups/:id/config', async (req, res) => {
             return res.status(400).json({ error: 'Invalid configuration data' })
         }
 
-        const aiFields = ['aiProbability', 'aiContextLimit', 'aiTemperature', 'aiEnabled', 'aiRagEnabled', 'aiProfileEnabled']
-        for (const key of aiFields) {
-            if (!updates.hasOwnProperty(key) || updates[key] === null) continue
-            try {
-                updates[key] = normalizeAiConfigField(key, updates[key], {
-                    contextLimitRange: { min: 1, max: 100 }
-                })
-            } catch (e) {
-                if (e instanceof AiConfigValidationError) {
-                    return res.status(400).json({ error: e.message, field: e.field })
-                }
-                throw e
-            }
+        if (!sysConfig.groupConfigs) {
+            sysConfig.groupConfigs = {}
         }
 
         if (
@@ -243,50 +228,7 @@ router.post('/groups/:id/config', async (req, res) => {
             }
         }
 
-        if (!sysConfig.groupConfigs) {
-            sysConfig.groupConfigs = {}
-        }
-
         const cleanedUpdates = { ...updates }
-        if (updates.hasOwnProperty('aiProbability') && updates.aiProbability === null) {
-            delete cleanedUpdates.aiProbability
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiProbability
-            }
-        }
-        if (updates.hasOwnProperty('aiContextLimit') && updates.aiContextLimit === null) {
-            delete cleanedUpdates.aiContextLimit
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiContextLimit
-            }
-        }
-        if (updates.hasOwnProperty('aiTemperature') && updates.aiTemperature === null) {
-            delete cleanedUpdates.aiTemperature
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiTemperature
-            }
-        }
-        if (updates.hasOwnProperty('aiEnabled') && updates.aiEnabled === null) {
-            delete cleanedUpdates.aiEnabled
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiEnabled
-            }
-        }
-        if (updates.hasOwnProperty('aiRagEnabled') && updates.aiRagEnabled === null) {
-            delete cleanedUpdates.aiRagEnabled
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiRagEnabled
-            }
-        }
-        if (
-            updates.hasOwnProperty('aiProfileEnabled') &&
-            updates.aiProfileEnabled === null
-        ) {
-            delete cleanedUpdates.aiProfileEnabled
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].aiProfileEnabled
-            }
-        }
         if (
             updates.hasOwnProperty('subscriptionAtAllRules') &&
             updates.subscriptionAtAllRules === null
@@ -297,10 +239,9 @@ router.post('/groups/:id/config', async (req, res) => {
             }
         }
 
-        sysConfig.groupConfigs[groupIdStr] = {
-            ...(sysConfig.groupConfigs[groupIdStr] || {}),
-            ...cleanedUpdates
-        }
+        const groupConfig = sysConfig.groupConfigs[groupIdStr] || {}
+        Object.assign(groupConfig, cleanedUpdates)
+        sysConfig.groupConfigs[groupIdStr] = groupConfig
 
         sysConfig.save()
 

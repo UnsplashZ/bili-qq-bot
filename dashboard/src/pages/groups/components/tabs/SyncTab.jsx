@@ -1,4 +1,3 @@
-import { Tab } from '@headlessui/react';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
@@ -22,8 +21,8 @@ const SyncTab = ({
   toggleSyncGroup
 }) => {
   return (
-    <Tab.Panel className="space-y-6 md:space-y-8 focus:outline-none">
-      <div className="p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10">
+    <div className="space-y-6 md:space-y-8 focus:outline-none">
+      <div className="p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10">
         <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
           <div>
             <span className="text-white font-medium block">订阅推送 @全体成员</span>
@@ -36,12 +35,12 @@ const SyncTab = ({
               onChange={(e) => setFormData({ ...formData, subscriptionAtAll: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 rounded-md peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600" />
           </div>
         </label>
       </div>
 
-      <div className={clsx('p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10 space-y-4 md:space-y-5', !formData.subscriptionAtAll && 'opacity-50')}>
+      <div className={clsx('p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10 space-y-4 md:space-y-5', !formData.subscriptionAtAll && 'opacity-50')}>
         <div>
           <div className="text-white font-medium">`@全体` 细粒度规则</div>
           <div className="text-sm text-gray-400 mt-1">
@@ -107,7 +106,7 @@ const SyncTab = ({
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('manual', true)}
                   disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
                 >
                   全开
                 </button>
@@ -115,7 +114,7 @@ const SyncTab = ({
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('manual', false)}
                   disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
                 >
                   全关
                 </button>
@@ -134,7 +133,7 @@ const SyncTab = ({
                 {atAllTargets.manualUsers.map((user) => {
                   const enabled = isAtAllUserEnabled('manual', user.uid);
                   return (
-                    <label key={`manual-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded bg-white/5">
+                    <label key={`manual-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded border border-white/10 bg-black/20">
                       <input
                         type="checkbox"
                         checked={enabled}
@@ -159,7 +158,7 @@ const SyncTab = ({
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('cookieSync', true)}
                   disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
                 >
                   全开
                 </button>
@@ -167,7 +166,7 @@ const SyncTab = ({
                   type="button"
                   onClick={() => setAllAtAllIdsEnabled('cookieSync', false)}
                   disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
                 >
                   全关
                 </button>
@@ -187,7 +186,7 @@ const SyncTab = ({
                   const enabled = isAtAllUserEnabled('cookieSync', user.uid);
                   const matched = isCookieUserInSelectedSyncGroups(user);
                   return (
-                    <label key={`cookie-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded bg-white/5">
+                    <label key={`cookie-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded border border-white/10 bg-black/20">
                       <input
                         type="checkbox"
                         checked={enabled}
@@ -211,15 +210,13 @@ const SyncTab = ({
 
       {!globalBiliStatus.isLoggedIn && (
         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <p className="text-sm text-yellow-300 mb-2">
-            ⚠️ 未检测到全局B站登录
-          </p>
+          <p className="text-sm text-yellow-300 mb-2">未检测到全局 B 站登录</p>
           <p className="text-sm text-white/70 mb-3">
             关注列表同步需要先在系统设置中登录B站账号
           </p>
           <Link
             to="/settings"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-100 rounded-lg transition-colors text-sm"
           >
             前往系统设置
           </Link>
@@ -230,12 +227,12 @@ const SyncTab = ({
         <div>
           <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg mb-4">
             <div className="flex items-center gap-2 text-green-400 text-sm">
-              <div className="w-2 h-2 rounded-full bg-green-400" />
+              <div className="h-2 w-2 rounded-sm bg-green-400" />
               <span className="break-all">已使用全局B站账号：{globalBiliStatus.username} (UID: {globalBiliStatus.uid})</span>
             </div>
           </div>
 
-          <div className="p-3 sm:p-4 bg-white/5 rounded-lg border border-white/10 mb-4">
+          <div className="p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10 mb-4">
             <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
               <div>
                 <span className="text-white font-medium block">启用关注列表同步</span>
@@ -248,7 +245,7 @@ const SyncTab = ({
                   onChange={(e) => setFormData({ ...formData, enableCookieSync: e.target.checked })}
                   className="sr-only peer"
                 />
-                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 rounded-md peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600" />
               </div>
             </label>
           </div>
@@ -286,7 +283,7 @@ const SyncTab = ({
           </div>
         </div>
       )}
-    </Tab.Panel>
+    </div>
   );
 };
 

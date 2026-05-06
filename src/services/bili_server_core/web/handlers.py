@@ -32,7 +32,7 @@ from ..services.resource_service import (
     get_note_info,
     get_topic_info,
 )
-from ..services.user_service import get_my_info, get_user_card, get_user_info
+from ..services.user_service import get_my_info, get_user_card, get_user_info, search_users
 from ..services.video_service import get_video_info
 from ..logging_utils import rpc_log
 from .responses import json_error, json_result
@@ -375,6 +375,23 @@ async def handle_user_card(request):
         return json_result(result)
     except Exception as e:
         return _handler_error("user_card", e)
+
+
+async def handle_user_search(request):
+    try:
+        data = await request.json()
+        keyword = data.get("keyword")
+        group_id = data.get("group_id")
+        page = data.get("page", 1)
+        page_size = data.get("page_size", 5)
+
+        if not str(keyword or "").strip():
+            return json_result({"status": "error", "message": "缺少参数: keyword"})
+
+        result = await search_users(keyword, group_id, page=page, page_size=page_size)
+        return json_result(result)
+    except Exception as e:
+        return _handler_error("user_search", e)
 
 
 async def handle_my_followings(request):

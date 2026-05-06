@@ -228,6 +228,29 @@ class RequestApprovalService {
         return '未知申请'
     }
 
+    _snapshotPendingItem(item, now = Date.now()) {
+        if (!item) return null
+
+        return {
+            key: item.key,
+            shortId: item.shortId || '',
+            requestType: item.requestType,
+            requestTypeLabel: this._requestTypeLabel(item),
+            subType: item.subType,
+            flag: item.flag,
+            userId: item.userId || '',
+            groupId: item.groupId || '',
+            comment: item.comment || '',
+            status: item.status,
+            notifyMessageId: item.notifyMessageId || '',
+            retryCount: Number(item.retryCount || 0),
+            lastError: item.lastError || '',
+            createdAt: item.createdAt || null,
+            expiresAt: item.expiresAt || null,
+            expiresInMs: typeof item.expiresAt === 'number' ? Math.max(0, item.expiresAt - now) : null
+        }
+    }
+
     _formatPendingMessage(item, pendingCount) {
         const lines = [
             '收到新的待审批请求',
@@ -441,6 +464,186 @@ class RequestApprovalService {
         }
     }
 
+    _resolveExactTarget({ shortId = '', replyMessageId = '' } = {}, now = Date.now()) {
+        const normalizedReplyMessageId = this._sanitizeText(replyMessageId)
+        const normalizedShortId = this._sanitizeText(shortId).toUpperCase()
+
+        if (normalizedReplyMessageId) {
+            const replyResult = this._resolveTargetByReplyFirst({
+                message: [{ type: 'reply', data: { id: normalizedReplyMessageId } }],
+                reply: { id: normalizedReplyMessageId }
+            }, now)
+
+            if (!replyResult.item) {
+                return {
+                    item: null,
+                    resolveMode: 'reply',
+                    status: 'invalid_reply',
+                    shortId: normalizedShortId,
+                    replyMessageId: normalizedReplyMessageId
+                }
+            }
+
+            if (!normalizedShortId) {
+                return {
+                    item: replyResult.item,
+                    resolveMode: 'reply',
+                    status: 'resolved',
+                    shortId: replyResult.item.shortId || '',
+                    replyMessageId: normalizedReplyMessageId
+                }
+            }
+
+            const shortIdResult = this._resolveTargetByShortId({
+                raw_message: normalizedShortId
+            }, now)
+
+            if (!shortIdResult.item) {
+                return {
+                    item: null,
+                    resolveMode: 'short_id',
+                    status: 'invalid_short_id',
+                    shortId: normalizedShortId,
+                    replyMessageId: normalizedReplyMessageId
+                }
+            }
+
+            if (shortIdResult.item.key !== replyResult.item.key) {
+                return {
+                    item: null,
+                    resolveMode: 'conflict',
+                    status: 'target_conflict',
+                    shortId: normalizedShortId,
+                    replyMessageId: normalizedReplyMessageId
+                }
+            }
+
+            return {
+                item: replyResult.item,
+                resolveMode: 'reply',
+                status: 'resolved',
+                shortId: normalizedShortId,
+                replyMessageId: normalizedReplyMessageId
+            }
+        }
+
+        if (normalizedShortId) {
+            const shortIdResult = this._resolveTargetByShortId({
+                raw_message: normalizedShortId
+            }, now)
+
+            if (!shortIdResult.item) {
+                return {
+                    item: null,
+                    resolveMode: 'short_id',
+                    status: 'invalid_short_id',
+                    shortId: normalizedShortId,
+                    replyMessageId: ''
+                }
+            }
+
+            return {
+                item: shortIdResult.item,
+                resolveMode: 'short_id',
+                status: 'resolved',
+                shortId: normalizedShortId,
+                replyMessageId: ''
+            }
+        }
+
+        return {
+            item: null,
+            resolveMode: 'none',
+            status: 'missing_target',
+            shortId: '',
+            replyMessageId: ''
+        }
+    }
+
+    async _executeDecisionForItem(ws, item, decision, now = Date.now()) {
+        if (!item) {
+            return {
+                ok: false,
+                mutation: false,
+                status: 'missing_target',
+                decision,
+                pendingCount: this._getApprovablePendingCount(),
+                target: null,
+                actionResult: null,
+                error: 'missing_target'
+            }
+        }
+
+        if (this.inflightKeys.has(item.key)) {
+            return {
+                ok: false,
+                mutation: false,
+                status: 'inflight',
+                decision,
+                pendingCount: this._getApprovablePendingCount(),
+                target: this._snapshotPendingItem(item, now),
+                actionResult: null,
+                error: 'inflight'
+            }
+        }
+
+        this.inflightKeys.add(item.key)
+        item.status = 'PROCESSING'
+
+        try {
+            const actionResult = await this._applyDecision(ws, item, decision)
+
+            if (actionResult.ok) {
+                const target = this._snapshotPendingItem(item, now)
+                this._removePendingByKey(item.key)
+                this._markRecentlyHandled(item.key, now)
+
+                return {
+                    ok: true,
+                    mutation: true,
+                    status: 'executed',
+                    decision,
+                    pendingCount: this._getApprovablePendingCount(),
+                    target,
+                    actionResult,
+                    error: ''
+                }
+            }
+
+            item.status = 'FAILED'
+            item.retryCount = Number(item.retryCount || 0) + 1
+            item.lastError = actionResult.wording || 'unknown_error'
+
+            return {
+                ok: false,
+                mutation: false,
+                status: 'failed',
+                decision,
+                pendingCount: this._getApprovablePendingCount(),
+                target: this._snapshotPendingItem(item, now),
+                actionResult,
+                error: item.lastError
+            }
+        } catch (e) {
+            item.status = 'FAILED'
+            item.retryCount = Number(item.retryCount || 0) + 1
+            item.lastError = e.message || 'unknown_error'
+
+            return {
+                ok: false,
+                mutation: false,
+                status: 'failed',
+                decision,
+                pendingCount: this._getApprovablePendingCount(),
+                target: this._snapshotPendingItem(item, now),
+                actionResult: null,
+                error: item.lastError
+            }
+        } finally {
+            this.inflightKeys.delete(item.key)
+        }
+    }
+
     async _applyDecision(ws, item, decision) {
         const approve = decision === 'approve'
         let action = ''
@@ -578,63 +781,89 @@ class RequestApprovalService {
             return false
         }
 
-        if (this.inflightKeys.has(item.key)) {
+        const executionResult = await this._executeDecisionForItem(ws, item, decision, now)
+
+        if (executionResult.status === 'inflight') {
             await this._sendAdminText(ws, adminId, `该申请正在处理中，请稍后重试\n编号：${item.shortId || item.key}`)
             return true
         }
 
-        this.inflightKeys.add(item.key)
-        item.status = 'PROCESSING'
-
-        try {
-            const actionResult = await this._applyDecision(ws, item, decision)
-            if (actionResult.ok) {
-                this._removePendingByKey(item.key)
-                this._markRecentlyHandled(item.key, now)
-                const pendingCount = this._getApprovablePendingCount()
-                const extraHint = resolveMode === 'short_id'
-                    ? '定位方式：编号匹配'
-                    : ''
-                await this._sendAdminText(
-                    ws,
-                    adminId,
-                    this._formatDecisionResult(item, decision, actionResult, pendingCount, extraHint)
-                )
-            } else {
-                item.status = 'FAILED'
-                item.retryCount = Number(item.retryCount || 0) + 1
-                item.lastError = actionResult.wording || 'unknown_error'
-                await this._sendAdminText(
-                    ws,
-                    adminId,
-                    [
-                        '审批执行失败',
-                        `类型：${this._requestTypeLabel(item)}`,
-                        `编号：${item.shortId || item.key}`,
-                        `错误：${item.lastError}`,
-                        '你可以继续引用该条通知并回复“是”或“否”重试'
-                    ].join('\n')
-                )
-            }
-        } catch (e) {
-            item.status = 'FAILED'
-            item.retryCount = Number(item.retryCount || 0) + 1
-            item.lastError = e.message || 'unknown_error'
+        if (executionResult.ok) {
+            const extraHint = resolveMode === 'short_id'
+                ? '定位方式：编号匹配'
+                : ''
             await this._sendAdminText(
                 ws,
                 adminId,
-                [
-                    '审批执行异常',
-                    `编号：${item.shortId || item.key}`,
-                    `错误：${item.lastError}`,
-                    '你可以继续引用该条通知并回复“是”或“否”重试'
-                ].join('\n')
+                this._formatDecisionResult(item, decision, executionResult.actionResult, executionResult.pendingCount, extraHint)
             )
-        } finally {
-            this.inflightKeys.delete(item.key)
+            return true
         }
 
+        await this._sendAdminText(
+            ws,
+            adminId,
+            [
+                '审批执行失败',
+                `类型：${this._requestTypeLabel(item)}`,
+                `编号：${item.shortId || item.key}`,
+                `错误：${executionResult.error || executionResult.actionResult?.wording || 'unknown_error'}`,
+                '你可以继续引用该条通知并回复“是”或“否”重试'
+            ].join('\n')
+        )
+
         return true
+    }
+
+    listPendingApprovals(now = Date.now()) {
+        this.cleanupExpired(now)
+
+        const items = this.queue
+            .map(key => this.pendingByKey.get(key))
+            .filter(item => item && this._isApprovableStatus(item.status))
+            .map(item => this._snapshotPendingItem(item, now))
+
+        return {
+            pendingCount: items.length,
+            items
+        }
+    }
+
+    async handleExactApprovalDecision(ws, { decision, shortId = '', replyMessageId = '', now = Date.now() } = {}) {
+        const normalizedDecision = this._sanitizeText(decision).toLowerCase()
+
+        if (normalizedDecision !== 'approve' && normalizedDecision !== 'reject') {
+            throw new Error(`Unsupported approval decision: ${decision || '<empty>'}`)
+        }
+
+        this.cleanupExpired(now)
+
+        const resolvedTarget = this._resolveExactTarget({ shortId, replyMessageId }, now)
+
+        if (!resolvedTarget.item) {
+            return {
+                ok: false,
+                mutation: false,
+                status: resolvedTarget.status,
+                decision: normalizedDecision,
+                resolveMode: resolvedTarget.resolveMode,
+                shortId: resolvedTarget.shortId || '',
+                replyMessageId: resolvedTarget.replyMessageId || '',
+                pendingCount: this._getApprovablePendingCount(),
+                target: null,
+                actionResult: null,
+                error: resolvedTarget.status
+            }
+        }
+
+        const executionResult = await this._executeDecisionForItem(ws, resolvedTarget.item, normalizedDecision, now)
+
+        return {
+            ...executionResult,
+            resolveMode: resolvedTarget.resolveMode,
+            shortId: resolvedTarget.shortId || executionResult?.target?.shortId || '',
+            replyMessageId: resolvedTarget.replyMessageId || ''
+        }
     }
 
     cleanupExpired(now = Date.now()) {

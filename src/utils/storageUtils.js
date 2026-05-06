@@ -8,8 +8,7 @@ function storeLog(level, message, fields = {}) {
 
 /**
  * Storage Utilities Module
- * Provides common storage operations to eliminate code duplication
- * between aiHandler.js and vectorMemoryService.js
+ * Provides common storage operations for JSON-backed runtime data.
  */
 
 /**

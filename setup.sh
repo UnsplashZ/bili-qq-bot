@@ -305,35 +305,6 @@ mkdir -p config
 
 SCRIPT_SOURCE_DIR=$(dirname "$(readlink -f "$0")")
 
-# --- MCP 配置逻辑 ---
-MCP_EXAMPLE_URLS=(
-    "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
-    "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/mcp_servers.json.example"
-)
-
-download_mcp_example() {
-    echo "正在从远程仓库下载 mcp_servers.json.example..."
-    if ! download_with_fallback "config/mcp_servers.json.example" "${MCP_EXAMPLE_URLS[@]}"; then
-        echo -e "${YELLOW}警告: 无法下载 mcp_servers.json.example，MCP 功能可能需要手动配置。${NC}"
-        return 1
-    fi
-}
-
-if [ ! -f "config/mcp_servers.json.example" ]; then
-    if [ -f "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" ]; then
-        cp "$SCRIPT_SOURCE_DIR/config/mcp_servers.json.example" "config/mcp_servers.json.example"
-        echo "已从本地模板复制 mcp_servers.json.example"
-    else
-        download_mcp_example
-    fi
-fi
-
-if [ ! -f "config/mcp_servers.json" ] && [ -f "config/mcp_servers.json.example" ]; then
-    cp "config/mcp_servers.json.example" "config/mcp_servers.json"
-    echo "已生成默认 config/mcp_servers.json"
-fi
-# --- End MCP 配置逻辑 ---
-
 # --- .env 配置逻辑 ---
 ENV_EXAMPLE_URLS=(
     "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/config/.env.example"
@@ -419,6 +390,56 @@ dashboard_pwd=${dashboard_pwd:-admin}
 
 upsert_env_var "DASHBOARD_PASSWORD" "$dashboard_pwd" "config/.env"
 
+# --- Agent LLM 配置 ---
+echo ""
+echo -e "${YELLOW}Agent LLM 配置 (可选)：${NC}"
+echo "说明："
+echo "  - Agent 默认不会自动在群里发言；这里仅写入 LLM Provider/API Key。"
+echo "  - 部署完成后仍需在 WebUI 的 Agent 设置中逐群开启 Agent、发送和工具。"
+echo "  - API Key 会写入 config/.env，请妥善保管。"
+echo ""
+read -p "是否现在配置 Agent LLM？[y/N]: " config_agent_llm
+
+if [[ "$config_agent_llm" =~ ^[Yy]$ ]]; then
+    upsert_env_var "AGENT_LLM_ENABLED" "true" "config/.env"
+    upsert_env_var "AGENT_LLM_PROVIDER" "openai-compatible" "config/.env"
+    upsert_env_var "AGENT_LLM_API_KEY_ENV" "AGENT_API_KEY" "config/.env"
+
+    while true; do
+        read -p "请输入 OpenAI-compatible Base URL (例如 https://api.deepseek.com): " agent_llm_base_url
+        if [ -n "$agent_llm_base_url" ]; then
+            break
+        else
+            echo -e "${RED}Base URL 不能为空；如暂不配置，请重新运行并选择跳过。${NC}"
+        fi
+    done
+    upsert_env_var "AGENT_LLM_BASE_URL" "$agent_llm_base_url" "config/.env"
+
+    while true; do
+        read -p "请输入 Agent LLM 模型名 (例如 deepseek-v4-flash): " agent_llm_model
+        if [ -n "$agent_llm_model" ]; then
+            break
+        else
+            echo -e "${RED}模型名不能为空；如暂不配置，请重新运行并选择跳过。${NC}"
+        fi
+    done
+    upsert_env_var "AGENT_LLM_MODEL" "$agent_llm_model" "config/.env"
+
+    while true; do
+        read -s -p "请输入 Agent LLM API Key: " agent_api_key
+        echo ""
+        if [ -n "$agent_api_key" ]; then
+            break
+        else
+            echo -e "${RED}API Key 不能为空；如暂不配置，请重新运行并选择跳过。${NC}"
+        fi
+    done
+    upsert_env_var "AGENT_API_KEY" "$agent_api_key" "config/.env"
+    echo -e "${GREEN}已写入 Agent LLM 配置。${NC}"
+else
+    echo -e "${YELLOW}跳过 Agent LLM 配置；之后可手动编辑 config/.env 或在 WebUI 配置非敏感项。${NC}"
+fi
+
 # --- 公网访问配置 ---
 echo ""
 echo -e "${YELLOW}公网部署配置 (仅在公网服务器部署时需要)：${NC}"
@@ -460,8 +481,7 @@ else
 fi
 
 echo ""
-echo -e "${YELLOW}提示: 部署完成后，可通过 WebUI 面板 (http://<服务器IP>:$webui_port) 管理群组配置、AI 功能、订阅推送等。${NC}"
-echo -e "${YELLOW}      如需配置 AI 功能，请在 WebUI「系统设置」页面中填写 API 地址与密钥，或手动编辑 config/.env。${NC}"
+echo -e "${YELLOW}提示: 部署完成后，可通过 WebUI 面板 (http://<服务器IP>:$webui_port) 管理群组配置、订阅推送和 Agent。${NC}"
 
 # 7. 配置 docker-compose.yml
 echo -e "${GREEN}[7/8] 准备 Docker Compose...${NC}"
@@ -583,11 +603,10 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "在 WebUI 中您可以:"
     echo "  - 管理群组配置 (启用/禁用、深色模式、标签等)"
-    echo "  - 配置 AI 功能 (API 地址、密钥、模型、系统提示词)"
     echo "  - 管理订阅推送 (UP 主动态、直播、番剧)"
+    echo "  - 配置 Agent、查看 Agent 决策轨迹和长期记忆"
     echo "  - 查看实时日志与系统状态"
     echo ""
-    echo -e "${YELLOW}提示: 如需启用 MCP (Model Context Protocol) 扩展能力，请参考 config/mcp_servers.json.example 进行配置。${NC}"
     echo "如需查看机器人日志: docker logs -f bili-qq-bot"
 else
     echo -e "${RED}部署失败。${NC}"

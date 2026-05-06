@@ -1,4 +1,3 @@
-import { Tab } from '@headlessui/react';
 import { Ban, Plus, Shield, Trash2 } from 'lucide-react';
 
 const PermissionsTab = ({
@@ -15,7 +14,7 @@ const PermissionsTab = ({
   actionLoading
 }) => {
   return (
-    <Tab.Panel className="focus:outline-none">
+    <div className="focus:outline-none">
       <div className="space-y-6">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
@@ -125,7 +124,7 @@ const PermissionsTab = ({
           </div>
         </div>
       </div>
-    </Tab.Panel>
+    </div>
   );
 };
 

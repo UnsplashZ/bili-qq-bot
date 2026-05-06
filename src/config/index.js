@@ -12,7 +12,6 @@ const {
 } = require('./normalizers')
 const { attachToConfig } = require('./jwtSecretOwner')
 const groupConfig = require('./groupConfig')
-const aiConfig = require('./aiConfig')
 const authConfig = require('./authConfig')
 
 const config = {
@@ -99,36 +98,52 @@ const config = {
         return snapshot
     },
 
-    getAiEditorSnapshot: function() {
-        return aiConfig.buildAiEditorSnapshot()
-    },
-
     getDashboardConfigSnapshot: function() {
-        return aiConfig.buildDashboardConfigSnapshot()
+        const snapshot = {}
+        const keys = [
+            'subscriptionCheckInterval',
+            'linkCacheTimeout',
+            'showId',
+            'previewGradientColor1',
+            'previewGradientColor2',
+            'videoDownloadEnabled',
+            'videoDownloadResolution',
+            'videoDownloadMaxDuration',
+            'videoDownloadAutoClean',
+            'videoDownloadCleanTimeout'
+        ]
+        for (const key of keys) {
+            snapshot[key] = this[key]
+        }
+        return snapshot
     }
 }
 
 store.defineGetters(config, META)
 attachToConfig(config)
 
-config.isAiEnabledForGroup = function(groupId) {
-    return aiConfig.isAiEnabledForGroup(groupId, config)
-}
-
-config.isRagEnabledForGroup = function(groupId) {
-    return aiConfig.isRagEnabledForGroup(groupId, config)
-}
-
 config.isVideoDownloadEnabledForGroup = function(groupId) {
-    return aiConfig.isVideoDownloadEnabledForGroup(groupId, config)
+    const currentGroupConfig = config.groupConfigs[String(groupId)]
+    if (currentGroupConfig && 'videoDownloadEnabled' in currentGroupConfig) {
+        return currentGroupConfig.videoDownloadEnabled
+    }
+    return config.videoDownloadEnabled
 }
 
 config.getVideoDownloadResolutionForGroup = function(groupId) {
-    return aiConfig.getVideoDownloadResolutionForGroup(groupId, config)
+    const currentGroupConfig = config.groupConfigs[String(groupId)]
+    if (currentGroupConfig && 'videoDownloadResolution' in currentGroupConfig) {
+        return currentGroupConfig.videoDownloadResolution
+    }
+    return config.videoDownloadResolution
 }
 
 config.getVideoDownloadMaxDurationForGroup = function(groupId) {
-    return aiConfig.getVideoDownloadMaxDurationForGroup(groupId, config)
+    const currentGroupConfig = config.groupConfigs[String(groupId)]
+    if (currentGroupConfig && 'videoDownloadMaxDuration' in currentGroupConfig) {
+        return currentGroupConfig.videoDownloadMaxDuration
+    }
+    return config.videoDownloadMaxDuration
 }
 
 config.createDefaultSubscriptionAtAllRules = createDefaultSubscriptionAtAllRules

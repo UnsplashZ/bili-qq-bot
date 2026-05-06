@@ -1,15 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Tab } from '@headlessui/react';
 import GlassCard from '../components/GlassCard';
+import ModernTabs from '../components/ModernTabs';
 import { useToast } from '../hooks/useToast';
 import { Save, MessageSquare } from 'lucide-react';
-import { clsx } from 'clsx';
 import GroupListPanel from './groups/components/GroupListPanel';
 import AddSubscriptionModal from './groups/components/AddSubscriptionModal';
 import GeneralTab from './groups/components/tabs/GeneralTab';
 import SubscriptionsTab from './groups/components/tabs/SubscriptionsTab';
 import PermissionsTab from './groups/components/tabs/PermissionsTab';
-import AiTab from './groups/components/tabs/AiTab';
 import SyncTab from './groups/components/tabs/SyncTab';
 import VideoDownloadTab from './groups/components/tabs/VideoDownloadTab';
 import { AT_ALL_CATEGORY_ITEMS } from './groups/constants/atAll';
@@ -20,7 +18,6 @@ import useGroupSyncConfig from './groups/hooks/useGroupSyncConfig';
 import useSubscriptions from './groups/hooks/useSubscriptions';
 import useGroupForm from './groups/hooks/useGroupForm';
 import useGroupPermissions from './groups/hooks/useGroupPermissions';
-import useGroupAiConfig from './groups/hooks/useGroupAiConfig';
 import useGroupVideoDownloadConfig from './groups/hooks/useGroupVideoDownloadConfig';
 
 const SUB_TYPES = [
@@ -61,7 +58,6 @@ function Groups() {
     saving,
     handleSave,
     globalConfig,
-    globalConfigLoading,
     toggleSyncGroup,
     toggleAtAllSource,
     toggleAtAllCategory,
@@ -113,18 +109,13 @@ function Groups() {
     show
   });
 
-  const { handleAiToggle, handleAiReset } = useGroupAiConfig({
-    selectedGroupId,
-    setGroups,
-    runLockedAction,
-    show
-  });
-
   const {
     videoDownloadConfig,
     setVideoDownloadConfig,
     fetchVideoDownloadConfig,
     saveVideoDownloadConfig,
+    videoDownloadDirty,
+    videoDownloadResetPending,
     resetVideoDownloadConfig
   } = useGroupVideoDownloadConfig({
     selectedGroupId,
@@ -132,8 +123,15 @@ function Groups() {
     show
   });
 
-  const categories = GROUP_TAB_CATEGORIES;
-  const VIDEO_DOWNLOAD_TAB_INDEX = categories.findIndex((category) => category.name === '视频下载');
+  const VIDEO_DOWNLOAD_TAB_INDEX = GROUP_TAB_CATEGORIES.findIndex((category) => category.name === '视频下载');
+
+  const handleSaveAll = async () => {
+    const configSaved = await handleSave();
+    if (!configSaved) return;
+    if (videoDownloadDirty || videoDownloadResetPending) {
+      await saveVideoDownloadConfig();
+    }
+  };
 
   useEffect(() => {
     if (!selectedGroupId) return;
@@ -141,7 +139,7 @@ function Groups() {
     if (selectedTabIndex === 1) {
       fetchSubscriptions(selectedGroupId);
     }
-    if (selectedTabIndex === 4) {
+    if (GROUP_TAB_CATEGORIES[selectedTabIndex]?.name === '关注同步') {
       fetchBiliGroups(selectedGroupId);
       fetchAtAllTargets(selectedGroupId);
       checkGlobalBiliStatus();
@@ -162,10 +160,9 @@ function Groups() {
   ]);
 
   return (
-    <div className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 space-y-4 md:space-y-6 pb-5 md:pb-6">
+    <div className="space-y-4 pb-5 md:space-y-6 md:pb-6">
       <header>
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 md:mb-2">群组管理</h1>
-        <p className="text-sm md:text-base text-gray-400">管理QQ群组配置、订阅和权限设置</p>
+        <h1 className="text-2xl font-semibold text-white">群组管理</h1>
       </header>
 
       <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
@@ -181,99 +178,73 @@ function Groups() {
         <div className="w-full lg:w-2/3 flex flex-col">
           {selectedGroupId ? (
             <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden">
-              <Tab.Group as="div" className="flex flex-col h-full" selectedIndex={selectedTabIndex} onChange={setSelectedTabIndex}>
-                <div className="flex-shrink-0 border-b border-white/10 bg-white/5 px-3 sm:px-4 pt-3 sm:pt-4">
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3 sm:mb-4">
-                    <h2 className="text-lg sm:text-xl font-bold truncate">
-                      {groups.find((group) => group.id === selectedGroupId)?.name || '群组设置'}
-                    </h2>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save size={16} />
-                      {saving ? '保存中...' : '保存更改'}
-                    </button>
-                  </div>
-                  <Tab.List className="flex gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/20 pb-1">
-                    {categories.map((category) => (
-                      <Tab
-                        key={category.name}
-                        className={({ selected }) => clsx(
-                          'shrink-0 px-3 sm:px-4 py-2 md:py-2.5 text-xs sm:text-sm font-medium leading-5 rounded-t-lg transition-all focus:outline-none whitespace-nowrap',
-                          selected
-                            ? 'bg-white/10 text-blue-400 border-b-2 border-blue-400'
-                            : 'text-gray-400 hover:bg-white/5 hover:text-gray-200 border-b-2 border-transparent'
-                        )}
-                      >
-                        <div className="flex items-center justify-center gap-2">
-                          <category.icon size={16} />
-                          {category.name}
-                        </div>
-                      </Tab>
-                    ))}
-                  </Tab.List>
+              <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <h2 className="truncate text-lg font-semibold text-white sm:text-xl">
+                    {groups.find((group) => group.id === selectedGroupId)?.name || '群组设置'}
+                  </h2>
+                  <div className="mt-1 text-xs text-slate-500">ID: {selectedGroupId}</div>
                 </div>
-
-                <Tab.Panels className="flex-1 min-h-0 p-3 sm:p-4 md:p-6 overflow-y-auto">
-                  <GeneralTab formData={formData} setFormData={setFormData} />
-                  <SubscriptionsTab
-                    subsLoading={subsLoading}
-                    subscriptions={subscriptions}
-                    subTypes={SUB_TYPES}
-                    onOpenAddModal={() => setIsSubModalOpen(true)}
-                    onDeleteSubscription={handleDeleteSubscription}
-                  />
-                  <PermissionsTab
-                    globalConfig={globalConfig}
-                    adminInput={adminInput}
-                    setAdminInput={setAdminInput}
-                    onAddAdmin={handleAddAdmin}
-                    onRemoveAdmin={handleRemoveAdmin}
-                    blacklistInput={blacklistInput}
-                    setBlacklistInput={setBlacklistInput}
-                    onAddBlacklist={handleAddBlacklist}
-                    onRemoveBlacklist={handleRemoveBlacklist}
-                    formData={formData}
-                    actionLoading={actionLoading}
-                  />
-                  <AiTab
-                    formData={formData}
-                    setFormData={setFormData}
-                    globalConfig={globalConfig}
-                    globalConfigLoading={globalConfigLoading}
-                    actionLoading={actionLoading}
-                    onAiToggle={handleAiToggle}
-                    onAiReset={handleAiReset}
-                  />
-                  <SyncTab
-                    formData={formData}
-                    setFormData={setFormData}
-                    atAllRules={atAllRules}
-                    atAllCategoryItems={AT_ALL_CATEGORY_ITEMS}
-                    toggleAtAllSource={toggleAtAllSource}
-                    toggleAtAllCategory={toggleAtAllCategory}
-                    setAllAtAllIdsEnabled={setAllAtAllIdsEnabled}
-                    atAllTargetsLoading={atAllTargetsLoading}
-                    atAllTargets={atAllTargets}
-                    isAtAllUserEnabled={isAtAllUserEnabled}
-                    toggleAtAllUser={toggleAtAllUser}
-                    isCookieUserInSelectedSyncGroups={isCookieUserInSelectedSyncGroups}
-                    globalBiliStatus={globalBiliStatus}
-                    biliGroupsLoading={biliGroupsLoading}
-                    biliGroups={biliGroups}
-                    toggleSyncGroup={toggleSyncGroup}
-                  />
-                  <VideoDownloadTab
-                    videoDownloadConfig={videoDownloadConfig}
-                    setVideoDownloadConfig={setVideoDownloadConfig}
-                    actionLoading={actionLoading}
-                    onResetVideoDownloadConfig={resetVideoDownloadConfig}
-                    onSaveVideoDownloadConfig={saveVideoDownloadConfig}
-                  />
-                </Tab.Panels>
-              </Tab.Group>
+                <button
+                  onClick={handleSaveAll}
+                  disabled={saving || actionLoading.videoConfig}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500/20 px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-4"
+                >
+                  <Save size={16} />
+                  {saving || actionLoading.videoConfig ? '保存中...' : '保存更改'}
+                </button>
+              </div>
+              <ModernTabs
+                tabs={GROUP_TAB_CATEGORIES}
+                selectedIndex={selectedTabIndex}
+                onChange={setSelectedTabIndex}
+              >
+                <GeneralTab formData={formData} setFormData={setFormData} />
+                <SubscriptionsTab
+                  subsLoading={subsLoading}
+                  subscriptions={subscriptions}
+                  subTypes={SUB_TYPES}
+                  onOpenAddModal={() => setIsSubModalOpen(true)}
+                  onDeleteSubscription={handleDeleteSubscription}
+                />
+                <PermissionsTab
+                  globalConfig={globalConfig}
+                  adminInput={adminInput}
+                  setAdminInput={setAdminInput}
+                  onAddAdmin={handleAddAdmin}
+                  onRemoveAdmin={handleRemoveAdmin}
+                  blacklistInput={blacklistInput}
+                  setBlacklistInput={setBlacklistInput}
+                  onAddBlacklist={handleAddBlacklist}
+                  onRemoveBlacklist={handleRemoveBlacklist}
+                  formData={formData}
+                  actionLoading={actionLoading}
+                />
+                <SyncTab
+                  formData={formData}
+                  setFormData={setFormData}
+                  atAllRules={atAllRules}
+                  atAllCategoryItems={AT_ALL_CATEGORY_ITEMS}
+                  toggleAtAllSource={toggleAtAllSource}
+                  toggleAtAllCategory={toggleAtAllCategory}
+                  setAllAtAllIdsEnabled={setAllAtAllIdsEnabled}
+                  atAllTargetsLoading={atAllTargetsLoading}
+                  atAllTargets={atAllTargets}
+                  isAtAllUserEnabled={isAtAllUserEnabled}
+                  toggleAtAllUser={toggleAtAllUser}
+                  isCookieUserInSelectedSyncGroups={isCookieUserInSelectedSyncGroups}
+                  globalBiliStatus={globalBiliStatus}
+                  biliGroupsLoading={biliGroupsLoading}
+                  biliGroups={biliGroups}
+                  toggleSyncGroup={toggleSyncGroup}
+                />
+                <VideoDownloadTab
+                  videoDownloadConfig={videoDownloadConfig}
+                  setVideoDownloadConfig={setVideoDownloadConfig}
+                  actionLoading={actionLoading}
+                  onResetVideoDownloadConfig={resetVideoDownloadConfig}
+                />
+              </ModernTabs>
             </GlassCard>
           ) : (
             <GlassCard className="flex-1 flex flex-col items-center justify-center text-center text-gray-400">
