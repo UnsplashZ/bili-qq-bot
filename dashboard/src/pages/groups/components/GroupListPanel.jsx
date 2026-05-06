@@ -13,7 +13,7 @@ const GroupListPanel = ({
   return (
     <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[38vh] sm:max-h-[45vh] lg:max-h-none">
       <div className="p-3 sm:p-4 border-b border-white/10">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--fg)]">
           <MessageSquare size={18} />
           群组 ({groups.length})
         </h2>
@@ -67,14 +67,14 @@ const GroupListPanel = ({
               )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-medium truncate text-white">{group.name || `Group ${group.id}`}</div>
+                  <div className="truncate font-medium text-[var(--fg)]">{group.name || `Group ${group.id}`}</div>
                   {!group.isInGroup && (
                     <span className="shrink-0 text-xs text-red-300">
                       已退群
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-white/50">ID: {group.id}</div>
+                <div className="text-xs text-[var(--muted)]">ID: {group.id}</div>
               </div>
               {group.isInGroup && !group.isEnabled && (
                 <span className="text-xs text-slate-500">

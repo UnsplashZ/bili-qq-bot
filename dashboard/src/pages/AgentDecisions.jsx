@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, RefreshCw } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
+import { Button } from '../components/ui';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 
@@ -369,19 +370,20 @@ const AgentDecisions = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-2xl font-semibold">
-            <Activity className="text-cyan-300" />
+          <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
+          <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
+            <Activity className="text-[var(--accent)]" />
             Agent 决策
           </h1>
         </div>
-        <button
+        <Button
           onClick={loadItems}
           disabled={loading}
-          className="px-4 py-2.5 rounded-lg bg-blue-500/20 text-blue-100 hover:bg-blue-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+          variant="primary"
+          icon={RefreshCw}
         >
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           刷新
-        </button>
+        </Button>
       </div>
 
       <GlassCard>

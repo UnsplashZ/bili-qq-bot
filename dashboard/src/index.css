@@ -3,26 +3,82 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
+  --bg: oklch(98.5% 0.003 250);
+  --surface: oklch(100% 0 0);
+  --surface-muted: oklch(96.8% 0.006 250);
+  --surface-raised: oklch(99.4% 0.002 250);
+  --fg: oklch(19% 0.012 250);
+  --muted: oklch(49% 0.014 250);
+  --subtle: oklch(63% 0.012 250);
+  --border: oklch(90.5% 0.007 250);
+  --border-strong: oklch(83% 0.01 250);
+  --accent: oklch(58% 0.18 255);
+  --accent-soft: color-mix(in oklch, var(--accent) 11%, transparent);
+  --accent-contrast: #ffffff;
+  --success: oklch(56% 0.14 150);
+  --success-soft: color-mix(in oklch, var(--success) 12%, transparent);
+  --warn: oklch(68% 0.16 72);
+  --warn-soft: color-mix(in oklch, var(--warn) 14%, transparent);
+  --danger: oklch(58% 0.18 28);
+  --danger-soft: color-mix(in oklch, var(--danger) 12%, transparent);
+  --field-bg: oklch(99.4% 0.002 250);
+  --shadow-card: 0 18px 44px color-mix(in oklch, var(--fg) 7%, transparent);
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+[data-theme='dark'] {
   color-scheme: dark;
+  --bg: oklch(16% 0.01 250);
+  --surface: oklch(20% 0.012 250);
+  --surface-muted: oklch(24% 0.012 250);
+  --surface-raised: oklch(22% 0.012 250);
+  --fg: oklch(94% 0.004 250);
+  --muted: oklch(69% 0.012 250);
+  --subtle: oklch(58% 0.012 250);
+  --border: oklch(31% 0.014 250);
+  --border-strong: oklch(39% 0.014 250);
+  --accent: oklch(68% 0.16 255);
+  --accent-soft: color-mix(in oklch, var(--accent) 14%, transparent);
+  --accent-contrast: oklch(14% 0.01 250);
+  --success: oklch(72% 0.14 150);
+  --success-soft: color-mix(in oklch, var(--success) 13%, transparent);
+  --warn: oklch(78% 0.14 72);
+  --warn-soft: color-mix(in oklch, var(--warn) 13%, transparent);
+  --danger: oklch(70% 0.16 28);
+  --danger-soft: color-mix(in oklch, var(--danger) 13%, transparent);
+  --field-bg: oklch(18% 0.01 250);
+  --shadow-card: 0 18px 46px rgba(0, 0, 0, 0.24);
 }
 
 html, body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background-color: #070b12;
-  color: white;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 78% 8%, rgba(34, 211, 238, 0.12), transparent 30rem),
-    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.028) 1px, transparent 1px),
-    linear-gradient(135deg, #070b12 0%, #0d1420 52%, #06080d 100%);
-  background-size: auto, 36px 36px, 36px 36px, auto;
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 @keyframes tab-panel-forward {
@@ -48,23 +104,98 @@ html, body {
 }
 
 .field-control {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(2, 6, 23, 0.28);
-  color: #f8fafc;
+  background: var(--field-bg);
+  color: var(--fg);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
 .field-control:focus {
   outline: none;
-  border-color: rgba(34, 211, 238, 0.56);
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+  border-color: color-mix(in oklch, var(--accent) 56%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+.field-control::placeholder {
+  color: var(--subtle);
+}
+
+.field-control option {
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .status-text {
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--muted);
+}
+
+.custom-scrollbar::-webkit-scrollbar,
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--muted) 28%, transparent);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--muted) 44%, transparent);
+}
+
+/* Compatibility bridge while older pages move from literal dark Tailwind classes to tokens. */
+.text-white,
+.text-slate-100,
+.text-gray-100 {
+  color: var(--fg) !important;
+}
+
+.text-slate-200,
+.text-gray-200,
+.text-gray-300 {
+  color: color-mix(in oklch, var(--fg) 84%, var(--muted)) !important;
+}
+
+.text-slate-400,
+.text-slate-500,
+.text-gray-400,
+.text-gray-500,
+.text-gray-600,
+.text-white\/50,
+.text-white\/60,
+.text-white\/70 {
+  color: var(--muted) !important;
+}
+
+.border-white\/5,
+.border-white\/10,
+.border-white\/15,
+.border-white\/18 {
+  border-color: var(--border) !important;
+}
+
+.bg-black\/20,
+.bg-black\/30,
+.bg-white\/5,
+.bg-white\/\[0\.03\] {
+  background-color: var(--surface-muted) !important;
+}
+
+.hover\:bg-white\/5:hover,
+.hover\:bg-white\/10:hover {
+  background-color: color-mix(in oklch, var(--accent) 8%, var(--surface-muted)) !important;
 }
 
 /* 移动端优化 */
@@ -83,22 +214,4 @@ html, body {
   input, textarea, select {
     font-size: 16px; /* 防止iOS自动缩放 */
   }
-}
-
-/* 自定义滚动条 */
-.scrollbar-thin::-webkit-scrollbar {
-  height: 4px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
 }

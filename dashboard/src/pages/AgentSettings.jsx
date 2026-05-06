@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Bot, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 import SettingRow from '../components/SettingRow';
+import { Button } from '../components/ui';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 
@@ -575,28 +576,29 @@ const AgentSettings = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-2xl font-semibold">
-            <Bot className="text-cyan-300" />
+          <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
+          <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
+            <Bot className="text-[var(--accent)]" />
             Agent 管理
           </h1>
         </div>
         <div className="flex gap-2">
-          <button
+          <Button
             onClick={loadConfig}
             disabled={loading}
-            className="px-4 py-2.5 rounded-lg border border-white/10 text-white hover:bg-white/5 disabled:opacity-50 flex items-center gap-2"
+            variant="secondary"
+            icon={RefreshCw}
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             刷新
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={saveAll}
             disabled={saving}
-            className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 flex items-center gap-2"
+            variant="primary"
+            icon={Save}
           >
-            <Save size={18} />
             保存设置
-          </button>
+          </Button>
         </div>
       </div>
 

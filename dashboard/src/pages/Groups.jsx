@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import GlassCard from '../components/GlassCard';
 import ModernTabs from '../components/ModernTabs';
+import { Button } from '../components/ui';
 import { useToast } from '../hooks/useToast';
 import { Save, MessageSquare } from 'lucide-react';
 import GroupListPanel from './groups/components/GroupListPanel';
@@ -162,7 +163,8 @@ function Groups() {
   return (
     <div className="space-y-4 pb-5 md:space-y-6 md:pb-6">
       <header>
-        <h1 className="text-2xl font-semibold text-white">群组管理</h1>
+        <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Configure</div>
+        <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">群组管理</h1>
       </header>
 
       <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
@@ -185,14 +187,15 @@ function Groups() {
                   </h2>
                   <div className="mt-1 text-xs text-slate-500">ID: {selectedGroupId}</div>
                 </div>
-                <button
+                <Button
                   onClick={handleSaveAll}
                   disabled={saving || actionLoading.videoConfig}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-500/20 px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-4"
+                  variant="primary"
+                  icon={Save}
+                  className="w-full sm:w-auto"
                 >
-                  <Save size={16} />
                   {saving || actionLoading.videoConfig ? '保存中...' : '保存更改'}
-                </button>
+                </Button>
               </div>
               <ModernTabs
                 tabs={GROUP_TAB_CATEGORIES}
@@ -249,8 +252,8 @@ function Groups() {
           ) : (
             <GlassCard className="flex-1 flex flex-col items-center justify-center text-center text-gray-400">
               <MessageSquare size={48} className="mb-4 opacity-50" />
-              <h3 className="text-xl font-medium text-white mb-2">选择一个群组</h3>
-              <p>从列表中选择一个群组以查看和编辑其配置。</p>
+              <h3 className="mb-2 text-xl font-medium text-[var(--fg)]">选择一个群组</h3>
+              <p className="text-[var(--muted)]">从列表中选择一个群组以查看和编辑其配置。</p>
             </GlassCard>
           )}
         </div>

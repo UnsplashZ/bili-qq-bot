@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import GlassCard from '../components/GlassCard';
+import { Activity, Clock, Cpu, HardDrive, Network, Radio } from 'lucide-react';
+import { Card, DataTable, PanelHeader, StatusPill } from '../components/ui';
 import { formatBytes, formatUptime, formatNetSpeed } from '../utils/format';
 import api from '../utils/auth';
 
@@ -32,6 +33,30 @@ function normalizeProcessMetric(metric) {
     failed: metric.failed ?? metric.error ?? '-',
     latest: metric.latest || metric.status || '-'
   };
+}
+
+function numericValue(value) {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function getMetricTone(value, warnAt, dangerAt) {
+  const next = numericValue(value);
+  if (next === null) return 'neutral';
+  if (next >= dangerAt) return 'danger';
+  if (next >= warnAt) return 'warn';
+  return 'success';
+}
+
+function getProcessTone(metric) {
+  const failed = numericValue(metric.failed);
+  if (failed === null || failed === 0) return 'success';
+  return failed >= 5 ? 'danger' : 'warn';
+}
+
+function formatPercent(value) {
+  const next = numericValue(value);
+  return next === null ? '-' : `${next.toFixed(1)}%`;
 }
 
 function normalizeHistoryEntry(entry) {
@@ -105,142 +130,196 @@ const Dashboard = () => {
 
   if (!stats) {
     return (
-      <div className="flex items-center justify-center min-h-screen text-white">
-        <div className="text-xl animate-pulse">正在加载系统状态...</div>
+      <div className="flex min-h-[60vh] items-center justify-center text-[var(--muted)]">
+        <div className="text-lg animate-pulse">正在加载系统状态...</div>
       </div>
     );
   }
 
+  const memoryUsed = stats.memory?.used ?? 0;
+  const memoryTotal = stats.memory?.total ?? 0;
+  const memoryPercent = memoryTotal ? (memoryUsed / memoryTotal) * 100 : null;
+  const processRows = PROCESS_ROWS.map((row) => {
+    const metric = normalizeProcessMetric(stats.processReport?.[row.key]);
+    return { ...row, metric, tone: getProcessTone(metric) };
+  });
+  const healthyProcesses = processRows.filter((row) => row.tone === 'success').length;
+  const problemProcesses = processRows.length - healthyProcesses;
+  const latestProcess = processRows.find((row) => row.metric.latest && row.metric.latest !== '-') || processRows[0];
+
+  const kpis = [
+    {
+      label: 'CPU 负载',
+      value: formatPercent(stats.cpu),
+      meta: '2s poll',
+      icon: Cpu,
+      tone: getMetricTone(stats.cpu, 70, 90)
+    },
+    {
+      label: '内存使用',
+      value: memoryTotal ? `${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}` : formatBytes(memoryUsed),
+      meta: memoryPercent === null ? '-' : formatPercent(memoryPercent),
+      icon: HardDrive,
+      tone: getMetricTone(memoryPercent, 75, 90)
+    },
+    {
+      label: '网络流量',
+      value: `↑ ${formatNetSpeed(stats.network?.up ?? 0)}`,
+      meta: `↓ ${formatNetSpeed(stats.network?.down ?? 0)}`,
+      icon: Network,
+      tone: 'accent'
+    },
+    {
+      label: '运行时间',
+      value: formatUptime(stats.uptime),
+      meta: 'stable',
+      icon: Clock,
+      tone: 'success'
+    }
+  ];
+
+  const statusRows = [
+    { label: '监控采集', value: '实时轮询', tone: 'success', detail: '每 2 秒刷新系统状态' },
+    { label: '过程健康', value: problemProcesses ? `${problemProcesses} 项需关注` : '全部正常', tone: problemProcesses ? 'warn' : 'success', detail: `${healthyProcesses}/${processRows.length} 个流程无失败` },
+    { label: '最近过程', value: latestProcess?.label || '-', tone: latestProcess?.tone || 'neutral', detail: latestProcess?.metric.latest || '-' },
+    { label: '历史样本', value: `${history.length}/${HISTORY_LIMIT}`, tone: history.length > 0 ? 'accent' : 'neutral', detail: '本地保留趋势窗口' }
+  ];
+
+  const processColumns = [
+    { key: 'label', title: '流程', className: 'font-medium' },
+    { key: 'total', title: '总量', className: 'font-mono text-[var(--muted)]', render: (row) => row.metric.total },
+    { key: 'success', title: '成功', className: 'font-mono text-[var(--muted)]', render: (row) => row.metric.success },
+    { key: 'failed', title: '失败', className: 'font-mono text-[var(--muted)]', render: (row) => row.metric.failed },
+    {
+      key: 'latest',
+      title: '最近状态',
+      render: (row) => <StatusPill tone={row.tone}>{row.metric.latest}</StatusPill>
+    }
+  ];
+
   return (
-    <div className="space-y-4 md:space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-white">运行状态</h1>
+    <div className="space-y-4 pb-6 md:space-y-6">
+      <header className="flex flex-col gap-2">
+        <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Overview</div>
+        <h1 className="text-3xl font-semibold text-[var(--fg)] md:text-4xl">运行状态</h1>
+        <p className="max-w-3xl text-sm leading-relaxed text-[var(--muted)]">
+          聚合系统资源、过程指标和最近状态，保留现有监控接口与本地趋势历史。
+        </p>
       </header>
 
-      <GlassCard className="overflow-hidden p-0">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium text-slate-200">系统资源</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <tbody className="divide-y divide-white/10">
-              <tr>
-                <th className="w-48 px-4 py-3 font-medium text-slate-400">CPU 负载</th>
-                <td className="px-4 py-3 text-white">{stats.cpu.toFixed(1)}%</td>
-              </tr>
-              <tr>
-                <th className="px-4 py-3 font-medium text-slate-400">内存使用</th>
-                <td className="px-4 py-3 text-white">
-                  {formatBytes(stats.memory.used)} / {formatBytes(stats.memory.total)}
-                  {stats.memory.total ? ` (${((stats.memory.used / stats.memory.total) * 100).toFixed(1)}%)` : ''}
-                </td>
-              </tr>
-              <tr>
-                <th className="px-4 py-3 font-medium text-slate-400">网络流量</th>
-                <td className="px-4 py-3 text-white">↑ {formatNetSpeed(stats.network.up)} / ↓ {formatNetSpeed(stats.network.down)}</td>
-              </tr>
-              <tr>
-                <th className="px-4 py-3 font-medium text-slate-400">运行时间</th>
-                <td className="px-4 py-3 text-white">{formatUptime(stats.uptime)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((kpi) => {
+          const Icon = kpi.icon;
+          return (
+            <Card key={kpi.label} className="min-h-32">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm text-[var(--muted)]">{kpi.label}</div>
+                  <div className="mt-5 font-mono text-2xl font-semibold text-[var(--fg)]">{kpi.value}</div>
+                </div>
+                <div className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] text-[var(--accent)]">
+                  <Icon size={18} />
+                </div>
+              </div>
+              <div className="mt-4">
+                <StatusPill tone={kpi.tone}>{kpi.meta}</StatusPill>
+              </div>
+            </Card>
+          );
+        })}
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
-        <GlassCard className="p-4 md:p-5">
-          <h3 className="mb-3 text-sm font-medium text-slate-200 md:mb-4">CPU 趋势</h3>
-          <div className="h-56 md:h-64">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.8fr)]">
+        <Card className="overflow-hidden p-0">
+          <PanelHeader
+            icon={Activity}
+            title="资源趋势"
+            description="CPU 与内存沿用 Recharts，改为单面板趋势视图。"
+            meta={<StatusPill tone="success">实时连接</StatusPill>}
+          />
+          <div className="h-72 p-4 md:h-80">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history}>
                 <defs>
                   <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.45}/>
-                    <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.28}/>
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff0d" />
-                <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} tick={{fill: '#9ca3af'}} />
-                <YAxis domain={[0, 100]} stroke="#9ca3af" fontSize={12} tick={{fill: '#9ca3af'}} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="time" stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} minTickGap={24} />
+                <YAxis yAxisId="cpu" domain={[0, 100]} stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} />
+                <YAxis yAxisId="memory" orientation="right" stroke="var(--muted)" fontSize={12} tickFormatter={(value) => formatBytes(value, 0)} tick={{ fill: 'var(--muted)' }} width={58} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: 8, color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
+                  contentStyle={{
+                    backgroundColor: 'var(--surface)',
+                    borderColor: 'var(--border)',
+                    borderRadius: 8,
+                    color: 'var(--fg)'
+                  }}
+                  itemStyle={{ color: 'var(--fg)' }}
+                  labelStyle={{ color: 'var(--muted)' }}
+                  formatter={(value, name) => (
+                    name === 'Memory' ? [formatBytes(value), 'Memory'] : [`${Number(value).toFixed(1)}%`, 'CPU']
+                  )}
                 />
                 <Area
+                  yAxisId="cpu"
                   type="monotone"
                   dataKey="cpu"
-                  stroke="#22d3ee"
+                  stroke="var(--accent)"
                   fillOpacity={1}
                   fill="url(#colorCpu)"
                   name="CPU %"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </GlassCard>
-
-        <GlassCard className="p-4 md:p-5">
-          <h3 className="mb-3 text-sm font-medium text-slate-200 md:mb-4">内存趋势</h3>
-          <div className="h-56 md:h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.38}/>
-                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff0d" />
-                <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} tick={{fill: '#9ca3af'}} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickFormatter={(value) => formatBytes(value, 0)} tick={{fill: '#9ca3af'}} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: 8, color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                  formatter={(value) => [formatBytes(value), 'Memory']}
+                  isAnimationActive={false}
                 />
                 <Area
+                  yAxisId="memory"
                   type="monotone"
                   dataKey="memory"
-                  stroke="#38bdf8"
+                  stroke="var(--success)"
                   fillOpacity={1}
                   fill="url(#colorMemory)"
                   name="Memory"
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </GlassCard>
+        </Card>
+
+        <Card className="overflow-hidden p-0">
+          <PanelHeader
+            icon={Radio}
+            title="最近状态"
+            description="把分散状态合并为可扫读的健康摘要。"
+          />
+          <div className="divide-y divide-[var(--border)]">
+            {statusRows.map((row) => (
+              <div key={row.label} className="px-4 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-[var(--fg)]">{row.label}</div>
+                  <StatusPill tone={row.tone}>{row.value}</StatusPill>
+                </div>
+                <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{row.detail}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
 
-      <GlassCard className="overflow-hidden p-0">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium text-slate-200">过程报表</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-white/10 text-xs uppercase tracking-[0.18em] text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">流程</th>
-                <th className="px-4 py-3 font-medium">总量</th>
-                <th className="px-4 py-3 font-medium">成功</th>
-                <th className="px-4 py-3 font-medium">失败</th>
-                <th className="px-4 py-3 font-medium">最近状态</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {PROCESS_ROWS.map((row) => {
-                const metric = normalizeProcessMetric(stats.processReport?.[row.key]);
-                return (
-                  <tr key={row.key}>
-                    <td className="px-4 py-3 text-slate-200">{row.label}</td>
-                    <td className="px-4 py-3 text-slate-400">{metric.total}</td>
-                    <td className="px-4 py-3 text-slate-400">{metric.success}</td>
-                    <td className="px-4 py-3 text-slate-400">{metric.failed}</td>
-                    <td className="px-4 py-3 text-slate-500">{metric.latest}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
+      <Card className="overflow-hidden p-0">
+        <PanelHeader
+          title="过程报表"
+          description="保留 `processReport` 数据结构，统一表格密度和状态表达。"
+          meta={<span className="font-mono">{processRows.length} flows</span>}
+        />
+        <DataTable columns={processColumns} rows={processRows} getRowKey={(row) => row.key} />
+      </Card>
     </div>
   );
 };

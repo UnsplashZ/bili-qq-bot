@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, Brain, MessageSquareText, RefreshCw, Search, Trash2, UserRound } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
+import { Button } from '../components/ui';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 
@@ -229,8 +230,9 @@ const AgentMemory = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-3 text-2xl font-semibold">
-          <Brain className="text-purple-300" />
+        <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
+        <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
+          <Brain className="text-[var(--accent)]" />
           Agent 记忆
         </h1>
       </div>
@@ -256,22 +258,22 @@ const AgentMemory = () => {
               className="w-full bg-black/20 border border-white/10 rounded-lg py-2.5 pl-10 pr-3 text-white placeholder:text-gray-500 disabled:opacity-50"
             />
           </div>
-          <button
+          <Button
             onClick={loadItems}
             disabled={loading}
-            className="px-4 py-2.5 rounded-lg bg-blue-500/20 text-blue-100 hover:bg-blue-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+            variant="primary"
+            icon={RefreshCw}
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             刷新
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={clearFiltered}
             disabled={activeTab !== 'memories'}
-            className="px-4 py-2.5 rounded-lg bg-rose-500/20 text-rose-100 hover:bg-rose-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+            variant="danger"
+            icon={Trash2}
           >
-            <Trash2 size={18} />
             清理记忆
-          </button>
+          </Button>
         </div>
       </GlassCard>
 
