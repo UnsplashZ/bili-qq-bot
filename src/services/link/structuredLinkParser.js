@@ -40,6 +40,10 @@ function createLink(type, id, groupId, match, meta = {}, sourceToken = '') {
     }
 }
 
+function createSpaceUserLink(uid, groupId, normalizedToken) {
+    return createLink('user', uid, groupId, normalizedToken, {}, normalizedToken)
+}
+
 function getSpaceTokenInfo(tokenInfo) {
     if (!tokenInfo?.urlCandidate) {
         return null
@@ -100,7 +104,14 @@ function parseStructuredToken(tokenInfo, groupId) {
         if (resourceSegments.length === 0) {
             return {
                 handled: true,
-                link: createLink('user', uid, groupId, normalizedToken, {}, normalizedToken)
+                link: createSpaceUserLink(uid, groupId, normalizedToken)
+            }
+        }
+
+        if (resourceSegments[0] === 'dynamic') {
+            return {
+                handled: true,
+                link: createSpaceUserLink(uid, groupId, normalizedToken)
             }
         }
 

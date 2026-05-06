@@ -55,6 +55,27 @@ function compactText(value, limit = 80) {
     return text.length > limit ? text.slice(0, limit) : text
 }
 
+function normalizeNoticeId(value) {
+    const normalized = String(value || '').trim()
+    if (!normalized) throw new Error('missing_notice_id')
+    return normalized
+}
+
+function normalizeNoticeContent(value) {
+    const normalized = String(value || '').replace(/\r\n/g, '\n').trim()
+    if (!normalized) throw new Error('missing_notice_content')
+    if (normalized.length > 2000) throw new Error('notice_content_too_long')
+    return normalized
+}
+
+function normalizeNoticeImage(value) {
+    return String(value || '').trim()
+}
+
+function boolToNapcatFlag(value) {
+    return value ? 1 : 0
+}
+
 function normalizeMember(data = {}) {
     return {
         groupId: String(data.group_id || data.groupId || ''),
@@ -368,6 +389,66 @@ class QqGroupAdminService {
         return {
             message: `已将消息 ${messageId} 移出群精华。`,
             data: { groupId: normalizeGroupId(groupId), messageId: String(messageId).trim() }
+        }
+    }
+
+    async sendGroupNotice({
+        groupId,
+        content,
+        image = '',
+        pinned = false,
+        type = 1,
+        confirmRequired = true,
+        isShowEditCard = false,
+        tipWindowType = 0
+    }, options = {}) {
+        const context = await this.assertActorCanManageGroup(groupId, options)
+        const safeContent = normalizeNoticeContent(content)
+        const safeImage = normalizeNoticeImage(image)
+        const params = {
+            group_id: context.groupId,
+            content: safeContent,
+            pinned: boolToNapcatFlag(pinned),
+            type: Math.trunc(Number(type) || 1),
+            confirm_required: boolToNapcatFlag(confirmRequired),
+            is_show_edit_card: boolToNapcatFlag(isShowEditCard),
+            tip_window_type: Math.trunc(Number(tipWindowType) || 0)
+        }
+        if (safeImage) params.image = safeImage
+        await this.callAction('_send_group_notice', params, options)
+        return {
+            message: `已发布群 ${context.groupId} 的群公告。`,
+            data: { groupId: context.groupId, content: safeContent, image: safeImage, pinned: Boolean(pinned) }
+        }
+    }
+
+    async deleteGroupNotice({ groupId, noticeId }, options = {}) {
+        const context = await this.assertActorCanManageGroup(groupId, options)
+        const safeNoticeId = normalizeNoticeId(noticeId)
+        await this.callAction('_del_group_notice', {
+            group_id: context.groupId,
+            notice_id: safeNoticeId
+        }, options)
+        return {
+            message: `已删除群 ${context.groupId} 的群公告 ${safeNoticeId}。`,
+            data: { groupId: context.groupId, noticeId: safeNoticeId }
+        }
+    }
+
+    async replaceGroupNotice(args = {}, options = {}) {
+        normalizeNoticeId(args.noticeId)
+        normalizeNoticeContent(args.content)
+        const deleteResult = await this.deleteGroupNotice(args, options)
+        const sendResult = await this.sendGroupNotice(args, options)
+        return {
+            message: `已替换群 ${sendResult.data.groupId} 的群公告 ${deleteResult.data.noticeId}。`,
+            data: {
+                groupId: sendResult.data.groupId,
+                noticeId: deleteResult.data.noticeId,
+                content: sendResult.data.content,
+                image: sendResult.data.image,
+                pinned: sendResult.data.pinned
+            }
         }
     }
 

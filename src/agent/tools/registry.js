@@ -208,6 +208,50 @@ function normalizeQqGroupFlagArgs(args, sessionContext) {
     return { groupId, enabled }
 }
 
+function normalizeNoticeContent(value) {
+    const content = String(value || '').replace(/\r\n/g, '\n').trim()
+    if (!content) throw new Error('missing_notice_content')
+    if (content.length > 2000) throw new Error('notice_content_too_long')
+    return content
+}
+
+function normalizeNoticeId(value) {
+    const noticeId = String(value || '').trim()
+    if (!noticeId) throw new Error('missing_notice_id')
+    return noticeId
+}
+
+function normalizeGroupNoticeArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    if (!groupId) throw new Error('missing_group_id')
+    return {
+        groupId,
+        content: normalizeNoticeContent(args.content || args.text || args.message),
+        image: String(args.image || args.imageUrl || '').trim(),
+        pinned: Boolean(normalizeBoolean(args.pinned) || false),
+        type: Math.trunc(Number(args.type) || 1),
+        confirmRequired: normalizeBoolean(args.confirmRequired ?? args.confirm_required) !== false,
+        isShowEditCard: Boolean(normalizeBoolean(args.isShowEditCard ?? args.is_show_edit_card) || false),
+        tipWindowType: Math.trunc(Number(args.tipWindowType ?? args.tip_window_type) || 0)
+    }
+}
+
+function normalizeDeleteGroupNoticeArgs(args, sessionContext) {
+    const groupId = normalizeGroupId(args.groupId, sessionContext)
+    if (!groupId) throw new Error('missing_group_id')
+    return {
+        groupId,
+        noticeId: normalizeNoticeId(args.noticeId || args.notice_id || args.id)
+    }
+}
+
+function normalizeReplaceGroupNoticeArgs(args, sessionContext) {
+    return {
+        ...normalizeDeleteGroupNoticeArgs(args, sessionContext),
+        ...normalizeGroupNoticeArgs(args, sessionContext)
+    }
+}
+
 function normalizeApprovalDecisionArgs(args, sessionContext) {
     const groupId = normalizeGroupId(args.groupId, sessionContext)
     const decisionText = String(args.decision || args.action || '').trim().toLowerCase()
@@ -773,6 +817,29 @@ const toolParamSchemas = {
         groupId: commonSchemaProps.groupId,
         enabled: commonSchemaProps.enabled
     }, ['enabled'], '设置 QQ 群状态开关。'),
+    groupNotice: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        content: { type: 'string', description: '群公告正文，最长 2000 字。' },
+        image: { type: 'string', description: '可选公告图片路径或 URL。' },
+        pinned: { type: 'boolean', description: '是否置顶公告。' },
+        confirmRequired: { type: 'boolean', description: '是否要求成员确认。' },
+        isShowEditCard: { type: 'boolean', description: '是否显示修改群名片引导。' },
+        tipWindowType: { type: 'integer', description: '公告弹窗类型。' }
+    }, ['content'], '发布当前群公告。'),
+    groupNoticeDelete: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        noticeId: { type: 'string', description: '群公告 ID。' }
+    }, ['noticeId'], '删除当前群公告。'),
+    groupNoticeReplace: objectSchema({
+        groupId: commonSchemaProps.groupId,
+        noticeId: { type: 'string', description: '要替换的旧群公告 ID。' },
+        content: { type: 'string', description: '新的群公告正文，最长 2000 字。' },
+        image: { type: 'string', description: '可选公告图片路径或 URL。' },
+        pinned: { type: 'boolean', description: '是否置顶公告。' },
+        confirmRequired: { type: 'boolean', description: '是否要求成员确认。' },
+        isShowEditCard: { type: 'boolean', description: '是否显示修改群名片引导。' },
+        tipWindowType: { type: 'integer', description: '公告弹窗类型。' }
+    }, ['noticeId', 'content'], '删除旧公告并发布新公告，用作编辑当前群公告。'),
     messageTarget: objectSchema({
         groupId: commonSchemaProps.groupId,
         messageId: commonSchemaProps.messageId
@@ -1124,6 +1191,33 @@ const toolDefinitions = {
         summarize: (args) => `移出群 ${args.groupId} 精华消息 ${args.messageId}`,
         execute: async (args, context) => qqGroupAdminService.deleteEssenceMessage(args, context)
     },
+    'qq.send_group_notice': {
+        name: 'qq.send_group_notice',
+        description: '发布当前 QQ 群公告。',
+        risk: 'high',
+        permission: 'manage_qq_group',
+        normalizeArgs: normalizeGroupNoticeArgs,
+        summarize: (args) => `发布群 ${args.groupId} 公告「${compactText(args.content, 40)}」`,
+        execute: async (args, context) => qqGroupAdminService.sendGroupNotice(args, context)
+    },
+    'qq.delete_group_notice': {
+        name: 'qq.delete_group_notice',
+        description: '删除当前 QQ 群指定公告。',
+        risk: 'high',
+        permission: 'manage_qq_group',
+        normalizeArgs: normalizeDeleteGroupNoticeArgs,
+        summarize: (args) => `删除群 ${args.groupId} 公告 ${args.noticeId}`,
+        execute: async (args, context) => qqGroupAdminService.deleteGroupNotice(args, context)
+    },
+    'qq.replace_group_notice': {
+        name: 'qq.replace_group_notice',
+        description: '替换当前 QQ 群指定公告；实现方式为先删除旧公告，再发布新公告。',
+        risk: 'high',
+        permission: 'manage_qq_group',
+        normalizeArgs: normalizeReplaceGroupNoticeArgs,
+        summarize: (args) => `替换群 ${args.groupId} 公告 ${args.noticeId} 为「${compactText(args.content, 40)}」`,
+        execute: async (args, context) => qqGroupAdminService.replaceGroupNotice(args, context)
+    },
     'qq.list_pending_requests': {
         name: 'qq.list_pending_requests',
         description: '查询当前群待处理的加群申请。',
@@ -1396,6 +1490,9 @@ const toolSpecMetadata = {
     'qq.delete_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'get_msg_verify_sender'] },
     'qq.set_essence_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'bot_admin_required'] },
     'qq.delete_essence_message': { paramsSchema: toolParamSchemas.messageTarget, sideEffect: 'qq_message_write', timeoutMs: 5000, guardrails: ['message_id_required', 'bot_admin_required'] },
+    'qq.send_group_notice': { paramsSchema: toolParamSchemas.groupNotice, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['bot_admin_required'] },
+    'qq.delete_group_notice': { paramsSchema: toolParamSchemas.groupNoticeDelete, sideEffect: 'qq_group_write', timeoutMs: 5000, guardrails: ['bot_admin_required'] },
+    'qq.replace_group_notice': { paramsSchema: toolParamSchemas.groupNoticeReplace, sideEffect: 'qq_group_write', timeoutMs: 8000, guardrails: ['bot_admin_required'] },
     'qq.list_pending_requests': { paramsSchema: toolParamSchemas.groupQuery, sideEffect: 'read', timeoutMs: 5000 },
     'qq.handle_group_request': { paramsSchema: toolParamSchemas.groupApprovalDecision, sideEffect: 'qq_request_write', timeoutMs: 5000, guardrails: ['approval_target_required'] },
     'qq.list_friend_requests': { paramsSchema: toolParamSchemas.empty, sideEffect: 'read', timeoutMs: 5000 },

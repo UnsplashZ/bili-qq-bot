@@ -21,4 +21,30 @@ describe('linkExtractor service', function () {
             sourceToken: 'https://www.bilibili.com/space/123/favlist?fid=456'
         })
     })
+
+    it('将用户动态页解析为用户页', function () {
+        const links = extractLinksFromMessage('https://space.bilibili.com/401742377/dynamic', '10001')
+
+        assert.deepStrictEqual(links[0], {
+            type: 'user',
+            id: '401742377',
+            cacheKey: 'user|401742377|10001',
+            match: 'https://space.bilibili.com/401742377/dynamic',
+            meta: {},
+            sourceToken: 'https://space.bilibili.com/401742377/dynamic'
+        })
+    })
+
+    it('将 www 空间动态页解析为用户页', function () {
+        const links = extractLinksFromMessage('https://www.bilibili.com/space/401742377/dynamic', '10001')
+
+        assert.deepStrictEqual(links[0], {
+            type: 'user',
+            id: '401742377',
+            cacheKey: 'user|401742377|10001',
+            match: 'https://www.bilibili.com/space/401742377/dynamic',
+            meta: {},
+            sourceToken: 'https://www.bilibili.com/space/401742377/dynamic'
+        })
+    })
 })

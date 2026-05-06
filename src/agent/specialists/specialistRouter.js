@@ -17,7 +17,7 @@ const SPECIALISTS = [
         description: '处理 QQ 群信息、成员定位、禁言、撤回、精华、申请、在线状态、Bot/Agent 配置和黑名单意图。',
         toolPatterns: [/^qq\./, /^agent\.(get_group_config|set_group_enabled|set_send_enabled|set_observe_only)$/, /^bot\./, /^blacklist\./],
         keywords: [
-            /群|成员|管理员|禁言|解禁|踢|撤回|精华|群名片|全员禁言|加群|好友申请|在线状态|输入状态/,
+            /群|成员|管理员|禁言|解禁|踢|撤回|精华|群名片|全员禁言|加群|好友申请|在线状态|输入状态|公告|群公告/,
             /配置|开关|观察模式|发言|黑名单|关闭本群|开启本群|agent/i
         ]
     },

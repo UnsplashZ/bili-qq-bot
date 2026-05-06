@@ -137,6 +137,8 @@ async function run() {
             action === 'delete_essence_msg' ||
             action === 'set_group_add_request' ||
             action === 'set_friend_add_request' ||
+            action === '_send_group_notice' ||
+            action === '_del_group_notice' ||
             action === 'set_online_status' ||
             action === 'set_input_status'
         ) {
@@ -231,6 +233,52 @@ async function run() {
     }, { groupId: '1000' })
     const noticeListResult = await toolRegistry.executeToolPlan(noticeListPlan, { ws: makeWs(), actor: adminActor })
     assert.ok(noticeListResult.message.includes('群公告'))
+
+    const sendNoticePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.send_group_notice',
+        arguments: { groupId: '1000', content: '新的群公告', pinned: true, confirmRequired: false }
+    }, { groupId: '1000' })
+    assert.strictEqual(sendNoticePlan.risk, 'high')
+    const sendNoticeResult = await toolRegistry.executeToolPlan(sendNoticePlan, {
+        ws: makeWs(),
+        selfId: '999',
+        groupId: '1000',
+        actor: adminActor
+    })
+    assert.ok(sendNoticeResult.message.includes('已发布'))
+    assert.ok(calls.some(call => call.action === '_send_group_notice' && call.params.content === '新的群公告' && call.params.pinned === 1 && call.params.confirm_required === 0))
+
+    const deleteNoticePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.delete_group_notice',
+        arguments: { groupId: '1000', noticeId: 'notice-1' }
+    }, { groupId: '1000' })
+    const deleteNoticeResult = await toolRegistry.executeToolPlan(deleteNoticePlan, {
+        ws: makeWs(),
+        selfId: '999',
+        groupId: '1000',
+        actor: adminActor
+    })
+    assert.ok(deleteNoticeResult.message.includes('已删除'))
+    assert.ok(calls.some(call => call.action === '_del_group_notice' && call.params.notice_id === 'notice-1'))
+
+    const replaceNoticeStart = calls.length
+    const replaceNoticePlan = toolRegistry.normalizeToolIntent({
+        name: 'qq.replace_group_notice',
+        arguments: { groupId: '1000', noticeId: 'notice-1', content: '替换后的群公告' }
+    }, { groupId: '1000' })
+    const replaceNoticeResult = await toolRegistry.executeToolPlan(replaceNoticePlan, {
+        ws: makeWs(),
+        selfId: '999',
+        groupId: '1000',
+        actor: adminActor
+    })
+    assert.ok(replaceNoticeResult.message.includes('已替换'))
+    const replaceNoticeCalls = calls.slice(replaceNoticeStart).map(call => call.action)
+    assert.deepStrictEqual(replaceNoticeCalls.filter(action => action === '_del_group_notice' || action === '_send_group_notice'), ['_del_group_notice', '_send_group_notice'])
+    assert.throws(() => toolRegistry.normalizeToolIntent({
+        name: 'qq.send_group_notice',
+        arguments: { groupId: '1000', content: '' }
+    }, { groupId: '1000' }), /missing_notice_content/)
 
     const systemPlan = toolRegistry.normalizeToolIntent({
         name: 'qq.get_group_system_messages',

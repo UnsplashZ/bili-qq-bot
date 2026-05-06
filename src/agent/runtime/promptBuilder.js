@@ -185,7 +185,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
             'memoryHints 建议格式：[{ "scope": "user|group|topic", "type": "preference|relation|fact|episode", "content": "稳定事实", "confidence": 0.0-1.0 }]',
             '如果用户表达“记住/记一下/以后叫/uid X 是 Y/X 是 Y/我喜欢 X”，通常应写入 memoryHints。',
             '如果 replyDraft 中确认已经记住某事，memoryHints 必须包含同一事实。',
-            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、加群/好友审批、在线状态、输入状态、浏览网页、网页搜索、网页截图、显式学习记忆时，action 必须是 act，toolIntent 必须选择 availableTools 中的工具。',
+            '涉及配置、订阅、黑名单、开关、QQ 群管理、撤回、禁言、踢人、群名片、全员禁言、精华消息、群公告、加群/好友审批、在线状态、输入状态、浏览网页、网页搜索、网页截图、显式学习记忆时，action 必须是 act，toolIntent 必须选择 availableTools 中的工具。',
             'specialistContext 表示本轮已选中的领域 Agent；availableTools 已按领域裁剪。需要工具时只能选择 availableTools 中存在的工具。',
             'deterministicToolCandidate 是 runtime 根据明确文本生成的低风险候选工具计划；如果它符合用户意图，优先采用它并输出 action=act。',
             'QQ 群管理目标优先来自被回复消息或 @ 用户；如果只有昵称且无法唯一定位，必须 reply 澄清，不要猜 QQ 号。',
