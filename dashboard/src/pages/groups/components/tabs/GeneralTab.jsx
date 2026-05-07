@@ -1,6 +1,54 @@
 import { clsx } from 'clsx';
 import SettingRow from '../../../../components/SettingRow';
+import { ToggleSwitch } from '../../../../components/ui';
 import { LABEL_CONFIG_ITEMS } from '../../constants/labelConfig';
+
+const NIGHT_MODE_OPTIONS = [
+  { value: 'off', label: '关闭' },
+  { value: 'on', label: '开启' },
+  { value: 'timed', label: '定时' }
+];
+
+const SegmentedControl = ({ value, onChange, options }) => (
+  <div className="inline-grid w-full grid-cols-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-1 sm:w-auto">
+    {options.map((option) => {
+      const active = value === option.value;
+      return (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={clsx(
+            'h-8 min-w-20 rounded-md px-3 text-sm font-medium transition-colors',
+            active
+              ? 'bg-[var(--surface)] text-[var(--fg)] shadow-sm'
+              : 'text-[var(--muted)] hover:text-[var(--fg)]'
+          )}
+        >
+          {option.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const LabelVisibilityRow = ({ label, enabled, onChange }) => (
+  <button
+    type="button"
+    onClick={() => onChange(!enabled)}
+    className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--border)] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[var(--surface-muted)]"
+  >
+    <span className="min-w-0 truncate text-sm font-medium text-[var(--fg)]">{label}</span>
+    <span
+      className={clsx(
+        'font-mono text-xs font-semibold',
+        enabled ? 'text-[var(--accent)]' : 'text-[var(--muted)]'
+      )}
+    >
+      {enabled ? '显示' : '隐藏'}
+    </span>
+  </button>
+);
 
 const GeneralTab = ({ formData, setFormData }) => {
   return (
@@ -23,64 +71,32 @@ const GeneralTab = ({ formData, setFormData }) => {
         <SettingRow
           title="显示 UID"
           description="关闭后，用户相关卡片与列表将隐藏 UID。"
-          status={formData.showId ? '开启' : '关闭'}
           control={
-          <input
-            type="checkbox"
+          <ToggleSwitch
             checked={!!formData.showId}
-            onChange={(e) => setFormData({ ...formData, showId: e.target.checked })}
-            className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-950"
+            onChange={(checked) => setFormData({ ...formData, showId: checked })}
+            label="显示 UID"
           />
           }
         />
 
         <div className="py-4">
-          <span className="mb-2 block text-sm font-medium text-white">深色模式</span>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, nightMode: { ...formData.nightMode, mode: 'off' } })}
-              className={clsx(
-                'flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
-                formData.nightMode.mode === 'off'
-                  ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-100'
-                  : 'border-white/10 bg-transparent text-slate-400 hover:bg-white/5'
-              )}
-            >
-              关闭
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, nightMode: { ...formData.nightMode, mode: 'on' } })}
-              className={clsx(
-                'flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
-                formData.nightMode.mode === 'on'
-                  ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-100'
-                  : 'border-white/10 bg-transparent text-slate-400 hover:bg-white/5'
-              )}
-            >
-              开启
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, nightMode: { ...formData.nightMode, mode: 'timed' } })}
-              className={clsx(
-                'flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
-                formData.nightMode.mode === 'timed'
-                  ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-100'
-                  : 'border-white/10 bg-transparent text-slate-400 hover:bg-white/5'
-              )}
-            >
-              定时
-            </button>
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="block text-sm font-medium text-[var(--fg)]">深色模式</span>
+            </div>
+            <SegmentedControl
+              value={formData.nightMode.mode}
+              options={NIGHT_MODE_OPTIONS}
+              onChange={(mode) => setFormData({ ...formData, nightMode: { ...formData.nightMode, mode } })}
+            />
           </div>
 
           {formData.nightMode.mode === 'timed' && (
-            <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="text-xs text-gray-400 mb-1 block">开始时间</span>
+                  <span className="mb-1 block text-xs text-[var(--muted)]">开始时间</span>
                   <input
                     type="time"
                     value={formData.nightMode.startTime}
@@ -92,7 +108,7 @@ const GeneralTab = ({ formData, setFormData }) => {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs text-gray-400 mb-1 block">结束时间</span>
+                  <span className="mb-1 block text-xs text-[var(--muted)]">结束时间</span>
                   <input
                     type="time"
                     value={formData.nightMode.endTime}
@@ -104,7 +120,7 @@ const GeneralTab = ({ formData, setFormData }) => {
                   />
                 </label>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-[var(--muted)]">
                 支持跨天时段（例如 21:00–06:00）
               </p>
             </div>
@@ -112,23 +128,25 @@ const GeneralTab = ({ formData, setFormData }) => {
         </div>
 
         <div className="py-4">
-          <span className="text-gray-300 text-sm font-medium mb-2 block">预览卡片标签开关</span>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <span className="block text-sm font-medium text-[var(--fg)]">预览卡片标签</span>
+            </div>
+            <span className="font-mono text-xs text-[var(--muted)]">
+              {LABEL_CONFIG_ITEMS.filter((item) => formData.labelConfig?.[item.key]).length}/{LABEL_CONFIG_ITEMS.length}
+            </span>
+          </div>
+          <div className="grid overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] sm:grid-cols-2">
             {LABEL_CONFIG_ITEMS.map((item) => (
-              <label key={item.key} className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/20 p-3 transition-colors hover:bg-white/5">
-                <input
-                  type="checkbox"
-                  checked={!!formData.labelConfig[item.key]}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    labelConfig: { ...formData.labelConfig, [item.key]: e.target.checked }
-                  })}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-950"
-                />
-                <span className="capitalize">
-                  {item.label}
-                </span>
-              </label>
+              <LabelVisibilityRow
+                key={item.key}
+                label={item.label}
+                enabled={!!formData.labelConfig?.[item.key]}
+                onChange={(checked) => setFormData({
+                  ...formData,
+                  labelConfig: { ...formData.labelConfig, [item.key]: checked }
+                })}
+              />
             ))}
           </div>
         </div>

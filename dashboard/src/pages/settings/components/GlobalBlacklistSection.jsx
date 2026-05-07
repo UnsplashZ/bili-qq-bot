@@ -1,5 +1,6 @@
 import GlassCard from '../../../components/GlassCard'
 import { Shield, X } from 'lucide-react'
+import { Button } from '../../../components/ui'
 
 const GlobalBlacklistSection = ({
     blacklist,
@@ -12,8 +13,8 @@ const GlobalBlacklistSection = ({
     return (
         <section>
             <div className="flex items-center gap-2 mb-4">
-                <Shield className="text-red-400" />
-                <h2 className="text-xl font-semibold text-white">全局黑名单</h2>
+                <Shield className="text-[var(--danger)]" />
+                <h2 className="text-xl font-semibold text-[var(--fg)]">全局黑名单</h2>
             </div>
             <GlassCard>
                 <div className="mb-4">
@@ -26,27 +27,28 @@ const GlobalBlacklistSection = ({
                             className="field-control flex-1 px-3 py-2"
                             onKeyDown={(e) => e.key === 'Enter' && onAddBlacklist()}
                         />
-                        <button
+                        <Button
+                            type="button"
                             onClick={onAddBlacklist}
                             disabled={addingBlacklist || !newBlacklistQQ}
-                            className="px-4 py-2 text-red-300 border border-red-500/30 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+                            variant="danger"
                         >
                             添加
-                        </button>
+                        </Button>
                     </div>
                 </div>
 
                 <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
                     {blacklist.length === 0 ? (
-                        <div className="text-center text-gray-500 py-4">黑名单为空</div>
+                        <div className="text-center text-[var(--muted)] py-4">黑名单为空</div>
                     ) : (
                         <div className="flex flex-wrap gap-2">
                             {blacklist.map((qq) => (
-                                <div key={qq} className="flex items-center gap-2 rounded-lg border border-red-500/20 px-3 py-1.5 text-red-200">
+                                <div key={qq} className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklch,var(--danger)_34%,var(--border))] bg-[var(--danger-soft)] px-3 py-1.5 text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]">
                                     <span>{qq}</span>
                                     <button
                                         onClick={() => onRemoveBlacklist(qq)}
-                                        className="hover:text-white transition-colors"
+                                        className="rounded-md text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
                                     >
                                         <X size={14} />
                                     </button>

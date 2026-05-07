@@ -22,6 +22,12 @@
   --warn-soft: color-mix(in oklch, var(--warn) 14%, transparent);
   --danger: oklch(58% 0.18 28);
   --danger-soft: color-mix(in oklch, var(--danger) 12%, transparent);
+  --info: oklch(50% 0.16 235);
+  --info-soft: color-mix(in oklch, var(--info) 11%, transparent);
+  --purple: oklch(50% 0.17 300);
+  --purple-soft: color-mix(in oklch, var(--purple) 11%, transparent);
+  --pink: oklch(52% 0.18 335);
+  --pink-soft: color-mix(in oklch, var(--pink) 11%, transparent);
   --field-bg: oklch(99.4% 0.002 250);
   --shadow-card: 0 18px 44px color-mix(in oklch, var(--fg) 7%, transparent);
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
@@ -49,6 +55,12 @@
   --warn-soft: color-mix(in oklch, var(--warn) 13%, transparent);
   --danger: oklch(70% 0.16 28);
   --danger-soft: color-mix(in oklch, var(--danger) 13%, transparent);
+  --info: oklch(72% 0.14 235);
+  --info-soft: color-mix(in oklch, var(--info) 13%, transparent);
+  --purple: oklch(76% 0.15 300);
+  --purple-soft: color-mix(in oklch, var(--purple) 13%, transparent);
+  --pink: oklch(76% 0.15 335);
+  --pink-soft: color-mix(in oklch, var(--pink) 13%, transparent);
   --field-bg: oklch(18% 0.01 250);
   --shadow-card: 0 18px 46px rgba(0, 0, 0, 0.24);
 }
@@ -196,6 +208,163 @@ select {
 .hover\:bg-white\/5:hover,
 .hover\:bg-white\/10:hover {
   background-color: color-mix(in oklch, var(--accent) 8%, var(--surface-muted)) !important;
+}
+
+.text-cyan-100,
+.text-cyan-200,
+.text-cyan-300,
+.text-sky-100,
+.text-sky-200,
+.text-sky-300,
+.text-blue-100,
+.text-blue-200,
+.text-blue-300,
+[class~="text-cyan-100/80"],
+[class~="text-cyan-100/90"],
+[class~="text-sky-100/80"],
+[class~="text-blue-100/80"],
+[class~="text-blue-100/90"] {
+  color: var(--info) !important;
+}
+
+.text-purple-100,
+.text-purple-200,
+.text-purple-300,
+[class~="text-purple-100/80"],
+[class~="text-purple-100/90"] {
+  color: var(--purple) !important;
+}
+
+.text-fuchsia-100,
+.text-fuchsia-200,
+.text-fuchsia-300,
+[class~="text-fuchsia-100/80"],
+[class~="text-fuchsia-100/85"],
+[class~="text-fuchsia-100/90"] {
+  color: var(--pink) !important;
+}
+
+.text-emerald-100,
+.text-emerald-200,
+.text-emerald-300,
+.text-green-100,
+.text-green-200,
+.text-green-300,
+[class~="text-emerald-100/80"],
+[class~="text-emerald-100/90"],
+[class~="text-green-100/80"],
+[class~="text-green-100/90"] {
+  color: var(--success) !important;
+}
+
+.text-amber-100,
+.text-amber-200,
+.text-amber-300,
+.text-yellow-100,
+.text-yellow-200,
+.text-yellow-300,
+[class~="text-amber-100/70"],
+[class~="text-amber-100/80"],
+[class~="text-amber-100/90"],
+[class~="text-amber-200/70"],
+[class~="text-amber-200/80"],
+[class~="text-yellow-100/80"] {
+  color: var(--warn) !important;
+}
+
+.text-red-100,
+.text-red-200,
+.text-red-300,
+.text-rose-100,
+.text-rose-200,
+.text-rose-300,
+[class~="text-red-100/80"],
+[class~="text-red-100/90"],
+[class~="text-rose-100/80"],
+[class~="text-rose-100/90"] {
+  color: var(--danger) !important;
+}
+
+.bg-cyan-300\/10,
+.bg-cyan-500\/10,
+.bg-cyan-500\/20,
+.bg-blue-500\/20,
+.bg-sky-500\/20 {
+  background-color: var(--info-soft) !important;
+}
+
+.bg-purple-500\/20 {
+  background-color: var(--purple-soft) !important;
+}
+
+.bg-fuchsia-500\/20 {
+  background-color: var(--pink-soft) !important;
+}
+
+.bg-emerald-300\/10,
+.bg-emerald-500\/10,
+.bg-emerald-500\/20,
+.bg-green-500\/10,
+.bg-green-500\/20 {
+  background-color: var(--success-soft) !important;
+}
+
+.bg-amber-500\/10,
+.bg-amber-500\/20,
+.bg-yellow-500\/20 {
+  background-color: var(--warn-soft) !important;
+}
+
+.bg-red-500\/10,
+.bg-red-500\/20,
+.bg-rose-500\/20 {
+  background-color: var(--danger-soft) !important;
+}
+
+.border-cyan-300\/25,
+.border-cyan-300\/30,
+.border-cyan-300\/40,
+.border-blue-500\/30,
+.border-sky-300\/20,
+.border-sky-500\/30 {
+  border-color: color-mix(in oklch, var(--info) 38%, var(--border)) !important;
+}
+
+.border-purple-300 {
+  border-color: color-mix(in oklch, var(--purple) 46%, var(--border)) !important;
+}
+
+.border-emerald-300\/30,
+.border-emerald-300\/60,
+.border-green-500\/20 {
+  border-color: color-mix(in oklch, var(--success) 38%, var(--border)) !important;
+}
+
+.border-amber-300\/30,
+.border-amber-400\/30,
+.border-amber-500\/30 {
+  border-color: color-mix(in oklch, var(--warn) 42%, var(--border)) !important;
+}
+
+.border-red-500\/20,
+.border-red-500\/25,
+.border-red-500\/30,
+.border-rose-400\/40,
+.border-rose-500\/30 {
+  border-color: color-mix(in oklch, var(--danger) 40%, var(--border)) !important;
+}
+
+.hover\:bg-cyan-500\/10:hover,
+.hover\:bg-cyan-500\/30:hover,
+.hover\:bg-blue-500\/30:hover,
+.hover\:bg-sky-500\/20:hover {
+  background-color: color-mix(in oklch, var(--info) 16%, var(--surface)) !important;
+}
+
+.hover\:bg-red-500\/10:hover,
+.hover\:bg-red-500\/20:hover,
+.hover\:bg-rose-500\/30:hover {
+  background-color: color-mix(in oklch, var(--danger) 16%, var(--surface)) !important;
 }
 
 /* 移动端优化 */

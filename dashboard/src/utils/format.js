@@ -19,21 +19,23 @@ export const formatBytes = (bytes, decimals = 2) => {
 /**
  * Format uptime in seconds to human readable string
  * @param {number} seconds - Uptime in seconds
- * @returns {string} Formatted string (e.g., "2d 4h 30m")
+ * @returns {string} Formatted string (e.g., "2d 4h 30m 12s")
  */
 export const formatUptime = (seconds) => {
-  if (!seconds || seconds < 0) return '0m';
+  if (!seconds || seconds < 0) return '0s';
 
   const days = Math.floor(seconds / (3600 * 24));
   const hours = Math.floor((seconds % (3600 * 24)) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
 
   const parts = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0) parts.push(`${minutes}m`);
+  parts.push(`${remainingSeconds}s`);
 
-  return parts.length > 0 ? parts.join(' ') : '0m';
+  return parts.join(' ');
 };
 
 /**

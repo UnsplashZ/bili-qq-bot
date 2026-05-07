@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Clock, Cpu, HardDrive, Network, Radio } from 'lucide-react';
+import { Activity, Clock, Cpu, HardDrive, Network } from 'lucide-react';
 import { Card, DataTable, PanelHeader, StatusPill } from '../components/ui';
 import { formatBytes, formatUptime, formatNetSpeed } from '../utils/format';
 import api from '../utils/auth';
@@ -52,6 +52,21 @@ function getProcessTone(metric) {
   const failed = numericValue(metric.failed);
   if (failed === null || failed === 0) return 'success';
   return failed >= 5 ? 'danger' : 'warn';
+}
+
+function toneTextClass(tone) {
+  switch (tone) {
+    case 'success':
+      return 'text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]';
+    case 'warn':
+      return 'text-[color-mix(in_oklch,var(--warn)_88%,var(--fg))]';
+    case 'danger':
+      return 'text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]';
+    case 'accent':
+      return 'text-[var(--accent)]';
+    default:
+      return 'text-[var(--muted)]';
+  }
 }
 
 function formatPercent(value) {
@@ -143,15 +158,12 @@ const Dashboard = () => {
     const metric = normalizeProcessMetric(stats.processReport?.[row.key]);
     return { ...row, metric, tone: getProcessTone(metric) };
   });
-  const healthyProcesses = processRows.filter((row) => row.tone === 'success').length;
-  const problemProcesses = processRows.length - healthyProcesses;
-  const latestProcess = processRows.find((row) => row.metric.latest && row.metric.latest !== '-') || processRows[0];
 
   const kpis = [
     {
       label: 'CPU 负载',
       value: formatPercent(stats.cpu),
-      meta: '2s poll',
+      meta: null,
       icon: Cpu,
       tone: getMetricTone(stats.cpu, 70, 90)
     },
@@ -164,25 +176,21 @@ const Dashboard = () => {
     },
     {
       label: '网络流量',
-      value: `↑ ${formatNetSpeed(stats.network?.up ?? 0)}`,
-      meta: `↓ ${formatNetSpeed(stats.network?.down ?? 0)}`,
+      value: [
+        { label: '↑', value: formatNetSpeed(stats.network?.up ?? 0) },
+        { label: '↓', value: formatNetSpeed(stats.network?.down ?? 0) }
+      ],
+      meta: null,
       icon: Network,
       tone: 'accent'
     },
     {
       label: '运行时间',
       value: formatUptime(stats.uptime),
-      meta: 'stable',
+      meta: null,
       icon: Clock,
       tone: 'success'
     }
-  ];
-
-  const statusRows = [
-    { label: '监控采集', value: '实时轮询', tone: 'success', detail: '每 2 秒刷新系统状态' },
-    { label: '过程健康', value: problemProcesses ? `${problemProcesses} 项需关注` : '全部正常', tone: problemProcesses ? 'warn' : 'success', detail: `${healthyProcesses}/${processRows.length} 个流程无失败` },
-    { label: '最近过程', value: latestProcess?.label || '-', tone: latestProcess?.tone || 'neutral', detail: latestProcess?.metric.latest || '-' },
-    { label: '历史样本', value: `${history.length}/${HISTORY_LIMIT}`, tone: history.length > 0 ? 'accent' : 'neutral', detail: '本地保留趋势窗口' }
   ];
 
   const processColumns = [
@@ -193,7 +201,11 @@ const Dashboard = () => {
     {
       key: 'latest',
       title: '最近状态',
-      render: (row) => <StatusPill tone={row.tone}>{row.metric.latest}</StatusPill>
+      render: (row) => (
+        <span className={`text-sm font-medium ${toneTextClass(row.tone)}`}>
+          {row.metric.latest || '-'}
+        </span>
+      )
     }
   ];
 
@@ -202,9 +214,6 @@ const Dashboard = () => {
       <header className="flex flex-col gap-2">
         <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Overview</div>
         <h1 className="text-3xl font-semibold text-[var(--fg)] md:text-4xl">运行状态</h1>
-        <p className="max-w-3xl text-sm leading-relaxed text-[var(--muted)]">
-          聚合系统资源、过程指标和最近状态，保留现有监控接口与本地趋势历史。
-        </p>
       </header>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -215,107 +224,97 @@ const Dashboard = () => {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-sm text-[var(--muted)]">{kpi.label}</div>
-                  <div className="mt-5 font-mono text-2xl font-semibold text-[var(--fg)]">{kpi.value}</div>
+                  {Array.isArray(kpi.value) ? (
+                    <div className="mt-5 space-y-1">
+                      {kpi.value.map((item) => (
+                        <div key={item.label} className="font-mono text-2xl font-semibold text-[var(--fg)]">
+                          <span className="mr-2 text-[var(--muted)]">{item.label}</span>
+                          {item.value}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-5 font-mono text-2xl font-semibold text-[var(--fg)]">{kpi.value}</div>
+                  )}
                 </div>
                 <div className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] text-[var(--accent)]">
                   <Icon size={18} />
                 </div>
               </div>
-              <div className="mt-4">
-                <StatusPill tone={kpi.tone}>{kpi.meta}</StatusPill>
-              </div>
+              {kpi.meta && (
+                <div className={`mt-4 text-sm font-semibold ${toneTextClass(kpi.tone)}`}>
+                  {kpi.meta}
+                </div>
+              )}
             </Card>
           );
         })}
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.8fr)]">
-        <Card className="overflow-hidden p-0">
-          <PanelHeader
-            icon={Activity}
-            title="资源趋势"
-            description="CPU 与内存沿用 Recharts，改为单面板趋势视图。"
-            meta={<StatusPill tone="success">实时连接</StatusPill>}
-          />
-          <div className="h-72 p-4 md:h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.28}/>
-                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="time" stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} minTickGap={24} />
-                <YAxis yAxisId="cpu" domain={[0, 100]} stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} />
-                <YAxis yAxisId="memory" orientation="right" stroke="var(--muted)" fontSize={12} tickFormatter={(value) => formatBytes(value, 0)} tick={{ fill: 'var(--muted)' }} width={58} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--surface)',
-                    borderColor: 'var(--border)',
-                    borderRadius: 8,
-                    color: 'var(--fg)'
-                  }}
-                  itemStyle={{ color: 'var(--fg)' }}
-                  labelStyle={{ color: 'var(--muted)' }}
-                  formatter={(value, name) => (
-                    name === 'Memory' ? [formatBytes(value), 'Memory'] : [`${Number(value).toFixed(1)}%`, 'CPU']
-                  )}
-                />
-                <Area
-                  yAxisId="cpu"
-                  type="monotone"
-                  dataKey="cpu"
-                  stroke="var(--accent)"
-                  fillOpacity={1}
-                  fill="url(#colorCpu)"
-                  name="CPU %"
-                  isAnimationActive={false}
-                />
-                <Area
-                  yAxisId="memory"
-                  type="monotone"
-                  dataKey="memory"
-                  stroke="var(--success)"
-                  fillOpacity={1}
-                  fill="url(#colorMemory)"
-                  name="Memory"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden p-0">
-          <PanelHeader
-            icon={Radio}
-            title="最近状态"
-            description="把分散状态合并为可扫读的健康摘要。"
-          />
-          <div className="divide-y divide-[var(--border)]">
-            {statusRows.map((row) => (
-              <div key={row.label} className="px-4 py-3 sm:px-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium text-[var(--fg)]">{row.label}</div>
-                  <StatusPill tone={row.tone}>{row.value}</StatusPill>
-                </div>
-                <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{row.detail}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+      <Card className="overflow-hidden p-0">
+        <PanelHeader
+          icon={Activity}
+          title="资源趋势"
+          meta={<StatusPill tone="success">实时连接</StatusPill>}
+        />
+        <div className="h-72 p-4 md:h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={history}>
+              <defs>
+                <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.28}/>
+                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.2}/>
+                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="time" stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} minTickGap={24} />
+              <YAxis yAxisId="cpu" domain={[0, 100]} stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} />
+              <YAxis yAxisId="memory" orientation="right" stroke="var(--muted)" fontSize={12} tickFormatter={(value) => formatBytes(value, 0)} tick={{ fill: 'var(--muted)' }} width={58} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'var(--surface)',
+                  borderColor: 'var(--border)',
+                  borderRadius: 8,
+                  color: 'var(--fg)'
+                }}
+                itemStyle={{ color: 'var(--fg)' }}
+                labelStyle={{ color: 'var(--muted)' }}
+                formatter={(value, name) => (
+                  name === 'Memory' ? [formatBytes(value), 'Memory'] : [`${Number(value).toFixed(1)}%`, 'CPU']
+                )}
+              />
+              <Area
+                yAxisId="cpu"
+                type="monotone"
+                dataKey="cpu"
+                stroke="var(--accent)"
+                fillOpacity={1}
+                fill="url(#colorCpu)"
+                name="CPU %"
+                isAnimationActive={false}
+              />
+              <Area
+                yAxisId="memory"
+                type="monotone"
+                dataKey="memory"
+                stroke="var(--success)"
+                fillOpacity={1}
+                fill="url(#colorMemory)"
+                name="Memory"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
 
       <Card className="overflow-hidden p-0">
         <PanelHeader
           title="过程报表"
-          description="保留 `processReport` 数据结构，统一表格密度和状态表达。"
           meta={<span className="font-mono">{processRows.length} flows</span>}
         />
         <DataTable columns={processColumns} rows={processRows} getRowKey={(row) => row.key} />

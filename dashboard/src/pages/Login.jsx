@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import GlassCard from '../components/GlassCard';
+import { Button } from '../components/ui';
 import { login } from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 import { Lock, Loader2 } from 'lucide-react';
@@ -35,15 +36,15 @@ const Login = () => {
       <div className="w-full max-w-md">
         <GlassCard className="p-8">
           <div className="flex flex-col items-center mb-8">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-[color-mix(in_oklch,var(--info)_34%,var(--border))] bg-[var(--info-soft)] text-[var(--info)]">
               <Lock size={24} />
             </div>
-            <h1 className="text-2xl font-semibold text-white">管理员登录</h1>
+            <h1 className="text-2xl font-semibold text-[var(--fg)]">管理员登录</h1>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-[var(--fg)]">
                 密码
               </label>
               <input
@@ -57,20 +58,21 @@ const Login = () => {
               />
             </div>
 
-            <button
+            <Button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center rounded-lg bg-cyan-500/20 px-4 py-3 font-semibold text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+              variant="primary"
+              className="w-full py-3"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   验证中...
                 </>
               ) : (
                 '登录'
               )}
-            </button>
+            </Button>
           </form>
         </GlassCard>
       </div>

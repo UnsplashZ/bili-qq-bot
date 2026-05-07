@@ -89,6 +89,33 @@ export const Button = React.forwardRef(function Button(
   );
 });
 
+export const ToggleSwitch = ({ checked, onChange, label, disabled = false, className }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    disabled={disabled}
+    onClick={() => onChange(!checked)}
+    className={twMerge(
+      clsx(
+        'inline-flex h-8 w-14 shrink-0 items-center rounded-md border px-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        checked
+          ? 'border-[color-mix(in_oklch,var(--accent)_48%,var(--border))] bg-[var(--accent-soft)]'
+          : 'border-[var(--border)] bg-[var(--surface-muted)]',
+        className
+      )
+    )}
+  >
+    <span
+      className={clsx(
+        'h-5 w-5 rounded-[6px] bg-[var(--surface)] shadow-sm transition-transform',
+        checked ? 'translate-x-6 border border-[var(--accent)]' : 'translate-x-0 border border-[var(--border-strong)]'
+      )}
+    />
+  </button>
+);
+
 const statusTones = {
   neutral: 'border-[var(--border)] text-[var(--muted)]',
   accent: 'border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] text-[var(--accent)]',
