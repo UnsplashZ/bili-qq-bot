@@ -1,6 +1,29 @@
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { Button, ToggleSwitch } from '../../../../components/ui';
+
+const TogglePanel = ({ title, description, checked, disabled = false, onChange }) => (
+  <div className={clsx('rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 sm:p-4', disabled && 'opacity-55')}>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-[var(--fg)]">{title}</div>
+        {description && <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{description}</div>}
+      </div>
+      <ToggleSwitch checked={!!checked} disabled={disabled} onChange={onChange} label={title} />
+    </div>
+  </div>
+);
+
+const ToggleLine = ({ title, meta, checked, disabled = false, onChange }) => (
+  <div className={clsx('flex items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2 last:border-b-0', disabled && 'opacity-55')}>
+    <div className="min-w-0">
+      <div className="truncate text-sm font-medium text-[var(--fg)]">{title}</div>
+      {meta && <div className="mt-0.5 truncate font-mono text-xs text-[var(--muted)]">{meta}</div>}
+    </div>
+    <ToggleSwitch checked={!!checked} disabled={disabled} onChange={onChange} label={title} />
+  </div>
+);
 
 const SyncTab = ({
   formData,
@@ -20,203 +43,141 @@ const SyncTab = ({
   biliGroups,
   toggleSyncGroup
 }) => {
+  const subscriptionAtAllEnabled = !!formData.subscriptionAtAll;
+  const cookieSyncEnabled = !!formData.enableCookieSync;
+
   return (
     <div className="space-y-6 md:space-y-8 focus:outline-none">
-      <div className="p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10">
-        <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
-          <div>
-            <span className="text-white font-medium block">订阅推送 @全体成员</span>
-            <span className="text-gray-400 text-sm">开启后，订阅与关注同步推送会附带 @全体成员（需机器人具备权限）</span>
-          </div>
-          <div className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={formData.subscriptionAtAll}
-              onChange={(e) => setFormData({ ...formData, subscriptionAtAll: e.target.checked })}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 rounded-md peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600" />
-          </div>
-        </label>
-      </div>
+      <TogglePanel
+        title="订阅推送 @全体成员"
+        description="开启后，订阅与关注同步推送会附带 @全体成员（需机器人具备权限）"
+        checked={subscriptionAtAllEnabled}
+        onChange={(checked) => setFormData({ ...formData, subscriptionAtAll: checked })}
+      />
 
-      <div className={clsx('p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10 space-y-4 md:space-y-5', !formData.subscriptionAtAll && 'opacity-50')}>
+      <div className={clsx('rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 sm:p-4', !subscriptionAtAllEnabled && 'opacity-55')}>
         <div>
-          <div className="text-white font-medium">`@全体` 细粒度规则</div>
-          <div className="text-sm text-gray-400 mt-1">
+          <div className="text-sm font-semibold text-[var(--fg)]">`@全体` 细粒度规则</div>
+          <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
             命中规则：总开关开启 AND 来源开启 AND 分类开启 AND 该来源下 UID 未被关闭
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
             仅对订阅推送类型生效；收藏夹、音频、话题、文集等链接解析卡片不在此范围内。
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div className="text-sm text-gray-300 font-medium">来源开关</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
-              <input
-                type="checkbox"
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <section>
+            <div className="mb-2 text-sm font-medium text-[var(--fg)]">来源开关</div>
+            <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+              <ToggleLine
+                title="手动订阅"
                 checked={!!atAllRules.sources.manual}
-                onChange={(e) => toggleAtAllSource('manual', e.target.checked)}
-                disabled={!formData.subscriptionAtAll}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                disabled={!subscriptionAtAllEnabled}
+                onChange={(checked) => toggleAtAllSource('manual', checked)}
               />
-              <span className="text-gray-200 text-sm">手动订阅</span>
-            </label>
-            <label className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
-              <input
-                type="checkbox"
+              <ToggleLine
+                title="关注同步"
                 checked={!!atAllRules.sources.cookieSync}
-                onChange={(e) => toggleAtAllSource('cookieSync', e.target.checked)}
-                disabled={!formData.subscriptionAtAll}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                disabled={!subscriptionAtAllEnabled}
+                onChange={(checked) => toggleAtAllSource('cookieSync', checked)}
               />
-              <span className="text-gray-200 text-sm">关注同步</span>
-            </label>
-          </div>
-        </div>
+            </div>
+          </section>
 
-        <div className="space-y-3">
-          <div className="text-sm text-gray-300 font-medium">分类开关</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {atAllCategoryItems.map((item) => (
-              <label key={item.key} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer">
-                <input
-                  type="checkbox"
+          <section>
+            <div className="mb-2 text-sm font-medium text-[var(--fg)]">分类开关</div>
+            <div className="grid overflow-hidden rounded-lg border border-[var(--border)] sm:grid-cols-2">
+              {atAllCategoryItems.map((item) => (
+                <ToggleLine
+                  key={item.key}
+                  title={item.label}
                   checked={!!atAllRules.categories[item.key]}
-                  onChange={(e) => toggleAtAllCategory(item.key, e.target.checked)}
-                  disabled={!formData.subscriptionAtAll}
-                  className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
+                  disabled={!subscriptionAtAllEnabled}
+                  onChange={(checked) => toggleAtAllCategory(item.key, checked)}
                 />
-                <span className="text-gray-200 text-sm">{item.label}</span>
-              </label>
-            ))}
-          </div>
+              ))}
+            </div>
+          </section>
         </div>
 
-        <div className="space-y-4">
-          <div className="text-sm text-gray-300 font-medium">逐个 UID 开关</div>
-
-          <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="text-sm text-gray-200">手动订阅用户</div>
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setAllAtAllIdsEnabled('manual', true)}
-                  disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
-                >
-                  全开
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAllAtAllIdsEnabled('manual', false)}
-                  disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
-                >
-                  全关
-                </button>
+        <div className="mt-5 space-y-4">
+          <section className="rounded-lg border border-[var(--border)]">
+            <div className="flex flex-col gap-3 border-b border-[var(--border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm font-medium text-[var(--fg)]">手动订阅用户</div>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setAllAtAllIdsEnabled('manual', true)} disabled={!subscriptionAtAllEnabled}>全开</Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setAllAtAllIdsEnabled('manual', false)} disabled={!subscriptionAtAllEnabled}>全关</Button>
               </div>
             </div>
-
             {atAllTargetsLoading ? (
-              <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <div className="flex items-center gap-2 px-3 py-4 text-sm text-[var(--muted)]">
                 <Loader2 size={14} className="animate-spin" />
                 正在加载 UID 列表...
               </div>
             ) : atAllTargets.manualUsers.length === 0 ? (
-              <div className="text-gray-500 text-sm italic">暂无手动订阅用户</div>
+              <div className="px-3 py-4 text-sm italic text-[var(--muted)]">暂无手动订阅用户</div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {atAllTargets.manualUsers.map((user) => {
-                  const enabled = isAtAllUserEnabled('manual', user.uid);
-                  return (
-                    <label key={`manual-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded border border-white/10 bg-black/20">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => toggleAtAllUser('manual', user.uid, e.target.checked)}
-                        disabled={!formData.subscriptionAtAll}
-                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
-                      />
-                      <span className="text-sm text-gray-200">{user.name}</span>
-                      <span className="text-xs text-gray-500 font-mono">{user.uid}</span>
-                    </label>
-                  );
-                })}
+              <div className="grid sm:grid-cols-2">
+                {atAllTargets.manualUsers.map((user) => (
+                  <ToggleLine
+                    key={`manual-${user.uid}`}
+                    title={user.name}
+                    meta={user.uid}
+                    checked={isAtAllUserEnabled('manual', user.uid)}
+                    disabled={!subscriptionAtAllEnabled}
+                    onChange={(checked) => toggleAtAllUser('manual', user.uid, checked)}
+                  />
+                ))}
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="space-y-3 p-3 bg-black/20 border border-white/5 rounded-lg">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="text-sm text-gray-200">关注同步用户</div>
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setAllAtAllIdsEnabled('cookieSync', true)}
-                  disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
-                >
-                  全开
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAllAtAllIdsEnabled('cookieSync', false)}
-                  disabled={!formData.subscriptionAtAll}
-                  className="px-2 py-1 text-xs rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
-                >
-                  全关
-                </button>
+          <section className="rounded-lg border border-[var(--border)]">
+            <div className="flex flex-col gap-3 border-b border-[var(--border)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm font-medium text-[var(--fg)]">关注同步用户</div>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setAllAtAllIdsEnabled('cookieSync', true)} disabled={!subscriptionAtAllEnabled}>全开</Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setAllAtAllIdsEnabled('cookieSync', false)} disabled={!subscriptionAtAllEnabled}>全关</Button>
               </div>
             </div>
-
             {atAllTargetsLoading ? (
-              <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <div className="flex items-center gap-2 px-3 py-4 text-sm text-[var(--muted)]">
                 <Loader2 size={14} className="animate-spin" />
                 正在加载 UID 列表...
               </div>
             ) : atAllTargets.cookieUsers.length === 0 ? (
-              <div className="text-gray-500 text-sm italic">暂无关注同步用户</div>
+              <div className="px-3 py-4 text-sm italic text-[var(--muted)]">暂无关注同步用户</div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid sm:grid-cols-2">
                 {atAllTargets.cookieUsers.map((user) => {
-                  const enabled = isAtAllUserEnabled('cookieSync', user.uid);
                   const matched = isCookieUserInSelectedSyncGroups(user);
                   return (
-                    <label key={`cookie-${user.uid}`} className="flex flex-wrap items-start gap-2 p-2 rounded border border-white/10 bg-black/20">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => toggleAtAllUser('cookieSync', user.uid, e.target.checked)}
-                        disabled={!formData.subscriptionAtAll}
-                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 disabled:opacity-50"
-                      />
-                      <span className="text-sm text-gray-200">{user.name}</span>
-                      <span className="text-xs text-gray-500 font-mono">{user.uid}</span>
-                      <span className={clsx('text-[10px] px-1.5 py-0.5 rounded', matched ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-400')}>
-                        {matched ? '命中同步分组' : '不在当前同步分组'}
-                      </span>
-                    </label>
+                    <ToggleLine
+                      key={`cookie-${user.uid}`}
+                      title={`${user.name}${matched ? ' · 命中同步分组' : ' · 不在当前同步分组'}`}
+                      meta={user.uid}
+                      checked={isAtAllUserEnabled('cookieSync', user.uid)}
+                      disabled={!subscriptionAtAllEnabled}
+                      onChange={(checked) => toggleAtAllUser('cookieSync', user.uid, checked)}
+                    />
                   );
                 })}
               </div>
             )}
-          </div>
+          </section>
         </div>
       </div>
 
       {!globalBiliStatus.isLoggedIn && (
-        <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <p className="text-sm text-yellow-300 mb-2">未检测到全局 B 站登录</p>
-          <p className="text-sm text-white/70 mb-3">
+        <div className="rounded-lg border border-[color-mix(in_oklch,var(--warn)_38%,var(--border))] bg-[var(--warn-soft)] p-4">
+          <p className="mb-2 text-sm font-medium text-[color-mix(in_oklch,var(--warn)_88%,var(--fg))]">未检测到全局 B 站登录</p>
+          <p className="mb-3 text-sm text-[var(--muted)]">
             关注列表同步需要先在系统设置中登录B站账号
           </p>
           <Link
             to="/settings"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-100 rounded-lg transition-colors text-sm"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-muted)]"
           >
             前往系统设置
           </Link>
@@ -225,57 +186,43 @@ const SyncTab = ({
 
       {globalBiliStatus.isLoggedIn && (
         <div>
-          <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg mb-4">
-            <div className="flex items-center gap-2 text-green-400 text-sm">
-              <div className="h-2 w-2 rounded-sm bg-green-400" />
+          <div className="mb-4 rounded-lg border border-[color-mix(in_oklch,var(--success)_34%,var(--border))] bg-[var(--success-soft)] p-3">
+            <div className="flex items-center gap-2 text-sm text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]">
+              <div className="h-2 w-2 rounded-sm bg-current" />
               <span className="break-all">已使用全局B站账号：{globalBiliStatus.username} (UID: {globalBiliStatus.uid})</span>
             </div>
           </div>
 
-          <div className="p-3 sm:p-4 bg-black/20 rounded-lg border border-white/10 mb-4">
-            <label className="flex items-start sm:items-center justify-between gap-3 cursor-pointer">
-              <div>
-                <span className="text-white font-medium block">启用关注列表同步</span>
-                <span className="text-gray-400 text-sm">自动同步所选分组的 UP 主更新</span>
-              </div>
-              <div className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.enableCookieSync}
-                  onChange={(e) => setFormData({ ...formData, enableCookieSync: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 rounded-md peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600" />
-              </div>
-            </label>
-          </div>
+          <TogglePanel
+            title="启用关注列表同步"
+            description="自动同步所选分组的 UP 主更新"
+            checked={cookieSyncEnabled}
+            onChange={(checked) => setFormData({ ...formData, enableCookieSync: checked })}
+          />
 
-          <div className={clsx('transition-opacity', !formData.enableCookieSync && 'opacity-50 pointer-events-none')}>
-            <h4 className="text-sm font-medium text-gray-300 mb-3">选择要同步的关注分组</h4>
+          <div className={clsx('mt-4 transition-opacity', !cookieSyncEnabled && 'opacity-55 pointer-events-none')}>
+            <h4 className="mb-3 text-sm font-medium text-[var(--fg)]">选择要同步的关注分组</h4>
 
             {biliGroupsLoading ? (
-              <div className="flex items-center gap-2 text-gray-400">
+              <div className="flex items-center gap-2 text-[var(--muted)]">
                 <Loader2 size={16} className="animate-spin" />
                 正在获取分组...
               </div>
             ) : biliGroups.length === 0 ? (
-              <div className="text-gray-500 text-sm italic">
+              <div className="text-sm italic text-[var(--muted)]">
                 未找到关注分组，请先登录 Bilibili 账号。
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="grid overflow-hidden rounded-lg border border-[var(--border)] sm:grid-cols-2 md:grid-cols-3">
                 {biliGroups.map((group) => {
                   const groupName = typeof group === 'string' ? group : group.name;
                   return (
-                    <label key={groupName} className="flex items-center gap-2 p-3 bg-black/20 border border-white/5 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={formData.cookieSyncGroupNames.includes(groupName)}
-                        onChange={() => toggleSyncGroup(groupName)}
-                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
-                      />
-                      <span className="text-gray-200 text-sm">{groupName}</span>
-                    </label>
+                    <ToggleLine
+                      key={groupName}
+                      title={groupName}
+                      checked={formData.cookieSyncGroupNames.includes(groupName)}
+                      onChange={() => toggleSyncGroup(groupName)}
+                    />
                   );
                 })}
               </div>

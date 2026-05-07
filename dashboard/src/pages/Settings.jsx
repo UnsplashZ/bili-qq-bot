@@ -11,6 +11,7 @@ import BiliQrModal from './settings/components/BiliQrModal'
 import useSettingsData from './settings/hooks/useSettingsData'
 import useBiliLogin from './settings/hooks/useBiliLogin'
 import { Save } from 'lucide-react'
+import { Button } from '../components/ui'
 
 const Settings = () => {
   const { show } = useToast()
@@ -38,7 +39,7 @@ const Settings = () => {
   }
 
   if (settingsData.loading) {
-    return <div className="text-white p-8 text-center">正在加载设置...</div>
+    return <div className="p-8 text-center text-[var(--muted)]">正在加载设置...</div>
   }
 
   const savingSettings = settingsData.savingGeneral || settingsData.savingPreviewGradient || settingsData.savingVideoDownload
@@ -46,16 +47,19 @@ const Settings = () => {
   return (
     <div className="space-y-5 pb-8 md:space-y-7 md:pb-12">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold text-white">系统设置</h1>
-        <button
+        <div>
+          <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Configure</div>
+          <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">系统设置</h1>
+        </div>
+        <Button
           type="button"
           onClick={settingsData.saveAllSettings}
           disabled={savingSettings}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500/20 px-4 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-500/30 disabled:opacity-50"
+          variant="primary"
+          icon={Save}
         >
-          <Save size={16} />
           {savingSettings ? '保存中...' : '保存设置'}
-        </button>
+        </Button>
       </header>
 
       <GeneralSettingsSection

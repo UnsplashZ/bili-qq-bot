@@ -1,26 +1,20 @@
 import React from 'react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { Card } from './ui';
 
 export const Surface = ({ children, className }) => {
   return (
-    <section
-      className={twMerge(
-        clsx(
-          'rounded-lg border border-white/10 bg-[#101620]/90 text-white shadow-[0_18px_46px_rgba(0,0,0,0.24)]',
-          className
-        )
-      )}
-    >
+    <Card padded={false} className={className}>
       {children}
-    </section>
+    </Card>
   );
 };
 
 export const SurfaceHeader = ({ children, className }) => (
   <div
     className={twMerge(
-      clsx('border-b border-white/10 px-4 py-3 sm:px-5 sm:py-4', className)
+      clsx('border-b border-[var(--border)] px-4 py-3 sm:px-5 sm:py-4', className)
     )}
   >
     {children}

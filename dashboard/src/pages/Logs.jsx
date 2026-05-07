@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import GlassCard from '../components/GlassCard';
 import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
+import { Button, StatusPill } from '../components/ui';
 import { useLogsStream } from './logs/useLogsStream';
 import { getBottomThreshold, getFloatingButtonMode, getScrollTargetMode, isNearBottom } from './logs/scrollBehavior';
 
@@ -227,37 +228,38 @@ const Logs = () => {
     <div className="flex min-h-[calc(100vh-7rem)] flex-col space-y-3 pb-5 md:min-h-[calc(100vh-8rem)] md:space-y-4 md:pb-6">
       <header className="flex justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-white">系统日志</h1>
+          <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Diagnostics</div>
+          <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">系统日志</h1>
         </div>
         <div className="flex w-full sm:w-auto justify-end gap-2">
           <button
             onClick={clearLogs}
-            className="w-9 h-9 md:w-auto md:h-auto md:p-2 flex items-center justify-center hover:bg-white/10 rounded-lg text-gray-300 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]"
             title="清空当前视图"
           >
-            <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
+            <Trash2 className="h-4 w-4" />
           </button>
-          <button
+          <Button
             onClick={() => setIsPaused(!isPaused)}
-            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm md:text-base font-medium transition-colors ${isPaused ? 'border border-amber-400/30 text-amber-300' : 'border border-white/10 text-white hover:bg-white/5'}`}
+            variant={isPaused ? 'secondary' : 'primary'}
+            icon={isPaused ? Play : Pause}
           >
-            {isPaused ? <Play className="w-4 h-4 md:w-[18px] md:h-[18px]" /> : <Pause className="w-4 h-4 md:w-[18px] md:h-[18px]" />}
             {isPaused ? '继续' : '暂停'}
-          </button>
+          </Button>
         </div>
       </header>
 
-      <GlassCard className="p-3 sm:p-4 bg-[#121821]/90 border-white/10">
+      <GlassCard className="p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
           <div className="space-y-2">
             <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</label>
             <select
               value={filters.level}
               onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
-              className="field-control w-full px-3 py-2 text-sm text-gray-100"
+              className="field-control w-full px-3 py-2 text-sm"
             >
               {LEVEL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value} className="bg-slate-900 text-gray-100">
+                <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
@@ -270,7 +272,7 @@ const Logs = () => {
               value={filters.keyword}
               onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
               placeholder="搜索 action / scope / fields"
-              className="field-control w-full px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500"
+              className="field-control w-full px-3 py-2 text-sm"
             />
           </div>
         </div>
@@ -278,7 +280,9 @@ const Logs = () => {
         <div className="mt-4 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">Channel</label>
-            <span className="text-xs text-gray-500">{getConnectionLabel(connectionState)}</span>
+            <StatusPill tone={connectionState === 'open' ? 'success' : connectionState === 'error' ? 'danger' : 'warn'}>
+              {getConnectionLabel(connectionState)}
+            </StatusPill>
           </div>
           <div className="flex flex-wrap gap-2">
             {CHANNEL_OPTIONS.map((channel) => {
@@ -288,7 +292,7 @@ const Logs = () => {
                   key={channel}
                   type="button"
                   onClick={() => toggleChannel(channel)}
-                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold tracking-[0.12em] transition-colors ${active ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-100' : 'border-white/10 text-gray-400 hover:bg-white/5'}`}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_38%,var(--border))] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-muted)]'}`}
                 >
                   {channel}
                 </button>
@@ -298,8 +302,8 @@ const Logs = () => {
         </div>
       </GlassCard>
 
-      <GlassCard className="flex-1 overflow-hidden p-0 flex flex-col bg-[#0d1117] border-white/10">
-        <div className="flex items-center justify-between gap-3 px-3 sm:px-4 py-2 bg-white/5 border-b border-white/5 text-xs text-gray-500 font-mono">
+      <GlassCard className="flex-1 overflow-hidden p-0 flex flex-col bg-[var(--surface)]">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 font-mono text-xs text-[var(--muted)] sm:px-4">
           <div className="flex items-center gap-2">
             <Terminal size={12} />
             <span>root@bot-server:~/logs/stream</span>
@@ -310,7 +314,7 @@ const Logs = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 px-3 py-2 border-b border-white/5 text-[10px] uppercase tracking-[0.18em] text-gray-600 font-semibold sm:px-4 md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)] md:tracking-[0.28em]">
+        <div className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] px-3 py-2 text-[10px] font-semibold uppercase text-[var(--muted)] sm:px-4 md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]">
           <span>Timestamp</span>
           <span>Level</span>
           <span className="hidden md:block">Channel</span>
@@ -324,13 +328,13 @@ const Logs = () => {
           className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-1 custom-scrollbar"
         >
           {logs.length === 0 && (
-            <div className="text-gray-600 italic text-center mt-10">等待日志数据...</div>
+            <div className="mt-10 text-center italic text-[var(--muted)]">等待日志数据...</div>
           )}
           {logs.map((log, index) => (
             <div
               key={`${log.timestamp}-${log.channel}-${log.action}-${index}`}
               data-log-row
-              className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 px-2 py-1.5 rounded hover:bg-white/5 items-start md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]"
+              className="grid grid-cols-[92px_52px_minmax(0,1fr)] items-start gap-3 rounded px-2 py-1.5 hover:bg-[var(--surface-muted)] md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]"
             >
               <span className="text-gray-500 whitespace-nowrap truncate">{log.timestampText}</span>
               <span className={`inline-flex w-fit border-l pl-2 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>

@@ -1,11 +1,57 @@
 import { useCallback, useState } from 'react';
 import api from '../../../utils/auth';
 
+const DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG = {
+  videoDownloadEnabled: false,
+  videoDownloadResolution: '1080p',
+  videoDownloadMaxDuration: 600
+};
+
 const createDefaultVideoDownloadConfig = () => ({
   videoDownloadEnabled: null,
   videoDownloadResolution: null,
   videoDownloadMaxDuration: null
 });
+
+function isFollowingGlobal(config) {
+  return (
+    config.videoDownloadEnabled === null &&
+    config.videoDownloadResolution === null &&
+    config.videoDownloadMaxDuration === null
+  );
+}
+
+function hasPartialInheritedFields(config) {
+  return (
+    !isFollowingGlobal(config) &&
+    (
+      config.videoDownloadEnabled === null ||
+      config.videoDownloadResolution === null ||
+      config.videoDownloadMaxDuration === null
+    )
+  );
+}
+
+function normalizeGlobalVideoDownloadConfig(config = {}) {
+  return {
+    videoDownloadEnabled: config.videoDownloadEnabled ?? DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG.videoDownloadEnabled,
+    videoDownloadResolution: config.videoDownloadResolution ?? DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG.videoDownloadResolution,
+    videoDownloadMaxDuration: config.videoDownloadMaxDuration ?? DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG.videoDownloadMaxDuration
+  };
+}
+
+function normalizeGroupVideoDownloadConfig(groupConfig, globalConfig) {
+  if (isFollowingGlobal(groupConfig)) {
+    return createDefaultVideoDownloadConfig();
+  }
+
+  const normalizedGlobalConfig = normalizeGlobalVideoDownloadConfig(globalConfig);
+  return {
+    videoDownloadEnabled: groupConfig.videoDownloadEnabled ?? normalizedGlobalConfig.videoDownloadEnabled,
+    videoDownloadResolution: groupConfig.videoDownloadResolution ?? normalizedGlobalConfig.videoDownloadResolution,
+    videoDownloadMaxDuration: groupConfig.videoDownloadMaxDuration ?? normalizedGlobalConfig.videoDownloadMaxDuration
+  };
+}
 
 const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show }) => {
   const [videoDownloadConfig, setVideoDownloadConfig] = useState(createDefaultVideoDownloadConfig());
@@ -24,7 +70,22 @@ const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show })
   const fetchVideoDownloadConfig = useCallback(async (groupId) => {
     try {
       const resp = await api.get(`/api/groups/${groupId}/video-download-config`);
-      setVideoDownloadConfig(resp.data);
+      const groupConfig = {
+        ...createDefaultVideoDownloadConfig(),
+        ...(resp.data || {})
+      };
+      let globalConfig = DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG;
+
+      if (hasPartialInheritedFields(groupConfig)) {
+        try {
+          const globalResp = await api.get('/api/config');
+          globalConfig = globalResp.data;
+        } catch (globalError) {
+          console.warn('Failed to fetch global video download config, using defaults:', globalError);
+        }
+      }
+
+      setVideoDownloadConfig(normalizeGroupVideoDownloadConfig(groupConfig, globalConfig));
       setVideoDownloadDirty(false);
       setVideoDownloadResetPending(false);
     } catch (error) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlassCard from '../../../components/GlassCard'
 import SettingRow from '../../../components/SettingRow'
+import { Button, ToggleSwitch } from '../../../components/ui'
 import GradientColorPickerPopover from './GradientColorPickerPopover'
 import PreviewGradientModal from './PreviewGradientModal'
 import { Palette, RotateCcw, Settings as SettingsIcon, Eye } from 'lucide-react'
@@ -215,11 +216,11 @@ const GeneralSettingsSection = ({
     return (
         <section>
             <div className="flex items-center gap-2 mb-4">
-                <SettingsIcon className="text-green-400" />
-                <h2 className="text-xl font-semibold text-white">常规设置</h2>
+                <SettingsIcon className="text-[var(--accent)]" />
+                <h2 className="text-xl font-semibold text-[var(--fg)]">常规设置</h2>
             </div>
             <GlassCard>
-                <div className="divide-y divide-white/10">
+                <div className="divide-y divide-[var(--border)]">
                     <SettingRow
                         title="订阅检查间隔"
                         description="系统检查订阅更新的频率，建议不少于 60 秒。"
@@ -253,24 +254,22 @@ const GeneralSettingsSection = ({
                     <SettingRow
                         title="显示 UID"
                         description="控制用户类卡片与订阅列表是否显示 UID。"
-                        status={generalConfig.showId ? '开启' : '关闭'}
                         control={
-                            <input
-                                type="checkbox"
+                            <ToggleSwitch
                                 checked={!!generalConfig.showId}
-                                onChange={(e) => onGeneralChange('showId', e.target.checked)}
-                                className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-950"
+                                onChange={(checked) => onGeneralChange('showId', checked)}
+                                label="显示 UID"
                             />
                         }
                     />
                 </div>
 
-                <div ref={previewGradientSectionRef} className="relative mt-8 border-t border-white/10 pt-8">
+                <div ref={previewGradientSectionRef} className="relative mt-8 border-t border-[var(--border)] pt-8">
                     <div className="flex items-center gap-2 mb-4">
-                        <Palette className="text-pink-300" size={18} />
-                        <h3 className="text-lg font-semibold text-white">预览图氛围色</h3>
+                        <Palette className="text-[var(--accent)]" size={18} />
+                        <h3 className="text-lg font-semibold text-[var(--fg)]">预览图氛围色</h3>
                     </div>
-                    <div className="divide-y divide-white/10">
+                    <div className="divide-y divide-[var(--border)]">
                         {GRADIENT_FIELDS.map((field) => (
                             <SettingRow
                                 key={field}
@@ -285,7 +284,7 @@ const GeneralSettingsSection = ({
                                                     triggerRefs.current[field] = node
                                                 }}
                                                 onClick={() => handleTogglePicker(field)}
-                                                className={`grid h-14 w-14 place-items-center rounded-lg border bg-black/20 transition-colors ${pickerState?.field === field ? 'border-cyan-300/60' : 'border-white/20 hover:border-white/30'}`}
+                                                className={`grid h-14 w-14 place-items-center rounded-lg border bg-[var(--surface-muted)] transition-colors ${pickerState?.field === field ? 'border-[color-mix(in_oklch,var(--accent)_56%,var(--border))]' : 'border-[var(--border)] hover:border-[var(--border-strong)]'}`}
                                             >
                                                 <span className="h-10 w-10 rounded-md shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_12px_28px_rgba(0,0,0,0.22)]" style={buildChipPreview(effectivePreviewColors[field])} />
                                             </button>
@@ -293,7 +292,7 @@ const GeneralSettingsSection = ({
                                                 type="text"
                                                 value={gradientInputs[field]}
                                                 onChange={(e) => handleGradientInputChange(field, e.target.value)}
-                                                className={`h-11 w-36 rounded-lg border bg-black/30 px-4 font-mono text-sm tracking-[0.03em] text-white outline-none transition-colors ${gradientErrors[field] ? 'border-rose-400/70 focus:border-rose-300' : 'border-white/20 focus:border-cyan-300/70'}`}
+                                                className={`field-control h-11 w-36 px-4 font-mono text-sm tracking-[0.03em] ${gradientErrors[field] ? 'border-[color-mix(in_oklch,var(--danger)_70%,var(--border))]' : ''}`}
                                             />
                                         </div>
                                         {gradientErrors[field] && (
@@ -308,27 +307,27 @@ const GeneralSettingsSection = ({
                             title="预览效果"
                             description="查看当前氛围色合成后的卡片观感"
                             control={
-                                <button
+                                <Button
                                     type="button"
                                     onClick={handleOpenPreviewModal}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-transparent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
+                                    variant="secondary"
+                                    icon={Eye}
                                 >
-                                    <Eye size={16} />
                                     查看预览
-                                </button>
+                                </Button>
                             }
                         />
                     </div>
 
                     <div className="mt-5 flex flex-wrap justify-end">
-                        <button
+                        <Button
                             type="button"
                             onClick={handleResetPreviewGradient}
-                            className="flex items-center gap-2 rounded-lg border border-white/20 bg-transparent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5 disabled:opacity-50"
+                            variant="secondary"
+                            icon={RotateCcw}
                         >
-                            <RotateCcw size={16} />
                             恢复默认氛围色
-                        </button>
+                        </Button>
                     </div>
 
                     {pickerState?.field && (

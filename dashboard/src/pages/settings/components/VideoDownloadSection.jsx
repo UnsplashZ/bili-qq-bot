@@ -1,5 +1,6 @@
 import GlassCard from '../../../components/GlassCard'
 import SettingRow from '../../../components/SettingRow'
+import { ToggleSwitch } from '../../../components/ui'
 
 const VideoDownloadSection = ({
     videoDownloadConfig,
@@ -7,20 +8,18 @@ const VideoDownloadSection = ({
 }) => {
     return (
         <section>
-            <h2 className="text-xl font-semibold text-white mb-4">视频下载</h2>
+            <h2 className="text-xl font-semibold text-[var(--fg)] mb-4">视频下载</h2>
             <GlassCard>
-                <div className="divide-y divide-white/10">
+                <div className="divide-y divide-[var(--border)]">
                     <SettingRow
                         title="启用视频下载"
                         description="识别到视频链接时自动下载并发送（合并转发）。"
-                        status={videoDownloadConfig.videoDownloadEnabled ? '开启' : '关闭'}
                         control={
-                        <button
-                            onClick={() => onVideoDownloadChange('videoDownloadEnabled', !videoDownloadConfig.videoDownloadEnabled)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-md transition-colors ${videoDownloadConfig.videoDownloadEnabled ? 'bg-cyan-500/70' : 'bg-white/20'}`}
-                        >
-                            <span className={`inline-block h-4 w-4 transform rounded bg-white transition-transform ${videoDownloadConfig.videoDownloadEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
+                        <ToggleSwitch
+                            checked={!!videoDownloadConfig.videoDownloadEnabled}
+                            onChange={(checked) => onVideoDownloadChange('videoDownloadEnabled', checked)}
+                            label="启用视频下载"
+                        />
                         }
                     />
 
@@ -34,7 +33,7 @@ const VideoDownloadSection = ({
                             className="field-control px-3 py-1.5 text-sm"
                         >
                             {['360p', '480p', '720p', '1080p', '1080p+'].map(r => (
-                                <option key={r} value={r} className="bg-gray-800">{r}</option>
+                                <option key={r} value={r}>{r}</option>
                             ))}
                         </select>
                         }
@@ -58,14 +57,12 @@ const VideoDownloadSection = ({
                     <SettingRow
                         title="发送后自动删除"
                         description="发送成功后立即删除本地文件。"
-                        status={videoDownloadConfig.videoDownloadAutoClean ? '开启' : '关闭'}
                         control={
-                        <button
-                            onClick={() => onVideoDownloadChange('videoDownloadAutoClean', !videoDownloadConfig.videoDownloadAutoClean)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-md transition-colors ${videoDownloadConfig.videoDownloadAutoClean ? 'bg-cyan-500/70' : 'bg-white/20'}`}
-                        >
-                            <span className={`inline-block h-4 w-4 transform rounded bg-white transition-transform ${videoDownloadConfig.videoDownloadAutoClean ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
+                        <ToggleSwitch
+                            checked={!!videoDownloadConfig.videoDownloadAutoClean}
+                            onChange={(checked) => onVideoDownloadChange('videoDownloadAutoClean', checked)}
+                            label="发送后自动删除"
+                        />
                         }
                     />
 

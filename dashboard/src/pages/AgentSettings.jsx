@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Bot, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 import SettingRow from '../components/SettingRow';
+import { Button, ToggleSwitch } from '../components/ui';
 import api from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 
@@ -198,26 +199,13 @@ function Toggle({ label, description, checked, onChange, disabled = false }) {
     <SettingRow
       title={label}
       description={description}
-      status={formatBool(checked)}
       control={(
-        <button
-          type="button"
+        <ToggleSwitch
+          checked={!!checked}
+          onChange={onChange}
+          label={label}
           disabled={disabled}
-          onClick={() => onChange(!checked)}
-          className={`flex h-7 w-11 items-center rounded-md border px-1 transition-colors ${
-            checked
-              ? 'border-cyan-300/40 bg-cyan-300/15'
-              : 'border-white/15 bg-black/20 hover:bg-white/5'
-          } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
-          aria-pressed={checked}
-          aria-label={label}
-        >
-          <span
-            className={`block h-4 w-4 rounded-sm transition-transform ${
-              checked ? 'translate-x-4 bg-cyan-100' : 'translate-x-0 bg-slate-500'
-            }`}
-          />
-        </button>
+        />
       )}
     />
   );
@@ -225,16 +213,18 @@ function Toggle({ label, description, checked, onChange, disabled = false }) {
 
 function CheckboxRow({ label, checked, disabled = false, onChange, trailing }) {
   return (
-    <label className={`flex items-center gap-3 border-b border-white/10 py-3 last:border-b-0 ${disabled ? 'opacity-60' : ''}`}>
-      <input
-        type="checkbox"
-        checked={checked}
+    <div className={`flex items-center justify-between gap-3 border-b border-[var(--border)] py-3 last:border-b-0 ${disabled ? 'opacity-60' : ''}`}>
+      <div className="min-w-0">
+        <span className="text-sm font-medium text-[var(--fg)]">{label}</span>
+        {trailing && <span className="ml-2 text-xs text-[var(--muted)]">{trailing}</span>}
+      </div>
+      <ToggleSwitch
+        checked={!!checked}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
+        label={label}
+        onChange={onChange}
       />
-      <span className="text-sm text-gray-200">{label}</span>
-      {trailing && <span className="text-xs text-gray-500">{trailing}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -264,14 +254,14 @@ function PlainStatus({ children, tone = 'slate' }) {
 
 function GroupDraftToggle({ checked, onChange, children }) {
   return (
-    <label className="flex items-center gap-3 border-b border-white/10 py-3 text-sm text-gray-300 last:border-b-0">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-3 text-sm text-[var(--fg)] last:border-b-0">
+      <span>{children}</span>
+      <ToggleSwitch
+        checked={!!checked}
+        onChange={onChange}
+        label={typeof children === 'string' ? children : '群级覆盖'}
       />
-      {children}
-    </label>
+    </div>
   );
 }
 
@@ -575,28 +565,29 @@ const AgentSettings = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-2xl font-semibold">
-            <Bot className="text-cyan-300" />
+          <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
+          <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
+            <Bot className="text-[var(--accent)]" />
             Agent 管理
           </h1>
         </div>
         <div className="flex gap-2">
-          <button
+          <Button
             onClick={loadConfig}
             disabled={loading}
-            className="px-4 py-2.5 rounded-lg border border-white/10 text-white hover:bg-white/5 disabled:opacity-50 flex items-center gap-2"
+            variant="secondary"
+            icon={RefreshCw}
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             刷新
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={saveAll}
             disabled={saving}
-            className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30 disabled:opacity-50 flex items-center gap-2"
+            variant="primary"
+            icon={Save}
           >
-            <Save size={18} />
             保存设置
-          </button>
+          </Button>
         </div>
       </div>
 
