@@ -112,6 +112,7 @@ function Groups() {
 
   const {
     videoDownloadConfig,
+    globalVideoDownloadConfig,
     setVideoDownloadConfig,
     fetchVideoDownloadConfig,
     saveVideoDownloadConfig,
@@ -243,6 +244,7 @@ function Groups() {
                 />
                 <VideoDownloadTab
                   videoDownloadConfig={videoDownloadConfig}
+                  globalVideoDownloadConfig={globalVideoDownloadConfig}
                   setVideoDownloadConfig={setVideoDownloadConfig}
                   actionLoading={actionLoading}
                   onResetVideoDownloadConfig={resetVideoDownloadConfig}

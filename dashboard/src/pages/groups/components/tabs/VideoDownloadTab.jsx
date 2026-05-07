@@ -17,21 +17,23 @@ function isFollowingGlobal(config) {
   );
 }
 
-function toCustomConfig(config) {
+function toCustomConfig(config, fallbackConfig = CUSTOM_DEFAULTS) {
   return {
-    videoDownloadEnabled: config.videoDownloadEnabled ?? CUSTOM_DEFAULTS.videoDownloadEnabled,
-    videoDownloadResolution: config.videoDownloadResolution ?? CUSTOM_DEFAULTS.videoDownloadResolution,
-    videoDownloadMaxDuration: config.videoDownloadMaxDuration ?? CUSTOM_DEFAULTS.videoDownloadMaxDuration
+    videoDownloadEnabled: config.videoDownloadEnabled ?? fallbackConfig.videoDownloadEnabled ?? CUSTOM_DEFAULTS.videoDownloadEnabled,
+    videoDownloadResolution: config.videoDownloadResolution ?? fallbackConfig.videoDownloadResolution ?? CUSTOM_DEFAULTS.videoDownloadResolution,
+    videoDownloadMaxDuration: config.videoDownloadMaxDuration ?? fallbackConfig.videoDownloadMaxDuration ?? CUSTOM_DEFAULTS.videoDownloadMaxDuration
   };
 }
 
 const VideoDownloadTab = ({
   videoDownloadConfig,
+  globalVideoDownloadConfig,
   setVideoDownloadConfig,
   actionLoading,
   onResetVideoDownloadConfig
 }) => {
   const followingGlobal = isFollowingGlobal(videoDownloadConfig);
+  const customConfig = toCustomConfig(videoDownloadConfig, globalVideoDownloadConfig);
 
   const setFollowGlobal = (checked) => {
     setVideoDownloadConfig((prev) => (
@@ -41,7 +43,7 @@ const VideoDownloadTab = ({
             videoDownloadResolution: null,
             videoDownloadMaxDuration: null
           }
-        : toCustomConfig(prev)
+        : toCustomConfig(prev, globalVideoDownloadConfig)
     ));
   };
 
@@ -65,10 +67,10 @@ const VideoDownloadTab = ({
           description="群组级视频下载开关。"
           control={
             <ToggleSwitch
-              checked={!!videoDownloadConfig.videoDownloadEnabled}
+              checked={!!customConfig.videoDownloadEnabled}
               disabled={followingGlobal}
               onChange={(checked) => setVideoDownloadConfig((prev) => ({
-                ...toCustomConfig(prev),
+                ...toCustomConfig(prev, globalVideoDownloadConfig),
                 videoDownloadEnabled: checked
               }))}
               label="启用视频下载"
@@ -81,10 +83,10 @@ const VideoDownloadTab = ({
           description="DASH 流画质上限。"
           control={
             <select
-              value={videoDownloadConfig.videoDownloadResolution ?? CUSTOM_DEFAULTS.videoDownloadResolution}
+              value={customConfig.videoDownloadResolution}
               disabled={followingGlobal}
               onChange={(event) => setVideoDownloadConfig((prev) => ({
-                ...toCustomConfig(prev),
+                ...toCustomConfig(prev, globalVideoDownloadConfig),
                 videoDownloadResolution: event.target.value
               }))}
               className="field-control w-full px-3 py-2 text-sm disabled:opacity-55 md:w-40"
@@ -104,10 +106,10 @@ const VideoDownloadTab = ({
             <input
               type="number"
               min="0"
-              value={videoDownloadConfig.videoDownloadMaxDuration ?? CUSTOM_DEFAULTS.videoDownloadMaxDuration}
+              value={customConfig.videoDownloadMaxDuration}
               disabled={followingGlobal}
               onChange={(event) => setVideoDownloadConfig((prev) => ({
-                ...toCustomConfig(prev),
+                ...toCustomConfig(prev, globalVideoDownloadConfig),
                 videoDownloadMaxDuration: parseInt(event.target.value, 10) || 0
               }))}
               placeholder="秒"

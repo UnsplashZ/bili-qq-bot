@@ -21,17 +21,6 @@ function isFollowingGlobal(config) {
   );
 }
 
-function hasPartialInheritedFields(config) {
-  return (
-    !isFollowingGlobal(config) &&
-    (
-      config.videoDownloadEnabled === null ||
-      config.videoDownloadResolution === null ||
-      config.videoDownloadMaxDuration === null
-    )
-  );
-}
-
 function normalizeGlobalVideoDownloadConfig(config = {}) {
   return {
     videoDownloadEnabled: config.videoDownloadEnabled ?? DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG.videoDownloadEnabled,
@@ -55,6 +44,7 @@ function normalizeGroupVideoDownloadConfig(groupConfig, globalConfig) {
 
 const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show }) => {
   const [videoDownloadConfig, setVideoDownloadConfig] = useState(createDefaultVideoDownloadConfig());
+  const [globalVideoDownloadConfig, setGlobalVideoDownloadConfig] = useState(DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG);
   const [videoDownloadDirty, setVideoDownloadDirty] = useState(false);
   const [videoDownloadResetPending, setVideoDownloadResetPending] = useState(false);
 
@@ -69,22 +59,20 @@ const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show })
 
   const fetchVideoDownloadConfig = useCallback(async (groupId) => {
     try {
-      const resp = await api.get(`/api/groups/${groupId}/video-download-config`);
+      const [resp, globalResp] = await Promise.all([
+        api.get(`/api/groups/${groupId}/video-download-config`),
+        api.get('/api/config').catch((globalError) => {
+          console.warn('Failed to fetch global video download config, using defaults:', globalError);
+          return { data: DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG };
+        })
+      ]);
       const groupConfig = {
         ...createDefaultVideoDownloadConfig(),
         ...(resp.data || {})
       };
-      let globalConfig = DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG;
+      const globalConfig = normalizeGlobalVideoDownloadConfig(globalResp.data);
 
-      if (hasPartialInheritedFields(groupConfig)) {
-        try {
-          const globalResp = await api.get('/api/config');
-          globalConfig = globalResp.data;
-        } catch (globalError) {
-          console.warn('Failed to fetch global video download config, using defaults:', globalError);
-        }
-      }
-
+      setGlobalVideoDownloadConfig(globalConfig);
       setVideoDownloadConfig(normalizeGroupVideoDownloadConfig(groupConfig, globalConfig));
       setVideoDownloadDirty(false);
       setVideoDownloadResetPending(false);
@@ -128,6 +116,7 @@ const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show })
 
   return {
     videoDownloadConfig,
+    globalVideoDownloadConfig,
     setVideoDownloadConfig: updateVideoDownloadConfig,
     videoDownloadDirty,
     videoDownloadResetPending,

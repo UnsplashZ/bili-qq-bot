@@ -50,7 +50,8 @@ function getMetricTone(value, warnAt, dangerAt) {
 
 function getProcessTone(metric) {
   const failed = numericValue(metric.failed);
-  if (failed === null || failed === 0) return 'success';
+  if (failed === null) return 'neutral';
+  if (failed === 0) return 'success';
   return failed >= 5 ? 'danger' : 'warn';
 }
 
