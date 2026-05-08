@@ -250,7 +250,7 @@ function run() {
 
     const longReply = '这是一段比较长的回复内容'.repeat(10)
     const outputAllowed = applyOutputGuardrails({
-        agentConfig: { replyPolicy: { maxReplyChars: 80 } },
+        agentConfig: { replyer: { maxReplyChars: 80 } },
         llmDecision: makeDecision({ confidence: 0.8, replyDraft: longReply }),
         policyDecision: {
             accepted: true,

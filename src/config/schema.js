@@ -50,9 +50,9 @@ const DEFAULT_AGENT_CONFIG = {
     sendEnabled: false,
     aliases: [],
     persona: {
-        displayName: 'Bilibili 助手',
-        style: '友好、简洁、不过度热情；优先少说废话。',
-        boundaries: '专注 B 站链接、订阅、群聊上下文和 Bot 配置管理；普通闲聊默认保持克制。'
+        displayName: '群聊 Bot',
+        style: '像有分寸的群友一样自然接话；短、口语化、有观点但不抢话。',
+        boundaries: 'Bilibili 是主要能力之一，但不是唯一职责；可以参与群聊、技术讨论、Bot 功能讨论和轻松闲聊，违法危险内容保持拒绝。'
     },
     shortTerm: {
         maxRecentMessagesPerGroup: 100,

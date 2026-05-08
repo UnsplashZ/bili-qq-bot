@@ -1,6 +1,7 @@
 const expressionStore = require('./expressionStore')
 
 async function selectExpressionHints({ agentConfig, groupId, agentMessage, policyDecision } = {}) {
+    if (agentConfig?.participation?.enabled === false) return []
     if (agentConfig?.participation?.expressionLearningEnabled !== true) return []
     if (!policyDecision?.accepted || !policyDecision?.wouldSend) return []
     const replyMode = policyDecision.finalAction === 'react' ? 'react' : 'reply'

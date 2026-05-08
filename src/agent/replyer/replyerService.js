@@ -33,6 +33,7 @@ function normalizeReplyerOutput(content, maxChars) {
 
 function shouldRunReplyer({ agentConfig, policyDecision }) {
     return Boolean(
+        agentConfig?.participation?.enabled !== false &&
         agentConfig?.participation?.replyerEnabled !== false &&
         policyDecision?.accepted &&
         policyDecision?.wouldSend &&

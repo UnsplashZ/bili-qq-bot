@@ -190,6 +190,8 @@ function sanitizeGlobalPatch(body = {}) {
         }
         assignFloat(patch.social, body.social, 'interjectProbability', 0, 1)
         assignFloat(patch.social, body.social, 'ambientReactProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'planningMinScore', 0, 1)
+        assignFloat(patch.social, body.social, 'topicAffinityMinScore', 0, 1)
         assignFloat(patch.social, body.social, 'minInterjectScore', 0, 1)
         assignFloat(patch.social, body.social, 'minAmbientScore', 0, 1)
         assignInteger(patch.social, body.social, 'cooldownMs', 0, 60 * 60 * 1000)
@@ -285,6 +287,8 @@ function sanitizeGroupPatch(body = {}) {
         }
         assignFloat(patch.social, body.social, 'interjectProbability', 0, 1)
         assignFloat(patch.social, body.social, 'ambientReactProbability', 0, 1)
+        assignFloat(patch.social, body.social, 'planningMinScore', 0, 1)
+        assignFloat(patch.social, body.social, 'topicAffinityMinScore', 0, 1)
         assignFloat(patch.social, body.social, 'minInterjectScore', 0, 1)
         assignFloat(patch.social, body.social, 'minAmbientScore', 0, 1)
         assignInteger(patch.social, body.social, 'cooldownMs', 0, 60 * 60 * 1000)

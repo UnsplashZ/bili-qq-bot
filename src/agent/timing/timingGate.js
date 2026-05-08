@@ -79,6 +79,9 @@ function makeDecision(timingAction, reason, waitMs = 0, signals = {}) {
 
 function runTimingGate({ agentConfig, agentMessage, memoryObservation, scoreResult }) {
     const traits = scoreResult?.traits || {}
+    if (agentConfig?.participation?.enabled === false) {
+        return makeDecision('continue', 'participation_disabled')
+    }
     if (agentConfig?.participation?.timingGateEnabled === false) {
         return makeDecision('continue', 'timing_gate_disabled')
     }

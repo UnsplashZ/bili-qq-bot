@@ -23,7 +23,7 @@ function makeCheck(name, passed, reason = 'ok', detail = {}) {
 }
 
 function maxReplyChars(agentConfig) {
-    const configured = Number(agentConfig?.replyPolicy?.maxReplyChars)
+    const configured = Number(agentConfig?.replyer?.maxReplyChars ?? agentConfig?.replyPolicy?.maxReplyChars)
     return Number.isFinite(configured)
         ? Math.max(80, Math.min(2000, Math.trunc(configured)))
         : 500

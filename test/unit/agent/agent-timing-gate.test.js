@@ -38,6 +38,21 @@ async function run() {
         social: { enabled: false, mode: 'quiet' }
     }
 
+    const participationDisabled = runTimingGate({
+        agentConfig: {
+            ...config,
+            participation: { enabled: false, timingGateEnabled: true }
+        },
+        agentMessage: message('m0', '42', 3000),
+        memoryObservation: {
+            groupState: { recentMessages: [message('m-2', '42', 1000), message('m-1', '42', 2000), message('m0', '42', 3000)] },
+            chatPace: { crowded: true }
+        },
+        scoreResult: { score: 0, traits: {} }
+    })
+    assert.strictEqual(participationDisabled.timingAction, 'continue')
+    assert.strictEqual(participationDisabled.reason, 'participation_disabled')
+
     const direct = runTimingGate({
         agentConfig: config,
         agentMessage: { ...message('m1', '42', 1000), mentionsSelf: true },

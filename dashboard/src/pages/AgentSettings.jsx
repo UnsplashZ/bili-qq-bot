@@ -47,13 +47,8 @@ function defaultSocialDraft(agent) {
   return {
     enabled: agent?.social?.enabled ?? false,
     mode: agent?.social?.mode || 'quiet',
-    interjectProbability: agent?.social?.interjectProbability ?? 0.18,
-    ambientReactProbability: agent?.social?.ambientReactProbability ?? 0.08,
-    minInterjectScore: agent?.social?.minInterjectScore ?? 0.72,
-    minAmbientScore: agent?.social?.minAmbientScore ?? 0.62,
-    cooldownMs: agent?.social?.cooldownMs ?? 90000,
-    dailyInterjectLimit: agent?.social?.dailyInterjectLimit ?? 30,
-    perTopicInterjectLimit: agent?.social?.perTopicInterjectLimit ?? 2,
+    planningMinScore: agent?.social?.planningMinScore ?? 0.3,
+    topicAffinityMinScore: agent?.social?.topicAffinityMinScore ?? 0.8,
     avoidDuringRapidTwoPersonChat: agent?.social?.avoidDuringRapidTwoPersonChat ?? true,
     maxCasualReplyChars: agent?.social?.maxCasualReplyChars ?? 120,
   };
@@ -267,7 +262,7 @@ function GroupDraftToggle({ checked, onChange, children }) {
 
 function ModeSelect({ value, disabled, onChange }) {
   return (
-    <FieldRow title="活跃模式">
+    <FieldRow title="参与模式" description="quiet 会关闭非直接寻址的主动接话规划；active 会更积极进入规划。">
       <select
         value={value || 'quiet'}
         disabled={disabled}
@@ -306,15 +301,15 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
     <div className="space-y-4">
       <div>
         <Toggle
-          label="允许偶尔插话"
-          description="开启后，普通闲聊可由 Agent 判断是否自然参与。"
+          label="允许主动接话"
+          description="开启后，非直接寻址消息可进入群聊参与判断。"
           checked={Boolean(value?.enabled)}
           disabled={disabled}
           onChange={(checked) => update('enabled', checked)}
         />
         <Toggle
           label="避开双人快聊"
-          description="两个人高速对话时默认降低打断概率。"
+          description="两个人高速对话且话题未向 Bot 打开时，优先不打断。"
           checked={value?.avoidDuringRapidTwoPersonChat !== false}
           disabled={disabled}
           onChange={(checked) => update('avoidDuringRapidTwoPersonChat', checked)}
@@ -327,68 +322,25 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <NumberInput
-          label="插话概率"
+          label="规划最低社交分"
           min="0"
           max="1"
           step="0.01"
-          value={value?.interjectProbability}
+          value={value?.planningMinScore}
           disabled={disabled}
-          onChange={(nextValue) => update('interjectProbability', nextValue)}
+          onChange={(nextValue) => update('planningMinScore', nextValue)}
         />
         <NumberInput
-          label="轻量附和概率"
+          label="话题相关最低分"
           min="0"
           max="1"
           step="0.01"
-          value={value?.ambientReactProbability}
+          value={value?.topicAffinityMinScore}
           disabled={disabled}
-          onChange={(nextValue) => update('ambientReactProbability', nextValue)}
+          onChange={(nextValue) => update('topicAffinityMinScore', nextValue)}
         />
         <NumberInput
-          label="插话最低分"
-          min="0"
-          max="1"
-          step="0.01"
-          value={value?.minInterjectScore}
-          disabled={disabled}
-          onChange={(nextValue) => update('minInterjectScore', nextValue)}
-        />
-        <NumberInput
-          label="附和最低分"
-          min="0"
-          max="1"
-          step="0.01"
-          value={value?.minAmbientScore}
-          disabled={disabled}
-          onChange={(nextValue) => update('minAmbientScore', nextValue)}
-        />
-        <NumberInput
-          label="社交冷却"
-          min="0"
-          max="3600000"
-          value={value?.cooldownMs}
-          suffix="ms"
-          disabled={disabled}
-          onChange={(nextValue) => update('cooldownMs', nextValue)}
-        />
-        <NumberInput
-          label="每日插话上限"
-          min="0"
-          max="1000"
-          value={value?.dailyInterjectLimit}
-          disabled={disabled}
-          onChange={(nextValue) => update('dailyInterjectLimit', nextValue)}
-        />
-        <NumberInput
-          label="单话题上限"
-          min="0"
-          max="100"
-          value={value?.perTopicInterjectLimit}
-          disabled={disabled}
-          onChange={(nextValue) => update('perTopicInterjectLimit', nextValue)}
-        />
-        <NumberInput
-          label="社交回复最长"
+          label="轻量回复最长"
           min="20"
           max="500"
           value={value?.maxCasualReplyChars}
@@ -785,7 +737,7 @@ const AgentSettings = () => {
             <TextInput
               label="显示身份"
               value={agent.persona?.displayName}
-              placeholder="例如：Bilibili 助手"
+              placeholder="例如：群聊 Bot"
               onChange={(value) => updateAgent((next) => {
                 next.persona = next.persona || {};
                 next.persona.displayName = value;
@@ -821,7 +773,7 @@ const AgentSettings = () => {
         </GlassCard>
 
         <GlassCard>
-          <h2 className="text-xl font-semibold mb-4">社交插话</h2>
+          <h2 className="text-xl font-semibold mb-4">主动接话</h2>
           <SocialConfigFields
             value={agent.social || defaultSocialDraft(agent)}
             onChange={(value) => updateAgent((next) => {
@@ -954,7 +906,7 @@ const AgentSettings = () => {
               socialMode: checked ? 'custom' : 'inherit',
             }))}
           >
-            覆盖本群社交插话配置
+            覆盖本群主动接话配置
           </GroupDraftToggle>
         </div>
         <div className="mt-4">
@@ -996,7 +948,7 @@ const AgentSettings = () => {
                 <div className="text-sm text-gray-400 mt-1">
                   入口 {formatOverride(config.enabled)} · 仅观察 {formatOverride(config.observeOnly)} · 发言 {formatOverride(config.sendEnabled)}
                   {config.replyPolicy && ` · 阈值 ${config.replyPolicy.minReplyScore ?? '-'} · 冷却 ${config.replyPolicy.cooldownMs ?? '-'}ms`}
-                  {config.social && ` · 社交 ${formatBool(config.social.enabled)} / ${config.social.mode || 'quiet'}`}
+                  {config.social && ` · 主动接话 ${formatBool(config.social.enabled)} / ${config.social.mode || 'quiet'}`}
                   {(config.participation || config.timing || config.replyer || config.expression) && ` · 拟人化 覆盖`}
                 </div>
               </div>

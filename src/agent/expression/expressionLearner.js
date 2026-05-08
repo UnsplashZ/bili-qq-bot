@@ -70,6 +70,7 @@ function parseLearnerOutput(content) {
 }
 
 async function maybeLearnExpressions({ agentConfig, memoryObservation, sessionContext } = {}) {
+    if (agentConfig?.participation?.enabled === false) return { status: 'skipped', reason: 'participation_disabled' }
     if (agentConfig?.participation?.expressionLearningEnabled !== true) return { status: 'skipped', reason: 'expression_learning_disabled' }
     if (!llmReady(agentConfig)) return { status: 'skipped', reason: 'llm_not_ready' }
 

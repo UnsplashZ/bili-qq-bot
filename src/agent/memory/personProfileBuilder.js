@@ -1,6 +1,7 @@
 const personProfileStore = require('./personProfileStore')
 
 async function maybeRefreshPersonProfile({ agentConfig, groupId, userId, longTermMemories = [], agentMessage } = {}) {
+    if (agentConfig?.participation?.enabled === false) return { status: 'skipped', reason: 'participation_disabled' }
     if (agentConfig?.participation?.personProfileEnabled !== true) return { status: 'skipped', reason: 'person_profile_disabled' }
     if (!groupId || !userId) return { status: 'skipped', reason: 'missing_identity' }
     const result = await personProfileStore.buildAndStoreProfile({

@@ -97,6 +97,21 @@ async function run() {
     assert.strictEqual(skipped.status, 'skipped')
     assert.strictEqual(skipped.policyDecision.replyDraft, '我在，具体想让我怎么处理？')
 
+    const participationDisabled = await runReplyer({
+        ...baseArgs,
+        agentConfig: { ...baseArgs.agentConfig, participation: { enabled: false, replyerEnabled: true } },
+        policyDecision: {
+            accepted: true,
+            finalAction: 'reply',
+            reason: 'accepted',
+            replyDraft: '__replyer_pending__',
+            wouldSend: true
+        }
+    })
+    assert.strictEqual(participationDisabled.status, 'skipped')
+    assert.strictEqual(participationDisabled.reason, 'replyer_disabled')
+    assert.strictEqual(participationDisabled.policyDecision.replyDraft, '我在，具体想让我怎么处理？')
+
     const targetMessages = buildReplyerMessages({
         ...baseArgs,
         memoryObservation: {
