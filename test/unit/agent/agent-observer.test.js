@@ -813,6 +813,62 @@ async function run() {
         shortTermStore.reset()
         budgetGuard.resetBudget()
         replyGuard.resetReplyGuard()
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            participation: {
+                enabled: false,
+                timingGateEnabled: true,
+                replyerEnabled: true
+            },
+            social: {
+                enabled: true,
+                mode: 'active',
+                planningMinScore: 0,
+                topicAffinityMinScore: 0,
+                avoidDuringRapidTwoPersonChat: false
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        let participationDisabledLlmCalls = 0
+        llmClient.createChatCompletion = async () => {
+            participationDisabledLlmCalls += 1
+            throw new Error('llm_should_not_run_when_participation_disabled')
+        }
+        const participationDisabledResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sentPayloads.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '这个 bot 主动接话逻辑继续看看',
+            messageData: makeMessageData('这个 bot 主动接话逻辑继续看看', {
+                message_id: 'participation-disabled'
+            }),
+            traceContext: { scope: 'test:participation-disabled-stops-ambient-planning' }
+        })
+        assert.strictEqual(participationDisabledResult.timingDecision.timingAction, 'listen')
+        assert.strictEqual(participationDisabledResult.policyDecision.reason, 'participation_disabled')
+        assert.strictEqual(participationDisabledResult.execution.executed, false)
+        assert.strictEqual(participationDisabledLlmCalls, 0)
+        assert.strictEqual(sentPayloads.length, 2)
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
         llmClient.createChatCompletion = async () => ({
             model: 'test-model',
             usage: { total_tokens: 1 },

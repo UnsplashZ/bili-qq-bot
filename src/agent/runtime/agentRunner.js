@@ -378,7 +378,8 @@ async function runObserveDecision(runState, scoreResult) {
         agentMessage,
         memoryObservation
     })
-    const timingDecision = runState.timingReentry
+    const timingGateBypassedForReentry = runState.timingReentry && agentConfig?.participation?.enabled !== false
+    const timingDecision = timingGateBypassedForReentry
         ? {
             status: 'ok',
             timingAction: 'continue',

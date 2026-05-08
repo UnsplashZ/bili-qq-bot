@@ -79,14 +79,17 @@ function makeDecision(timingAction, reason, waitMs = 0, signals = {}) {
 
 function runTimingGate({ agentConfig, agentMessage, memoryObservation, scoreResult }) {
     const traits = scoreResult?.traits || {}
+    const addressed = directAddressed(agentMessage, traits)
     if (agentConfig?.participation?.enabled === false) {
-        return makeDecision('continue', 'participation_disabled')
+        if (addressed) {
+            return makeDecision('continue', 'direct_addressed', 0, { directAddressed: true })
+        }
+        return makeDecision('listen', 'participation_disabled')
     }
     if (agentConfig?.participation?.timingGateEnabled === false) {
         return makeDecision('continue', 'timing_gate_disabled')
     }
 
-    const addressed = directAddressed(agentMessage, traits)
     if (addressed) {
         return makeDecision('continue', 'direct_addressed', 0, { directAddressed: true })
     }

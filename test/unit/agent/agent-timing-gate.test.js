@@ -50,8 +50,20 @@ async function run() {
         },
         scoreResult: { score: 0, traits: {} }
     })
-    assert.strictEqual(participationDisabled.timingAction, 'continue')
+    assert.strictEqual(participationDisabled.timingAction, 'listen')
     assert.strictEqual(participationDisabled.reason, 'participation_disabled')
+
+    const participationDisabledDirect = runTimingGate({
+        agentConfig: {
+            ...config,
+            participation: { enabled: false, timingGateEnabled: true }
+        },
+        agentMessage: { ...message('m0-direct', '42', 4000), mentionsSelf: true },
+        memoryObservation: { groupState: { recentMessages: [] }, chatPace: { crowded: true } },
+        scoreResult: { score: 1, traits: { mentionedBot: true } }
+    })
+    assert.strictEqual(participationDisabledDirect.timingAction, 'continue')
+    assert.strictEqual(participationDisabledDirect.reason, 'direct_addressed')
 
     const direct = runTimingGate({
         agentConfig: config,
