@@ -839,19 +839,19 @@ async function run() {
             observed += 1
             return { skipped: false }
         }
-        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('普通群聊消息'))
+        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('普通群聊消息', { message_id: 'handler-observe-1' }))
         assert.strictEqual(observed, 1)
 
         observed = 0
         commandManager.dispatch = async () => true
-        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('/帮助'))
+        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('/帮助', { message_id: 'handler-command-1' }))
         assert.strictEqual(observed, 0)
 
         commandManager.dispatch = async () => false
         agent.agentIngress.observe = async () => {
             throw new Error('observe boom')
         }
-        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('触发失败隔离'))
+        await handler.handleMessage({ readyState: 1, send() {} }, makeMessageData('触发失败隔离', { message_id: 'handler-observe-failed-1' }))
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('observe-failed')))
 
         console.log('✓ Agent Phase 1 observer 默认关闭、只观察决策与接入顺序正常')

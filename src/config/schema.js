@@ -101,6 +101,8 @@ const DEFAULT_AGENT_CONFIG = {
         mode: 'quiet',
         interjectProbability: 0.18,
         ambientReactProbability: 0.08,
+        planningMinScore: 0.3,
+        topicAffinityMinScore: 0.8,
         minInterjectScore: 0.72,
         minAmbientScore: 0.62,
         cooldownMs: 90 * 1000,

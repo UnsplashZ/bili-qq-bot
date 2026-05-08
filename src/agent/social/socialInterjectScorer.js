@@ -3,7 +3,7 @@ function clamp(value) {
 }
 
 function hasTopicAffinity(text) {
-    return /番|动画|漫画|b站|bilibili|视频|直播|截图|网页|游戏|模型|agent|bot|小助手/i.test(String(text || ''))
+    return /番|动画|漫画|b站|bilibili|视频|直播|截图|网页|游戏|模型|agent|bot|小助手|助手|机器人|拟人化|人格|功能|规则|回复|说话|插话|记忆|上下文|配置|开关|llm|prompt/i.test(String(text || ''))
 }
 
 function isRapidTwoPersonChat(memoryObservation = {}, agentMessage = {}) {

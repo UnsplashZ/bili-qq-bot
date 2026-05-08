@@ -79,6 +79,53 @@ function run() {
     assert.strictEqual(zeroProbabilitySkipped.allowed, false)
     assert.strictEqual(zeroProbabilitySkipped.reason, 'social_probability_skip')
 
+    const reactProbabilitySkipped = checkSocialBudget({
+        agentConfig: {
+            social: {
+                enabled: true,
+                mode: 'normal',
+                interjectProbability: 1,
+                ambientReactProbability: 0,
+                minInterjectScore: 0,
+                minAmbientScore: 0,
+                cooldownMs: 0,
+                dailyInterjectLimit: 0,
+                perTopicInterjectLimit: 0
+            }
+        },
+        groupId: '1002',
+        userId: '42',
+        topicId: 'topic_react',
+        timestamp: 100000,
+        action: 'react',
+        score: 1
+    })
+    assert.strictEqual(reactProbabilitySkipped.allowed, false)
+    assert.strictEqual(reactProbabilitySkipped.reason, 'social_probability_skip')
+
+    const replyUsesInterjectProbability = checkSocialBudget({
+        agentConfig: {
+            social: {
+                enabled: true,
+                mode: 'normal',
+                interjectProbability: 1,
+                ambientReactProbability: 0,
+                minInterjectScore: 0,
+                minAmbientScore: 1,
+                cooldownMs: 0,
+                dailyInterjectLimit: 0,
+                perTopicInterjectLimit: 0
+            }
+        },
+        groupId: '1003',
+        userId: '42',
+        topicId: 'topic_reply',
+        timestamp: 100000,
+        action: 'reply',
+        score: 0.5
+    })
+    assert.strictEqual(replyUsesInterjectProbability.allowed, true)
+
     const rapidBlocked = checkSocialBudget({
         agentConfig,
         groupId: '1000',

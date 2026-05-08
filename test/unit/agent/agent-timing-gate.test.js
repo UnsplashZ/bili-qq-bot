@@ -70,6 +70,42 @@ async function run() {
     })
     assert.strictEqual(twoPerson.timingAction, 'listen')
 
+    const socialConfig = {
+        ...config,
+        social: {
+            enabled: true,
+            mode: 'active',
+            planningMinScore: 0.3,
+            topicAffinityMinScore: 0.8,
+            avoidDuringRapidTwoPersonChat: true
+        }
+    }
+    const agentTopic = runTimingGate({
+        agentConfig: socialConfig,
+        agentMessage: message('m5', '42', 50000, '我发现这个拟人化功能直接选择一句话不说'),
+        memoryObservation: { groupState: { recentMessages: [] }, chatPace: { crowded: false } },
+        scoreResult: { score: 0.04, traits: { privilegedActor: true } }
+    })
+    assert.strictEqual(agentTopic.timingAction, 'continue')
+    assert.strictEqual(agentTopic.reason, 'timing_allows_planning')
+    assert.strictEqual(agentTopic.signals.topicOpenForBot, true)
+
+    const lowSocial = runTimingGate({
+        agentConfig: {
+            ...socialConfig,
+            social: {
+                ...socialConfig.social,
+                planningMinScore: 0.9,
+                topicAffinityMinScore: 1
+            }
+        },
+        agentMessage: message('m6', '42', 60000, '包好玩的'),
+        memoryObservation: { groupState: { recentMessages: [] }, chatPace: { crowded: false } },
+        scoreResult: { score: 0, traits: {} }
+    })
+    assert.strictEqual(lowSocial.timingAction, 'listen')
+    assert.strictEqual(lowSocial.reason, 'low_relation_to_bot')
+
     let firstRan = false
     let secondRan = false
     scheduleTimingReentry({

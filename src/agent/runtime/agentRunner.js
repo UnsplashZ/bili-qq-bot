@@ -20,7 +20,7 @@ const { applyOutputGuardrails } = require('./outputGuardrails')
 const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
 const { scoreSocialInterject } = require('../social/socialInterjectScorer')
 const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget')
-const { isSocialAction } = require('../social/interjectPolicy')
+const { isSocialAction, isSocialReplyAction } = require('../social/interjectPolicy')
 const { runAndRecordTimingGate } = require('../timing/timingGate')
 const { scheduleTimingReentry } = require('../timing/timingStateStore')
 const { runReplyer } = require('../replyer/replyerService')
@@ -522,7 +522,9 @@ async function runObserveDecision(runState, scoreResult) {
             scoreResult.traits?.aliasMatched
         )
     })
-    if (isSocialAction(effectiveLlmDecision.decision?.action)) {
+    const socialBudgetedAction = isSocialAction(effectiveLlmDecision.decision?.action) ||
+        isSocialReplyAction(effectiveLlmDecision.decision?.action, scoreResult.traits || {})
+    if (socialBudgetedAction) {
         const llmSocialScore = Number(effectiveLlmDecision.decision.social?.interjectScore)
         const trustedSocialScore = Number.isFinite(llmSocialScore)
             ? Math.min(socialScore.score, Math.max(0, Math.min(1, llmSocialScore)))
@@ -614,7 +616,9 @@ async function runObserveDecision(runState, scoreResult) {
         policyDecision,
         traceContext: runState.context.traceContext
     })
-    if (execution.executed && isSocialAction(policyDecision.finalAction)) {
+    const socialSendAction = isSocialAction(policyDecision.finalAction) ||
+        isSocialReplyAction(policyDecision.finalAction, scoreResult.traits || {})
+    if (execution.executed && socialSendAction) {
         recordSocialSend({ groupId, topicId: sessionContext.topicId, timestamp: agentMessage.timestamp })
     }
     const replyEffectPending = execution.executed

@@ -1,4 +1,5 @@
 const { recordTimingDecision } = require('./timingStateStore')
+const { scoreSocialInterject } = require('../social/socialInterjectScorer')
 
 function recentMessages(memoryObservation) {
     return Array.isArray(memoryObservation?.groupState?.recentMessages)
@@ -45,9 +46,18 @@ function isTwoPersonChat({ memoryObservation, agentMessage }) {
     return users.includes(String(agentMessage?.userId || ''))
 }
 
-function hasOpenTopic(agentConfig, scoreResult) {
+function socialPlanningAllowed(agentConfig, socialScore) {
+    if (!agentConfig?.social?.enabled || agentConfig.social.mode === 'quiet') return false
+    const planningMinScore = Number(agentConfig.social.planningMinScore ?? 0.3)
+    const topicAffinityMinScore = Number(agentConfig.social.topicAffinityMinScore ?? 0.8)
+    return Number(socialScore?.score || 0) >= planningMinScore || Number(socialScore?.topicAffinity || 0) >= topicAffinityMinScore
+}
+
+function hasOpenTopic(agentConfig, scoreResult, socialScore) {
     const score = Number(scoreResult?.score || 0)
-    return Boolean(agentConfig?.social?.enabled && agentConfig.social.mode !== 'quiet' && score >= 0.45)
+    return Boolean(agentConfig?.social?.enabled && agentConfig.social.mode !== 'quiet' && (
+        score >= 0.45 || socialPlanningAllowed(agentConfig, socialScore)
+    ))
 }
 
 function makeDecision(timingAction, reason, waitMs = 0, signals = {}) {
@@ -81,7 +91,13 @@ function runTimingGate({ agentConfig, agentMessage, memoryObservation, scoreResu
     const quietWindowMs = agentConfig?.timing?.quietWindowMs || 2500
     const rapidConversation = isRapidConversation({ memoryObservation, agentMessage, quietWindowMs })
     const twoPersonChat = isTwoPersonChat({ memoryObservation, agentMessage })
-    const topicOpenForBot = hasOpenTopic(agentConfig, scoreResult)
+    const socialScore = scoreSocialInterject({
+        agentConfig,
+        agentMessage,
+        memoryObservation,
+        scoreResult
+    })
+    const topicOpenForBot = hasOpenTopic(agentConfig, scoreResult, socialScore)
 
     if (rapidConversation) {
         return makeDecision('wait', 'rapid_conversation', Math.min(agentConfig?.timing?.maxWaitMs || 12000, quietWindowMs), {
@@ -98,13 +114,19 @@ function runTimingGate({ agentConfig, agentMessage, memoryObservation, scoreResu
     }
 
     if (!topicOpenForBot && Number(scoreResult?.score || 0) < 0.25) {
-        return makeDecision('listen', 'low_relation_to_bot', 0, { topicOpenForBot: false })
+        return makeDecision('listen', 'low_relation_to_bot', 0, {
+            topicOpenForBot: false,
+            socialScore: socialScore.score,
+            topicAffinity: socialScore.topicAffinity
+        })
     }
 
     return makeDecision('continue', 'timing_allows_planning', 0, {
         rapidConversation,
         twoPersonChat,
-        topicOpenForBot
+        topicOpenForBot,
+        socialScore: socialScore.score,
+        topicAffinity: socialScore.topicAffinity
     })
 }
 

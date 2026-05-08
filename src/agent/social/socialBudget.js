@@ -1,3 +1,5 @@
+const { isAmbientAction } = require('./interjectPolicy')
+
 const socialStates = new Map()
 
 function nowMs() {
@@ -39,6 +41,8 @@ function normalizeSocialConfig(agentConfig = {}) {
         perTopicInterjectLimit: Math.max(0, Math.trunc(numberOrDefault(social.perTopicInterjectLimit, 2))),
         interjectProbability: Math.min(1, Math.max(0, numberOrDefault(social.interjectProbability, 0.18) * probabilityMultiplier)),
         ambientReactProbability: Math.min(1, Math.max(0, numberOrDefault(social.ambientReactProbability, 0.08) * probabilityMultiplier)),
+        planningMinScore: Math.min(1, Math.max(0, numberOrDefault(social.planningMinScore, 0.3))),
+        topicAffinityMinScore: Math.min(1, Math.max(0, numberOrDefault(social.topicAffinityMinScore, 0.8))),
         minInterjectScore: Math.min(1, Math.max(0, numberOrDefault(social.minInterjectScore, 0.72))),
         minAmbientScore: Math.min(1, Math.max(0, numberOrDefault(social.minAmbientScore, 0.62))),
         maxCasualReplyChars: Math.max(20, Math.min(500, Math.trunc(numberOrDefault(social.maxCasualReplyChars, 120)))),
@@ -62,7 +66,8 @@ function checkSocialBudget({ agentConfig, groupId, userId, topicId = '', timesta
         return { allowed: false, reason: 'social_rapid_two_person_chat', config }
     }
 
-    const minScore = false ? config.minAmbientScore : config.minInterjectScore
+    const ambientAction = isAmbientAction(action)
+    const minScore = ambientAction ? config.minAmbientScore : config.minInterjectScore
     if (Number(score || 0) < minScore) return { allowed: false, reason: 'social_score_below_threshold', config }
 
     const state = getState(groupId)
@@ -88,7 +93,7 @@ function checkSocialBudget({ agentConfig, groupId, userId, topicId = '', timesta
     }
 
     if (config.mode !== 'debug') {
-        const probability = false ? config.ambientReactProbability : config.interjectProbability
+        const probability = ambientAction ? config.ambientReactProbability : config.interjectProbability
         if (probability <= 0) return { allowed: false, reason: 'social_probability_skip', roll: null, probability, config }
         const roll = deterministicRoll({ groupId, userId, topicId: normalizedTopicId, timestamp, action })
         if (roll >= probability) return { allowed: false, reason: 'social_probability_skip', roll, probability, config }
