@@ -732,6 +732,87 @@ async function run() {
         assert.strictEqual(sentPayloads[0].params.message[0].data.text, '我在，这条是受控 live 完整回复。')
         assert.ok(logs.some((line) => line.includes('AGENT') && line.includes('reply-sent')))
 
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
+        enableAgent({
+            observeOnly: false,
+            sendEnabled: true,
+            decisionMode: 'llm_live',
+            replyPolicy: {
+                minReplyScore: 0.72,
+                cooldownMs: 0
+            },
+            participation: {
+                timingGateEnabled: false,
+                replyerEnabled: true
+            },
+            social: {
+                enabled: true,
+                mode: 'normal',
+                interjectProbability: 0,
+                ambientReactProbability: 0,
+                minInterjectScore: 0,
+                minAmbientScore: 0,
+                cooldownMs: 0,
+                dailyInterjectLimit: 0,
+                perTopicInterjectLimit: 0,
+                avoidDuringRapidTwoPersonChat: false
+            },
+            llm: {
+                enabled: true,
+                provider: 'openai-compatible',
+                baseURL: 'https://example.test/v1',
+                model: 'test-model',
+                apiKeyEnv: 'AGENT_API_KEY',
+                timeoutMs: 12000,
+                temperature: 0.2,
+                maxTokens: 500
+            }
+        })
+        llmClient.createChatCompletion = async ({ purpose }) => ({
+            model: 'test-model',
+            usage: { total_tokens: 1 },
+            content: JSON.stringify(purpose === 'replyer'
+                ? {
+                    text: '这个我可以接一下，不用等人专门 at 我。',
+                    tone: 'casual',
+                    confidence: 0.9
+                }
+                : {
+                    action: 'reply',
+                    confidence: 0.88,
+                    reason: '用户在讨论 bot 主动接话，虽然没有 @，但话题与我强相关。',
+                    topic: 'bot_participation',
+                    replyStyle: 'casual',
+                    replyDraft: '这个我可以接一下，不用等人专门 at 我。',
+                    memoryHints: [],
+                    toolIntent: null
+                })
+        })
+        const ambientReplyResult = await agent.agentIngress.observe({
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sentPayloads.push(JSON.parse(payload))
+                }
+            },
+            groupId: '1000',
+            userId: '42',
+            rawMessage: '这个 bot 主动接话逻辑还是有点问题',
+            messageData: makeMessageData('这个 bot 主动接话逻辑还是有点问题', {
+                message_id: 'ambient-reply'
+            }),
+            traceContext: { scope: 'test:ambient-reply-bypasses-social-probability' }
+        })
+        assert.strictEqual(ambientReplyResult.policyDecision.accepted, true)
+        assert.strictEqual(ambientReplyResult.policyDecision.reason, 'accepted')
+        assert.strictEqual(ambientReplyResult.execution.executed, true)
+        assert.notStrictEqual(ambientReplyResult.policyDecision.replyGuardDecision?.reason, 'social_probability_skip')
+
+        shortTermStore.reset()
+        budgetGuard.resetBudget()
+        replyGuard.resetReplyGuard()
         llmClient.createChatCompletion = async () => ({
             model: 'test-model',
             usage: { total_tokens: 1 },
@@ -768,7 +849,7 @@ async function run() {
         assert.strictEqual(cooldownResult.policyDecision.accepted, true)
         assert.strictEqual(cooldownResult.policyDecision.reason, 'accepted')
         assert.strictEqual(cooldownResult.execution.executed, true)
-        assert.strictEqual(sentPayloads.length, 2)
+        assert.strictEqual(sentPayloads.length, 3)
 
         shortTermStore.reset()
         budgetGuard.resetBudget()
@@ -830,7 +911,7 @@ async function run() {
         assert.strictEqual(groupSendDisabledResult.policyDecision.accepted, false)
         assert.strictEqual(groupSendDisabledResult.policyDecision.reason, 'send_disabled')
         assert.strictEqual(groupSendDisabledResult.execution.executed, false)
-        assert.strictEqual(sentPayloads.length, 2)
+        assert.strictEqual(sentPayloads.length, 3)
 
         prepareRuntime()
         const handler = require(path.join(__dirname, '../../../src/handlers/messageHandler'))

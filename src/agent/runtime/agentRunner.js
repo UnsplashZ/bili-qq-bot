@@ -19,7 +19,7 @@ const { evaluateDecisionGuardrails } = require('./decisionGuardrails')
 const { applyOutputGuardrails } = require('./outputGuardrails')
 const { processToolPlan, tryConsumeToolConfirmation } = require('../tools/toolPlanProcessor')
 const { scoreSocialInterject } = require('../social/socialInterjectScorer')
-const { checkSocialBudget, recordSocialSend } = require('../social/socialBudget')
+const { recordSocialSend } = require('../social/socialBudget')
 const { isSocialAction, isSocialReplyAction } = require('../social/interjectPolicy')
 const { runAndRecordTimingGate } = require('../timing/timingGate')
 const { scheduleTimingReentry } = require('../timing/timingStateStore')
@@ -522,25 +522,6 @@ async function runObserveDecision(runState, scoreResult) {
             scoreResult.traits?.aliasMatched
         )
     })
-    const socialBudgetedAction = isSocialAction(effectiveLlmDecision.decision?.action) ||
-        isSocialReplyAction(effectiveLlmDecision.decision?.action, scoreResult.traits || {})
-    if (socialBudgetedAction) {
-        const llmSocialScore = Number(effectiveLlmDecision.decision.social?.interjectScore)
-        const trustedSocialScore = Number.isFinite(llmSocialScore)
-            ? Math.min(socialScore.score, Math.max(0, Math.min(1, llmSocialScore)))
-            : socialScore.score
-        replyGuardDecision = checkSocialBudget({
-            agentConfig,
-            groupId,
-            userId: agentMessage.userId,
-            topicId: sessionContext.topicId,
-            timestamp: agentMessage.timestamp,
-            action: effectiveLlmDecision.decision.action,
-            score: trustedSocialScore,
-            socialScore
-        })
-    }
-
     let policyDecision = validateDecisionPolicy({
         agentConfig,
         llmDecision: effectiveLlmDecision,
