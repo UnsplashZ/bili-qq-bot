@@ -717,7 +717,7 @@ WebUI 不应提供 MCP 配置入口。
 - 浏览器工具：`browser.read_url` 只读读取公开 http/https 页面，拒绝 localhost、内网地址、URL 凭证和 DNS 解析到内网的地址。
 - 自学习工具：`agent.learn_memory` 可在权限边界内写入明确、稳定、非敏感长期记忆。
 
-后续 Runtime V2 规划见 `docs/plans/2026-04-26-agent-runtime-v2-roadmap.md`。
+后续 Runtime V2 规划见 `docs/done/2026-04-26-agent-runtime-v2-roadmap.md`。
 
 ## 13. 最小配置建议
 
@@ -862,4 +862,4 @@ Phase 9 `Documentation + Runtime V2 Preparation` 已完成，Runtime V2 首轮�
 - README、QQ 实测矩阵和安全边界说明已补齐。
 - 用户能按文档开启、配置、测试和回滚 Agent。
 - QQ 实测矩阵覆盖 @Bot、回复 Bot、普通自然语言、记忆、订阅、QQ 群管理、审批、越权拒绝和短码确认，并已由用户确认基本完成。
-- Runtime V2 的开发顺序、完成状态和后续维护原则记录在 `docs/plans/2026-04-26-agent-runtime-v2-roadmap.md`。
+- Runtime V2 的开发顺序、完成状态和后续维护原则记录在 `docs/done/2026-04-26-agent-runtime-v2-roadmap.md`。

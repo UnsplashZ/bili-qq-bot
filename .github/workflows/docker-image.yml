@@ -8,10 +8,59 @@ on:
 env:
   # 请替换为你的 Docker Hub 用户名/仓库名
   IMAGE_NAME: unsplash/bili-qq-bot
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+  PUPPETEER_SKIP_DOWNLOAD: "true"
 
 jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+
+      - name: Install root Node dependencies
+        run: npm ci
+
+      - name: Run root unit tests
+        run: npm test
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Python Bilibili tests
+        run: python -m pytest test/unit/bilibili
+
+      - name: Install Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Lint Dashboard
+        working-directory: dashboard
+        run: npm run lint
+
+      - name: Build Dashboard
+        working-directory: dashboard
+        run: npm run build
+
   build-push:
     if: github.ref == 'refs/heads/main'
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write

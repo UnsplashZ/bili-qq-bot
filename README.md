@@ -1,6 +1,6 @@
 # Bili QQ Bot
 
-![License](https://img.shields.io/badge/license-ISC-blue.svg) ![Docker](https://img.shields.io/badge/docker-ready-blue) ![Node](https://img.shields.io/badge/node-%3E%3D18-green) ![Python](https://img.shields.io/badge/python-%3E%3D3.8-yellow)
+![License](https://img.shields.io/badge/license-ISC-blue.svg) ![Docker](https://img.shields.io/badge/docker-ready-blue) ![Node](https://img.shields.io/badge/node-%3E%3D22.12.0-green) ![Python](https://img.shields.io/badge/python-%3E%3D3.8-yellow)
 
 基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的 Bilibili 链接解析机器人。它能智能识别并解析 B 站各种类型的链接，并为这些内容生成高清预览卡片。
 
@@ -212,7 +212,7 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 - 在 WebUI 的 **Agent 决策** 页查看每条消息的 timing、LLM 决策、policy、工具计划、确认、重入调度和发送结果。
 - 在 **Agent 记忆** 页查看长期记忆、人物画像、表达习惯和回复效果；长期记忆可继续删除或按筛选清理。
-- QQ 群实测建议参考 `docs/plans/2026-04-26-agent-qq-test-matrix.md`。
+- QQ 群实测建议参考 `docs/done/2026-04-26-agent-qq-test-matrix.md`。
 
 </details>
 
@@ -310,6 +310,8 @@ Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key�
 ## 开发与测试
 
 本地开发建议使用仓库内的固定入口，避免新增一次性调试脚本：
+
+建议使用 Node.js `>=22.12.0`（Docker 与 CI 均使用 Node 22）。
 
 ```bash
 # Node/MJS 单元测试
