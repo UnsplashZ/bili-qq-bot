@@ -249,7 +249,7 @@ const Logs = () => {
         </div>
       </header>
 
-      <GlassCard className="p-3 sm:p-4">
+      <GlassCard className="sticky top-16 z-20 bg-[var(--surface)] p-3 sm:p-4 md:top-8">
         <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
           <div className="space-y-2">
             <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</label>

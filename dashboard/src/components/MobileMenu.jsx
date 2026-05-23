@@ -1,8 +1,39 @@
 import React from 'react';
-import { Moon, Sun, X } from 'lucide-react';
+import { Monitor, Moon, Sun, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { NAV_GROUPS } from './navigation';
 import { Button } from './ui';
+import { useTheme } from '../hooks/useTheme';
+import botIcon from '../assets/bili-qq-bot-icon.png';
+
+const THEME_LABELS = {
+  system: '跟随系统',
+  light: '浅色模式',
+  dark: '深色模式',
+};
+
+const THEME_ICONS = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+};
+
+const BrandIcon = () => (
+  <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg border border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] bg-[var(--surface-raised)]">
+    <img
+      src={botIcon}
+      alt="bili-qq-bot"
+      className="h-full w-full object-contain p-1"
+      onError={(event) => {
+        event.currentTarget.style.display = 'none';
+        event.currentTarget.nextElementSibling?.removeAttribute('hidden');
+      }}
+    />
+    <span hidden className="font-mono text-xs font-bold text-[var(--accent)]">
+      BQ
+    </span>
+  </div>
+);
 
 const MobileMenuItem = ({ icon, label, href, active, onClick, badge }) => {
   return (
@@ -25,9 +56,12 @@ const MobileMenuItem = ({ icon, label, href, active, onClick, badge }) => {
   );
 };
 
-const MobileMenu = ({ isOpen, onClose, theme, onToggleTheme }) => {
+const MobileMenu = ({ isOpen, onClose }) => {
   const location = useLocation();
   const path = location.pathname;
+  const { themePreference, cycleThemePreference } = useTheme();
+  const ThemeIcon = THEME_ICONS[themePreference] || Monitor;
+  const themeLabel = THEME_LABELS[themePreference] || THEME_LABELS.system;
 
   if (!isOpen) return null;
 
@@ -41,9 +75,14 @@ const MobileMenu = ({ isOpen, onClose, theme, onToggleTheme }) => {
 
       <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] sm:w-80 md:hidden">
         <div className="flex items-center justify-between border-b border-[var(--border)] p-4 sm:p-6">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--fg)] sm:text-2xl">bili-qq-bot</h1>
-            <p className="mt-1 text-xs text-[var(--muted)]">Personal control center</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandIcon />
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold text-[var(--fg)] sm:text-2xl">
+                bili-qq-bot
+              </h1>
+              <p className="mt-1 text-xs text-[var(--muted)]">Personal control center</p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -80,10 +119,10 @@ const MobileMenu = ({ isOpen, onClose, theme, onToggleTheme }) => {
           <Button
             variant="ghost"
             className="w-full justify-start"
-            icon={theme === 'dark' ? Moon : Sun}
-            onClick={onToggleTheme}
+            icon={ThemeIcon}
+            onClick={cycleThemePreference}
           >
-            {theme === 'dark' ? '深色模式' : '浅色模式'}
+            {themeLabel}
           </Button>
         </div>
       </div>

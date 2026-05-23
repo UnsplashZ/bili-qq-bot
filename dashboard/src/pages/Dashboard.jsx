@@ -70,6 +70,28 @@ function toneTextClass(tone) {
   }
 }
 
+function metricCardClass(tone) {
+  switch (tone) {
+    case 'warn':
+      return 'border-[color-mix(in_oklch,var(--warn)_42%,var(--border))] bg-[color-mix(in_oklch,var(--warn)_5%,var(--surface))]';
+    case 'danger':
+      return 'border-[color-mix(in_oklch,var(--danger)_42%,var(--border))] bg-[color-mix(in_oklch,var(--danger)_5%,var(--surface))]';
+    default:
+      return '';
+  }
+}
+
+function metricIconClass(tone) {
+  switch (tone) {
+    case 'warn':
+      return 'border-[color-mix(in_oklch,var(--warn)_42%,var(--border))] text-[color-mix(in_oklch,var(--warn)_88%,var(--fg))]';
+    case 'danger':
+      return 'border-[color-mix(in_oklch,var(--danger)_42%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]';
+    default:
+      return 'border-[var(--border)] text-[var(--accent)]';
+  }
+}
+
 function formatPercent(value) {
   const next = numericValue(value);
   return next === null ? '-' : `${next.toFixed(1)}%`;
@@ -171,7 +193,7 @@ const Dashboard = () => {
     {
       label: '内存使用',
       value: memoryTotal ? `${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}` : formatBytes(memoryUsed),
-      meta: memoryPercent === null ? '-' : formatPercent(memoryPercent),
+      meta: null,
       icon: HardDrive,
       tone: getMetricTone(memoryPercent, 75, 90)
     },
@@ -221,7 +243,7 @@ const Dashboard = () => {
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
-            <Card key={kpi.label} className="min-h-32">
+            <Card key={kpi.label} className={`min-h-32 ${metricCardClass(kpi.tone)}`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-sm text-[var(--muted)]">{kpi.label}</div>
@@ -238,7 +260,7 @@ const Dashboard = () => {
                     <div className="mt-5 font-mono text-2xl font-semibold text-[var(--fg)]">{kpi.value}</div>
                   )}
                 </div>
-                <div className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] text-[var(--accent)]">
+                <div className={`grid h-9 w-9 place-items-center rounded-lg border ${metricIconClass(kpi.tone)}`}>
                   <Icon size={18} />
                 </div>
               </div>

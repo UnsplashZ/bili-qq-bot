@@ -74,12 +74,36 @@ html, body {
   font-family: var(--font-body);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 #root {
   min-height: 100vh;
   background: var(--bg);
+}
+
+.login-page {
+  background:
+    radial-gradient(
+      circle at 18% 12%,
+      color-mix(in oklch, var(--accent) 14%, transparent),
+      transparent 32rem
+    ),
+    radial-gradient(
+      circle at 82% 78%,
+      color-mix(in oklch, var(--info) 10%, transparent),
+      transparent 30rem
+    ),
+    linear-gradient(
+      180deg,
+      var(--bg),
+      color-mix(in oklch, var(--surface-muted) 62%, var(--bg))
+    );
+  color: var(--fg);
+}
+
+.login-panel {
+  color: var(--fg);
 }
 
 * {
@@ -371,7 +395,7 @@ select {
 @media (max-width: 768px) {
   /* 防止横向滚动 */
   body {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   /* 优化按钮点击区域 */

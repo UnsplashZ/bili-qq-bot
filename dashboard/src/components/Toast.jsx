@@ -4,15 +4,15 @@ import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 import { clsx } from 'clsx';
 
 const icons = {
-  success: <CheckCircle className="w-5 h-5 text-green-400" />,
-  error: <AlertCircle className="w-5 h-5 text-red-400" />,
-  info: <Info className="w-5 h-5 text-blue-400" />,
+  success: <CheckCircle className="w-5 h-5 text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]" />,
+  error: <AlertCircle className="w-5 h-5 text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]" />,
+  info: <Info className="w-5 h-5 text-[var(--info)]" />,
 };
 
 const styles = {
-  success: 'bg-green-500/10 border-green-500/20 text-green-100',
-  error: 'bg-red-500/10 border-red-500/20 text-red-100',
-  info: 'bg-blue-500/10 border-blue-500/20 text-blue-100',
+  success: 'bg-[var(--success-soft)] border-[color-mix(in_oklch,var(--success)_34%,var(--border))] text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]',
+  error: 'bg-[var(--danger-soft)] border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]',
+  info: 'bg-[var(--info-soft)] border-[color-mix(in_oklch,var(--info)_34%,var(--border))] text-[var(--info)]',
 };
 
 const Toast = ({ id, message, type = 'info', onClose }) => {
@@ -31,7 +31,7 @@ const Toast = ({ id, message, type = 'info', onClose }) => {
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
       layout
       className={clsx(
-        'pointer-events-auto flex w-full max-w-sm rounded-lg shadow-lg ring-1 p-4 mb-3 border',
+        'pointer-events-auto mb-3 flex w-full max-w-sm rounded-lg border p-4 shadow-lg',
         styles[type] || styles.info
       )}
     >
@@ -44,7 +44,7 @@ const Toast = ({ id, message, type = 'info', onClose }) => {
       <div className="ml-4 flex flex-shrink-0">
         <button
           type="button"
-          className="inline-flex rounded-md p-1.5 hover:bg-white/10 focus:outline-none transition-colors"
+          className="inline-flex rounded-md p-1.5 transition-colors hover:bg-[var(--surface-muted)] focus:outline-none"
           onClick={() => onClose(id)}
         >
           <span className="sr-only">Close</span>

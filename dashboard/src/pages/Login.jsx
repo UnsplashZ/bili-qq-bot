@@ -32,8 +32,8 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <main className="login-page flex min-h-screen items-center justify-center p-4">
+      <div className="login-panel w-full max-w-md">
         <GlassCard className="p-8">
           <div className="flex flex-col items-center mb-8">
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-[color-mix(in_oklch,var(--info)_34%,var(--border))] bg-[var(--info-soft)] text-[var(--info)]">
@@ -52,7 +52,7 @@ const Login = () => {
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="field-control w-full px-4 py-3 placeholder-gray-500 transition-colors"
+                className="field-control w-full px-4 py-3 transition-colors"
                 placeholder="请输入管理员密码"
                 disabled={loading}
               />
@@ -76,7 +76,7 @@ const Login = () => {
           </form>
         </GlassCard>
       </div>
-    </div>
+    </main>
   );
 };
 

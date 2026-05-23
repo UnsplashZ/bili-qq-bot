@@ -1,18 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { Menu, Moon, Sun } from 'lucide-react';
+import React, { useState } from 'react';
+import { Menu, Monitor, Moon, Sun } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import MobileMenu from './MobileMenu';
 import { NAV_GROUPS } from './navigation';
 import { Button } from './ui';
+import { useTheme } from '../hooks/useTheme';
+import botIcon from '../assets/bili-qq-bot-icon.png';
 
-const THEME_STORAGE_KEY = 'bili-qq-bot.dashboard.theme';
+const THEME_LABELS = {
+  system: '跟随系统',
+  light: '浅色模式',
+  dark: '深色模式',
+};
 
-function getInitialTheme() {
-  if (typeof window === 'undefined') return 'light';
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === 'light' || stored === 'dark') return stored;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
+const THEME_ICONS = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+};
+
+const BrandIcon = ({ className = '' }) => (
+  <div
+    className={`grid place-items-center overflow-hidden rounded-lg border border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] bg-[var(--surface-raised)] ${className}`}
+  >
+    <img
+      src={botIcon}
+      alt="bili-qq-bot"
+      className="h-full w-full object-contain p-1"
+      onError={(event) => {
+        event.currentTarget.style.display = 'none';
+        event.currentTarget.nextElementSibling?.removeAttribute('hidden');
+      }}
+    />
+    <span hidden className="font-mono text-xs font-bold text-[var(--accent)]">
+      BQ
+    </span>
+  </div>
+);
 
 const SidebarItem = ({ icon, label, href, active, badge }) => {
   return (
@@ -38,16 +62,9 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const path = location.pathname;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [theme, setTheme] = useState(getInitialTheme);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
-  };
+  const { themePreference, cycleThemePreference } = useTheme();
+  const ThemeIcon = THEME_ICONS[themePreference] || Monitor;
+  const themeLabel = THEME_LABELS[themePreference] || THEME_LABELS.system;
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
@@ -59,6 +76,7 @@ const Layout = ({ children }) => {
         >
           <Menu size={22} className="sm:h-6 sm:w-6" />
         </button>
+        <BrandIcon className="ml-2.5 h-8 w-8 sm:ml-3 sm:h-9 sm:w-9" />
         <h1 className="ml-2.5 text-lg font-semibold text-[var(--fg)] sm:ml-3 sm:text-xl">
           bili-qq-bot
         </h1>
@@ -67,9 +85,7 @@ const Layout = ({ children }) => {
       <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 border-r border-[var(--border)] bg-[var(--surface)] md:flex md:flex-col">
         <div className="p-5">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg border border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] font-mono text-xs font-bold text-[var(--accent)]">
-              BQ
-            </div>
+            <BrandIcon className="h-9 w-9" />
             <div>
               <h1 className="text-base font-semibold text-[var(--fg)]">bili-qq-bot</h1>
               <p className="mt-0.5 text-xs text-[var(--muted)]">Personal control center</p>
@@ -103,10 +119,10 @@ const Layout = ({ children }) => {
           <Button
             variant="ghost"
             className="w-full justify-start"
-            icon={theme === 'dark' ? Moon : Sun}
-            onClick={toggleTheme}
+            icon={ThemeIcon}
+            onClick={cycleThemePreference}
           >
-            {theme === 'dark' ? '深色模式' : '浅色模式'}
+            {themeLabel}
           </Button>
         </div>
       </aside>
@@ -114,8 +130,6 @@ const Layout = ({ children }) => {
       <MobileMenu
         isOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
-        theme={theme}
-        onToggleTheme={toggleTheme}
       />
 
       <main className="p-3 pt-14 sm:p-4 sm:pt-16 md:ml-64 md:p-8 md:pt-8">

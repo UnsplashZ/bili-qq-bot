@@ -11,93 +11,96 @@ import AgentDecisions from './pages/AgentDecisions';
 import AgentMemory from './pages/AgentMemory';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ToastProvider } from './components/ToastProvider';
+import ThemeProvider from './components/ThemeProvider';
 
 function App() {
   return (
-    <ToastProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
+    <ThemeProvider>
+      <ToastProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
 
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <Dashboard />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/groups"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <Groups />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/groups"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Groups />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <Settings />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/logs"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <Logs />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/logs"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Logs />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/agent-settings"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <AgentSettings />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/agent-settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AgentSettings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/agent-decisions"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <AgentDecisions />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+            <Route
+              path="/agent-decisions"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AgentDecisions />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-          <Route
-            path="/agent-memory"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <AgentMemory />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </Router>
-    </ToastProvider>
+            <Route
+              path="/agent-memory"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AgentMemory />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </Router>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }
 
