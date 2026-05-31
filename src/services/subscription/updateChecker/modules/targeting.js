@@ -1,7 +1,59 @@
-const { subscriptionManager, config } = require('../adapters/deps')
+const deps = require('../adapters/deps')
+const { subscriptionManager, config } = deps
 const { normalizeSourceList } = require('../helpers/sourceMap')
+const SubscriptionTargetResolver = require('../../subscriptionTargetResolver')
+
+function normalizeId(value) {
+    if (value === null || value === undefined) return ''
+    return String(value).trim()
+}
+
+function compareContentId(a, b) {
+    const left = normalizeId(a)
+    const right = normalizeId(b)
+    if (!left || !right) return 0
+    try {
+        const leftBig = BigInt(left.replace(/^cv/i, ''))
+        const rightBig = BigInt(right.replace(/^cv/i, ''))
+        if (leftBig > rightBig) return 1
+        if (leftBig < rightBig) return -1
+        return 0
+    } catch (error) {
+        const paddedLeft = left.padStart(32, '0')
+        const paddedRight = right.padStart(32, '0')
+        if (paddedLeft > paddedRight) return 1
+        if (paddedLeft < paddedRight) return -1
+        return 0
+    }
+}
+
+function normalizeTimestamp(value) {
+    if (value === null || value === undefined || value === '') return null
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) ? numberValue : null
+}
+
+function getStateValue(state, keys, fallback = null) {
+    if (state && typeof state === 'object') {
+        for (const key of keys) {
+            const parts = String(key).split('.')
+            let value = state
+            for (const part of parts) {
+                value = value && typeof value === 'object' ? value[part] : undefined
+            }
+            if (value !== undefined && value !== null && value !== '') {
+                return value
+            }
+        }
+    }
+    return fallback
+}
 
 module.exports = {
+    createSubscriptionTargetResolver() {
+        return new SubscriptionTargetResolver({ subscriptionManager, config })
+    },
+
     createGroupSourceMap(groupIds = [], sources = ['manual']) {
         const map = new Map()
         const normalizedSources = normalizeSourceList(sources)
@@ -62,6 +114,284 @@ module.exports = {
         return new Map()
     },
 
+    filterGroupSourceMapByGroups(sourceMap, allowedGroups) {
+        const allowed = new Set((allowedGroups || []).map(gid => String(gid)))
+        const filtered = new Map()
+        if (!(sourceMap instanceof Map) || allowed.size === 0) return filtered
+
+        for (const [groupId, sources] of sourceMap.entries()) {
+            const gid = String(groupId)
+            if (!allowed.has(gid)) continue
+            this.mergeGroupSourceMap(filtered, gid, Array.from(sources || []))
+        }
+
+        return filtered
+    },
+
+    async getUnifiedUserState(uid) {
+        const store = deps.subscriptionStateStore
+        if (store && typeof store.getUserState === 'function') {
+            return await store.getUserState(String(uid))
+        }
+        return null
+    },
+
+    getDynamicAnchor(state, fallback = null) {
+        return getStateValue(state, ['dynamic.lastDynamicId', 'lastDynamicId', 'dynamicId'], fallback)
+    },
+
+    getVideoAnchor(state, fallback = null) {
+        return {
+            videoId: getStateValue(state, ['video.videoId', 'lastVideoId', 'videoId'], fallback?.videoId || null),
+            videoCreated: getStateValue(state, ['video.lastCreated', 'lastVideoCreated', 'videoCreated'], fallback?.videoCreated ?? null)
+        }
+    },
+
+    getArticleAnchor(state, fallback = null) {
+        return {
+            articleId: getStateValue(state, ['article.articleId', 'lastArticleId', 'articleId'], fallback?.articleId || null),
+            articlePublishTime: getStateValue(
+                state,
+                ['article.lastPublishTime', 'lastArticlePublishTime', 'articlePublishTime'],
+                fallback?.articlePublishTime ?? null
+            )
+        }
+    },
+
+    getLiveAnchor(state, fallback = null) {
+        return {
+            liveStatus: getStateValue(state, ['live.lastStatus', 'lastLiveStatus', 'liveStatus'], fallback?.liveStatus ?? 0),
+            roomId: getStateValue(state, ['live.roomId', 'roomId', 'lastRoomId'], fallback?.roomId || null)
+        }
+    },
+
+    async advanceDynamicState(userItemOrUid, dynamicId) {
+        const uid = typeof userItemOrUid === 'object' ? userItemOrUid.uid : userItemOrUid
+        if (!uid || !dynamicId) return
+        const store = deps.subscriptionStateStore
+        if (store && typeof store.advanceDynamic === 'function') {
+            await store.advanceDynamic(String(uid), String(dynamicId), { source: 'updateChecker' })
+            return
+        }
+        if (typeof userItemOrUid === 'object' && userItemOrUid.manualSub) {
+            await subscriptionManager.updateUserSub(uid, { lastDynamicId: String(dynamicId) })
+        }
+        if (typeof userItemOrUid === 'object' && userItemOrUid.cookieFollower) {
+            await subscriptionManager.updateCookieFollowerState(userItemOrUid.accountUid, uid, { lastDynamicId: String(dynamicId) })
+        }
+    },
+
+    async advanceVideoState(userItem, videoState) {
+        const uid = userItem?.uid
+        if (!uid) return
+        const store = deps.subscriptionStateStore
+        if (store && typeof store.advanceVideo === 'function') {
+            await store.advanceVideo(String(uid), {
+                videoId: videoState.videoId || null,
+                lastCreated: videoState.videoCreated ?? null
+            }, { source: 'updateChecker' })
+            return
+        }
+        await this.updateVideoLegacyState(userItem, videoState)
+    },
+
+    async advanceArticleState(userItem, articleState) {
+        const uid = userItem?.uid
+        if (!uid) return
+        const store = deps.subscriptionStateStore
+        if (store && typeof store.advanceArticle === 'function') {
+            await store.advanceArticle(String(uid), {
+                articleId: articleState.articleId || null,
+                lastPublishTime: articleState.articlePublishTime ?? null
+            }, { source: 'updateChecker' })
+            return
+        }
+        await this.updateArticleLegacyState(userItem, articleState)
+    },
+
+    async advanceLiveState(userItemOrUid, liveState) {
+        const uid = typeof userItemOrUid === 'object' ? userItemOrUid.uid : userItemOrUid
+        if (!uid) return
+        const store = deps.subscriptionStateStore
+        if (store && typeof store.advanceLive === 'function') {
+            await store.advanceLive(String(uid), {
+                lastStatus: liveState.liveStatus,
+                roomId: liveState.roomId || null
+            }, { source: 'updateChecker' })
+            return
+        }
+        if (typeof userItemOrUid === 'object' && userItemOrUid.manualSub) {
+            const manualPatch = { lastLiveStatus: liveState.liveStatus }
+            if (liveState.roomId && String(userItemOrUid.manualSub.roomId || '') !== String(liveState.roomId)) {
+                manualPatch.roomId = liveState.roomId
+            }
+            await subscriptionManager.updateUserSub(uid, {
+                ...manualPatch
+            })
+        }
+        if (typeof userItemOrUid === 'object' && userItemOrUid.cookieFollower) {
+            const cookiePatch = { lastLiveStatus: liveState.liveStatus }
+            if (liveState.roomId && String(userItemOrUid.cookieFollower.roomId || '') !== String(liveState.roomId)) {
+                cookiePatch.roomId = liveState.roomId
+            }
+            await subscriptionManager.updateCookieFollowerState(userItemOrUid.accountUid, uid, {
+                ...cookiePatch
+            })
+        }
+    },
+
+    compareContentId,
+
+    async ensureTargetBaselinesForUser(userItemOrUid, targetGroupSourceMap, unifiedState = null) {
+        const uid = typeof userItemOrUid === 'object' ? userItemOrUid?.uid : userItemOrUid
+        const groupIds = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
+        const store = deps.subscriptionStateStore
+        if (!uid || groupIds.length === 0 || !store || typeof store.ensureTargetBaselines !== 'function') {
+            return unifiedState
+        }
+
+        const currentState = unifiedState || (typeof store.getUserState === 'function'
+            ? await store.getUserState(String(uid))
+            : null)
+        const result = await store.ensureTargetBaselines(String(uid), groupIds, currentState || {})
+        return result?.state || currentState
+    },
+
+    isContentAfterTargetBaseline({ contentType, contentId, contentTime = null, baseline = null }) {
+        if (!baseline || baseline.active === false) return true
+        if (baseline.baselineSource === 'existing_target') return true
+
+        const baselineId = normalizeId(baseline.baselineId)
+        const normalizedContentId = normalizeId(contentId)
+        if (contentType === 'dynamic') {
+            if (!baselineId) return false
+            return compareContentId(normalizedContentId, baselineId) > 0
+        }
+
+        if (contentType === 'video' || contentType === 'article') {
+            const baselineTime = normalizeTimestamp(baseline.baselineTime)
+            const normalizedContentTime = normalizeTimestamp(contentTime)
+            if (baselineTime !== null && normalizedContentTime !== null) {
+                return normalizedContentTime > baselineTime
+            }
+            return false
+        }
+
+        if (contentType === 'live') {
+            const baselineRoomId = normalizeId(baseline.baselineRoomId)
+            const baselineStatus = normalizeTimestamp(baseline.baselineStatus)
+            if (baselineStatus === 1 && baselineRoomId && baselineRoomId === normalizedContentId) {
+                return false
+            }
+            return true
+        }
+
+        return true
+    },
+
+    filterUndeliveredGroupsByTargetBaseline({ uid, contentType, contentId, contentTime = null, groupIds = [] }) {
+        const store = deps.subscriptionStateStore
+        if (!uid || !store || typeof store.getUserState !== 'function' || typeof store.getTargetBaseline !== 'function') {
+            return groupIds
+        }
+
+        const userState = store.getUserState(String(uid))
+        return (groupIds || []).filter(groupId => {
+            const baseline = store.getTargetBaseline(userState, String(groupId), contentType)
+            return this.isContentAfterTargetBaseline({
+                contentType,
+                contentId,
+                contentTime,
+                baseline
+            })
+        })
+    },
+
+    async getUndeliveredGroupSourceMap(paramsOrContentType, legacyContentId, legacyTargetGroupSourceMap) {
+        const params = typeof paramsOrContentType === 'object' && paramsOrContentType !== null
+            ? paramsOrContentType
+            : {
+                contentType: paramsOrContentType,
+                contentId: legacyContentId,
+                targetGroupSourceMap: legacyTargetGroupSourceMap
+            }
+        const {
+            uid,
+            contentType,
+            contentId,
+            contentTime = null,
+            targetGroupSourceMap,
+            ledgerTargetGroupSourceMap = targetGroupSourceMap
+        } = params
+        const groupIds = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
+        const ledgerGroupIds = this.getGroupIdsFromSourceMap(ledgerTargetGroupSourceMap)
+        if (groupIds.length === 0 || !contentId) return new Map()
+
+        let undeliveredGroups = null
+        const store = deps.subscriptionDeliveryStore
+        if (store && typeof store.getDeliveryCoverage === 'function') {
+            const coverageGroupIds = ledgerGroupIds.length > 0 ? ledgerGroupIds : groupIds
+            const coverage = await store.getDeliveryCoverage(coverageGroupIds, contentType, String(contentId))
+            // Ledger retry is only valid after at least one target group has a
+            // persistent delivery/tombstone record. Legacy anchors and expired
+            // ledgers must not be interpreted as "all groups need historical replay".
+            if (!coverage.hasAnyRecord) {
+                return new Map()
+            }
+            undeliveredGroups = coverage.undeliveredGroups
+        } else if (store && typeof store.getUndeliveredGroups === 'function') {
+            undeliveredGroups = await store.getUndeliveredGroups(groupIds, contentType, String(contentId))
+        } else if (store && typeof store.hasDelivered === 'function') {
+            undeliveredGroups = []
+            let hasAnyRecord = false
+            for (const groupId of groupIds) {
+                const delivered = await store.hasDelivered(String(groupId), contentType, String(contentId))
+                if (delivered) {
+                    hasAnyRecord = true
+                } else {
+                    undeliveredGroups.push(groupId)
+                }
+            }
+            if (!hasAnyRecord) return new Map()
+        } else {
+            return new Map()
+        }
+
+        const retryableGroups = this.filterUndeliveredGroupsByTargetBaseline({
+            uid,
+            contentType,
+            contentId,
+            contentTime,
+            groupIds: undeliveredGroups || []
+        })
+        return this.filterGroupSourceMapByGroups(targetGroupSourceMap, retryableGroups)
+    },
+
+    async recordDeliveredGroups(contentType, contentId, groupIds) {
+        const deliveredGroups = Array.isArray(groupIds)
+            ? groupIds.map(gid => String(gid)).filter(Boolean)
+            : []
+        const store = deps.subscriptionDeliveryStore
+        if (!store || typeof store.recordDeliveredBatch !== 'function' || deliveredGroups.length === 0 || !contentId) {
+            return
+        }
+        await store.recordDeliveredBatch(deliveredGroups.map(groupId => ({
+            groupId,
+            type: contentType,
+            contentId: String(contentId),
+            meta: { source: 'updateChecker' }
+        })))
+    },
+
+    async recordNotifyDeliveredGroups(contentType, contentId, notifyResult, extraGroups = []) {
+        const deliveredGroups = [
+            ...(Array.isArray(notifyResult?.successGroups) ? notifyResult.successGroups : []),
+            ...(Array.isArray(notifyResult?.dedupSkippedGroups) ? notifyResult.dedupSkippedGroups : []),
+            ...(Array.isArray(extraGroups) ? extraGroups : [])
+        ]
+        await this.recordDeliveredGroups(contentType, contentId, deliveredGroups)
+    },
+
     /**
      * 构建需要检查视频/专栏的统一用户列表
      * 合并手动订阅用户 + Cookie同步用户，自动去重
@@ -69,64 +399,7 @@ module.exports = {
      * @returns {Array<{uid, name, targetGroups, source, manualSub?, cookieFollower?, accountUid?}>} 用户检查列表
      */
     buildUserCheckList(activeGroups) {
-        const userMap = new Map() // uid -> {uid, name, targetGroups, source}
-
-        // 1. 添加手动订阅用户
-        for (const sub of subscriptionManager.userSubs) {
-            const manualUid = String(sub?.uid ?? '').trim()
-            if (!manualUid) continue
-
-            const targetGroups = sub.groupIds.filter(gid => activeGroups.has(gid))
-            if (targetGroups.length === 0) continue
-            const sourceMap = this.createGroupSourceMap(targetGroups, ['manual'])
-
-            userMap.set(manualUid, {
-                uid: manualUid,
-                name: sub.name,
-                targetGroups: targetGroups,
-                targetGroupSourceMap: sourceMap,
-                source: 'manual',
-                manualSub: sub // 保留原始订阅对象的引用
-            })
-        }
-
-        // 2. 添加Cookie同步用户
-        for (const [accountUid, followers] of Object.entries(subscriptionManager.cookieFollowings)) {
-            for (const follower of followers) {
-                const fid = subscriptionManager.getFollowerId(follower)
-                if (!fid) continue
-
-                // 使用 findTargetGroupSourceMapForUser 判断哪些群组需要推送，并保留来源信息
-                const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
-                const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
-                if (targetGroups.length === 0) continue
-
-                // 如果用户已存在（手动订阅），合并目标群组
-                if (userMap.has(fid)) {
-                    const existing = userMap.get(fid)
-                    // 合并群组和来源（去重）
-                    targetGroupSourceMap.forEach((sources, gid) => {
-                        this.mergeGroupSourceMap(existing.targetGroupSourceMap, gid, Array.from(sources))
-                    })
-                    existing.targetGroups = this.getGroupIdsFromSourceMap(existing.targetGroupSourceMap)
-                    existing.source = 'both' // 标记为双重来源
-                    existing.cookieFollower = follower // 添加Cookie follower引用
-                    existing.accountUid = accountUid // Cookie所属账号
-                } else {
-                    userMap.set(fid, {
-                        uid: fid,
-                        name: follower.name || `User_${fid}`,
-                        targetGroups: targetGroups,
-                        targetGroupSourceMap,
-                        source: 'cookie',
-                        cookieFollower: follower,
-                        accountUid: accountUid // Cookie所属账号
-                    })
-                }
-            }
-        }
-
-        return Array.from(userMap.values())
+        return this.createSubscriptionTargetResolver().resolve(activeGroups)
     },
 
     collectFeedCoveredUids(accountUid, activeGroups = null) {
@@ -150,54 +423,17 @@ module.exports = {
     },
 
     findTargetGroupSourceMapForUser(accountUid, follower, activeGroups = null) {
-        const targetMap = new Map()
-        const followerId = subscriptionManager.getFollowerId(follower)
-        const followerTags = Array.isArray(follower?.biliGroups)
-            ? follower.biliGroups.map(tag => String(tag).trim()).filter(Boolean)
-            : []
+        return this.createSubscriptionTargetResolver().resolveForFollower(accountUid, follower, activeGroups)
+    },
 
-        // 1. Find all groups bound to this account (Cookie Sync)
-        for (const [gid, uid] of Object.entries(subscriptionManager.groupToAccountMap)) {
-            if (uid !== String(accountUid)) continue
+    findTargetGroupSourceMapForUid(uid, activeGroups = null) {
+        const normalizedUid = normalizeId(uid)
+        if (!normalizedUid) return new Map()
 
-            // Filter out inactive groups
-            if (activeGroups && !activeGroups.has(gid)) continue
-
-            // Check if sync enabled
-            if (!config.getGroupConfig(gid, 'enableCookieSync')) continue
-
-            // Check Tag filtering
-            let allowedTags = config.getGroupConfig(gid, 'cookieSyncGroupNames')
-            if (typeof allowedTags === 'string') {
-                allowedTags = allowedTags.split(',').map(s => s.trim()).filter(Boolean)
-            } else if (Array.isArray(allowedTags)) {
-                allowedTags = allowedTags.map(tag => String(tag).trim()).filter(Boolean)
-            }
-            if (!Array.isArray(allowedTags)) {
-                allowedTags = []
-            }
-            // 空分组配置表示不过滤（全量同步）
-            if (allowedTags.length > 0) {
-                const hasTag = allowedTags.some(tag => followerTags.includes(tag))
-                if (!hasTag) continue
-            }
-
-            this.mergeGroupSourceMap(targetMap, gid, ['cookieSync'])
-        }
-
-        // 2. Find manual subscriptions for this user (Group Subscription)
-        // Even if the group didn't enable sync, if they manually subscribed, they should get it.
-        // And since we are in the Feed flow, we know this user updated.
-        const manualSub = subscriptionManager.userSubs.find(s => String(s.uid) === followerId)
-        if (manualSub) {
-            manualSub.groupIds.forEach(gid => {
-                // Filter out inactive groups
-                if (activeGroups && !activeGroups.has(String(gid))) return
-                this.mergeGroupSourceMap(targetMap, gid, ['manual'])
-            })
-        }
-
-        return targetMap
+        const target = this.createSubscriptionTargetResolver()
+            .resolve(activeGroups)
+            .find(item => normalizeId(item?.uid) === normalizedUid)
+        return this.normalizeGroupSourceMap(target?.targetGroupSourceMap || new Map())
     },
 
     findTargetGroupsForUser(accountUid, follower, activeGroups = null) {

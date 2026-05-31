@@ -6,6 +6,7 @@ from bilibili_api import user
 from bilibili_api.utils.network import Api
 
 from ..auth.credential_store import load_credential
+from ..errors import auth_failed_envelope, error_envelope
 from ..logging_utils import service_log
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,9 @@ TAG_USERS_CACHE_TTL_SECONDS = 300
 TAG_USERS_CACHE_MAX_ENTRIES = 256
 _tag_users_cache = {}
 _tag_users_inflight = {}
+
+
+_error_envelope = error_envelope
 
 
 def _build_tag_users_cache_key(my_uid, tag_id):
@@ -123,7 +127,7 @@ async def get_my_followings(group_name=None, group_id=None):
     try:
         cred = load_credential(group_id)
         if not cred:
-            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+            return auth_failed_envelope("未登录，请先配置 cookies.json", "my_followings")
 
         self_info = await user.get_self_info(credential=cred)
         my_uid = self_info["mid"]
@@ -142,7 +146,7 @@ async def get_my_followings(group_name=None, group_id=None):
                 )
                 groups = await groups_api.result
             except Exception as e:
-                return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
+                return _error_envelope(f"获取分组列表失败: {str(e)}", "my_followings", error=e)
 
             target_group = None
             if groups:
@@ -152,7 +156,12 @@ async def get_my_followings(group_name=None, group_id=None):
                         break
 
             if not target_group:
-                return {"status": "error", "message": f"未找到名为 '{group_name}' 的分组"}
+                return _error_envelope(
+                    f"未找到名为 '{group_name}' 的分组",
+                    "my_followings",
+                    error_type="unknown",
+                    http_status=404,
+                )
 
             tagid = target_group["tagid"]
 
@@ -274,7 +283,7 @@ async def get_my_followings(group_name=None, group_id=None):
         }
     except Exception as e:
         service_log(logger, "error", "followings-fetch-failed", error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "my_followings", error=e)
 
 
 def _unwrap_bili_response(response, max_depth=5):
@@ -304,7 +313,7 @@ async def get_follow_groups(group_id=None):
     try:
         cred = load_credential(group_id)
         if not cred:
-            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+            return _error_envelope("未登录，请先配置 cookies.json", "get_follow_groups", error_type="auth_failed", http_status=401)
 
         try:
             groups_api = Api(
@@ -316,6 +325,6 @@ async def get_follow_groups(group_id=None):
             groups = _unwrap_bili_response(groups_raw)
             return {"status": "success", "data": groups}
         except Exception as e:
-            return {"status": "error", "message": f"获取分组列表失败: {str(e)}"}
+            return _error_envelope(f"获取分组列表失败: {str(e)}", "get_follow_groups", error=e)
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "get_follow_groups", error=e)

@@ -8,6 +8,10 @@ const { spawnSync } = require('child_process')
 const projectRoot = path.join(__dirname, '../..')
 const testRoot = path.join(projectRoot, 'test/unit')
 const mochaBin = path.join(projectRoot, 'node_modules/.bin/mocha')
+const venvDir = path.join(projectRoot, 'venv')
+const venvPython = process.platform === 'win32'
+    ? path.join(venvDir, 'Scripts', 'python.exe')
+    : path.join(venvDir, 'bin', 'python')
 
 function listTestFiles(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -19,12 +23,56 @@ function listTestFiles(dir) {
             files.push(...listTestFiles(fullPath))
             continue
         }
-        if (entry.isFile() && (entry.name.endsWith('.test.js') || entry.name.endsWith('.test.mjs'))) {
+        if (entry.isFile() && (
+            entry.name.endsWith('.test.js') ||
+            entry.name.endsWith('.test.mjs') ||
+            entry.name.endsWith('_test.py')
+        )) {
             files.push(fullPath)
         }
     }
 
     return files
+}
+
+function ensurePython() {
+    if (fs.existsSync(venvPython)) return { command: venvPython }
+
+    const pythonCommand = process.env.PYTHON || 'python3'
+    process.stdout.write(`\n[unit] creating Python venv at ${path.relative(projectRoot, venvDir)}\n`)
+    const createResult = spawnSync(pythonCommand, ['-m', 'venv', venvDir], {
+        cwd: projectRoot,
+        stdio: 'inherit',
+        env: process.env,
+        timeout: 120000
+    })
+    if (createResult.status !== 0 || createResult.error || createResult.signal) {
+        return {
+            error: createResult.error || new Error(`failed to create venv with ${pythonCommand}`),
+            status: createResult.status || 1,
+            signal: createResult.signal
+        }
+    }
+
+    const requirementsPath = path.join(projectRoot, 'requirements.txt')
+    if (fs.existsSync(requirementsPath)) {
+        process.stdout.write('\n[unit] installing Python requirements into venv\n')
+        const installResult = spawnSync(venvPython, ['-m', 'pip', 'install', '-r', 'requirements.txt'], {
+            cwd: projectRoot,
+            stdio: 'inherit',
+            env: process.env,
+            timeout: 120000
+        })
+        if (installResult.status !== 0 || installResult.error || installResult.signal) {
+            return {
+                error: installResult.error || new Error('failed to install Python requirements'),
+                status: installResult.status || 1,
+                signal: installResult.signal
+            }
+        }
+    }
+
+    return { command: venvPython }
 }
 
 function usesMocha(filePath) {
@@ -34,18 +82,36 @@ function usesMocha(filePath) {
 
 function runOne(filePath) {
     const relativePath = path.relative(projectRoot, filePath)
+    const pythonTest = filePath.endsWith('_test.py')
     const mochaTest = usesMocha(filePath)
-    const command = mochaTest ? mochaBin : process.execPath
-    const args = mochaTest
+    const python = pythonTest ? ensurePython() : null
+    if (python && python.error) {
+        console.error(python.error.message)
+        if (python.signal) {
+            console.error(`test terminated by signal ${python.signal}`)
+        }
+        return python.status || 1
+    }
+
+    const command = pythonTest ? python.command : (mochaTest ? mochaBin : process.execPath)
+    const args = pythonTest
+        ? [relativePath]
+        : mochaTest
         ? ['--exit', relativePath]
         : [relativePath]
+    const env = pythonTest
+        ? {
+            ...process.env,
+            PYTHONPATH: [projectRoot, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+        }
+        : process.env
 
     process.stdout.write(`\n[unit] ${relativePath}\n`)
     const result = spawnSync(command, args, {
         cwd: projectRoot,
         stdio: 'inherit',
-        env: process.env,
-        timeout: 60000
+        env,
+        timeout: pythonTest ? 120000 : 60000
     })
 
     if (result.error) {

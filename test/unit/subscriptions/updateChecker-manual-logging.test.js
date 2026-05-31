@@ -12,6 +12,8 @@ const originals = {
     getUserDynamic: biliApi.getUserDynamic,
     getUserInfo: biliApi.getUserInfo,
     getBangumiInfo: biliApi.getBangumiInfo,
+    getUnifiedUserState: updateChecker.getUnifiedUserState,
+    ensureTargetBaselinesForUser: updateChecker.ensureTargetBaselinesForUser,
     notifyGroupsWithImageAndCache: updateChecker.notifyGroupsWithImageAndCache,
     updateUserSub: subscriptionManager.updateUserSub,
     updateBangumiSub: subscriptionManager.updateBangumiSub
@@ -21,6 +23,8 @@ function restore() {
     biliApi.getUserDynamic = originals.getUserDynamic
     biliApi.getUserInfo = originals.getUserInfo
     biliApi.getBangumiInfo = originals.getBangumiInfo
+    updateChecker.getUnifiedUserState = originals.getUnifiedUserState
+    updateChecker.ensureTargetBaselinesForUser = originals.ensureTargetBaselinesForUser
     updateChecker.notifyGroupsWithImageAndCache = originals.notifyGroupsWithImageAndCache
     subscriptionManager.updateUserSub = originals.updateUserSub
     subscriptionManager.updateBangumiSub = originals.updateBangumiSub
@@ -31,6 +35,9 @@ async function run() {
     const off = logger.onLog((entry) => logs.push(entry.message))
 
     try {
+        updateChecker.getUnifiedUserState = async () => null
+        updateChecker.ensureTargetBaselinesForUser = async (_userItemOrUid, _targetGroupSourceMap, unifiedState) => unifiedState
+
         biliApi.getUserDynamic = async () => ({ status: 'error', message: 'fetch failed' })
         await updateChecker.checkUserDynamic({
             uid: '42',

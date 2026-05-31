@@ -170,16 +170,51 @@ describe('UpdateChecker @all auto degrade', function () {
             return { status: 'ok', retcode: 0, data: { message_id: 1 } }
         }
 
-        await updateChecker.sendSubscriptionMessage('3000', [{ type: 'text', data: { text: 'hello' } }])
+        const result = await updateChecker.sendSubscriptionMessage('3000', [{ type: 'text', data: { text: 'hello' } }])
 
         assert.strictEqual(sentChains.length, 2)
         assert.strictEqual(sentChains[0][0].type, 'at')
         assert.strictEqual(String(sentChains[0][0].data.qq), 'all')
         assert.strictEqual(sentChains[1][0].type, 'text')
+        assert.deepStrictEqual(result, {
+            ok: true,
+            reason: 'ok',
+            retcode: 0,
+            fallbackUsed: true
+        })
 
         const cached = updateChecker.groupAtAllCapabilityCache.get('3000')
         assert.strictEqual(cached.canAtAll, false)
         assert.strictEqual(cached.retcode, 100)
+    })
+
+    it('send_group_msg 和纯文本 fallback 都失败时返回结构化失败且不假成功', async function () {
+        overwriteGroupConfigs({
+            '3001': { isInGroup: true, subscriptionAtAll: true }
+        })
+
+        updateChecker.queryGroupAtAllCapability = async () => ({
+            canAtAll: true,
+            reason: 'ok',
+            retcode: 0,
+            expiresAt: Date.now() + 1000
+        })
+
+        notificationService.processMessageChain = (message) => message
+        notificationService.callAction = async (_ws, action, params) => {
+            assert.strictEqual(action, 'send_group_msg')
+            const hasAtAll = params.message.some(seg => seg?.type === 'at' && String(seg?.data?.qq) === 'all')
+            return hasAtAll
+                ? { status: 'failed', retcode: 100, wording: 'no permission' }
+                : { status: 'failed', retcode: 200, wording: 'network busy' }
+        }
+
+        const result = await updateChecker.sendSubscriptionMessage('3001', [{ type: 'text', data: { text: 'hello' } }])
+
+        assert.strictEqual(result.ok, false)
+        assert.strictEqual(result.retcode, 200)
+        assert.strictEqual(result.fallbackUsed, true)
+        assert.ok(result.reason.includes('send_failed_after_at_all_fallback'))
     })
 
 })

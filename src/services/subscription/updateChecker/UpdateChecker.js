@@ -23,6 +23,7 @@ class UpdateChecker {
         this.groupAtAllCapabilityInFlight = new Map() // groupId -> Promise<capability>
         this.groupBotRoleCache = new Map() // groupId -> { role, allowed, expiresAt, reason, retcode }
         this.groupBotRoleInFlight = new Map() // groupId -> Promise<roleState>
+        this.cookieSyncFailureState = new Map() // groupId -> retryable/auth failure counters
         this._checkAllInFlight = false
     }
 }

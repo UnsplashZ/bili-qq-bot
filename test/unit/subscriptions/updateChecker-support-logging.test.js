@@ -13,6 +13,8 @@ const originals = {
     refreshCredential: biliApi.refreshCredential,
     getRootAdminQQ: config.getRootAdminQQ,
     queryGroupAtAllCapability: updateChecker.queryGroupAtAllCapability,
+    isSubscriptionAtAllEnabled: updateChecker.isSubscriptionAtAllEnabled,
+    shouldAtAll: updateChecker.shouldAtAll,
     processMessageChain: notificationService.processMessageChain,
     callAction: notificationService.callAction,
     groupConfig3000: config.groupConfigs?.['3000'],
@@ -23,6 +25,8 @@ function restore() {
     biliApi.refreshCredential = originals.refreshCredential
     config.getRootAdminQQ = originals.getRootAdminQQ
     updateChecker.queryGroupAtAllCapability = originals.queryGroupAtAllCapability
+    updateChecker.isSubscriptionAtAllEnabled = originals.isSubscriptionAtAllEnabled
+    updateChecker.shouldAtAll = originals.shouldAtAll
     notificationService.processMessageChain = originals.processMessageChain
     notificationService.callAction = originals.callAction
     config.groupConfigs = config.groupConfigs || {}
@@ -44,12 +48,17 @@ async function run() {
         updateChecker.ws = null
         biliApi.refreshCredential = async () => ({
             status: 'error',
-            message: 'expired'
+            message: 'expired',
+            errorType: 'auth_failed',
+            retryable: false,
+            endpoint: 'refresh_credential'
         })
 
         await updateChecker.checkAndRefreshCredential()
 
         updateChecker.ws = { readyState: 1 }
+        updateChecker.isSubscriptionAtAllEnabled = () => true
+        updateChecker.shouldAtAll = () => true
         updateChecker.queryGroupAtAllCapability = async () => ({
             canAtAll: true,
             reason: 'ok',
@@ -66,14 +75,19 @@ async function run() {
             return { status: 'ok', retcode: 0 }
         }
         config.groupConfigs = config.groupConfigs || {}
-        config.groupConfigs['3000'] = { ...(config.groupConfigs['3000'] || {}), subscriptionAtAll: true }
+        config.groupConfigs['3000'] = {
+            ...(config.groupConfigs['3000'] || {}),
+            subscriptionAtAll: true,
+            subscriptionAtAllRules: config.normalizeSubscriptionAtAllRules(null)
+        }
+        updateChecker.groupAtAllCapabilityCache.clear()
 
         await updateChecker.sendSubscriptionMessage('3000', [{ type: 'text', data: { text: 'hello' } }], {
             sources: ['manual'],
             category: 'dynamic'
         })
 
-        assert.ok(logs.some(line => line.includes('WRN SUB') && line.includes('[svc:maintenance]') && line.includes('credential-refresh-warning') && line.includes('message=expired')))
+        assert.ok(logs.some(line => line.includes('WRN SUB') && line.includes('[svc:maintenance]') && line.includes('credential-refresh-auth-failed') && line.includes('error=expired')))
         assert.ok(logs.some(line => line.includes('WRN SUB') && line.includes('[svc:maintenance]') && line.includes('admin-notify-skipped') && line.includes('reason=ws_unavailable')))
         assert.ok(logs.some(line => line.includes('WRN SUB') && line.includes('[group:3000]') && line.includes('at-all-send-failed-retrying-plain')))
         assert.ok(logs.some(line => line.includes('INF SUB') && line.includes('[group:3000]') && line.includes('plain-send-fallback-succeeded')))

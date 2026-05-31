@@ -9,6 +9,7 @@ from ..auth.credential_store import load_credential
 from ..auth.login import get_login_url, poll_login
 from ..config import DOWNLOAD_HANDLER_TIMEOUT_SECONDS, DOWNLOADS_ALLOWED_BASE
 from ..download.service import download_video_file
+from ..errors import auth_failed_envelope, error_envelope, invalid_request_envelope
 from ..services.article_service import get_article_info, get_opus_detail
 from ..services.bangumi_service import get_bangumi_info, get_ep_info, get_media_info
 from ..services.dynamic_service import get_dynamic_detail, get_user_dynamic
@@ -35,19 +36,20 @@ from ..services.resource_service import (
 from ..services.user_service import get_my_info, get_user_card, get_user_info, search_users
 from ..services.video_service import get_video_info
 from ..logging_utils import rpc_log
-from .responses import json_error, json_result
+from .responses import json_result
 
 logger = logging.getLogger(__name__)
 
 
 def _handler_error(handler_name, error, status=500):
-    rpc_log(logger, "error", "handler-failed", handler=handler_name, error=str(error))
-    return json_error(str(error), status=status)
+    payload = error_envelope(str(error), handler_name, error=error, http_status=status)
+    rpc_log(logger, "error", "handler-failed", handler=handler_name, error=str(error), **payload)
+    return json_result(payload, status=status)
 
 
 def _handler_invalid(handler_name, reason):
     rpc_log(logger, "warn", "handler-invalid", handler=handler_name, error=reason)
-    return json_error(reason, status=400)
+    return json_result(invalid_request_envelope(reason, handler_name), status=400)
 
 
 async def handle_video(request):
@@ -96,7 +98,16 @@ async def handle_video_download(request):
             )
         except asyncio.TimeoutError:
             rpc_log(logger, "error", "handler-timeout", handler="video_download", bvid=bvid)
-            return json_error("download_timeout")
+            return json_result(
+                error_envelope(
+                    "download_timeout",
+                    "video_download",
+                    error=asyncio.TimeoutError(),
+                    error_type="transient_network",
+                    http_status=504,
+                ),
+                status=504,
+            )
 
         return json_result(result)
     except Exception as e:
@@ -185,7 +196,7 @@ async def handle_user_videos(request):
         group_id = data.get("group_id")
 
         if not uid:
-            return json_result({"status": "error", "message": "缺少参数: uid"})
+            return _handler_invalid("user_videos", "缺少参数: uid")
 
         result = await get_user_videos(uid, group_id)
         return json_result(result)
@@ -200,7 +211,7 @@ async def handle_user_articles(request):
         group_id = data.get("group_id")
 
         if not uid:
-            return json_result({"status": "error", "message": "缺少参数: uid"})
+            return _handler_invalid("user_articles", "缺少参数: uid")
 
         result = await get_user_articles(uid, group_id)
         return json_result(result)
@@ -386,7 +397,7 @@ async def handle_user_search(request):
         page_size = data.get("page_size", 5)
 
         if not str(keyword or "").strip():
-            return json_result({"status": "error", "message": "缺少参数: keyword"})
+            return _handler_invalid("user_search", "缺少参数: keyword")
 
         result = await search_users(keyword, group_id, page=page, page_size=page_size)
         return json_result(result)
@@ -460,7 +471,7 @@ async def handle_credential_info(request):
 
         credential = load_credential(group_id)
         if not credential:
-            return json_result({"status": "error", "message": "No credential found"})
+            return json_result(auth_failed_envelope("No credential found", "credential_info"))
         credential = await ensure_buvid3(credential, group_id)
 
         info = await user.get_self_info(credential=credential)
@@ -477,8 +488,9 @@ async def handle_credential_info(request):
             }
         )
     except Exception as e:
-        rpc_log(logger, "error", "handler-failed", handler="credential_info", error=str(e))
-        return json_result({"status": "error", "message": str(e)})
+        payload = error_envelope(str(e), "credential_info", error=e)
+        rpc_log(logger, "error", "handler-failed", handler="credential_info", error=str(e), **payload)
+        return json_result(payload)
 
 
 async def handle_refresh_credential(request):

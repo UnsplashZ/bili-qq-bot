@@ -13,6 +13,12 @@ function createNotifyResult(dedupKey = null) {
     return {
         successGroups: [],
         failedGroups: [],
+        deliveredGroups: [],
+        ledgerSkippedGroups: [],
+        dedupSkippedGroups: [],
+        retryableGroups: [],
+        fallbackUsedGroups: [],
+        fallbackUsed: false,
         dedupKey
     }
 }
@@ -24,14 +30,55 @@ function pushUniqueGroup(target, gid) {
     }
 }
 
-module.exports = {
-    notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
-        if (!this.ws) return
+function isRetryableDeliveryFailure(sendResult = {}) {
+    const reason = String(sendResult.reason || '')
+    return reason.includes('ws_unavailable') ||
+        reason.includes('send_failed') ||
+        reason.includes('timeout') ||
+        reason.includes('ECONN') ||
+        reason.includes('network')
+}
 
+function recordDeliverySuccess(result, gid, sendResult = {}) {
+    pushUniqueGroup(result.successGroups, gid)
+    pushUniqueGroup(result.deliveredGroups, gid)
+    if (sendResult.fallbackUsed) {
+        pushUniqueGroup(result.fallbackUsedGroups, gid)
+        result.fallbackUsed = true
+    }
+}
+
+function recordDeliveryFailure(result, gid, sendResult = {}) {
+    pushUniqueGroup(result.failedGroups, gid)
+    if (isRetryableDeliveryFailure(sendResult)) {
+        pushUniqueGroup(result.retryableGroups, gid)
+    }
+}
+
+function recordLedgerSkipped(result, gid) {
+    pushUniqueGroup(result.ledgerSkippedGroups, gid)
+}
+
+function recordDedupSkipped(result, gid) {
+    pushUniqueGroup(result.dedupSkippedGroups, gid)
+    recordLedgerSkipped(result, gid)
+}
+
+module.exports = {
+    async notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
         const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
         const fallbackSources = normalizeSourceList(atAllMeta?.fallbackSources || atAllMeta?.sources || ['manual'])
         const fallbackSource = fallbackSources[0] || 'manual'
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
+        const result = createNotifyResult(dedupKey)
+        const sendTasks = []
+
+        if (!this.ws) {
+            for (const gid of groupSourceMap.keys()) {
+                recordDeliveryFailure(result, gid, { reason: 'ws_unavailable' })
+            }
+            return result
+        }
 
         groupSourceMap.forEach((_sources, gid) => {
             // Check for deduplication if key is provided
@@ -42,25 +89,51 @@ module.exports = {
                     groupId: gid,
                     dedupKey
                 })
+                recordDedupSkipped(result, gid)
                 return
             }
 
-            if (!canReceiveSubscriptionNotification(gid)) return
+            if (!canReceiveSubscriptionNotification(gid)) {
+                recordLedgerSkipped(result, gid)
+                return
+            }
 
             const messageChain = [{ type: 'text', data: { text } }]
             const resolvedMeta = this.buildAtAllMetaForGroup(gid, groupSourceMap, atAllMeta)
-            this.sendSubscriptionMessage(gid, messageChain, resolvedMeta).catch(e => {
+            sendTasks.push((async () => {
+                let sendResult
+                try {
+                    sendResult = await this.sendSubscriptionMessage(gid, messageChain, resolvedMeta)
+                } catch (e) {
+                    sendResult = {
+                        ok: false,
+                        reason: `exception:${logger.getErrorMessage(e)}`,
+                        retcode: null,
+                        fallbackUsed: false
+                    }
+                }
+
+                if (sendResult?.ok) {
+                    recordDeliverySuccess(result, gid, sendResult)
+                    // Record notification history only after real delivery success
+                    if (!disableDedup && dedupKey) {
+                        notificationHistory.add(gid, dedupKey, ttlMs)
+                    }
+                    return
+                }
+
                 subLog('error', 'text-notification-send-failed', {
                     groupId: gid,
-                    error: logger.getErrorMessage(e)
+                    reason: sendResult?.reason || 'unknown',
+                    retcode: sendResult?.retcode ?? 'N/A',
+                    fallbackUsed: Boolean(sendResult?.fallbackUsed)
                 })
-            })
-
-            // Record notification history if key provided
-            if (!disableDedup && dedupKey) {
-                notificationHistory.add(gid, dedupKey, ttlMs)
-            }
+                recordDeliveryFailure(result, gid, sendResult)
+            })())
         })
+
+        await Promise.all(sendTasks)
+        return result
     },
 
     async notifyGroupsWithImage(groupTargets, data, type, textUrl, descriptionText = '', atAllMeta = {}) {
@@ -94,6 +167,7 @@ module.exports = {
                         groupId: gid,
                         dedupKey: dedupId
                     })
+                    recordDedupSkipped(result, gid)
                 } else {
                     pendingGroupIds.push(gid)
                 }
@@ -116,7 +190,10 @@ module.exports = {
         const groupsByConfig = new Map() // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
 
         for (const groupId of pendingGroupIds) {
-            if (!canReceiveSubscriptionNotification(groupId)) continue
+            if (!canReceiveSubscriptionNotification(groupId)) {
+                recordLedgerSkipped(result, groupId)
+                continue
+            }
 
             const isNight = imageGenerator.isNightMode(groupId)
             const showId = config.getGroupConfig(groupId, 'showId')
@@ -169,8 +246,20 @@ module.exports = {
                             type,
                             data
                         )
-                        await this.sendSubscriptionMessage(gid, baseMessageChain, resolvedMeta)
-                        pushUniqueGroup(result.successGroups, gid)
+                        const sendResult = await this.sendSubscriptionMessage(gid, baseMessageChain, resolvedMeta)
+                        if (!sendResult?.ok) {
+                            subLog('error', 'image-notification-send-failed', {
+                                groupId: gid,
+                                dedupKey: dedupId,
+                                reason: sendResult?.reason || 'unknown',
+                                retcode: sendResult?.retcode ?? 'N/A',
+                                fallbackUsed: Boolean(sendResult?.fallbackUsed)
+                            })
+                            recordDeliveryFailure(result, gid, sendResult)
+                            return
+                        }
+
+                        recordDeliverySuccess(result, gid, sendResult)
 
                         // Record history
                         if (!disableDedup && dedupId) {
@@ -184,7 +273,9 @@ module.exports = {
                             dedupKey: dedupId,
                             error: logger.getErrorMessage(sendError)
                         })
-                        pushUniqueGroup(result.failedGroups, gid)
+                        recordDeliveryFailure(result, gid, {
+                            reason: `exception:${logger.getErrorMessage(sendError)}`
+                        })
                     }
                 }))
             } catch (e) {
@@ -208,12 +299,27 @@ module.exports = {
                             type,
                             data
                         )
-                        await this.sendSubscriptionMessage(
+                        const sendResult = await this.sendSubscriptionMessage(
                             gid,
                             [{ type: 'text', data: { text: fallbackText } }],
                             resolvedMeta
                         )
-                        pushUniqueGroup(result.successGroups, gid)
+                        if (!sendResult?.ok) {
+                            subLog('error', 'fallback-text-notification-send-failed', {
+                                groupId: gid,
+                                dedupKey: dedupId,
+                                reason: sendResult?.reason || 'unknown',
+                                retcode: sendResult?.retcode ?? 'N/A',
+                                fallbackUsed: Boolean(sendResult?.fallbackUsed)
+                            })
+                            recordDeliveryFailure(result, gid, sendResult)
+                            continue
+                        }
+
+                        recordDeliverySuccess(result, gid, {
+                            ...sendResult,
+                            fallbackUsed: true
+                        })
                         if (!disableDedup && dedupId) {
                             const ttlSeconds = Number(config.getGroupConfig(gid, 'linkCacheTimeout'))
                             const ttlMs = Number.isFinite(ttlSeconds) ? ttlSeconds * 1000 : 0
@@ -225,7 +331,9 @@ module.exports = {
                             dedupKey: dedupId,
                             error: logger.getErrorMessage(fallbackError)
                         })
-                        pushUniqueGroup(result.failedGroups, gid)
+                        recordDeliveryFailure(result, gid, {
+                            reason: `exception:${logger.getErrorMessage(fallbackError)}`
+                        })
                     }
                 }
             }
@@ -268,6 +376,12 @@ module.exports = {
         return {
             successGroups: Array.isArray(notifyResult?.successGroups) ? notifyResult.successGroups : [],
             failedGroups: Array.isArray(notifyResult?.failedGroups) ? notifyResult.failedGroups : [],
+            deliveredGroups: Array.isArray(notifyResult?.deliveredGroups) ? notifyResult.deliveredGroups : [],
+            ledgerSkippedGroups: Array.isArray(notifyResult?.ledgerSkippedGroups) ? notifyResult.ledgerSkippedGroups : [],
+            dedupSkippedGroups: Array.isArray(notifyResult?.dedupSkippedGroups) ? notifyResult.dedupSkippedGroups : [],
+            retryableGroups: Array.isArray(notifyResult?.retryableGroups) ? notifyResult.retryableGroups : [],
+            fallbackUsedGroups: Array.isArray(notifyResult?.fallbackUsedGroups) ? notifyResult.fallbackUsedGroups : [],
+            fallbackUsed: Boolean(notifyResult?.fallbackUsed),
             dedupKey: notifyResult?.dedupKey ?? null
         }
     }

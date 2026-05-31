@@ -9,16 +9,15 @@ const { getAxiosProxyConfig } = require('../../../src/utils/proxyUtils')
 const subscriptionService = require('../../../src/services/subscriptionService')
 const biliApi = require('../../../src/services/biliApi')
 const serviceManager = require('../../../src/services/ServiceManager')
-const axios = require('axios')
 
 async function run() {
     const logs = []
     const off = logger.onLog((entry) => logs.push(entry.message))
 
     const originalReplace = subscriptionService.cookieFollowings
-    const originalAxiosPost = axios.post
     const originalProcess = serviceManager.process
     const originalStart = serviceManager.start
+    const originalSendCommand = serviceManager.sendCommand
 
     try {
         assert.throws(() => monitorRegex('boom-pattern', /x/, 'xxx', () => {
@@ -31,7 +30,7 @@ async function run() {
 
         serviceManager.process = {}
         serviceManager.start = async () => {}
-        axios.post = async () => {
+        serviceManager.sendCommand = async () => {
             throw new Error('download boom')
         }
         const result = await biliApi.downloadVideo('BV1ZHiyBkExG', 0, '720p', '1000')
@@ -49,9 +48,9 @@ async function run() {
     } finally {
         off()
         subscriptionService.cookieFollowings = originalReplace
-        axios.post = originalAxiosPost
         serviceManager.process = originalProcess
         serviceManager.start = originalStart
+        serviceManager.sendCommand = originalSendCommand
     }
 }
 

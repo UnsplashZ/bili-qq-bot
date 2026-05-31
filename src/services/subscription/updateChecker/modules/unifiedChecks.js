@@ -53,6 +53,7 @@ module.exports = {
     async checkUserVideoUnified(userItem, force = false, options = {}) {
         const persistState = options.persistState !== false
         const disableDedup = Boolean(options && options.disableDedup)
+        const persistDelivery = options?.persistDelivery !== false && !force
         const {
             uid,
             name,
@@ -90,21 +91,20 @@ module.exports = {
             const latestVideoCreatedRaw = Number(latestVideo.created)
             const latestVideoCreated = Number.isFinite(latestVideoCreatedRaw) ? latestVideoCreatedRaw : null
 
-            // 获取lastVideoId（优先从手动订阅，其次从Cookie follower）
-            let lastVideoId = null
-            let lastVideoCreated = null
-            if (manualSub) {
-                lastVideoId = manualSub.lastVideoId
-                lastVideoCreated = manualSub.lastVideoCreated
-            } else if (cookieFollower) {
-                lastVideoId = cookieFollower.lastVideoId
-                lastVideoCreated = cookieFollower.lastVideoCreated
-            }
             const normalizeTimestamp = value => {
                 if (value === null || value === undefined || value === '') return null
                 const num = Number(value)
                 return Number.isFinite(num) ? num : null
             }
+            let unifiedState = await this.getUnifiedUserState(uid)
+            unifiedState = await this.ensureTargetBaselinesForUser(userItem, normalizedTargetGroupSourceMap, unifiedState)
+            const legacyVideoAnchor = unifiedState ? null : {
+                videoId: manualSub ? manualSub.lastVideoId : cookieFollower?.lastVideoId,
+                videoCreated: manualSub ? manualSub.lastVideoCreated : cookieFollower?.lastVideoCreated
+            }
+            const videoAnchor = this.getVideoAnchor(unifiedState, legacyVideoAnchor)
+            let lastVideoId = videoAnchor.videoId
+            let lastVideoCreated = videoAnchor.videoCreated
             lastVideoCreated = normalizeTimestamp(lastVideoCreated)
 
             // 首次检查：记录最新视频但不推送
@@ -120,8 +120,20 @@ module.exports = {
                 return
             }
 
-            // 检查是否有新视频
-            if (latestBvid !== lastVideoId || force) {
+            // 检查是否有新视频；若当前最新已在锚点内，仍通过投递台账补偿缺失群
+            const latestAlreadyAnchored = !force && latestBvid === lastVideoId
+            const ledgerRetryMap = latestAlreadyAnchored
+                ? await this.getUndeliveredGroupSourceMap({
+                    uid,
+                    contentType: 'video',
+                    contentId: latestBvid,
+                    contentTime: latestVideoCreated,
+                    targetGroupSourceMap: normalizedTargetGroupSourceMap
+                })
+                : null
+            const shouldRetryMissingGroups = ledgerRetryMap && this.getGroupIdsFromSourceMap(ledgerRetryMap).length > 0
+
+            if (latestBvid !== lastVideoId || force || shouldRetryMissingGroups) {
                 // 兼容旧状态：仅有 lastVideoId 无时间戳，且 lastVideoId 已不在列表中
                 // 避免升级后的首轮回放旧视频
                 if (!force && lastVideoId && lastVideoCreated === null && !videos.some(v => v.bvid === lastVideoId)) {
@@ -138,20 +150,24 @@ module.exports = {
                 }
 
                 const newVideos = []
-                for (const video of videos) {
-                    if (video.bvid === lastVideoId) break
+                if (!shouldRetryMissingGroups) {
+                    for (const video of videos) {
+                        if (video.bvid === lastVideoId) break
 
-                    if (!force && lastVideoCreated !== null) {
-                        const createdRaw = Number(video.created)
-                        const created = Number.isFinite(createdRaw) ? createdRaw : null
-                        if (created !== null && created <= lastVideoCreated) break
+                        if (!force && lastVideoCreated !== null) {
+                            const createdRaw = Number(video.created)
+                            const created = Number.isFinite(createdRaw) ? createdRaw : null
+                            if (created !== null && created <= lastVideoCreated) break
+                        }
+
+                        newVideos.push(video)
                     }
-
-                    newVideos.push(video)
                 }
 
                 let videoToPush
-                if (newVideos.length === 0) {
+                if (shouldRetryMissingGroups) {
+                    videoToPush = [latestVideo]
+                } else if (newVideos.length === 0) {
                     if (!force) {
                         if (persistState) {
                             await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
@@ -207,21 +223,26 @@ module.exports = {
 
                         const notificationText = `${name} 投稿了新视频：\n${info.data.title}`
                         const url = `https://www.bilibili.com/video/${bvid}`
+                        const effectiveGroupSourceMap = shouldRetryMissingGroups ? ledgerRetryMap : normalizedTargetGroupSourceMap
+                        const effectiveTargetGroups = this.getGroupIdsFromSourceMap(effectiveGroupSourceMap)
                         const notifyResult = await this.notifyGroupsWithImageAndCache(
-                            normalizedTargetGroupSourceMap,
+                            effectiveGroupSourceMap,
                             info,
                             'video',
                             url,
                             notificationText,
                             { actorUid: uid, fallbackSources: [fallbackSource], disableDedup }
                         )
+                        if (persistDelivery) {
+                            await this.recordNotifyDeliveredGroups('video', bvid, notifyResult)
+                        }
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentVideo = decision.action === 'advance'
 
-                        // 订阅推送后下载视频一次，发送到所有目标群
-                        if (canAdvanceCurrentVideo) {
+                        // 订阅推送后下载视频一次，目标集必须与本次实际推送一致。
+                        if (canAdvanceCurrentVideo && effectiveTargetGroups.length > 0) {
                             const videoDownloadService = require('../../../videoDownloadService')
-                            videoDownloadService.downloadAndSendToGroups(this.ws, targetGroups, bvid, info).catch(e => {
+                            videoDownloadService.downloadAndSendToGroups(this.ws, effectiveTargetGroups, bvid, info).catch(e => {
                                 subLog('error', 'video-download-dispatch-failed', {
                                     bvid,
                                     error: logger.getErrorMessage(e)
@@ -240,7 +261,9 @@ module.exports = {
                         subLog('info', 'video-pushed', {
                             name,
                             source,
-                            bvid
+                            bvid,
+                            effectiveGroupCount: effectiveTargetGroups.length,
+                            retryMode: shouldRetryMissingGroups
                         }, userScope)
                     } catch (e) {
                         subLog('error', 'video-push-failed', {
@@ -249,7 +272,7 @@ module.exports = {
                         }, userScope)
                     }
 
-                    if (persistState && canAdvanceCurrentVideo) {
+                    if (persistState && canAdvanceCurrentVideo && !shouldRetryMissingGroups) {
                         await this.updateVideoState(userItem, { videoId: latestBvid, videoCreated: latestVideoCreated })
                     }
                 }
@@ -271,6 +294,7 @@ module.exports = {
     async checkUserArticleUnified(userItem, force = false, options = {}) {
         const persistState = options.persistState !== false
         const disableDedup = Boolean(options && options.disableDedup)
+        const persistDelivery = options?.persistDelivery !== false && !force
         const {
             uid,
             name,
@@ -308,21 +332,20 @@ module.exports = {
             const latestArticlePublishRaw = Number(latestArticle.publish_time)
             const latestArticlePublishTime = Number.isFinite(latestArticlePublishRaw) ? latestArticlePublishRaw : null
 
-            // 获取lastArticleId（优先从手动订阅，其次从Cookie follower）
-            let lastArticleId = null
-            let lastArticlePublishTime = null
-            if (manualSub) {
-                lastArticleId = manualSub.lastArticleId
-                lastArticlePublishTime = manualSub.lastArticlePublishTime
-            } else if (cookieFollower) {
-                lastArticleId = cookieFollower.lastArticleId
-                lastArticlePublishTime = cookieFollower.lastArticlePublishTime
-            }
             const normalizeTimestamp = value => {
                 if (value === null || value === undefined || value === '') return null
                 const num = Number(value)
                 return Number.isFinite(num) ? num : null
             }
+            let unifiedState = await this.getUnifiedUserState(uid)
+            unifiedState = await this.ensureTargetBaselinesForUser(userItem, normalizedTargetGroupSourceMap, unifiedState)
+            const legacyArticleAnchor = unifiedState ? null : {
+                articleId: manualSub ? manualSub.lastArticleId : cookieFollower?.lastArticleId,
+                articlePublishTime: manualSub ? manualSub.lastArticlePublishTime : cookieFollower?.lastArticlePublishTime
+            }
+            const articleAnchor = this.getArticleAnchor(unifiedState, legacyArticleAnchor)
+            let lastArticleId = articleAnchor.articleId
+            let lastArticlePublishTime = articleAnchor.articlePublishTime
             lastArticlePublishTime = normalizeTimestamp(lastArticlePublishTime)
 
             // 首次检查：记录最新专栏但不推送
@@ -338,8 +361,20 @@ module.exports = {
                 return
             }
 
-            // 检查是否有新专栏
-            if (latestCvid !== lastArticleId || force) {
+            // 检查是否有新专栏；若当前最新已在锚点内，仍通过投递台账补偿缺失群
+            const latestAlreadyAnchored = !force && latestCvid === lastArticleId
+            const ledgerRetryMap = latestAlreadyAnchored
+                ? await this.getUndeliveredGroupSourceMap({
+                    uid,
+                    contentType: 'article',
+                    contentId: latestCvid,
+                    contentTime: latestArticlePublishTime,
+                    targetGroupSourceMap: normalizedTargetGroupSourceMap
+                })
+                : null
+            const shouldRetryMissingGroups = ledgerRetryMap && this.getGroupIdsFromSourceMap(ledgerRetryMap).length > 0
+
+            if (latestCvid !== lastArticleId || force || shouldRetryMissingGroups) {
                 // 兼容旧状态：仅有 lastArticleId 无时间戳，且 lastArticleId 已不在列表中
                 // 避免升级后的首轮回放旧专栏
                 if (!force && lastArticleId && lastArticlePublishTime === null && !articles.some(a => `cv${a.id}` === lastArticleId)) {
@@ -356,21 +391,25 @@ module.exports = {
                 }
 
                 const newArticles = []
-                for (const article of articles) {
-                    const cvid = `cv${article.id}`
-                    if (cvid === lastArticleId) break
+                if (!shouldRetryMissingGroups) {
+                    for (const article of articles) {
+                        const cvid = `cv${article.id}`
+                        if (cvid === lastArticleId) break
 
-                    if (!force && lastArticlePublishTime !== null) {
-                        const publishRaw = Number(article.publish_time)
-                        const publishTime = Number.isFinite(publishRaw) ? publishRaw : null
-                        if (publishTime !== null && publishTime <= lastArticlePublishTime) break
+                        if (!force && lastArticlePublishTime !== null) {
+                            const publishRaw = Number(article.publish_time)
+                            const publishTime = Number.isFinite(publishRaw) ? publishRaw : null
+                            if (publishTime !== null && publishTime <= lastArticlePublishTime) break
+                        }
+
+                        newArticles.push(article)
                     }
-
-                    newArticles.push(article)
                 }
 
                 let articleToPush
-                if (newArticles.length === 0) {
+                if (shouldRetryMissingGroups) {
+                    articleToPush = [latestArticle]
+                } else if (newArticles.length === 0) {
                     if (!force) {
                         if (persistState) {
                             await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
@@ -421,14 +460,18 @@ module.exports = {
 
                         const { actualType, title: articleTitle, url } = resolveArticleTitle(info)
                         const notificationText = `${name} 发布了新专栏：\n${articleTitle}`
+                        const effectiveGroupSourceMap = shouldRetryMissingGroups ? ledgerRetryMap : normalizedTargetGroupSourceMap
                         const notifyResult = await this.notifyGroupsWithImageAndCache(
-                            normalizedTargetGroupSourceMap,
+                            effectiveGroupSourceMap,
                             info,
                             actualType,
                             url || `https://www.bilibili.com/read/${cvid}`,
                             notificationText,
                             { actorUid: uid, fallbackSources: [fallbackSource], disableDedup }
                         )
+                        if (persistDelivery) {
+                            await this.recordNotifyDeliveredGroups('article', cvid, notifyResult)
+                        }
                         const decision = decideAdvance(notifyResult)
                         canAdvanceCurrentArticle = decision.action === 'advance'
                         if (!canAdvanceCurrentArticle) {
@@ -453,7 +496,7 @@ module.exports = {
                         }, userScope)
                     }
 
-                    if (persistState && canAdvanceCurrentArticle) {
+                    if (persistState && canAdvanceCurrentArticle && !shouldRetryMissingGroups) {
                         await this.updateArticleState(userItem, { articleId: latestCvid, articlePublishTime: latestArticlePublishTime })
                     }
                 }
@@ -473,6 +516,12 @@ module.exports = {
      * @param {Object|string} videoState - 最新视频状态或视频ID
      */
     async updateVideoState(userItem, videoState) {
+        await this.advanceVideoState(userItem, typeof videoState === 'string'
+            ? { videoId: videoState, videoCreated: null }
+            : (videoState || {}))
+    },
+
+    async updateVideoLegacyState(userItem, videoState) {
         const { source, manualSub, cookieFollower, accountUid, uid } = userItem
         const state = typeof videoState === 'string'
             ? { videoId: videoState, videoCreated: null }
@@ -514,6 +563,12 @@ module.exports = {
      * @param {Object|string} articleState - 最新专栏状态或专栏ID
      */
     async updateArticleState(userItem, articleState) {
+        await this.advanceArticleState(userItem, typeof articleState === 'string'
+            ? { articleId: articleState, articlePublishTime: null }
+            : (articleState || {}))
+    },
+
+    async updateArticleLegacyState(userItem, articleState) {
         const { source, manualSub, cookieFollower, accountUid, uid } = userItem
         const state = typeof articleState === 'string'
             ? { articleId: articleState, articlePublishTime: null }

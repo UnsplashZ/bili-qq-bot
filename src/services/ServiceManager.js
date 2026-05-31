@@ -5,6 +5,7 @@ const { performance } = require('perf_hooks');
 const axios = require('axios');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { classifyBiliApiError } = require('./biliApiErrorClassifier');
 
 const PY_LOG_BRIDGE_PREFIX = '__PYLOG__';
 const PYTHON_LOG_PATTERN = /^(\d{4}-\d{2}-\d{2} [\d:,]+) - ([\w.]+) - ([A-Z]+) - (.*)$/;
@@ -217,10 +218,24 @@ class ServiceManager {
             });
             return response.data;
         } catch (error) {
+            error.endpoint = cleanEndpoint;
+            error.timeout = requestOptions.timeout ?? null;
+            error.httpStatus = error.response?.status ?? null;
+            error.responseData = error.response?.data ?? null;
+            const classified = classifyBiliApiError(error);
             logger.logEvent('error', 'RPC', `req:${reqId}`, 'fail', {
                 ...logFields,
                 duration: `${Math.round(performance.now() - startedAt)}ms`,
-                error: error.message
+                error: error.message,
+                code: error.code,
+                httpStatus: error.httpStatus,
+                endpoint: cleanEndpoint,
+                timeout: error.timeout,
+                responseData: error.responseData,
+                failureKind: classified.failureKind,
+                errorType: classified.errorType,
+                biliCode: classified.biliCode,
+                retryable: classified.retryable
             });
             throw error;
         }

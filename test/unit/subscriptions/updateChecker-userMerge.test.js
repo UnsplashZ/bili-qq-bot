@@ -4,17 +4,26 @@ const assert = require('assert')
 
 const updateChecker = require('../../../src/services/subscription/updateChecker')
 const subscriptionManager = require('../../../src/services/subscription/subscriptionManager')
+const config = require('../../../src/config')
 
 const originals = {
     userSubs: subscriptionManager.userSubs,
     cookieFollowings: subscriptionManager.cookieFollowings,
+    groupToAccountMap: subscriptionManager.groupToAccountMap,
+    groupConfigs: JSON.parse(JSON.stringify(config.groupConfigs || {})),
     findTargetGroupSourceMapForUser: updateChecker.findTargetGroupSourceMapForUser,
 }
 
 function restoreAll() {
     subscriptionManager.userSubs = originals.userSubs
     subscriptionManager.cookieFollowings = originals.cookieFollowings
+    subscriptionManager.groupToAccountMap = originals.groupToAccountMap
     updateChecker.findTargetGroupSourceMapForUser = originals.findTargetGroupSourceMapForUser
+    const groupConfigs = config.groupConfigs || {}
+    for (const key of Object.keys(groupConfigs)) {
+        delete groupConfigs[key]
+    }
+    Object.assign(groupConfigs, JSON.parse(JSON.stringify(originals.groupConfigs)))
 }
 
 describe('UpdateChecker buildUserCheckList UID merge', function () {
@@ -43,11 +52,12 @@ describe('UpdateChecker buildUserCheckList UID merge', function () {
                 }
             ]
         }
-
-        updateChecker.findTargetGroupSourceMapForUser = () => {
-            const map = new Map()
-            map.set('1000', new Set(['cookieSync']))
-            return map
+        subscriptionManager.groupToAccountMap = {
+            '1000': 'acc1'
+        }
+        config.groupConfigs['1000'] = {
+            enableCookieSync: true,
+            isInGroup: true
         }
 
         const users = updateChecker.buildUserCheckList(new Set(['1000']))

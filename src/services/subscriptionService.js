@@ -97,8 +97,12 @@ class SubscriptionService {
 
     // Manual check trigger (e.g. for testing or commands)
     async checkSubscriptionNow(uid, groupId) {
-        // Ensure subscriptions are loaded before checking
-        await subscriptionManager._ensureSubscriptionsLoaded();
+        // Ensure subscriptions, followers, unified state and delivery ledger are ready before checking
+        if (typeof updateChecker.initializeSubscriptionRuntime === 'function') {
+            await updateChecker.initializeSubscriptionRuntime();
+        } else {
+            await subscriptionManager._ensureSubscriptionsLoaded();
+        }
 
         // Type-safe comparison
         const targetGroupId = String(groupId).trim();
@@ -123,6 +127,7 @@ class SubscriptionService {
             
             // Also force check live status
             await updateChecker.checkUserLive(tempSub, null, true, {
+                persistState: false,
                 disableDedup: true
             });
 

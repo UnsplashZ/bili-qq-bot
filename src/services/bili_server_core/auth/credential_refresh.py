@@ -4,9 +4,21 @@ import aiohttp
 import bilibili_api
 
 from .credential_store import load_credential, save_credential
+from ..errors import auth_failed_envelope, classify_bili_error, error_envelope
 from ..logging_utils import auth_log
 
 logger = logging.getLogger(__name__)
+
+
+def _error_envelope(message, reason, endpoint="refresh_credential", error=None, error_type=None, http_status=None):
+    return error_envelope(
+        message,
+        endpoint,
+        error=error,
+        error_type=error_type,
+        http_status=http_status,
+        reason=reason,
+    )
 
 
 async def _fetch_buvid3():
@@ -48,34 +60,35 @@ async def refresh_credential_if_needed():
     """
     credential = load_credential()
     if not credential or not credential.sessdata:
-        return {
-            "status": "error",
-            "reason": "no_credential",
-            "message": "未找到Cookie，请先在Dashboard扫码登录",
-        }
+        result = auth_failed_envelope("未找到Cookie，请先在Dashboard扫码登录", "refresh_credential")
+        result["reason"] = "no_credential"
+        return result
 
     try:
         is_valid = await credential.check_valid()
         if not is_valid:
-            return {
-                "status": "error",
-                "reason": "invalid",
-                "message": "Cookie已失效，请在Dashboard重新扫码登录",
-            }
+            return _error_envelope(
+                "Cookie已失效，请在Dashboard重新扫码登录",
+                "invalid",
+                error_type="auth_failed",
+                http_status=401,
+            )
     except Exception as e:
         auth_log(logger, "warn", "cookie-check-failed", error=str(e))
-        return {
-            "status": "error",
-            "reason": "check_failed",
-            "message": f"Cookie有效性检查失败: {e}",
-        }
+        return _error_envelope(
+            f"Cookie有效性检查失败: {e}",
+            "check_failed",
+            error=e,
+                error_type=classify_bili_error(str(e), error=e),
+        )
 
     if not credential.ac_time_value:
-        return {
-            "status": "error",
-            "reason": "no_ac_time_value",
-            "message": "Cookie缺少ac_time_value，无法自动刷新。请在Dashboard重新扫码登录以启用自动刷新",
-        }
+        return _error_envelope(
+            "Cookie缺少ac_time_value，无法自动刷新。请在Dashboard重新扫码登录以启用自动刷新",
+            "no_ac_time_value",
+            error_type="auth_failed",
+            http_status=401,
+        )
 
     try:
         need_refresh = await credential.check_refresh()
@@ -89,8 +102,9 @@ async def refresh_credential_if_needed():
         return {"status": "ok", "refreshed": True, "message": "Cookie已自动刷新成功"}
     except Exception as e:
         auth_log(logger, "error", "cookie-refresh-failed", error=str(e))
-        return {
-            "status": "error",
-            "reason": "refresh_failed",
-            "message": f"Cookie刷新失败: {e}",
-        }
+        return _error_envelope(
+            f"Cookie刷新失败: {e}",
+            "refresh_failed",
+            error=e,
+                error_type=classify_bili_error(str(e), error=e),
+        )

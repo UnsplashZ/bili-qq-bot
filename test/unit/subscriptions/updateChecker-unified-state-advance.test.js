@@ -12,6 +12,8 @@ describe('updateChecker unified state advance policy', function () {
         getVideoInfo: deps.biliApi.getVideoInfo,
         getUserArticles: deps.biliApi.getUserArticles,
         getArticleInfo: deps.biliApi.getArticleInfo,
+        subscriptionStateStore: deps.subscriptionStateStore,
+        subscriptionDeliveryStore: deps.subscriptionDeliveryStore,
         normalizeGroupSourceMap: updateChecker.normalizeGroupSourceMap,
         getGroupIdsFromSourceMap: updateChecker.getGroupIdsFromSourceMap,
         notifyGroupsWithImageAndCache: updateChecker.notifyGroupsWithImageAndCache,
@@ -25,6 +27,8 @@ describe('updateChecker unified state advance policy', function () {
         deps.biliApi.getVideoInfo = originals.getVideoInfo
         deps.biliApi.getUserArticles = originals.getUserArticles
         deps.biliApi.getArticleInfo = originals.getArticleInfo
+        deps.subscriptionStateStore = originals.subscriptionStateStore
+        deps.subscriptionDeliveryStore = originals.subscriptionDeliveryStore
         updateChecker.normalizeGroupSourceMap = originals.normalizeGroupSourceMap
         updateChecker.getGroupIdsFromSourceMap = originals.getGroupIdsFromSourceMap
         updateChecker.notifyGroupsWithImageAndCache = originals.notifyGroupsWithImageAndCache
@@ -34,6 +38,17 @@ describe('updateChecker unified state advance policy', function () {
     })
 
     it('视频通知无成功群时不应推进 lastVideoId', async function () {
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                video: { videoId: 'BV_OLD', lastCreated: 100 }
+            }),
+            advanceVideo: async () => {
+                throw new Error('should not advance')
+            }
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async () => {}
+        }
         deps.biliApi.getUserVideos = async () => ({
             status: 'success',
             data: {
@@ -81,6 +96,17 @@ describe('updateChecker unified state advance policy', function () {
     })
 
     it('专栏通知无成功群时不应推进 lastArticleId', async function () {
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                article: { articleId: 'cv1', lastPublishTime: 100 }
+            }),
+            advanceArticle: async () => {
+                throw new Error('should not advance')
+            }
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async () => {}
+        }
         deps.biliApi.getUserArticles = async () => ({
             status: 'success',
             data: {
@@ -128,6 +154,15 @@ describe('updateChecker unified state advance policy', function () {
     })
 
     it('视频检查应在首群上下文失败时回退到后续群上下文', async function () {
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                video: { videoId: 'BV_OLD', lastCreated: 100 }
+            }),
+            advanceVideo: async () => {}
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async () => {}
+        }
         const videoListCalls = []
         deps.biliApi.getUserVideos = async (_uid, groupId) => {
             videoListCalls.push(String(groupId))
@@ -174,6 +209,15 @@ describe('updateChecker unified state advance policy', function () {
     })
 
     it('专栏检查应在首群上下文失败时回退到后续群上下文', async function () {
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                article: { articleId: 'cv1', lastPublishTime: 100 }
+            }),
+            advanceArticle: async () => {}
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async () => {}
+        }
         const articleListCalls = []
         deps.biliApi.getUserArticles = async (_uid, groupId) => {
             articleListCalls.push(String(groupId))
@@ -217,5 +261,66 @@ describe('updateChecker unified state advance policy', function () {
 
         assert.deepStrictEqual(articleListCalls, ['g1', 'g2'])
         assert.strictEqual(notifyCalled, 1)
+    })
+
+    it('视频台账补偿时下载副作用只发送到缺失群', async function () {
+        const downloadedTargets = []
+        const state = {
+            uid: '123',
+            video: { videoId: 'BV_NEW', lastCreated: 200 },
+            targets: {
+                A: {
+                    video: { baselineSource: 'existing_target', active: true }
+                },
+                B: {
+                    video: { baselineSource: 'existing_target', active: true }
+                }
+            }
+        }
+        deps.subscriptionStateStore = {
+            getUserState: () => state,
+            ensureTargetBaselines: async () => ({ changed: false, state }),
+            getTargetBaseline: (userState, groupId, type) => userState.targets?.[groupId]?.[type] || null
+        }
+        deps.subscriptionDeliveryStore = {
+            getDeliveryCoverage: async () => ({
+                deliveredGroups: ['A'],
+                undeliveredGroups: ['B'],
+                hasAnyRecord: true
+            }),
+            recordDeliveredBatch: async () => {}
+        }
+        deps.biliApi.getUserVideos = async () => ({
+            status: 'success',
+            data: {
+                videos: [
+                    { bvid: 'BV_NEW', created: 200 }
+                ]
+            }
+        })
+        deps.biliApi.getVideoInfo = async () => ({
+            status: 'success',
+            data: { title: 'video title' }
+        })
+        updateChecker.notifyGroupsWithImageAndCache = async (targetGroupSourceMap) => {
+            assert.deepStrictEqual(Array.from(targetGroupSourceMap.keys()), ['B'])
+            return { successGroups: ['B'], failedGroups: [], dedupKey: 'video:BV_NEW' }
+        }
+        videoDownloadService.downloadAndSendToGroups = async (_ws, groups) => {
+            downloadedTargets.push(groups)
+        }
+
+        await updateChecker.checkUserVideoUnified({
+            uid: '123',
+            name: 'tester',
+            targetGroups: ['A', 'B'],
+            source: 'manual',
+            manualSub: {
+                lastVideoId: 'BV_NEW',
+                lastVideoCreated: 200
+            }
+        })
+
+        assert.deepStrictEqual(downloadedTargets, [['B']])
     })
 })

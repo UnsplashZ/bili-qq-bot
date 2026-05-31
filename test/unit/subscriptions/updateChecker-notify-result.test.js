@@ -88,9 +88,21 @@ describe('updateChecker notify result', function () {
 
         assert.deepStrictEqual(
             Object.keys(result).sort(),
-            ['dedupKey', 'failedGroups', 'successGroups'].sort()
+            [
+                'dedupKey',
+                'dedupSkippedGroups',
+                'deliveredGroups',
+                'failedGroups',
+                'fallbackUsed',
+                'fallbackUsedGroups',
+                'ledgerSkippedGroups',
+                'retryableGroups',
+                'successGroups'
+            ].sort()
         )
         assert.deepStrictEqual(result.successGroups, ['1000'])
+        assert.deepStrictEqual(result.deliveredGroups, [])
+        assert.deepStrictEqual(result.dedupSkippedGroups, [])
         assert.deepStrictEqual(result.failedGroups, ['2000'])
         assert.strictEqual(result.dedupKey, 'video:BV_TEST')
 
@@ -142,6 +154,7 @@ describe('updateChecker notify result', function () {
             },
             async sendSubscriptionMessage(groupId) {
                 sentGroups.push(String(groupId))
+                return { ok: true, reason: 'ok', retcode: 0, fallbackUsed: false }
             }
         }
 
@@ -160,6 +173,105 @@ describe('updateChecker notify result', function () {
         assert.strictEqual(hasCalled, 0)
         assert.strictEqual(addCalled, 0)
         assert.deepStrictEqual(sentGroups, ['1000'])
+    })
+
+    it('notifyGroupsWithImage 仅在真实发送 ok 后计入成功和去重历史', async function () {
+        let addCalled = 0
+        deps.notificationHistory.has = () => false
+        deps.notificationHistory.add = () => {
+            addCalled += 1
+        }
+        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.isGroupEnabled = () => true
+        deps.config.getGroupConfig = (_gid, key) => {
+            if (key === 'showId') return false
+            if (key === 'linkCacheTimeout') return 5
+            if (key === 'labelConfig') return {}
+            return undefined
+        }
+        deps.imageGenerator.isNightMode = () => false
+        deps.imageGenerator.generatePreviewCard = async () => 'FAKE_BASE64'
+
+        const fakeContext = {
+            ws: {},
+            normalizeGroupSourceMap(groupTargets) {
+                if (groupTargets instanceof Map) return groupTargets
+                return createSourceMap(groupTargets)
+            },
+            getGroupIdsFromSourceMap(groupSourceMap) {
+                return Array.from(groupSourceMap.keys())
+            },
+            resolveContentSubtype(type) {
+                return type
+            },
+            resolveAtAllCategory(type) {
+                return type
+            },
+            buildAtAllMetaForGroup() {
+                return {}
+            },
+            async sendSubscriptionMessage(groupId) {
+                if (String(groupId) === '1000') {
+                    return { ok: true, reason: 'ok', retcode: 0, fallbackUsed: true }
+                }
+                return { ok: false, reason: 'send_failed:boom', retcode: 1200, fallbackUsed: false }
+            }
+        }
+
+        const result = await notifyModule.notifyGroupsWithImage.call(
+            fakeContext,
+            ['1000', '2000'],
+            { data: { bvid: 'BV_TEST' } },
+            'video',
+            'https://www.bilibili.com/video/BV_TEST',
+            'test'
+        )
+
+        assert.deepStrictEqual(result.successGroups, ['1000'])
+        assert.deepStrictEqual(result.deliveredGroups, ['1000'])
+        assert.deepStrictEqual(result.failedGroups, ['2000'])
+        assert.deepStrictEqual(result.retryableGroups, ['2000'])
+        assert.deepStrictEqual(result.fallbackUsedGroups, ['1000'])
+        assert.strictEqual(result.fallbackUsed, true)
+        assert.strictEqual(addCalled, 1)
+    })
+
+    it('notifyGroupsWithImage 去重缓存命中时返回 dedupSkippedGroups 供持久台账写 tombstone', async function () {
+        deps.notificationHistory.has = () => true
+        deps.notificationHistory.add = () => {
+            throw new Error('dedup skip should not add history again')
+        }
+        deps.config.groupConfigs = { '1000': {} }
+        deps.config.isGroupEnabled = () => true
+        deps.config.getGroupConfig = (_gid, key) => {
+            if (key === 'linkCacheTimeout') return 5
+            return undefined
+        }
+
+        const fakeContext = {
+            ws: {},
+            normalizeGroupSourceMap(groupTargets) {
+                if (groupTargets instanceof Map) return groupTargets
+                return createSourceMap(groupTargets)
+            },
+            getGroupIdsFromSourceMap(groupSourceMap) {
+                return Array.from(groupSourceMap.keys())
+            }
+        }
+
+        const result = await notifyModule.notifyGroupsWithImage.call(
+            fakeContext,
+            ['1000'],
+            { data: { bvid: 'BV_TEST' } },
+            'video',
+            'https://www.bilibili.com/video/BV_TEST',
+            'test'
+        )
+
+        assert.deepStrictEqual(result.successGroups, [])
+        assert.deepStrictEqual(result.failedGroups, [])
+        assert.deepStrictEqual(result.ledgerSkippedGroups, ['1000'])
+        assert.deepStrictEqual(result.dedupSkippedGroups, ['1000'])
     })
 
     it('订阅图片批处理应按 preview layout signature 拆分不同群组覆盖', async function () {
@@ -217,6 +329,7 @@ describe('updateChecker notify result', function () {
             },
             async sendSubscriptionMessage(groupId) {
                 sentGroups.push(String(groupId))
+                return { ok: true, reason: 'ok', retcode: 0, fallbackUsed: false }
             }
         }
 
@@ -288,6 +401,7 @@ describe('updateChecker notify result', function () {
             },
             async sendSubscriptionMessage(groupId) {
                 sentGroups.push(String(groupId))
+                return { ok: true, reason: 'ok', retcode: 0, fallbackUsed: false }
             }
         }
 
