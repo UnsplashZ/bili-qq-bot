@@ -45,9 +45,10 @@ async function testRunPreviewDebugSessionWritesManifestJsonPngAndHtml() {
                 }
             }
         }),
-        generatePreviewCardArtifacts: async (_info, cardType, _groupId, showId) => {
+        generatePreviewCardArtifacts: async (_info, cardType, _groupId, showId, options) => {
             assert.strictEqual(cardType, 'dynamic')
             assert.strictEqual(showId, false)
+            assert.deepStrictEqual(options.renderOverrides, { future: true })
             return {
                 base64: Buffer.from('fake-png').toString('base64'),
                 html: '<html><body>preview</body></html>',
@@ -123,8 +124,9 @@ async function testRunPreviewDebugSessionSupportsStructureModeWithoutLinkResolut
             },
             structureOptions
         }),
-        generatePreviewCardArtifacts: async (_info, cardType) => {
+        generatePreviewCardArtifacts: async (_info, cardType, _groupId, _showId, options) => {
             assert.strictEqual(cardType, 'dynamic')
+            assert.deepStrictEqual(options.renderOverrides, {})
             return {
                 base64: Buffer.from('structure-png').toString('base64'),
                 html: '<html><body>structure</body></html>',

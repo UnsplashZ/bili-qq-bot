@@ -1,4 +1,4 @@
-import { Activity, Bot, Brain, Home, Settings, Terminal, Users } from 'lucide-react';
+import { Activity, Bot, Brain, Home, Image, Settings, Terminal, Users } from 'lucide-react';
 
 export const NAV_GROUPS = [
   {
@@ -25,6 +25,7 @@ export const NAV_GROUPS = [
   {
     label: '诊断',
     items: [
+      { icon: Image, label: '预览编辑器', href: '/preview-layout', badge: 'Cards' },
       { icon: Terminal, label: '系统日志', href: '/logs', badge: 'Logs' }
     ]
   }

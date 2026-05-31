@@ -3,6 +3,7 @@ const { normalizeSourceList } = require('../helpers/sourceMap')
 const { resolveDedupKey } = require('../helpers/dedupKey')
 const { canReceiveSubscriptionNotification } = require('../helpers/groupReachability')
 const runtimeMetricsService = require('../../../runtimeMetricsService')
+const { getPreviewLayoutSignature } = require('../../../previewLayout/merge')
 
 function subLog(level, message, fields = {}, scope = 'svc:notify') {
     logger.logEvent(level, 'SUB', scope, message, fields)
@@ -127,8 +128,9 @@ module.exports = {
             const showLabel = (labelConfig && labelConfig[subtype] !== undefined)
                 ? labelConfig[subtype]
                 : (labelConfig && labelConfig[type] !== false) // Default true
+            const layoutSignature = getPreviewLayoutSignature(type, groupId)
 
-            const key = `night:${isNight}_showId:${showId}_showLabel:${showLabel}`
+            const key = `night:${isNight}_showId:${showId}_showLabel:${showLabel}_layout:${layoutSignature}`
 
             if (!groupsByConfig.has(key)) {
                 groupsByConfig.set(key, [])

@@ -89,7 +89,11 @@ async function generateStructureArtifacts(previewTarget, options = {}, deps = {}
         previewTarget.info,
         previewTarget.cardType,
         options.groupId || null,
-        options.showId
+        options.showId,
+        {
+            renderOverrides: options.renderOverrides || {},
+            collectElementMetadata: Boolean(options.collectElementMetadata)
+        }
     )
 }
 
@@ -116,7 +120,11 @@ async function runPreviewDebugSession(input, options = {}, deps = {}) {
             previewTarget.info,
             previewTarget.cardType,
             options.groupId || null,
-            options.showId
+            options.showId,
+            {
+                renderOverrides: options.renderOverrides || {},
+                collectElementMetadata: Boolean(options.collectElementMetadata)
+            }
         )
 
     const outputName = sanitizeFileName(options.outName) || buildDefaultOutputName(resolvedInput.resolvedLink)

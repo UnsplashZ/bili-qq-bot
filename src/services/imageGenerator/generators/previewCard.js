@@ -9,6 +9,11 @@ const { renderUserContent } = require('../renderers/user');
 const { renderGenericContent } = require('../renderers/generic');
 const { createRenderEmojiContext } = require('../renderers/components/renderEmojiContext');
 const config = require('../../../config');
+const logger = require('../../../utils/logger');
+const { normalizePreviewLayoutPatch } = require('../../previewLayout/normalizer');
+const { getSavedEffectiveLayout } = require('../../previewLayout/merge');
+const { buildPreviewLayoutOverrideCss } = require('../../previewLayout/css');
+const { collectPreviewLayoutElementMetadata } = require('../../previewLayout/elementMetadata');
 
 /**
  * 检测是否为充电专属内容
@@ -61,8 +66,9 @@ function renderTypeBadge(type, data, groupId, currentType) {
     if (!isVisible) return '';
 
     const isCharging = detectChargingContent(type, data)
+    const layoutAttr = type === 'video' ? ' data-layout-key="typeBadge"' : ''
     return `
-        <div class="type-badge">
+        <div class="type-badge"${layoutAttr}>
             <span>${currentType.icon}</span>
             <span>${currentType.label}</span>
             ${isCharging ? '<span class="charging-mark" title="充电专属" aria-label="充电专属">⚡</span>' : ''}
@@ -83,12 +89,26 @@ function buildColorSummary(colorData = {}) {
     }
 }
 
-async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true) {
+function normalizeRenderOverrides(type, renderOverrides = {}) {
+    if (!renderOverrides || Object.keys(renderOverrides).length === 0) {
+        return {}
+    }
+    return normalizePreviewLayoutPatch(type, renderOverrides, {
+        requireEditable: false
+    })
+}
+
+async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true, options = {}) {
     const viewport = calculateViewport(type, data);
     const isNight = isNightMode(groupId);
     const typeConfig = getTypeConfig(type, data);
     const colorData = calculateColors(type, data, typeConfig, isNight);
-    const css = generateCSS(colorData, viewport);
+    const layoutOverrides = normalizeRenderOverrides(type, options.renderOverrides || {});
+    const previewLayoutOverrideCss = buildPreviewLayoutOverrideCss(layoutOverrides, {
+        type,
+        alreadyNormalized: true
+    });
+    const css = generateCSS(colorData, viewport, { previewLayoutOverrideCss });
     const emojiContext = await createRenderEmojiContext({ seedData: data });
 
     let contentHtml = '';
@@ -111,10 +131,11 @@ async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true) 
     }
 
     const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
+    const cardLayoutAttr = type === 'video' ? ' data-layout-key="card"' : ''
     const fullHtml = `<html><head>${css}</head><body>
                 <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">
                     ${typeBadgeHtml}
-                    <div class="card">
+                    <div class="card"${cardLayoutAttr}>
                         ${contentHtml}
                     </div>
                 </div>
@@ -134,7 +155,7 @@ async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true) 
     };
 }
 
-async function generatePreviewCardArtifacts(data, type, groupId, show_id = true) {
+async function generatePreviewCardArtifacts(data, type, groupId, show_id = true, options = {}) {
     return browserManager.withRetry(async () => {
         await browserManager.init();
         const page = await browserManager.createPage({ width: 1200, height: 1200 });
@@ -142,7 +163,7 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true)
         try {
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-            const { fullHtml, debugMeta } = await buildPreviewRenderArtifacts(data, type, groupId, show_id);
+            const { fullHtml, debugMeta } = await buildPreviewRenderArtifacts(data, type, groupId, show_id, options);
             await page.setViewport(debugMeta.viewport);
             await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForSelector('.container', { timeout: 5000 });
@@ -218,6 +239,10 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true)
             const element = await page.$('.container');
             if (!element) throw new Error('Container element not found');
 
+            const elementMetadata = options.collectElementMetadata
+                ? await collectPreviewLayoutElementMetadata(page, type)
+                : null
+
             const imageBuffer = await element.screenshot({
                 type: 'png',
                 omitBackground: true
@@ -226,7 +251,8 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true)
             return {
                 base64: imageBuffer.toString('base64'),
                 html: fullHtml,
-                debugMeta
+                debugMeta,
+                elementMetadata
             };
         } finally {
             await browserManager.closePage(page);
@@ -243,7 +269,17 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true)
  * @returns {Promise<String>} Base64编码的图片
  */
 async function generatePreviewCard(data, type, groupId, show_id = true) {
-    const artifacts = await generatePreviewCardArtifacts(data, type, groupId, show_id)
+    let renderOverrides = {}
+    try {
+        renderOverrides = getSavedEffectiveLayout(type, groupId, { tolerateInvalid: true })
+    } catch (error) {
+        logger.logEvent('warn', 'PREVIEW_LAYOUT', 'svc:image-generator', 'saved-layout-load-failed', {
+            type,
+            groupId: groupId ? String(groupId) : '',
+            error: logger.getErrorMessage(error)
+        })
+    }
+    const artifacts = await generatePreviewCardArtifacts(data, type, groupId, show_id, { renderOverrides })
     return artifacts.base64
 }
 
