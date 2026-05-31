@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -29,6 +29,10 @@ jobs:
             dashboard/package-lock.json
 
       - name: Install root Node dependencies
+        run: npm ci
+
+      - name: Install Dashboard dependencies
+        working-directory: dashboard
         run: npm ci
 
       - name: Run root unit tests
@@ -45,10 +49,6 @@ jobs:
 
       - name: Run Python Bilibili tests
         run: python -m pytest test/unit/bilibili
-
-      - name: Install Dashboard dependencies
-        working-directory: dashboard
-        run: npm ci
 
       - name: Lint Dashboard
         working-directory: dashboard
@@ -68,7 +68,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -151,7 +151,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prepare release notes
         shell: bash
