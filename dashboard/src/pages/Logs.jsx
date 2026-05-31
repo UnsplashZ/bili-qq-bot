@@ -225,8 +225,8 @@ const Logs = () => {
   });
 
   return (
-    <div className="flex min-h-[calc(100vh-7rem)] flex-col space-y-3 pb-5 md:min-h-[calc(100vh-8rem)] md:space-y-4 md:pb-6">
-      <header className="flex justify-between items-start sm:items-center flex-wrap gap-3">
+    <div className="logs-shell flex h-[calc(100dvh-7rem)] min-h-0 flex-col space-y-3 overflow-hidden pb-5 md:h-[calc(100dvh-8rem)] md:space-y-4 md:pb-6">
+      <header className="flex shrink-0 justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Diagnostics</div>
           <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">系统日志</h1>
@@ -249,8 +249,8 @@ const Logs = () => {
         </div>
       </header>
 
-      <GlassCard className="sticky top-16 z-20 bg-[var(--surface)] p-3 sm:p-4 md:top-8">
-        <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
+      <GlassCard className="logs-filter shrink-0 bg-[var(--surface)] p-3 sm:p-4">
+        <div className="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)] lg:grid-cols-[180px_minmax(0,1fr)]">
           <div className="space-y-2">
             <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</label>
             <select
@@ -284,7 +284,7 @@ const Logs = () => {
               {getConnectionLabel(connectionState)}
             </StatusPill>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 custom-scrollbar">
             {CHANNEL_OPTIONS.map((channel) => {
               const active = filters.channels.includes(channel);
               return (
@@ -292,7 +292,7 @@ const Logs = () => {
                   key={channel}
                   type="button"
                   onClick={() => toggleChannel(channel)}
-                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_38%,var(--border))] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-muted)]'}`}
+                  className={`shrink-0 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_38%,var(--border))] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-muted)]'}`}
                 >
                   {channel}
                 </button>
@@ -302,7 +302,7 @@ const Logs = () => {
         </div>
       </GlassCard>
 
-      <GlassCard className="flex-1 overflow-hidden p-0 flex flex-col bg-[var(--surface)]">
+      <GlassCard className="logs-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--surface)] p-0">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 font-mono text-xs text-[var(--muted)] sm:px-4">
           <div className="flex items-center gap-2">
             <Terminal size={12} />

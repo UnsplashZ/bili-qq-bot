@@ -191,6 +191,18 @@ select {
   background: color-mix(in oklch, var(--muted) 44%, transparent);
 }
 
+@media (max-height: 520px) {
+  .logs-shell {
+    height: auto;
+    min-height: calc(100dvh - 7rem);
+    overflow: visible;
+  }
+
+  .logs-panel {
+    min-height: 16rem;
+  }
+}
+
 /* Compatibility bridge while older pages move from literal dark Tailwind classes to tokens. */
 .text-white,
 .text-slate-100,
