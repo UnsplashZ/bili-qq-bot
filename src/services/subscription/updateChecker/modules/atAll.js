@@ -392,7 +392,9 @@ module.exports = {
     },
 
     async sendSubscriptionMessage(groupId, baseMessageChain, atAllMeta = {}) {
-        if (!this.ws) return
+        if (!this.ws) {
+            return { ok: false, reason: 'ws_unavailable', retcode: null, fallbackUsed: false }
+        }
 
         try {
             const processedBaseMessageChain = notificationService.processMessageChain(baseMessageChain, 'UpdateChecker')
@@ -400,7 +402,12 @@ module.exports = {
 
             const firstSendResult = await this.sendGroupMessageByAction(groupId, messageChain)
             if (firstSendResult.ok) {
-                return
+                return {
+                    ok: true,
+                    reason: firstSendResult.reason,
+                    retcode: firstSendResult.retcode,
+                    fallbackUsed: false
+                }
             }
 
             if (this.hasAtAllSegment(messageChain)) {
@@ -414,24 +421,53 @@ module.exports = {
                 const retryResult = await this.sendGroupMessageByAction(groupId, processedBaseMessageChain)
                 if (retryResult.ok) {
                     subLog('info', 'plain-send-fallback-succeeded', {
-                        groupId
+                        groupId,
+                        retcode: retryResult.retcode ?? 'N/A'
                     }, logger.createScope('group', groupId))
-                    return
+                    return {
+                        ok: true,
+                        reason: retryResult.reason,
+                        retcode: retryResult.retcode,
+                        fallbackUsed: true
+                    }
                 }
 
-                throw new Error(
-                    `send_group_msg failed after @all fallback: ` +
-                    `${firstSendResult.reason} -> ${retryResult.reason}`
-                )
+                const reason = `send_failed_after_at_all_fallback:${firstSendResult.reason}->${retryResult.reason}`
+                subLog('error', 'subscription-message-send-failed', {
+                    groupId,
+                    reason,
+                    retcode: retryResult.retcode ?? firstSendResult.retcode ?? 'N/A'
+                }, logger.createScope('group', groupId))
+                return {
+                    ok: false,
+                    reason,
+                    retcode: retryResult.retcode ?? firstSendResult.retcode,
+                    fallbackUsed: true
+                }
             }
 
-            throw new Error(`send_group_msg failed: ${firstSendResult.reason}`)
+            subLog('error', 'subscription-message-send-failed', {
+                groupId,
+                reason: firstSendResult.reason,
+                retcode: firstSendResult.retcode ?? 'N/A'
+            }, logger.createScope('group', groupId))
+            return {
+                ok: false,
+                reason: firstSendResult.reason,
+                retcode: firstSendResult.retcode,
+                fallbackUsed: false
+            }
         } catch (e) {
             subLog('error', 'subscription-message-send-failed', {
                 groupId,
                 error: logger.getErrorMessage(e)
             }, logger.createScope('group', groupId))
-            notificationService.sendGroupMessage(this.ws, groupId, baseMessageChain)
+            return {
+                ok: false,
+                reason: `exception:${logger.getErrorMessage(e)}`,
+                retcode: null,
+                fallbackUsed: false
+            }
         }
     }
 }

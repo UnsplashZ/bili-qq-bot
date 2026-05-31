@@ -61,22 +61,33 @@ module.exports = {
         }
 
         const dynamicCoverage = feedCoverage && feedCoverage.dynamicUids instanceof Set ? feedCoverage.dynamicUids : null
+        const dynamicOutcomes = feedCoverage && feedCoverage.dynamicOutcomes instanceof Map ? feedCoverage.dynamicOutcomes : null
         const liveCoverage = feedCoverage && feedCoverage.liveUids instanceof Set ? feedCoverage.liveUids : null
 
         // Loop through accounts
         for (const [uid, groupId] of accountGroups) {
-            const dynamicCoveredCandidates = dynamicCoverage
-                ? this.collectFeedCoveredUids(uid, activeGroups)
-                : []
+            let dynamicOutcomeCount = 0
 
             let dynamicSucceeded = false
             try {
                 // Process Dynamic Feed
                 const dynamicResult = await this.processDynamicFeed(uid, groupId, activeGroups)
                 dynamicSucceeded = dynamicResult?.ok === true
+                const outcomes = Array.isArray(dynamicResult?.outcomes) ? dynamicResult.outcomes : []
+                dynamicOutcomeCount = outcomes.length
 
-                if (dynamicSucceeded && dynamicCoverage && dynamicCoveredCandidates.length > 0) {
-                    for (const fid of dynamicCoveredCandidates) {
+                for (const outcome of outcomes) {
+                    const fid = String(outcome?.uid || '')
+                    if (!fid) continue
+                    if (dynamicOutcomes) {
+                        dynamicOutcomes.set(fid, outcome)
+                    }
+                    if (dynamicCoverage && outcome.status === 'covered') {
+                        dynamicCoverage.add(fid)
+                    }
+                }
+                if (dynamicSucceeded && outcomes.length === 0 && dynamicCoverage) {
+                    for (const fid of this.collectFeedCoveredUids(uid, activeGroups)) {
                         dynamicCoverage.add(fid)
                     }
                 }
@@ -115,7 +126,7 @@ module.exports = {
                 accountUid: uid,
                 dynamicSucceeded,
                 liveSucceeded,
-                dynamicCandidateCount: dynamicCoveredCandidates.length
+                dynamicOutcomeCount
             })
         }
     },
@@ -123,7 +134,7 @@ module.exports = {
     async processDynamicFeed(accountUid, groupId, activeGroups = null) {
         const followers = subscriptionManager.cookieFollowings[String(accountUid)]
         if (!followers || followers.length === 0) {
-            return { ok: true, reason: 'no_followers' }
+            return { ok: true, reason: 'no_followers', outcomes: [] }
         }
 
         // Use safe ID generation
@@ -132,9 +143,7 @@ module.exports = {
         let prevOffset = null
         let hasMore = true
         let page = 0
-        // 使用 pendingUpdates 追踪变更，而非直接修改 followers 元素，
-        // 避免 refreshCookieFollowings 并发替换数组引用时发生竞态条件
-        const pendingUpdates = new Map() // uid → { lastDynamicId }
+        const latestCandidateByUid = new Map()
 
         while (hasMore && page < 5) {
             const res = await biliApi.getDynamicFeed(offset, groupId)
@@ -143,7 +152,7 @@ module.exports = {
                     accountUid,
                     groupId
                 })
-                return { ok: false, reason: 'dynamic_feed_fetch_failed' }
+                return { ok: false, reason: 'dynamic_feed_fetch_failed', outcomes: [] }
             }
 
             const allItems = res.data.items || []
@@ -174,115 +183,123 @@ module.exports = {
                 const authorUid = String(item.modules?.module_author?.mid)
                 if (!authorUid || !followerMap.has(authorUid)) continue
 
-                const follower = followerMap.get(authorUid)
                 const dynamicId = item.id_str
-                const userScope = logger.createScope('sub', 'user', authorUid)
+                if (!dynamicId || this.isLiveDynamic(item)) continue
 
-                // Check if new (ID > lastDynamicId)
-                let isNew = false
-                if (!follower.lastDynamicId) {
-                    isNew = true // First time seeing this user's dynamic in feed?
-                    // Maybe we shouldn't notify everything if it's the first run.
-                    // But usually lastDynamicId is populated by sync.
-                    // If it's missing, treat as seen to avoid spam, just update ID?
-                    // Let's assume if missing, we just update it.
-                    isNew = false
-                } else {
-                    try {
-                        if (BigInt(dynamicId) > BigInt(follower.lastDynamicId)) {
-                            isNew = true
-                        }
-                    } catch (e) {
-                        // Fallback: zero-padded string comparison (safe for large IDs)
-                        const a = dynamicId.padStart(20, '0')
-                        const b = follower.lastDynamicId.padStart(20, '0')
-                        if (a > b) isNew = true
-                    }
-                }
-
-                if (isNew) {
-                    let canAdvanceCurrentDynamic = false
-                    // Check for live dynamic to skip (handled by processLiveFeed)
-                    if (this.isLiveDynamic(item)) {
-                        continue
-                    }
-
-                    const targetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
-                    const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
-
-                    if (targetGroups.length > 0) {
-                        // Fetch dynamic detail using standard API (unified with linkHandler)
-                        // This ensures data format consistency with manual subscriptions
-                        const info = await biliApi.getDynamicInfo(dynamicId, groupId)
-
-                        if (info.status !== 'success') {
-                            subLog('warn', 'feed-dynamic-detail-fetch-failed', {
-                                dynamicId,
-                                groupId
-                            }, userScope)
-                            continue
-                        }
-
-                        const name = follower.uname || item.modules?.module_author?.name
-                        const url = `https://t.bilibili.com/${dynamicId}`
-
-                        // Generate notification text using unified function
-                        const notificationText = this.generateNotificationText(name, info)
-
-                        // Prevent sending duplicate notifications if multiple accounts follow same user
-                        // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
-                        const notifyResult = await this.notifyGroupsWithImageAndCache(
-                            targetGroupSourceMap,
-                            info,
-                            info.type || 'dynamic',
-                            url,
-                            notificationText,
-                            { actorUid: authorUid, fallbackSources: ['cookieSync'] }
-                        )
-                        const decision = decideAdvance(notifyResult)
-                        canAdvanceCurrentDynamic = decision.action === 'advance'
-                        if (!canAdvanceCurrentDynamic) {
-                            subLog('warn', 'feed-dynamic-state-advance-skipped', {
-                                uid: authorUid,
-                                decision: decision.action,
-                                reason: decision.reason
-                            }, userScope)
-                        }
-                    }
-
-                    if (!canAdvanceCurrentDynamic) {
-                        continue
-                    }
-                }
-
-                // 追踪最新 dynamicId（取 follower 原始值与已记录的 pending 值中的最大值作为基准）
-                const pendingMax = pendingUpdates.has(authorUid)
-                    ? pendingUpdates.get(authorUid).lastDynamicId
-                    : follower.lastDynamicId
-                try {
-                    if (!pendingMax || BigInt(dynamicId) > BigInt(pendingMax || '0')) {
-                        pendingUpdates.set(authorUid, { lastDynamicId: dynamicId })
-                    }
-                } catch (e) {
-                    const a = String(dynamicId).padStart(20, '0')
-                    const b = String(pendingMax || '0').padStart(20, '0')
-                    if (!pendingMax || a > b) {
-                        pendingUpdates.set(authorUid, { lastDynamicId: dynamicId })
-                    }
+                const current = latestCandidateByUid.get(authorUid)
+                if (!current || this.compareContentId(dynamicId, current.dynamicId) > 0) {
+                    latestCandidateByUid.set(authorUid, { dynamicId, item })
                 }
             }
         }
 
-        // 使用 updateCookieFollowerState 逐一写入，始终操作 cookieFollowings 的当前引用，
-        // 避免最终 setCookieFollowings 调用因竞态条件覆盖状态
-        for (const [uid, updates] of pendingUpdates) {
-            await subscriptionManager.updateCookieFollowerState(accountUid, uid, updates)
+        const outcomes = []
+
+        for (const [authorUid, candidate] of latestCandidateByUid.entries()) {
+            const follower = followerMap.get(authorUid)
+            const dynamicId = candidate.dynamicId
+            const item = candidate.item
+            const userScope = logger.createScope('sub', 'user', authorUid)
+            let unifiedState = await this.getUnifiedUserState(authorUid)
+            const fullTargetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
+            const ledgerTargetGroupSourceMap = this.findTargetGroupSourceMapForUid(authorUid, activeGroups)
+            unifiedState = await this.ensureTargetBaselinesForUser({ uid: authorUid }, fullTargetGroupSourceMap, unifiedState)
+            const legacyDynamicAnchor = unifiedState ? null : follower.lastDynamicId
+            const unifiedAnchor = this.getDynamicAnchor(unifiedState, legacyDynamicAnchor)
+
+            if (!unifiedAnchor) {
+                await this.advanceDynamicState({ uid: authorUid, cookieFollower: follower, accountUid }, dynamicId)
+                outcomes.push({ uid: authorUid, status: 'covered', reason: 'anchor_initialized', contentId: dynamicId })
+                continue
+            }
+
+            const isNew = this.compareContentId(dynamicId, unifiedAnchor) > 0
+            const targetGroupSourceMap = isNew
+                ? fullTargetGroupSourceMap
+                : await this.getUndeliveredGroupSourceMap({
+                    uid: authorUid,
+                    contentType: 'dynamic',
+                    contentId: dynamicId,
+                    targetGroupSourceMap: fullTargetGroupSourceMap,
+                    ledgerTargetGroupSourceMap
+                })
+            const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
+
+            if (!isNew && targetGroups.length === 0) {
+                outcomes.push({ uid: authorUid, status: 'covered', reason: 'already_delivered', contentId: dynamicId })
+                continue
+            }
+
+            if (targetGroups.length === 0) {
+                if (isNew) {
+                    await this.advanceDynamicState({ uid: authorUid, cookieFollower: follower, accountUid }, dynamicId)
+                }
+                outcomes.push({ uid: authorUid, status: 'covered', reason: 'no_targets', contentId: dynamicId })
+                continue
+            }
+
+            // Fetch dynamic detail using standard API (unified with linkHandler)
+            // This ensures data format consistency with manual subscriptions
+            const info = await biliApi.getDynamicInfo(dynamicId, groupId)
+
+            if (info.status !== 'success') {
+                subLog('warn', 'feed-dynamic-detail-fetch-failed', {
+                    dynamicId,
+                    groupId
+                }, userScope)
+                outcomes.push({ uid: authorUid, status: 'retry', reason: 'detail_fetch_failed', contentId: dynamicId })
+                continue
+            }
+
+            const name = follower.uname || follower.name || item.modules?.module_author?.name
+            const url = `https://t.bilibili.com/${dynamicId}`
+
+            // Generate notification text using unified function
+            const notificationText = this.generateNotificationText(name, info)
+
+            // Prevent sending duplicate notifications if multiple accounts follow same user
+            // handled by dedupKey in notifyGroupsWithImage (using dynamicId)
+            const notifyResult = await this.notifyGroupsWithImageAndCache(
+                targetGroupSourceMap,
+                info,
+                info.type || 'dynamic',
+                url,
+                notificationText,
+                { actorUid: authorUid, fallbackSources: ['cookieSync'] }
+            )
+            await this.recordNotifyDeliveredGroups('dynamic', dynamicId, notifyResult)
+            const decision = decideAdvance(notifyResult)
+            const canAdvanceCurrentDynamic = decision.action === 'advance'
+            if (canAdvanceCurrentDynamic && isNew) {
+                await this.advanceDynamicState({ uid: authorUid, cookieFollower: follower, accountUid }, dynamicId)
+            }
+            if (!canAdvanceCurrentDynamic) {
+                subLog('warn', 'feed-dynamic-state-advance-skipped', {
+                    uid: authorUid,
+                    decision: decision.action,
+                    reason: decision.reason
+                }, userScope)
+                outcomes.push({ uid: authorUid, status: 'retry', reason: decision.reason, contentId: dynamicId })
+                continue
+            }
+
+            const failedGroups = Array.isArray(notifyResult.failedGroups) ? notifyResult.failedGroups : []
+            outcomes.push({
+                uid: authorUid,
+                status: failedGroups.length > 0 ? 'partial' : 'covered',
+                reason: failedGroups.length > 0 ? 'partial_delivery' : 'delivered',
+                contentId: dynamicId
+            })
         }
-        if (pendingUpdates.size > 0 && typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
+        if (typeof subscriptionManager.flushPendingFollowerSaves === 'function') {
             await subscriptionManager.flushPendingFollowerSaves()
         }
 
-        return { ok: true }
+        return {
+            ok: true,
+            outcomes,
+            coveredUids: outcomes.filter(item => item.status === 'covered').map(item => item.uid)
+        }
     },
 
     async processLiveFeed(accountUid, groupId, activeGroups = null) {
@@ -312,6 +329,12 @@ module.exports = {
             const follower = followerMap.get(uid)
             const manualSub = this.findManualSub(uid)
             const userScope = logger.createScope('sub', 'user', uid)
+            let unifiedState = await this.getUnifiedUserState(uid)
+            const hasUnifiedState = Boolean(unifiedState)
+            const liveAnchor = this.getLiveAnchor(unifiedState, {
+                liveStatus: follower.lastLiveStatus,
+                roomId: follower.roomId
+            })
             const roomId = normalizeRoomId(item.room_id, item.roomid, follower.roomId)
             const liveState = resolveLiveState({
                 liveRoom: {
@@ -322,33 +345,64 @@ module.exports = {
             })
 
             if (roomId && follower.roomId !== roomId) {
-                this.mergePendingLiveUpdate(pendingUpdates, uid, { roomId })
+                if (hasUnifiedState) {
+                    await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                        liveStatus: liveAnchor.liveStatus,
+                        roomId
+                    })
+                } else {
+                    this.mergePendingLiveUpdate(pendingUpdates, uid, { roomId })
+                }
             }
 
-            // Check if status changed from 0 to 1
-            const cookieNeedsNotify = follower.lastLiveStatus !== 1
-            const manualNeedsNotify = manualSub && manualSub.lastLiveStatus !== 1
+            // Check if status changed from 0 to 1. If the unified live anchor is already
+            // online, still retry current-room delivery gaps that were created by partial
+            // send failures after the ledger was enabled.
+            const cookieNeedsNotify = hasUnifiedState ? liveAnchor.liveStatus !== 1 : follower.lastLiveStatus !== 1
+            const manualNeedsNotify = hasUnifiedState ? Boolean(manualSub && liveAnchor.liveStatus !== 1) : manualSub && manualSub.lastLiveStatus !== 1
             let canAdvanceCookieLive = cookieNeedsNotify
             let canAdvanceManualLive = manualNeedsNotify
+            let manualRetryPending = false
+            let manualRetrySucceeded = false
 
-            if (liveState.status === 'online' && (cookieNeedsNotify || manualNeedsNotify)) {
+            if (liveState.status === 'online' && (cookieNeedsNotify || manualNeedsNotify) && !liveState.roomId) {
+                subLog('warn', 'feed-live-room-missing', {
+                    uid,
+                    name: item.uname
+                }, userScope)
+                continue
+            }
+
+            if (liveState.status === 'online' && liveState.roomId) {
                 const fullTargetGroupSourceMap = this.findTargetGroupSourceMapForUser(accountUid, follower, activeGroups)
+                const ledgerTargetGroupSourceMap = this.findTargetGroupSourceMapForUid(uid, activeGroups)
+                unifiedState = await this.ensureTargetBaselinesForUser({ uid }, fullTargetGroupSourceMap, unifiedState)
                 const allowedSources = []
                 if (cookieNeedsNotify) allowedSources.push('cookieSync')
                 if (manualNeedsNotify) allowedSources.push('manual')
-                const targetGroupSourceMap = this.filterTargetGroupSourceMap(fullTargetGroupSourceMap, allowedSources)
+                const statusTargetGroupSourceMap = this.filterTargetGroupSourceMap(fullTargetGroupSourceMap, allowedSources)
+                const canRetryLedgerGaps = hasUnifiedState &&
+                    liveAnchor.liveStatus === 1 &&
+                    unifiedState?.live?.meta?.source === 'updateChecker'
+                const retryTargetGroupSourceMap = allowedSources.length === 0 && canRetryLedgerGaps
+                    ? await this.getUndeliveredGroupSourceMap({
+                        uid,
+                        contentType: 'live',
+                        contentId: liveState.roomId,
+                        targetGroupSourceMap: fullTargetGroupSourceMap,
+                        ledgerTargetGroupSourceMap
+                    })
+                    : new Map()
+                const targetGroupSourceMap = allowedSources.length > 0
+                    ? statusTargetGroupSourceMap
+                    : retryTargetGroupSourceMap
                 const targetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
+                const manualRetryGroupSourceMap = this.filterTargetGroupSourceMap(retryTargetGroupSourceMap, ['manual'])
+                const manualRetryGroups = this.getGroupIdsFromSourceMap(manualRetryGroupSourceMap)
+                manualRetryPending = manualRetryGroups.length > 0
 
                 if (targetGroups.length > 0) {
                     const name = item.uname
-
-                    if (!liveState.roomId) {
-                        subLog('warn', 'feed-live-room-missing', {
-                            uid,
-                            name
-                        }, userScope)
-                        continue
-                    }
 
                     // Fetch live room detail using standard API (unified with linkHandler)
                     const liveInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
@@ -372,10 +426,15 @@ module.exports = {
                         `${name} 开播了！`,
                         { actorUid: uid, fallbackSources: ['cookieSync'] }
                     )
+                    await this.recordNotifyDeliveredGroups('live', liveState.roomId, notifyResult)
                     const decision = decideAdvance(notifyResult)
                     const canAdvance = decision.action === 'advance'
                     canAdvanceCookieLive = cookieNeedsNotify && canAdvance
                     canAdvanceManualLive = manualNeedsNotify && canAdvance
+                    if (manualRetryPending) {
+                        const successSet = new Set((notifyResult.successGroups || []).map(gid => String(gid)))
+                        manualRetrySucceeded = manualRetryGroups.every(gid => successSet.has(String(gid)))
+                    }
                     if (!canAdvance) {
                         subLog('warn', 'feed-live-state-advance-skipped', {
                             uid,
@@ -390,12 +449,33 @@ module.exports = {
             }
 
             if (liveState.status === 'online' && cookieNeedsNotify && canAdvanceCookieLive) {
-                this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 1 })
+                if (hasUnifiedState) {
+                    await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                        liveStatus: 1,
+                        roomId: liveState.roomId
+                    })
+                } else {
+                    this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 1 })
+                }
             }
             if (liveState.status === 'online' && manualNeedsNotify && canAdvanceManualLive) {
-                await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 1 })
+                if (hasUnifiedState) {
+                    await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                        liveStatus: 1,
+                        roomId: liveState.roomId
+                    })
+                } else {
+                    await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 1 })
+                }
             }
-            if (manualSub && liveState.status === 'online' && (!manualNeedsNotify || canAdvanceManualLive)) {
+            if (
+                manualSub &&
+                liveState.status === 'online' &&
+                (
+                    (manualNeedsNotify && canAdvanceManualLive) ||
+                    (!manualNeedsNotify && (!manualRetryPending || manualRetrySucceeded))
+                )
+            ) {
                 coveredUids.add(uid)
             }
         }
@@ -406,8 +486,14 @@ module.exports = {
         for (const follower of followers) {
             const uid = subscriptionManager.getFollowerId(follower)
             const manualSub = this.findManualSub(uid)
-            const cookieWasLive = follower.lastLiveStatus === 1
-            const manualWasLive = manualSub?.lastLiveStatus === 1
+            const unifiedState = await this.getUnifiedUserState(uid)
+            const hasUnifiedState = Boolean(unifiedState)
+            const liveAnchor = this.getLiveAnchor(unifiedState, {
+                liveStatus: follower.lastLiveStatus,
+                roomId: follower.roomId
+            })
+            const cookieWasLive = hasUnifiedState ? liveAnchor.liveStatus === 1 : follower.lastLiveStatus === 1
+            const manualWasLive = hasUnifiedState ? Boolean(manualSub && liveAnchor.liveStatus === 1) : manualSub?.lastLiveStatus === 1
             if ((cookieWasLive || manualWasLive) && !onlineUids.has(uid)) {
                 const cachedRoomId = normalizeRoomId(follower.roomId)
                 const userScope = logger.createScope('sub', 'user', uid)
@@ -428,10 +514,24 @@ module.exports = {
                     })
                     if (liveState.status === 'offline') {
                         if (cookieWasLive) {
-                            this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                            if (hasUnifiedState) {
+                                await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                                    liveStatus: 0,
+                                    roomId: cachedRoomId
+                                })
+                            } else {
+                                this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                            }
                         }
                         if (manualWasLive) {
-                            await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                            if (hasUnifiedState) {
+                                await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                                    liveStatus: 0,
+                                    roomId: cachedRoomId
+                                })
+                            } else {
+                                await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                            }
                             coveredUids.add(uid)
                         }
                     } else {
@@ -460,10 +560,24 @@ module.exports = {
 
                 if (liveState.status === 'offline') {
                     if (cookieWasLive) {
-                        this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                        if (hasUnifiedState) {
+                            await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                                liveStatus: 0,
+                                roomId: cachedRoomId
+                            })
+                        } else {
+                            this.mergePendingLiveUpdate(pendingUpdates, uid, { lastLiveStatus: 0 })
+                        }
                     }
                     if (manualWasLive) {
-                        await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                        if (hasUnifiedState) {
+                            await this.advanceLiveState({ uid, manualSub, cookieFollower: follower, accountUid }, {
+                                liveStatus: 0,
+                                roomId: cachedRoomId
+                            })
+                        } else {
+                            await subscriptionManager.updateUserSub(uid, { lastLiveStatus: 0 })
+                        }
                         coveredUids.add(uid)
                     }
                 } else if (liveState.status === 'unknown') {

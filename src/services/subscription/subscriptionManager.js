@@ -3,6 +3,7 @@ const path = require('path');
 const logger = require('../../utils/logger');
 const biliApi = require('../../services/biliApi');
 const storageUtils = require('../../utils/storageUtils');
+const subscriptionStateStore = require('./subscriptionStateStore');
 
 function subLog(level, message, fields = {}, scope = 'svc:sub-manager') {
     logger.logEvent(level, 'SUB', scope, message, fields);
@@ -672,6 +673,303 @@ class SubscriptionManager {
         }
     }
 
+    async _ensureNewTargetBaseline(uid, groupId, currentState = null) {
+        if (!subscriptionStateStore || typeof subscriptionStateStore.ensureTargetBaselines !== 'function') return;
+        const normalizedUid = String(uid);
+        let hadStoredUserState = false;
+        let previousUserState = null;
+        try {
+            if (typeof subscriptionStateStore.ensureLoaded === 'function') {
+                await subscriptionStateStore.ensureLoaded();
+            }
+            hadStoredUserState = Boolean(
+                subscriptionStateStore.users &&
+                Object.prototype.hasOwnProperty.call(subscriptionStateStore.users, normalizedUid)
+            );
+            previousUserState = hadStoredUserState && typeof subscriptionStateStore.getUserState === 'function'
+                ? subscriptionStateStore.getUserState(normalizedUid)
+                : null;
+            const storedState = typeof subscriptionStateStore.getUserState === 'function'
+                ? subscriptionStateStore.getUserState(normalizedUid)
+                : null;
+            const state = this._buildNewTargetBaselineState(currentState, storedState);
+            await subscriptionStateStore.ensureTargetBaselines(normalizedUid, [String(groupId)], state || {}, {
+                baselineSource: 'new_target',
+                refreshBaseline: true
+            });
+        } catch (error) {
+            if (subscriptionStateStore.users && typeof subscriptionStateStore.users === 'object') {
+                if (hadStoredUserState) {
+                    subscriptionStateStore.users[normalizedUid] = previousUserState;
+                } else {
+                    delete subscriptionStateStore.users[normalizedUid];
+                }
+            }
+            subLog('error', 'target-baseline-ensure-failed', {
+                uid,
+                groupId,
+                error: logger.getErrorMessage(error)
+            });
+            throw error;
+        }
+    }
+
+    _buildNewTargetBaselineState(currentState, storedState) {
+        const current = currentState && typeof currentState === 'object' ? currentState : {};
+        const stored = storedState && typeof storedState === 'object' ? storedState : {};
+        const state = {
+            ...stored,
+            ...current
+        };
+
+        state.dynamic = this._selectDynamicBaselineState(current, stored);
+        state.video = this._selectTimestampBaselineState(current, stored, {
+            namespace: 'video',
+            idKeys: ['videoId', 'lastVideoId'],
+            timeKeys: ['lastCreated', 'lastVideoCreated']
+        });
+        state.article = this._selectTimestampBaselineState(current, stored, {
+            namespace: 'article',
+            idKeys: ['articleId', 'lastArticleId'],
+            timeKeys: ['lastPublishTime', 'lastArticlePublishTime']
+        });
+        state.live = this._selectLiveBaselineState(current, stored);
+
+        return state;
+    }
+
+    _selectDynamicBaselineState(currentState, storedState) {
+        const currentId = this._getFirstStateValue(currentState, ['dynamic.lastDynamicId', 'lastDynamicId', 'dynamicId']);
+        const storedId = this._getFirstStateValue(storedState, ['dynamic.lastDynamicId', 'lastDynamicId', 'dynamicId']);
+        const currentDynamic = currentState?.dynamic && typeof currentState.dynamic === 'object' ? currentState.dynamic : {};
+        const storedDynamic = storedState?.dynamic && typeof storedState.dynamic === 'object' ? storedState.dynamic : {};
+        const useCurrent = currentId && (!storedId || this._compareContentIds(currentId, storedId) >= 0);
+        const selectedId = useCurrent ? currentId : (storedId || currentId || null);
+
+        return {
+            ...storedDynamic,
+            ...(useCurrent ? currentDynamic : {}),
+            lastDynamicId: selectedId ? String(selectedId) : null
+        };
+    }
+
+    _selectTimestampBaselineState(currentState, storedState, options) {
+        const currentAnchor = this._getTimestampAnchor(currentState, options);
+        const storedAnchor = this._getTimestampAnchor(storedState, options);
+        const currentScoped = currentState?.[options.namespace] && typeof currentState[options.namespace] === 'object'
+            ? currentState[options.namespace]
+            : {};
+        const storedScoped = storedState?.[options.namespace] && typeof storedState[options.namespace] === 'object'
+            ? storedState[options.namespace]
+            : {};
+        const useCurrent = this._shouldUseCurrentTimestampAnchor(currentAnchor, storedAnchor);
+        const selected = useCurrent ? currentAnchor : (storedAnchor.hasAnchor ? storedAnchor : currentAnchor);
+        const idKey = options.namespace === 'video' ? 'videoId' : 'articleId';
+        const timeKey = options.namespace === 'video' ? 'lastCreated' : 'lastPublishTime';
+
+        return {
+            ...storedScoped,
+            ...(useCurrent ? currentScoped : {}),
+            [idKey]: selected.id || null,
+            [timeKey]: selected.time
+        };
+    }
+
+    _selectLiveBaselineState(currentState, storedState) {
+        const currentLive = this._getLiveAnchor(currentState);
+        const storedLive = this._getLiveAnchor(storedState);
+        const currentScoped = currentState?.live && typeof currentState.live === 'object' ? currentState.live : {};
+        const storedScoped = storedState?.live && typeof storedState.live === 'object' ? storedState.live : {};
+        const storedHasActiveAnchor = storedLive.status === 1 || Boolean(storedLive.roomId);
+        const currentHasActiveAnchor = currentLive.status === 1 || Boolean(currentLive.roomId);
+        const useCurrent = currentHasActiveAnchor && !storedHasActiveAnchor;
+        const selected = useCurrent ? currentLive : (storedLive.hasAnchor ? storedLive : currentLive);
+
+        return {
+            ...storedScoped,
+            ...(useCurrent ? currentScoped : {}),
+            lastStatus: selected.status === null ? null : selected.status,
+            roomId: selected.roomId || null
+        };
+    }
+
+    _getTimestampAnchor(state, options) {
+        const scopedPrefix = `${options.namespace}.`;
+        const id = this._getFirstStateValue(state, [
+            `${scopedPrefix}${options.idKeys[0]}`,
+            options.idKeys[1],
+            options.idKeys[0]
+        ]);
+        const time = this._normalizeTimestamp(this._getFirstStateValue(state, [
+            `${scopedPrefix}${options.timeKeys[0]}`,
+            options.timeKeys[1],
+            options.timeKeys[0]
+        ]));
+
+        return {
+            id: id ? String(id) : null,
+            time,
+            hasAnchor: Boolean(id) || time !== null
+        };
+    }
+
+    _getLiveAnchor(state) {
+        const rawStatus = this._getFirstStateValue(state, ['live.lastStatus', 'lastLiveStatus', 'liveStatus']);
+        const status = this._normalizeLiveStatus(rawStatus);
+        const roomId = this._getFirstStateValue(state, ['live.roomId', 'roomId', 'lastRoomId']);
+
+        return {
+            status,
+            roomId: roomId ? String(roomId) : null,
+            hasAnchor: status !== null || Boolean(roomId)
+        };
+    }
+
+    _shouldUseCurrentTimestampAnchor(currentAnchor, storedAnchor) {
+        if (!currentAnchor.hasAnchor) return false;
+        if (!storedAnchor.hasAnchor) return true;
+        if (currentAnchor.time !== null && storedAnchor.time !== null) {
+            return currentAnchor.time >= storedAnchor.time;
+        }
+        if (currentAnchor.time !== null && storedAnchor.time === null) return true;
+        if (currentAnchor.time === null && storedAnchor.time !== null) return false;
+        return false;
+    }
+
+    _getFirstStateValue(state, paths) {
+        if (!state || typeof state !== 'object') return null;
+        for (const pathSpec of paths) {
+            const parts = String(pathSpec).split('.');
+            let value = state;
+            for (const part of parts) {
+                value = value && typeof value === 'object' ? value[part] : undefined;
+            }
+            if (value !== undefined && value !== null && value !== '') {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    _normalizeTimestamp(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    _normalizeLiveStatus(value) {
+        if (value === null || value === undefined || value === '') return null;
+        if (value === true) return 1;
+        if (value === false) return 0;
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    _compareContentIds(leftValue, rightValue) {
+        const left = String(leftValue || '').trim();
+        const right = String(rightValue || '').trim();
+        if (!left || !right) return 0;
+        try {
+            const leftBig = BigInt(left.replace(/^cv/i, ''));
+            const rightBig = BigInt(right.replace(/^cv/i, ''));
+            if (leftBig > rightBig) return 1;
+            if (leftBig < rightBig) return -1;
+            return 0;
+        } catch {
+            const width = Math.max(left.length, right.length);
+            const paddedLeft = left.padStart(width, '0');
+            const paddedRight = right.padStart(width, '0');
+            if (paddedLeft > paddedRight) return 1;
+            if (paddedLeft < paddedRight) return -1;
+            return 0;
+        }
+    }
+
+    _hasTargetBaselineAnchor(state) {
+        return Boolean(
+            state &&
+            (
+                state.dynamic?.lastDynamicId ||
+                state.video?.videoId ||
+                state.video?.lastCreated ||
+                state.article?.articleId ||
+                state.article?.lastPublishTime ||
+                state.live?.lastStatus === 1 ||
+                state.live?.roomId
+            )
+        );
+    }
+
+    _snapshotSubscriptionLists() {
+        return {
+            userSubs: this.userSubs.map(sub => ({
+                ...sub,
+                groupIds: Array.isArray(sub.groupIds) ? [...sub.groupIds] : []
+            })),
+            bangumiSubs: this.bangumiSubs.map(sub => ({
+                ...sub,
+                groupIds: Array.isArray(sub.groupIds) ? [...sub.groupIds] : []
+            }))
+        };
+    }
+
+    _restoreSubscriptionLists(snapshot) {
+        if (!snapshot) return;
+        this.userSubs = snapshot.userSubs;
+        this.bangumiSubs = snapshot.bangumiSubs;
+    }
+
+    async _snapshotSubscriptionState(uid) {
+        if (!subscriptionStateStore || typeof subscriptionStateStore.ensureLoaded !== 'function') return null;
+        await subscriptionStateStore.ensureLoaded();
+        const normalizedUid = String(uid);
+        const hadUserState = Boolean(
+            subscriptionStateStore.users &&
+            Object.prototype.hasOwnProperty.call(subscriptionStateStore.users, normalizedUid)
+        );
+        return {
+            uid: normalizedUid,
+            hadUserState,
+            userState: hadUserState && typeof subscriptionStateStore.getUserState === 'function'
+                ? subscriptionStateStore.getUserState(normalizedUid)
+                : null
+        };
+    }
+
+    async _restoreSubscriptionStateAndSave(snapshot, cause) {
+        if (!snapshot || !subscriptionStateStore || !subscriptionStateStore.users) return;
+        if (snapshot.hadUserState) {
+            subscriptionStateStore.users[snapshot.uid] = snapshot.userState;
+        } else {
+            delete subscriptionStateStore.users[snapshot.uid];
+        }
+        try {
+            await subscriptionStateStore.save();
+        } catch (rollbackError) {
+            subLog('error', 'target-baseline-rollback-save-failed', {
+                uid: snapshot.uid,
+                error: logger.getErrorMessage(rollbackError),
+                cause: logger.getErrorMessage(cause)
+            });
+            if (cause && typeof cause === 'object') {
+                cause.rollbackError = rollbackError;
+            }
+        }
+    }
+
+    async _markTargetBaselineInactive(uid, groupId) {
+        if (!subscriptionStateStore || typeof subscriptionStateStore.markTargetInactive !== 'function') return;
+        try {
+            await subscriptionStateStore.markTargetInactive(String(uid), String(groupId));
+        } catch (error) {
+            subLog('warn', 'target-baseline-inactive-failed', {
+                uid,
+                groupId,
+                error: logger.getErrorMessage(error)
+            });
+        }
+    }
+
     async setGroupAccountMapping(groupId, accountUid) {
         if (!groupId || !accountUid) return;
         this.groupToAccountMap[this._normalizeGroupId(groupId)] = String(accountUid).trim();
@@ -714,17 +1012,31 @@ class SubscriptionManager {
 
         if (sub) {
             let changed = false;
+            let addedGroup = false;
+            const snapshot = this._snapshotSubscriptionLists();
+            let stateSnapshot = null;
             if (sub.uid !== normalizedUid) {
                 sub.uid = normalizedUid;
                 changed = true;
             }
             if (!sub.groupIds.some(id => String(id) === gid)) {
+                stateSnapshot = await this._snapshotSubscriptionState(normalizedUid);
+                await this._ensureNewTargetBaseline(normalizedUid, gid, sub);
                 sub.groupIds.push(gid);
                 changed = true;
+                addedGroup = true;
             }
             if (changed) {
                 sub.groupIds = this._normalizeGroupIdList(sub.groupIds);
-                await this._saveSubscriptions();
+                try {
+                    await this._saveSubscriptions();
+                } catch (error) {
+                    this._restoreSubscriptionLists(snapshot);
+                    if (addedGroup) {
+                        await this._restoreSubscriptionStateAndSave(stateSnapshot, error);
+                    }
+                    throw error;
+                }
             }
             return sub.name;
         }
@@ -772,8 +1084,19 @@ class SubscriptionManager {
             lastLiveStatus: 0 // 0: offline, 1: online
         };
 
+        const stateSnapshot = await this._snapshotSubscriptionState(normalizedUid);
+        await this._ensureNewTargetBaseline(normalizedUid, gid, newSub);
         this.userSubs.push(newSub);
-        await this._saveSubscriptions();
+        try {
+            await this._saveSubscriptions();
+        } catch (error) {
+            const pushedIndex = this.userSubs.indexOf(newSub);
+            if (pushedIndex >= 0) {
+                this.userSubs.splice(pushedIndex, 1);
+            }
+            await this._restoreSubscriptionStateAndSave(stateSnapshot, error);
+            throw error;
+        }
         subLog('info', 'user-sub-added', {
             uid: normalizedUid,
             name: newSub.name,
@@ -791,6 +1114,7 @@ class SubscriptionManager {
         const index = this.userSubs.findIndex((sub) => this._normalizeNumericId(sub.uid) === normalizedUid);
         const gid = this._normalizeGroupId(groupId);
         if (index > -1) {
+            const snapshot = this._snapshotSubscriptionLists();
             const sub = this.userSubs[index];
             if (sub.uid !== normalizedUid) {
                 sub.uid = normalizedUid;
@@ -801,7 +1125,13 @@ class SubscriptionManager {
                 if (sub.groupIds.length === 0) {
                     this.userSubs.splice(index, 1);
                 }
-                await this._saveSubscriptions();
+                try {
+                    await this._saveSubscriptions();
+                } catch (error) {
+                    this._restoreSubscriptionLists(snapshot);
+                    throw error;
+                }
+                await this._markTargetBaselineInactive(normalizedUid, gid);
                 return true;
             }
         }
@@ -871,6 +1201,7 @@ class SubscriptionManager {
         const index = this.bangumiSubs.findIndex((sub) => this._normalizeNumericId(sub.seasonId) === normalizedSeasonId);
         const gid = this._normalizeGroupId(groupId);
         if (index > -1) {
+            const snapshot = this._snapshotSubscriptionLists();
             const sub = this.bangumiSubs[index];
             if (sub.seasonId !== normalizedSeasonId) {
                 sub.seasonId = normalizedSeasonId;
@@ -881,7 +1212,12 @@ class SubscriptionManager {
                 if (sub.groupIds.length === 0) {
                     this.bangumiSubs.splice(index, 1);
                 }
-                await this._saveSubscriptions();
+                try {
+                    await this._saveSubscriptions();
+                } catch (error) {
+                    this._restoreSubscriptionLists(snapshot);
+                    throw error;
+                }
                 return true;
             }
         }
@@ -892,6 +1228,8 @@ class SubscriptionManager {
     async removeGroupFromAllSubscriptions(groupId) {
         await this._ensureSubscriptionsLoaded();
         const gid = this._normalizeGroupId(groupId);
+        const snapshot = this._snapshotSubscriptionLists();
+        const userTargetsToDeactivate = [];
         let modified = false;
 
         // Remove from user subscriptions
@@ -910,6 +1248,7 @@ class SubscriptionManager {
                         name: sub.name
                     });
                 }
+                userTargetsToDeactivate.push({ uid: sub.uid, groupId: gid });
             }
         }
 
@@ -933,7 +1272,15 @@ class SubscriptionManager {
         }
 
         if (modified) {
-            await this._saveSubscriptions();
+            try {
+                await this._saveSubscriptions();
+            } catch (error) {
+                this._restoreSubscriptionLists(snapshot);
+                throw error;
+            }
+            for (const target of userTargetsToDeactivate) {
+                await this._markTargetBaselineInactive(target.uid, target.groupId);
+            }
             subLog('info', 'group-removed-from-all-subscriptions', {
                 groupId
             });
@@ -955,6 +1302,8 @@ class SubscriptionManager {
     async removeAllGroupSubscriptions(groupId) {
         await this._ensureSubscriptionsLoaded();
         const gid = this._normalizeGroupId(groupId);
+        const snapshot = this._snapshotSubscriptionLists();
+        const userTargetsToDeactivate = [];
         let changed = false;
 
         // Clean users
@@ -967,6 +1316,7 @@ class SubscriptionManager {
                 if (sub.groupIds.length === 0) {
                     this.userSubs.splice(i, 1);
                 }
+                userTargetsToDeactivate.push({ uid: sub.uid, groupId: gid });
             }
         }
 
@@ -984,7 +1334,15 @@ class SubscriptionManager {
         }
 
         if (changed) {
-            await this._saveSubscriptions();
+            try {
+                await this._saveSubscriptions();
+            } catch (error) {
+                this._restoreSubscriptionLists(snapshot);
+                throw error;
+            }
+            for (const target of userTargetsToDeactivate) {
+                await this._markTargetBaselineInactive(target.uid, target.groupId);
+            }
         }
         return changed;
     }

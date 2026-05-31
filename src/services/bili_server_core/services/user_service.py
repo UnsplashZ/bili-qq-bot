@@ -4,11 +4,14 @@ import inspect
 from bilibili_api import search, user
 
 from ..auth.credential_store import load_credential
+from ..errors import auth_failed_envelope, error_envelope, invalid_request_envelope
 from ..logging_utils import service_log
 from .focus_service import build_avatar_focus
 from .opus_additional_service import enrich_opus_modules
 
 logger = logging.getLogger(__name__)
+
+_error_envelope = error_envelope
 
 
 def _get_search_users_auth_param_name():
@@ -70,7 +73,7 @@ async def get_user_card(uid, group_id=None):
         return {"status": "success", "type": "user_card", "data": data}
     except Exception as e:
         service_log(logger, "error", "fetch-user-card-failed", uid=uid, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return error_envelope(str(e), "user_card", error=e)
 
 
 async def get_user_info(uid, group_id=None):
@@ -146,14 +149,14 @@ async def get_user_info(uid, group_id=None):
         return {"status": "success", "type": "user", "data": data}
     except Exception as e:
         service_log(logger, "error", "fetch-user-info-failed", uid=uid, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return error_envelope(str(e), "user_info", error=e)
 
 
 async def search_users(keyword, group_id=None, page=1, page_size=5):
     try:
         normalized_keyword = str(keyword or "").strip()
         if not normalized_keyword:
-            return {"status": "error", "message": "缺少参数: keyword"}
+            return invalid_request_envelope("缺少参数: keyword", "user_search")
 
         normalized_page = _normalize_positive_int(page, 1, min_value=1)
         normalized_page_size = _normalize_positive_int(page_size, 5, min_value=1, max_value=10)
@@ -229,7 +232,7 @@ async def search_users(keyword, group_id=None, page=1, page_size=5):
         }
     except Exception as e:
         service_log(logger, "error", "search-users-failed", keyword=keyword, groupId=group_id, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return error_envelope(str(e), "user_search", error=e)
 
 
 async def get_my_info(group_id=None):
@@ -237,7 +240,7 @@ async def get_my_info(group_id=None):
         service_log(logger, "info", "fetch-my-info", groupId=group_id)
         cred = load_credential(group_id)
         if not cred:
-            return {"status": "error", "message": "未登录"}
+            return auth_failed_envelope("未登录", "my_info")
 
         self_info = await user.get_self_info(credential=cred)
         service_log(logger, "info", "my-info-ready", mid=self_info.get("mid"))
@@ -250,8 +253,11 @@ async def get_my_info(group_id=None):
             traceback.print_exc()
 
         if str(e) == "'data'":
-            return {
-                "status": "error",
-                "message": "Bilibili API format error (KeyError: 'data') - Cookie likely invalid",
-            }
-        return {"status": "error", "message": str(e)}
+            return _error_envelope(
+                "Bilibili API format error (KeyError: 'data') - Cookie likely invalid",
+                "my_info",
+                error=e,
+                error_type="auth_failed",
+                http_status=401,
+            )
+        return _error_envelope(str(e), "my_info", error=e)

@@ -100,6 +100,57 @@ async function testSendCommandEmitsUnifiedRpcFailLogs() {
     }
 }
 
+async function testSendCommandPreservesAxiosErrorStructure() {
+    const { logs, off } = collectLogs()
+    try {
+        serviceManager.process = { pid: 1 }
+        serviceManager.start = async () => {
+            throw new Error('start should not be called when process already exists')
+        }
+
+        const error = new Error('Request failed with status code 401')
+        error.code = 'ERR_BAD_REQUEST'
+        error.response = {
+            status: 401,
+            data: {
+                status: 'error',
+                message: '未登录',
+                errorType: 'auth_failed',
+                biliCode: -101,
+                endpoint: 'my_info',
+                retryable: false
+            }
+        }
+
+        axios.post = async () => {
+            throw error
+        }
+
+        let thrown = null
+        try {
+            await serviceManager.sendCommand('my_info', { group_id: '1000' }, { timeoutMs: 1234 })
+        } catch (err) {
+            thrown = err
+        }
+
+        assert.strictEqual(thrown, error, '应继续抛出原始 axios 错误对象')
+        assert.strictEqual(thrown.endpoint, 'my_info')
+        assert.strictEqual(thrown.timeout, 1234)
+        assert.strictEqual(thrown.httpStatus, 401)
+        assert.deepStrictEqual(thrown.responseData, error.response.data)
+
+        const failLine = logs.find((line) => line.includes('RPC') && line.includes('fail') && line.includes('my_info'))
+        assert.ok(failLine, '应输出 RPC fail 日志')
+        assert.ok(failLine.includes('httpStatus=401'), 'RPC fail 日志应包含 HTTP 状态')
+        assert.ok(failLine.includes('failureKind=auth_failed'), 'RPC fail 日志应包含分类结果')
+        assert.ok(failLine.includes('biliCode=-101'), 'RPC fail 日志应包含 B 站 code')
+        assert.ok(failLine.includes('timeout=1234'), 'RPC fail 日志应包含请求 timeout')
+    } finally {
+        off()
+        restore()
+    }
+}
+
 async function testSendCommandTreatsOkStatusAsInfo() {
     const { logs, off } = collectLogs()
     try {
@@ -156,6 +207,7 @@ async function run() {
     await testSendCommandEmitsUnifiedRpcStartAndDoneLogs()
     await testSendCommandTreatsOkStatusAsInfo()
     await testSendCommandEmitsUnifiedRpcFailLogs()
+    await testSendCommandPreservesAxiosErrorStructure()
     console.log('PASS serviceManager-python-logging')
 }
 

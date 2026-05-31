@@ -5,8 +5,11 @@ function decideAdvance(result) {
     const failedGroups = Array.isArray(result?.failedGroups)
         ? result.failedGroups
         : []
+    const dedupSkippedGroups = Array.isArray(result?.dedupSkippedGroups)
+        ? result.dedupSkippedGroups
+        : []
 
-    if (successGroups.length > 0) {
+    if (successGroups.length > 0 || dedupSkippedGroups.length > 0) {
         return { action: 'advance', reason: 'has_success' }
     }
 

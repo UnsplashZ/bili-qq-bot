@@ -1,4 +1,10 @@
-const { subscriptionManager, config, logger } = require('../adapters/deps')
+const {
+    subscriptionManager,
+    config,
+    logger,
+    subscriptionStateStore,
+    subscriptionDeliveryStore
+} = require('../adapters/deps')
 
 function subLog(level, message, fields = {}, scope = 'svc:lifecycle') {
     logger.logEvent(level, 'SUB', scope, message, fields)
@@ -20,6 +26,13 @@ module.exports = {
     start(skipInitialDelay = false) {
         // 🆕 先停止现有定时器，防止泄漏
         this.stop()
+        const startToken = Symbol('subscription-checker-start')
+        this._startToken = startToken
+        this._subscriptionRuntimeStartState = 'initializing'
+        this._subscriptionRuntimeStartRequestedAt = Date.now()
+        this._subscriptionRuntimeReadyAt = null
+        this._subscriptionRuntimeLastError = null
+        this._subscriptionRuntimeLastErrorAt = null
 
         subLog('info', 'checker-started', {
             checkInterval: `${this.checkInterval / 1000}s`,
@@ -27,6 +40,48 @@ module.exports = {
             skipInitialDelay
         })
 
+        const startPromise = (async () => {
+            let result = await this.initializeSubscriptionRuntime({ startToken })
+            if (result && result.cancelled && this._startToken === startToken) {
+                result = await this.initializeSubscriptionRuntime({ startToken })
+            }
+            if (this._startToken !== startToken) {
+                subLog('debug', 'checker-start-aborted', {
+                    reason: 'stale_start_token'
+                })
+                return
+            }
+            if (result && result.cancelled) {
+                this._subscriptionRuntimeStartState = 'stopped'
+                subLog('debug', 'checker-start-aborted', {
+                    reason: 'runtime_init_cancelled'
+                })
+                return
+            }
+            this.scheduleRuntimeTimers(skipInitialDelay)
+            this._subscriptionRuntimeStartState = 'ready'
+            this._subscriptionRuntimeReadyAt = Date.now()
+            subLog('info', 'checker-ready')
+        })().catch(error => {
+            if (this._startToken !== startToken) {
+                subLog('debug', 'checker-start-error-ignored', {
+                    reason: 'stale_start_token',
+                    error: logger.getErrorMessage(error)
+                })
+                return
+            }
+            this._subscriptionRuntimeStartState = 'error'
+            this._subscriptionRuntimeLastError = logger.getErrorMessage(error)
+            this._subscriptionRuntimeLastErrorAt = Date.now()
+            subLog('error', 'checker-start-failed', {
+                error: logger.getErrorMessage(error)
+            })
+        })
+        this._subscriptionRuntimeStartPromise = startPromise
+        return startPromise
+    },
+
+    scheduleRuntimeTimers(skipInitialDelay = false) {
         // Initial check after 10 seconds (Feed & Subs) - or immediately if skipInitialDelay
         const initialDelay = skipInitialDelay ? 0 : 10000
         this.initTimer = setTimeout(() => {
@@ -71,8 +126,6 @@ module.exports = {
                 error: logger.getErrorMessage(e)
             })
         })
-
-        subLog('info', 'checker-ready')
     },
 
     /**
@@ -80,6 +133,8 @@ module.exports = {
      */
     stop() {
         let clearedCount = 0
+        const hadStartToken = Boolean(this._startToken)
+        const pendingStartPromise = this._subscriptionRuntimeStartPromise
 
         if (this.initTimer) {
             clearTimeout(this.initTimer)
@@ -111,11 +166,23 @@ module.exports = {
             clearedCount++
         }
 
-        if (clearedCount > 0) {
+        this._startToken = null
+        if (this._subscriptionRuntimeStartState === 'initializing' || this._subscriptionRuntimeStartState === 'ready') {
+            this._subscriptionRuntimeStartState = 'stopped'
+        }
+        this._subscriptionRuntimeReadyAt = null
+
+        if (clearedCount > 0 || hadStartToken) {
             subLog('info', 'checker-stopped', {
-                clearedCount
+                clearedCount,
+                startupPending: hadStartToken && clearedCount === 0
             })
         }
+
+        if (pendingStartPromise && typeof pendingStartPromise.then === 'function') {
+            return pendingStartPromise.catch(() => {})
+        }
+        return Promise.resolve()
     },
 
     /**
@@ -127,12 +194,86 @@ module.exports = {
         this.start(true) // Skip initial delay on restart
     },
 
+    async initializeSubscriptionRuntime(options = {}) {
+        if (this._subscriptionRuntimeInitialized) return
+        if (this._subscriptionRuntimeInitializing) return this._subscriptionRuntimeInitializing
+        const startToken = options && options.startToken
+        const isCancelled = () => startToken && this._startToken !== startToken
+
+        this._subscriptionRuntimeInitializing = (async () => {
+            await subscriptionManager._ensureSubscriptionsLoaded()
+            if (isCancelled()) return { cancelled: true }
+
+            if (typeof subscriptionManager._ensureFollowersLoaded === 'function') {
+                await subscriptionManager._ensureFollowersLoaded()
+            }
+            if (isCancelled()) return { cancelled: true }
+
+            if (subscriptionStateStore && typeof subscriptionStateStore.ensureLoaded === 'function') {
+                await subscriptionStateStore.ensureLoaded()
+            }
+            if (isCancelled()) return { cancelled: true }
+
+            if (subscriptionDeliveryStore && typeof subscriptionDeliveryStore.ensureLoaded === 'function') {
+                await subscriptionDeliveryStore.ensureLoaded()
+            }
+            if (isCancelled()) return { cancelled: true }
+
+            if (subscriptionStateStore && typeof subscriptionStateStore.initializeFromLegacy === 'function') {
+                const result = await subscriptionStateStore.initializeFromLegacy({
+                    userSubs: subscriptionManager.userSubs || [],
+                    cookieFollowings: subscriptionManager.cookieFollowings || {}
+                })
+                if (isCancelled()) return { cancelled: true }
+                subLog('info', 'subscription-state-initialized', {
+                    migrated: Boolean(result && result.changed)
+                })
+            }
+
+            if (subscriptionDeliveryStore && typeof subscriptionDeliveryStore.cleanupExpired === 'function') {
+                const cleanup = await subscriptionDeliveryStore.cleanupExpired()
+                if (isCancelled()) return { cancelled: true }
+                subLog('debug', 'subscription-delivery-cleanup-done', {
+                    removed: cleanup?.removed || 0
+                })
+            }
+
+            this._subscriptionRuntimeInitialized = true
+            return { initialized: true }
+        })()
+
+        try {
+            return await this._subscriptionRuntimeInitializing
+        } finally {
+            this._subscriptionRuntimeInitializing = null
+        }
+    },
+
     /**
      * 🆕 获取定时器状态（用于调试）
      */
     getStatus() {
+        const startupPending = Boolean(
+            this._startToken &&
+            (
+                this._subscriptionRuntimeStartState === 'initializing' ||
+                this._subscriptionRuntimeInitializing
+            )
+        )
+        const ready = this._subscriptionRuntimeStartState === 'ready' && Boolean(this._subscriptionRuntimeInitialized)
         return {
             running: !!(this.timer || this.syncTimer),
+            runtime: {
+                startState: this._subscriptionRuntimeStartState || 'stopped',
+                startupPending,
+                initialized: Boolean(this._subscriptionRuntimeInitialized),
+                initializing: Boolean(this._subscriptionRuntimeInitializing),
+                ready,
+                lastError: this._subscriptionRuntimeLastError || null,
+                lastErrorAt: this._subscriptionRuntimeLastErrorAt || null,
+                startedAt: this._subscriptionRuntimeStartRequestedAt || null,
+                readyAt: this._subscriptionRuntimeReadyAt || null
+            },
             timers: {
                 initTimer: !!this.initTimer,
                 mainTimer: !!this.timer,
@@ -165,8 +306,8 @@ module.exports = {
         const pollScope = logger.createScope('poll', Date.now(), Math.random().toString(36).slice(2, 8))
         logger.logEvent('info', 'SUB', pollScope, 'cycle-start', {})
         try {
-            // Ensure subscriptions are loaded before checking
-            await subscriptionManager._ensureSubscriptionsLoaded()
+            // Ensure subscriptions, followers, unified state, and delivery ledger are ready before checking.
+            await this.initializeSubscriptionRuntime()
 
             // Build active groups set (only groups where isInGroup !== false)
             const activeGroups = new Set()

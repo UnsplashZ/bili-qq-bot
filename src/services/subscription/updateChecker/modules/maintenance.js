@@ -1,7 +1,15 @@
 const { subscriptionManager, notificationService, biliApi, config, logger } = require('../adapters/deps')
+const { classifyBiliApiError } = require('../../../biliApiErrorClassifier')
 
 function subLog(level, message, fields = {}, scope = 'svc:maintenance') {
     logger.logEvent(level, 'SUB', scope, message, fields)
+}
+
+const RETRYABLE_ALERT_FAILURES = 3
+const RETRYABLE_ALERT_DURATION_MS = 15 * 60 * 1000
+
+function formatTimestamp(value) {
+    return value ? new Date(value).toISOString() : null
 }
 
 module.exports = {
@@ -22,6 +30,147 @@ module.exports = {
         notificationService.sendPrivateMessage(this.ws, rootAdminQQ, `[Bot通知] ${message}`)
     },
 
+    getCookieSyncFailureState(groupId) {
+        if (!this.cookieSyncFailureState) {
+            this.cookieSyncFailureState = new Map()
+        }
+        const gid = String(groupId)
+        if (!this.cookieSyncFailureState.has(gid)) {
+            this.cookieSyncFailureState.set(gid, {
+                consecutiveFailures: 0,
+                firstFailureAt: null,
+                lastFailureAt: null,
+                lastSuccessAt: null,
+                lastAlertAt: null
+            })
+        }
+        return this.cookieSyncFailureState.get(gid)
+    },
+
+    recordCookieSyncSuccess(groupId, accountUid = null) {
+        const state = this.getCookieSyncFailureState(groupId)
+        state.consecutiveFailures = 0
+        state.firstFailureAt = null
+        state.lastFailureAt = null
+        state.lastAlertAt = null
+        state.lastSuccessAt = Date.now()
+        subLog('info', 'cookie-sync-health-restored', {
+            groupId,
+            accountUid,
+            consecutiveFailures: state.consecutiveFailures,
+            lastSuccessAt: formatTimestamp(state.lastSuccessAt)
+        })
+    },
+
+    recordCookieSyncFailure(groupId, resultOrError, context = {}) {
+        const state = this.getCookieSyncFailureState(groupId)
+        const now = Date.now()
+        const classified = classifyBiliApiError(resultOrError)
+        state.consecutiveFailures += 1
+        state.firstFailureAt = state.firstFailureAt || now
+        state.lastFailureAt = now
+
+        const fields = {
+            groupId,
+            accountUid: context.accountUid || null,
+            failureKind: classified.failureKind,
+            endpoint: classified.endpoint || context.endpoint || null,
+            consecutiveFailures: state.consecutiveFailures,
+            lastSuccessAt: formatTimestamp(state.lastSuccessAt),
+            retryable: classified.retryable,
+            httpStatus: classified.httpStatus,
+            biliCode: classified.biliCode,
+            exceptionClass: classified.exceptionClass,
+            error: classified.message || logger.getErrorMessage(resultOrError)
+        }
+
+        if (classified.errorType === 'auth_failed') {
+            subLog('warn', 'cookie-sync-auth-failed', fields)
+            this.notifyAdmin(`⚠️ B站Cookie未登录或已失效（群 ${groupId}），请重新配置 Cookie。`)
+            return classified
+        }
+
+        if (classified.retryable) {
+            const failureDurationMs = now - state.firstFailureAt
+            const shouldAlert = state.consecutiveFailures >= RETRYABLE_ALERT_FAILURES ||
+                failureDurationMs >= RETRYABLE_ALERT_DURATION_MS
+
+            subLog(shouldAlert ? 'error' : 'warn', 'cookie-sync-retryable-failed', {
+                ...fields,
+                failureDurationMs
+            })
+
+            if (shouldAlert && (!state.lastAlertAt || state.lastAlertAt < state.firstFailureAt)) {
+                this.notifyAdmin(
+                    `⚠️ B站关注列表同步遇到网络/API异常（群 ${groupId}，连续 ${state.consecutiveFailures} 次），系统会继续重试。`
+                )
+                state.lastAlertAt = now
+            }
+            return classified
+        }
+
+        subLog('error', 'cookie-sync-nonretryable-failed', fields)
+        return classified
+    },
+
+    recordCredentialRefreshFailure(resultOrError) {
+        const state = this.getCookieSyncFailureState('__credential_refresh__')
+        const now = Date.now()
+        const classified = classifyBiliApiError(resultOrError)
+        state.consecutiveFailures += 1
+        state.firstFailureAt = state.firstFailureAt || now
+        state.lastFailureAt = now
+
+        const fields = {
+            failureKind: classified.failureKind,
+            endpoint: classified.endpoint || 'refresh_credential',
+            consecutiveFailures: state.consecutiveFailures,
+            lastSuccessAt: formatTimestamp(state.lastSuccessAt),
+            retryable: classified.retryable,
+            httpStatus: classified.httpStatus,
+            biliCode: classified.biliCode,
+            exceptionClass: classified.exceptionClass,
+            error: classified.message || logger.getErrorMessage(resultOrError)
+        }
+
+        if (classified.errorType === 'auth_failed') {
+            subLog('warn', 'credential-refresh-auth-failed', fields)
+            this.notifyAdmin(`⚠️ B站Cookie异常：${fields.error}`)
+            return classified
+        }
+
+        if (classified.retryable) {
+            const failureDurationMs = now - state.firstFailureAt
+            const shouldAlert = state.consecutiveFailures >= RETRYABLE_ALERT_FAILURES ||
+                failureDurationMs >= RETRYABLE_ALERT_DURATION_MS
+
+            subLog(shouldAlert ? 'error' : 'warn', 'credential-refresh-retryable-failed', {
+                ...fields,
+                failureDurationMs
+            })
+
+            if (shouldAlert && (!state.lastAlertAt || state.lastAlertAt < state.firstFailureAt)) {
+                this.notifyAdmin(
+                    `⚠️ B站Cookie自动刷新遇到网络/API异常（连续 ${state.consecutiveFailures} 次），系统会继续重试。`
+                )
+                state.lastAlertAt = now
+            }
+            return classified
+        }
+
+        subLog('error', 'credential-refresh-nonretryable-failed', fields)
+        return classified
+    },
+
+    recordCredentialRefreshSuccess() {
+        const state = this.getCookieSyncFailureState('__credential_refresh__')
+        state.consecutiveFailures = 0
+        state.firstFailureAt = null
+        state.lastFailureAt = null
+        state.lastAlertAt = null
+        state.lastSuccessAt = Date.now()
+    },
+
     /**
      * 检查并自动刷新 B站 Cookie
      */
@@ -29,14 +178,13 @@ module.exports = {
         try {
             const result = await biliApi.refreshCredential()
             if (result.status === 'error') {
-                subLog('warn', 'credential-refresh-warning', {
-                    message: result.message
-                })
-                this.notifyAdmin(`⚠️ B站Cookie异常：${result.message}`)
+                this.recordCredentialRefreshFailure(result)
             } else if (result.refreshed) {
+                this.recordCredentialRefreshSuccess()
                 subLog('info', 'credential-refreshed')
                 this.notifyAdmin('✅ B站Cookie已自动刷新成功')
             } else {
+                this.recordCredentialRefreshSuccess()
                 subLog('debug', 'credential-still-valid')
             }
         } catch (e) {
@@ -64,19 +212,13 @@ module.exports = {
         if (groupsWithSync.length === 0) return
 
         const visitedUids = new Set()
-        const failedGroups = []
 
         for (const groupId of groupsWithSync) {
             try {
                 // First, check who is logged in for this group
                 const myInfo = await biliApi.getMyInfo(groupId)
                 if (myInfo.status !== 'success') {
-                    // Maybe cookie expired or not set
-                    subLog('warn', 'cookie-sync-user-info-failed', {
-                        groupId,
-                        error: myInfo.message
-                    })
-                    failedGroups.push(groupId)
+                    this.recordCookieSyncFailure(groupId, myInfo, { endpoint: 'my_info' })
                     continue
                 }
 
@@ -87,6 +229,7 @@ module.exports = {
 
                 // If we already refreshed this account in this cycle, skip fetching
                 if (visitedUids.has(myUid)) {
+                    this.recordCookieSyncSuccess(groupId, myUid)
                     continue
                 }
 
@@ -100,29 +243,30 @@ module.exports = {
                 if (res.status === 'success' && res.data) {
                     await subscriptionManager.setCookieFollowings(myUid, res.data)
                     visitedUids.add(myUid)
+                    this.recordCookieSyncSuccess(groupId, myUid)
                 } else {
-                    subLog('error', 'cookie-sync-refresh-failed', {
-                        groupId,
+                    this.recordCookieSyncFailure(groupId, res, {
                         accountUid: myUid,
-                        error: res.message
+                        endpoint: 'my_followings'
                     })
-                    failedGroups.push(groupId)
                 }
 
                 // Sleep to avoid rate limiting
                 await new Promise(r => setTimeout(r, 2000))
             } catch (e) {
-                subLog('error', 'cookie-sync-cycle-failed', {
+                const classified = this.recordCookieSyncFailure(groupId, e, {
+                    endpoint: e?.endpoint || null
+                })
+                const state = this.getCookieSyncFailureState(groupId)
+                subLog(classified.retryable ? 'warn' : 'error', 'cookie-sync-cycle-failed', {
                     groupId,
+                    failureKind: classified.failureKind,
+                    endpoint: classified.endpoint,
+                    consecutiveFailures: state.consecutiveFailures,
+                    lastSuccessAt: formatTimestamp(state.lastSuccessAt),
                     error: logger.getErrorMessage(e)
                 })
-                failedGroups.push(groupId)
             }
-        }
-
-        // 若所有群的 Cookie 同步均失败，通知 admin
-        if (failedGroups.length > 0 && failedGroups.length === groupsWithSync.length) {
-            this.notifyAdmin(`⚠️ B站关注列表同步失败（${failedGroups.length}个群均失败），订阅推送可能中断。请检查Cookie状态。`)
         }
     },
 

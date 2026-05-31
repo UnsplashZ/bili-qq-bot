@@ -9,6 +9,7 @@ describe('updateChecker live stale-cache regression', function () {
     const originals = {
         getUserInfo: deps.biliApi.getUserInfo,
         getLiveRoomInfo: deps.biliApi.getLiveRoomInfo,
+        subscriptionStateStore: deps.subscriptionStateStore,
         updateUserSub: deps.subscriptionManager.updateUserSub,
         notifyGroupsWithImageAndCache: updateChecker.notifyGroupsWithImageAndCache
     }
@@ -16,11 +17,13 @@ describe('updateChecker live stale-cache regression', function () {
     afterEach(function () {
         deps.biliApi.getUserInfo = originals.getUserInfo
         deps.biliApi.getLiveRoomInfo = originals.getLiveRoomInfo
+        deps.subscriptionStateStore = originals.subscriptionStateStore
         deps.subscriptionManager.updateUserSub = originals.updateUserSub
         updateChecker.notifyGroupsWithImageAndCache = originals.notifyGroupsWithImageAndCache
     })
 
     it('manual live check 应绕过旧 user_info 缓存', async function () {
+        deps.subscriptionStateStore = null
         const getUserInfoCalls = []
         const updates = []
         let notified = 0

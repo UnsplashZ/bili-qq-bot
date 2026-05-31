@@ -12,6 +12,7 @@ describe('updateChecker follower flush boundary', function () {
         getDynamicInfo: deps.biliApi.getDynamicInfo,
         getLiveFeed: deps.biliApi.getLiveFeed,
         getLiveRoomInfo: deps.biliApi.getLiveRoomInfo,
+        subscriptionStateStore: deps.subscriptionStateStore,
         updateCookieFollowerState: deps.subscriptionManager.updateCookieFollowerState,
         flushPendingFollowerSaves: deps.subscriptionManager.flushPendingFollowerSaves,
         findTargetGroupSourceMapForUser: updateChecker.findTargetGroupSourceMapForUser,
@@ -25,6 +26,7 @@ describe('updateChecker follower flush boundary', function () {
         deps.biliApi.getDynamicInfo = originals.getDynamicInfo
         deps.biliApi.getLiveFeed = originals.getLiveFeed
         deps.biliApi.getLiveRoomInfo = originals.getLiveRoomInfo
+        deps.subscriptionStateStore = originals.subscriptionStateStore
         deps.subscriptionManager.updateCookieFollowerState = originals.updateCookieFollowerState
         deps.subscriptionManager.flushPendingFollowerSaves = originals.flushPendingFollowerSaves
         updateChecker.findTargetGroupSourceMapForUser = originals.findTargetGroupSourceMapForUser
@@ -33,6 +35,7 @@ describe('updateChecker follower flush boundary', function () {
     })
 
     it('processDynamicFeed 有状态更新时应执行 flushPendingFollowerSaves', async function () {
+        deps.subscriptionStateStore = null
         deps.subscriptionManager.cookieFollowings = {
             acc1: [{ uid: '123', uname: 'tester', lastDynamicId: '100' }]
         }
@@ -69,6 +72,7 @@ describe('updateChecker follower flush boundary', function () {
     })
 
     it('processLiveFeed 有状态更新时应执行 flushPendingFollowerSaves', async function () {
+        deps.subscriptionStateStore = null
         deps.subscriptionManager.cookieFollowings = {
             acc1: [{ uid: '123', uname: 'tester', lastLiveStatus: 0 }]
         }

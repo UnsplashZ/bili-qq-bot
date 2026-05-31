@@ -100,11 +100,16 @@ module.exports = {
 
     async checkUserDynamic(sub, targetGroups = null, force = false, options = {}) {
         const disableDedup = Boolean(options && options.disableDedup)
+        const persistDelivery = options?.persistDelivery !== false && !force
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
         const userScope = logger.createScope('sub', 'user', sub.uid)
         try {
+            let unifiedState = await this.getUnifiedUserState(sub.uid)
+            unifiedState = await this.ensureTargetBaselinesForUser(sub, targetGroupSourceMap, unifiedState)
+            const legacyDynamicAnchor = unifiedState ? null : sub.lastDynamicId
+            const unifiedAnchor = this.getDynamicAnchor(unifiedState, legacyDynamicAnchor)
             const res = await biliApi.getUserDynamic(sub.uid, null, 'fresh')
             if (res.status !== 'success') {
                 subLog('warn', 'dynamic-fetch-failed', {
@@ -176,49 +181,40 @@ module.exports = {
                 }
             }
 
-            if (!sub.lastDynamicId && !force) {
+            if (!latestNonLiveId) return
+
+            if (!unifiedAnchor && !force) {
                 if (latestNonLiveId) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: latestNonLiveId })
+                    await this.advanceDynamicState({ uid: sub.uid, manualSub: sub }, latestNonLiveId)
                 }
                 return
             }
 
-            if (latestId !== sub.lastDynamicId || force) {
-                let newCards = []
+            const latestCompare = unifiedAnchor ? this.compareContentId(latestNonLiveId, unifiedAnchor) : 1
+            const shouldTryLatest = force || latestCompare > 0
+            const missingGroupSourceMap = !shouldTryLatest
+                ? await this.getUndeliveredGroupSourceMap({
+                    uid: sub.uid,
+                    contentType: 'dynamic',
+                    contentId: latestNonLiveId,
+                    targetGroupSourceMap
+                })
+                : targetGroupSourceMap
+            const effectiveTargetGroupSourceMap = shouldTryLatest
+                ? targetGroupSourceMap
+                : missingGroupSourceMap
+            const effectiveTargetGroups = this.getGroupIdsFromSourceMap(effectiveTargetGroupSourceMap)
 
+            if (!shouldTryLatest && effectiveTargetGroups.length === 0) return
+
+            if (shouldTryLatest || effectiveTargetGroups.length > 0) {
+                const newCards = [latestNonLiveCard]
                 if (force) {
-                    if (latestNonLiveCard) {
-                        newCards = [latestNonLiveCard]
-                        subLog('info', 'dynamic-force-check-selected', {
-                            uid: sub.uid,
-                            name: sub.name,
-                            dynamicId: latestNonLiveId
-                        }, userScope)
-                    } else {
-                        newCards = []
-                        subLog('info', 'dynamic-force-check-skipped-live-only', {
-                            uid: sub.uid,
-                            name: sub.name
-                        }, userScope)
-                    }
-                } else {
-                    for (const card of cards) {
-                        const currentId = card.id_str || (card.desc && card.desc.dynamic_id_str)
-                        if (!currentId) continue
-
-                        if (currentId === sub.lastDynamicId) break
-
-                        // Prevent re-pushing old dynamics if the last seen dynamic was deleted
-                        // If we encounter a dynamic ID smaller (older) than our last seen ID, stop.
-                        try {
-                            if (BigInt(currentId) < BigInt(sub.lastDynamicId)) break
-                        } catch (e) {
-                            // Fallback for non-numeric IDs if any
-                        }
-                        newCards.push(card)
-                    }
-                    // Process from oldest to newest
-                    newCards.reverse()
+                    subLog('info', 'dynamic-force-check-selected', {
+                        uid: sub.uid,
+                        name: sub.name,
+                        dynamicId: latestNonLiveId
+                    }, userScope)
                 }
 
                 for (const card of newCards) {
@@ -253,28 +249,17 @@ module.exports = {
                     const notificationText = this.generateNotificationText(sub.name, info)
 
                     // Notify
-                    let canAdvanceCurrentDynamic = false
+                    let notifyResult = null
                     try {
                         const url = `https://t.bilibili.com/${cardId}`
-                        const notifyResult = await this.notifyGroupsWithImageAndCache(
-                            targetGroupSourceMap,
+                        notifyResult = await this.notifyGroupsWithImageAndCache(
+                            effectiveTargetGroupSourceMap,
                             info,
                             info.type || 'dynamic',
                             url,
                             notificationText,
                             { actorUid: sub.uid, fallbackSources: ['manual'], disableDedup }
                         )
-                        const decision = decideAdvance(notifyResult)
-                        canAdvanceCurrentDynamic = decision.action === 'advance'
-                        if (!canAdvanceCurrentDynamic) {
-                            subLog('warn', 'dynamic-state-advance-skipped', {
-                                uid: sub.uid,
-                                name: sub.name,
-                                dynamicId: cardId,
-                                decision: decision.action,
-                                reason: decision.reason
-                            }, userScope)
-                        }
                     } catch (e) {
                         subLog('error', 'dynamic-render-failed', {
                             uid: sub.uid,
@@ -283,16 +268,31 @@ module.exports = {
                         }, userScope)
                         // Fallback text
                         const msg = `${notificationText}\nhttps://t.bilibili.com/${cardId}`
-                        this.notifyGroups(
-                            targetGroupSourceMap,
+                        notifyResult = await this.notifyGroups(
+                            effectiveTargetGroupSourceMap,
                             msg,
                             cardId,
                             { actorUid: sub.uid, category: info.type || 'dynamic', fallbackSources: ['manual'], disableDedup }
                         )
                     }
 
-                    if (!force && canAdvanceCurrentDynamic) {
-                        await subscriptionManager.updateUserSub(sub.uid, { lastDynamicId: cardId })
+                    const decision = decideAdvance(notifyResult)
+                    const canAdvanceCurrentDynamic = decision.action === 'advance'
+                    if (!canAdvanceCurrentDynamic) {
+                        subLog('warn', 'dynamic-state-advance-skipped', {
+                            uid: sub.uid,
+                            name: sub.name,
+                            dynamicId: cardId,
+                            decision: decision.action,
+                            reason: decision.reason
+                        }, userScope)
+                    }
+                    if (persistDelivery) {
+                        await this.recordNotifyDeliveredGroups('dynamic', cardId, notifyResult)
+                    }
+
+                    if (!force && canAdvanceCurrentDynamic && shouldTryLatest) {
+                        await this.advanceDynamicState({ uid: sub.uid, manualSub: sub }, latestNonLiveId)
                     }
                 }
             }
@@ -307,6 +307,8 @@ module.exports = {
 
     async checkUserLive(sub, targetGroups = null, force = false, options = {}) {
         const disableDedup = Boolean(options && options.disableDedup)
+        const persistState = options.persistState !== false
+        const persistDelivery = options?.persistDelivery !== false && !force
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
@@ -314,26 +316,43 @@ module.exports = {
         const groupId = groupsToNotify[0]
         const userScope = logger.createScope('sub', 'user', sub.uid)
         try {
+            let unifiedState = await this.getUnifiedUserState(sub.uid)
+            unifiedState = await this.ensureTargetBaselinesForUser(sub, targetGroupSourceMap, unifiedState)
+            const hasUnifiedState = Boolean(unifiedState)
+            const liveAnchor = this.getLiveAnchor(unifiedState, {
+                liveStatus: sub.lastLiveStatus,
+                roomId: sub.roomId
+            })
             const res = await biliApi.getUserInfo(sub.uid, groupId, 'fresh') // getUserInfo contains live_room
             if (res.status !== 'success') return
 
             const liveRoom = res.data.live_room || {}
 
             const directRoomId = normalizeRoomId(liveRoom.roomid, liveRoom.room_id)
-            if (directRoomId && sub.roomId !== directRoomId) {
+            if (directRoomId && liveAnchor.roomId !== directRoomId) {
                 subLog('info', 'live-room-cached', {
                     uid: sub.uid,
                     name: sub.name,
                     roomId: directRoomId
                 }, userScope)
-                await subscriptionManager.updateUserSub(sub.uid, { roomId: directRoomId })
-                sub.roomId = directRoomId
+                if (!persistState) {
+                    liveAnchor.roomId = directRoomId
+                } else if (hasUnifiedState) {
+                    await this.advanceLiveState({ uid: sub.uid, manualSub: sub }, {
+                        liveStatus: liveAnchor.liveStatus,
+                        roomId: directRoomId
+                    })
+                } else {
+                    await subscriptionManager.updateUserSub(sub.uid, { roomId: directRoomId })
+                    sub.roomId = directRoomId
+                }
+                liveAnchor.roomId = directRoomId
             }
 
             let roomInfo = null
             let liveState = resolveLiveState({
                 liveRoom,
-                cachedRoomId: sub.roomId
+                cachedRoomId: liveAnchor.roomId
             })
 
             if (liveState.status === 'unknown' && liveState.roomId) {
@@ -345,14 +364,17 @@ module.exports = {
                 roomInfo = await biliApi.getLiveRoomInfo(liveState.roomId, groupId)
                 liveState = resolveLiveState({
                     liveRoom,
-                    cachedRoomId: sub.roomId,
+                    cachedRoomId: liveAnchor.roomId,
                     roomInfo
                 })
             }
 
             if (!liveState.roomId && liveState.status === 'offline') {
-                if (sub.lastLiveStatus !== 0) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 0 })
+                if (persistState && liveAnchor.liveStatus !== 0) {
+                    await this.advanceLiveState({ uid: sub.uid, manualSub: sub }, {
+                        liveStatus: 0,
+                        roomId: liveAnchor.roomId
+                    })
                 }
                 return
             }
@@ -367,7 +389,27 @@ module.exports = {
 
             const roomUrl = liveState.roomUrl || `https://live.bilibili.com/${liveState.roomId}`
 
-            if ((liveState.status === 'online' && sub.lastLiveStatus !== 1) || (force && liveState.status === 'online')) {
+            const shouldNotifyLiveStart = liveState.status === 'online' && (liveAnchor.liveStatus !== 1 || force)
+            const canRetryLiveLedgerGaps = hasUnifiedState &&
+                liveAnchor.liveStatus === 1 &&
+                unifiedState?.live?.meta?.source === 'updateChecker'
+            const shouldRetryMissingLiveDelivery = liveState.status === 'online' &&
+                !shouldNotifyLiveStart &&
+                liveState.roomId &&
+                !force &&
+                canRetryLiveLedgerGaps
+            const liveRetryGroupSourceMap = shouldRetryMissingLiveDelivery
+                ? await this.getUndeliveredGroupSourceMap({
+                    uid: sub.uid,
+                    contentType: 'live',
+                    contentId: liveState.roomId,
+                    targetGroupSourceMap
+                })
+                : new Map()
+            const effectiveLiveGroupSourceMap = shouldNotifyLiveStart ? targetGroupSourceMap : liveRetryGroupSourceMap
+            const effectiveLiveGroups = this.getGroupIdsFromSourceMap(effectiveLiveGroupSourceMap)
+
+            if ((shouldNotifyLiveStart || effectiveLiveGroups.length > 0) && liveState.status === 'online') {
                 let canAdvanceLiveStatus = false
                 // Started Streaming or Force Check
                 // Fetch live room detail using standard API (unified with linkHandler)
@@ -384,13 +426,16 @@ module.exports = {
                 } else {
                     liveInfo.id = liveState.roomId
                     const notifyResult = await this.notifyGroupsWithImageAndCache(
-                        targetGroupSourceMap,
+                        effectiveLiveGroupSourceMap,
                         liveInfo,
                         'live',
                         roomUrl,
                         `${sub.name} 开播了！`,
                         { actorUid: sub.uid, fallbackSources: ['manual'], disableDedup }
                     )
+                    if (persistDelivery) {
+                        await this.recordNotifyDeliveredGroups('live', liveState.roomId, notifyResult)
+                    }
                     const decision = decideAdvance(notifyResult)
                     canAdvanceLiveStatus = decision.action === 'advance'
                     if (!canAdvanceLiveStatus) {
@@ -404,14 +449,20 @@ module.exports = {
                     }
                 }
 
-                if (canAdvanceLiveStatus && sub.lastLiveStatus !== 1) {
-                    await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 1 })
+                if (persistState && canAdvanceLiveStatus && liveAnchor.liveStatus !== 1) {
+                    await this.advanceLiveState({ uid: sub.uid, manualSub: sub }, {
+                        liveStatus: 1,
+                        roomId: liveState.roomId
+                    })
                 }
                 return
             }
 
-            if (liveState.status === 'offline' && sub.lastLiveStatus !== 0) {
-                await subscriptionManager.updateUserSub(sub.uid, { lastLiveStatus: 0 })
+            if (persistState && liveState.status === 'offline' && liveAnchor.liveStatus !== 0) {
+                await this.advanceLiveState({ uid: sub.uid, manualSub: sub }, {
+                    liveStatus: 0,
+                    roomId: liveState.roomId || liveAnchor.roomId
+                })
                 return
             }
 
@@ -419,7 +470,7 @@ module.exports = {
                 subLog('debug', 'live-status-remains-unknown', {
                     uid: sub.uid,
                     name: sub.name,
-                    lastLiveStatus: sub.lastLiveStatus
+                    lastLiveStatus: liveAnchor.liveStatus
                 }, userScope)
             }
         } catch (e) {

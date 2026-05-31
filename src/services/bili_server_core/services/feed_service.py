@@ -4,10 +4,13 @@ from bilibili_api import live, user
 from bilibili_api.utils.network import Api
 
 from ..auth.credential_store import load_credential
+from ..errors import auth_failed_envelope, error_envelope
 from ..logging_utils import service_log
 from .focus_service import build_focus
 
 logger = logging.getLogger(__name__)
+
+_error_envelope = error_envelope
 
 
 async def get_live_room_info(room_id, group_id=None):
@@ -24,7 +27,7 @@ async def get_live_room_info(room_id, group_id=None):
         return {"status": "success", "type": "live", "data": info}
     except Exception as e:
         service_log(logger, "error", "fetch-live-room-info-failed", roomId=room_id, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "live_room_info", error=e)
 
 
 async def get_user_live(uid, group_id=None):
@@ -47,7 +50,7 @@ async def get_user_live(uid, group_id=None):
         import traceback
 
         traceback.print_exc()
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "user_live", error=e)
 
 
 async def get_user_videos(uid, group_id=None):
@@ -65,7 +68,7 @@ async def get_user_videos(uid, group_id=None):
         return {"status": "success", "data": {"videos": []}}
     except Exception as e:
         service_log(logger, "error", "fetch-user-videos-failed", uid=uid, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "user_videos", error=e)
 
 
 async def get_user_articles(uid, group_id=None):
@@ -83,7 +86,7 @@ async def get_user_articles(uid, group_id=None):
         return {"status": "success", "data": {"articles": []}}
     except Exception as e:
         service_log(logger, "error", "fetch-user-articles-failed", uid=uid, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "user_articles", error=e)
 
 
 async def get_dynamic_feed(offset=None, group_id=None):
@@ -91,7 +94,7 @@ async def get_dynamic_feed(offset=None, group_id=None):
         service_log(logger, "info", "fetch-dynamic-feed", offset=offset, groupId=group_id)
         cred = load_credential(group_id)
         if not cred:
-            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+            return auth_failed_envelope("未登录，请先配置 cookies.json", "dynamic_feed")
 
         url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all"
         params = {"type": "all", "page": 1, "timezone_offset": -480}
@@ -105,7 +108,7 @@ async def get_dynamic_feed(offset=None, group_id=None):
         return {"status": "success", "data": data}
     except Exception as e:
         service_log(logger, "error", "fetch-dynamic-feed-failed", offset=offset, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "dynamic_feed", error=e)
 
 
 async def get_live_feed(group_id=None):
@@ -113,7 +116,7 @@ async def get_live_feed(group_id=None):
         service_log(logger, "info", "fetch-live-feed", groupId=group_id)
         cred = load_credential(group_id)
         if not cred:
-            return {"status": "error", "message": "未登录，请先配置 cookies.json"}
+            return auth_failed_envelope("未登录，请先配置 cookies.json", "live_feed")
 
         url = "https://api.live.bilibili.com/relation/v1/feed/feed_list"
         params = {"page": 1, "pagesize": 10}
@@ -125,4 +128,4 @@ async def get_live_feed(group_id=None):
         return {"status": "success", "data": data}
     except Exception as e:
         service_log(logger, "error", "fetch-live-feed-failed", groupId=group_id, error=str(e))
-        return {"status": "error", "message": str(e)}
+        return _error_envelope(str(e), "live_feed", error=e)

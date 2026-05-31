@@ -8,10 +8,49 @@ const { logBuffer, matchesFilters } = require('./logBuffer');
 const apiRoutes = require('./routes/api');
 const sysConfig = require('../config');
 const { csrfProtection } = require('./middleware/auth'); // 🆕 P2-2
+const updateChecker = require('../services/subscription/updateChecker');
 
 let server = null;
 let wss = null;
 let logUnsubscribe = null;
+
+function buildStatusPayload() {
+    let subscription = null;
+    try {
+        subscription = typeof updateChecker.getStatus === 'function'
+            ? updateChecker.getStatus()
+            : null;
+    } catch (error) {
+        subscription = {
+            runtime: {
+                startState: 'error',
+                startupPending: false,
+                initialized: false,
+                initializing: false,
+                ready: false,
+                lastError: logger.getErrorMessage(error),
+                lastErrorAt: Date.now()
+            }
+        };
+    }
+
+    const runtime = subscription?.runtime || {};
+    const subscriptionState = runtime.lastError || runtime.startState === 'error'
+        ? 'degraded'
+        : (runtime.ready || subscription?.running ? 'ok' : 'starting');
+
+    return {
+        status: subscriptionState === 'degraded'
+            ? 'degraded'
+            : (subscriptionState === 'ok' ? 'ok' : 'starting'),
+        uptime: process.uptime(),
+        components: {
+            dashboard: 'ok',
+            subscriptionRuntime: subscriptionState
+        },
+        subscription
+    };
+}
 
 /**
  * Start the dashboard server
@@ -32,10 +71,7 @@ function start(port = 3000) {
 
             // Health check endpoint (Public, must be before API routes middleware)
             app.get('/api/status', (req, res) => {
-                res.json({
-                    status: 'ok',
-                    uptime: process.uptime()
-                });
+                res.json(buildStatusPayload());
             });
 
             // API Routes
@@ -152,5 +188,6 @@ function stop() {
 
 module.exports = {
     start,
-    stop
+    stop,
+    buildStatusPayload
 };

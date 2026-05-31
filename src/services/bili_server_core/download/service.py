@@ -10,6 +10,7 @@ from bilibili_api.video import VideoCodecs, VideoDownloadURLDataDetecter, VideoQ
 
 from ..auth.credential_store import load_credential
 from ..config import DOWNLOADS_ALLOWED_BASE
+from ..errors import error_envelope, invalid_request_envelope
 from ..logging_utils import service_log
 from .ffmpeg import ffmpeg_copy_streams
 from .io_utils import download_stream_to_file
@@ -70,13 +71,18 @@ async def download_video_file(
         streams = detector.detect_best_streams(video_max_quality=target_quality)
 
     if not streams:
-        return {"status": "error", "message": "no_streams_available"}
+        return error_envelope(
+            "no_streams_available",
+            "video_download",
+            error_type="unknown",
+            http_status=200,
+        )
 
     resolved_dir = os.path.realpath(output_dir)
     if resolved_dir != DOWNLOADS_ALLOWED_BASE and not resolved_dir.startswith(
         DOWNLOADS_ALLOWED_BASE + os.sep
     ):
-        return {"status": "error", "message": "invalid output_dir"}
+        return invalid_request_envelope("invalid output_dir", "video_download")
     os.makedirs(resolved_dir, exist_ok=True)
     timestamp = int(time.time())
     safe_bvid = re.sub(r"[^a-zA-Z0-9_-]", "_", bvid)

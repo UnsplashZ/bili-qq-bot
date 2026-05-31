@@ -11,6 +11,8 @@ const originals = {
     ensureDir: subscriptionManager._ensureDir,
     loadSubscriptions: subscriptionManager._loadSubscriptions,
     saveSubscriptions: subscriptionManager._saveSubscriptions,
+    ensureNewTargetBaseline: subscriptionManager._ensureNewTargetBaseline,
+    markTargetBaselineInactive: subscriptionManager._markTargetBaselineInactive,
     getUserInfo: biliApi.getUserInfo,
     getUserDynamic: biliApi.getUserDynamic,
     loaded: subscriptionManager._loaded,
@@ -23,6 +25,8 @@ function restore() {
     subscriptionManager._ensureDir = originals.ensureDir
     subscriptionManager._loadSubscriptions = originals.loadSubscriptions
     subscriptionManager._saveSubscriptions = originals.saveSubscriptions
+    subscriptionManager._ensureNewTargetBaseline = originals.ensureNewTargetBaseline
+    subscriptionManager._markTargetBaselineInactive = originals.markTargetBaselineInactive
     biliApi.getUserInfo = originals.getUserInfo
     biliApi.getUserDynamic = originals.getUserDynamic
     subscriptionManager._loaded = originals.loaded
@@ -47,6 +51,8 @@ async function run() {
 
         subscriptionManager._loaded = true
         subscriptionManager._saveSubscriptions = async () => {}
+        subscriptionManager._ensureNewTargetBaseline = async () => {}
+        subscriptionManager._markTargetBaselineInactive = async () => {}
         subscriptionManager.userSubs = []
         subscriptionManager.bangumiSubs = []
         biliApi.getUserInfo = async () => ({

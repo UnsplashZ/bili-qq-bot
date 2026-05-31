@@ -70,6 +70,7 @@ describe('subscription check now dedup bypass', function () {
         assert.strictEqual(calls.dynamic[3].disableDedup, true)
 
         assert.strictEqual(calls.live[2], true)
+        assert.strictEqual(calls.live[3].persistState, false)
         assert.strictEqual(calls.live[3].disableDedup, true)
 
         assert.strictEqual(calls.video[1], true)
