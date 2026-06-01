@@ -15,7 +15,7 @@ const BiliQrModal = ({ isOpen, onClose, qrCodeUrl }) => {
                     <img
                         src={qrCodeUrl}
                         alt="QR Code"
-                        className="w-64 h-64 border-2 border-[var(--border)] rounded-lg"
+                        className="w-64 h-64 rounded-lg border border-[var(--border-subtle)]"
                     />
                 )}
                 <div className="flex items-center gap-2 text-[var(--accent)]">

@@ -8,7 +8,7 @@ export const Card = ({ as = 'section', children, className, padded = true }) => 
     {
       className: twMerge(
         clsx(
-          'rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--fg)] shadow-[var(--shadow-card)]',
+          'rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] text-[var(--fg)] shadow-[var(--shadow-soft)]',
           padded && 'p-4 sm:p-5',
           className
         )
@@ -30,7 +30,7 @@ export const PanelHeader = ({
   <div
     className={twMerge(
       clsx(
-        'flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5',
+        'flex flex-col gap-3 border-b border-[var(--border-subtle)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5',
         className
       )
     )}
@@ -59,9 +59,9 @@ export const PanelHeader = ({
 );
 
 const buttonVariants = {
-  primary: 'border-[color-mix(in_oklch,var(--accent)_52%,var(--border))] bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[color-mix(in_oklch,var(--accent)_90%,var(--fg))]',
-  secondary: 'border-[var(--border)] bg-[var(--surface)] text-[var(--fg)] hover:bg-[var(--surface-muted)]',
-  ghost: 'border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]',
+  primary: 'border-[color-mix(in_oklch,var(--accent)_52%,var(--border))] bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-muted)]',
+  secondary: 'border-[var(--border-muted)] bg-[var(--surface)] text-[var(--fg)] hover:bg-[var(--surface-hover)]',
+  ghost: 'border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]',
   danger: 'border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] bg-[var(--danger-soft)] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))] hover:bg-[color-mix(in_oklch,var(--danger)_20%,var(--surface))]',
 };
 
@@ -99,29 +99,31 @@ export const ToggleSwitch = ({ checked, onChange, label, disabled = false, class
     onClick={() => onChange(!checked)}
     className={twMerge(
       clsx(
-        'inline-flex h-8 w-14 shrink-0 items-center rounded-md border px-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         checked
-          ? 'border-[color-mix(in_oklch,var(--accent)_48%,var(--border))] bg-[var(--accent-soft)]'
-          : 'border-[var(--border)] bg-[var(--surface-muted)]',
+          ? 'border-[var(--accent)] bg-[var(--accent)]'
+          : 'border-[var(--border-muted)] bg-[var(--surface-muted)]',
         className
       )
     )}
   >
     <span
       className={clsx(
-        'h-5 w-5 rounded-[6px] bg-[var(--surface)] shadow-sm transition-transform',
-        checked ? 'translate-x-6 border border-[var(--accent)]' : 'translate-x-0 border border-[var(--border-strong)]'
+        'h-4 w-4 rounded-full border shadow-sm transition-transform',
+        checked
+          ? 'translate-x-5 border-[var(--accent-contrast)] bg-[var(--accent-contrast)]'
+          : 'translate-x-0 border-[var(--border)] bg-[var(--surface)]'
       )}
     />
   </button>
 );
 
 const statusTones = {
-  neutral: 'border-[var(--border)] text-[var(--muted)]',
-  accent: 'border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] text-[var(--accent)]',
-  success: 'border-[color-mix(in_oklch,var(--success)_34%,var(--border))] text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]',
-  warn: 'border-[color-mix(in_oklch,var(--warn)_38%,var(--border))] text-[color-mix(in_oklch,var(--warn)_88%,var(--fg))]',
-  danger: 'border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]',
+  neutral: 'border-[var(--border-subtle)] text-[var(--muted)]',
+  accent: 'border-[color-mix(in_oklch,var(--accent)_28%,var(--border-subtle))] text-[var(--accent-muted)]',
+  success: 'border-[color-mix(in_oklch,var(--success)_28%,var(--border-subtle))] text-[color-mix(in_oklch,var(--success)_84%,var(--fg))]',
+  warn: 'border-[color-mix(in_oklch,var(--warn)_32%,var(--border-subtle))] text-[color-mix(in_oklch,var(--warn)_84%,var(--fg))]',
+  danger: 'border-[color-mix(in_oklch,var(--danger)_32%,var(--border-subtle))] text-[color-mix(in_oklch,var(--danger)_84%,var(--fg))]',
 };
 
 export const StatusPill = ({ children, tone = 'neutral', className }) => (
@@ -142,7 +144,7 @@ export const StatusPill = ({ children, tone = 'neutral', className }) => (
 export const DataTable = ({ columns, rows, getRowKey, empty = '暂无数据', className }) => (
   <div className={twMerge(clsx('overflow-x-auto', className))}>
     <table className="min-w-full border-collapse text-left text-sm">
-      <thead className="border-b border-[var(--border)] text-xs font-semibold uppercase text-[var(--muted)]">
+      <thead className="border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] text-xs font-semibold uppercase text-[var(--muted)]">
         <tr>
           {columns.map((column) => (
             <th key={column.key} className={twMerge(clsx('px-4 py-3', column.headerClassName))}>
@@ -162,7 +164,7 @@ export const DataTable = ({ columns, rows, getRowKey, empty = '暂无数据', cl
           rows.map((row, rowIndex) => (
             <tr
               key={getRowKey ? getRowKey(row, rowIndex) : rowIndex}
-              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface-muted)]"
+              className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface-hover)]"
             >
               {columns.map((column) => (
                 <td

@@ -10,7 +10,7 @@ const VideoDownloadSection = ({
         <section>
             <h2 className="text-xl font-semibold text-[var(--fg)] mb-4">视频下载</h2>
             <GlassCard>
-                <div className="divide-y divide-[var(--border)]">
+                <div className="divide-y divide-[var(--border-subtle)]">
                     <SettingRow
                         title="启用视频下载"
                         description="识别到视频链接时自动下载并发送（合并转发）。"

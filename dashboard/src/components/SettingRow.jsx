@@ -14,7 +14,7 @@ const SettingRow = ({
     <div
       className={twMerge(
         clsx(
-          'grid gap-3 border-b border-[var(--border)] px-0 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(220px,auto)_auto] md:items-center',
+          'grid gap-3 border-b border-[var(--border-subtle)] px-0 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(220px,auto)_auto] md:items-center',
           className
         )
       )}

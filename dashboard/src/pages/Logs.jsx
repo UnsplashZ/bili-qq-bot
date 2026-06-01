@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import GlassCard from '../components/GlassCard';
-import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
-import { Button, StatusPill } from '../components/ui';
+import { Terminal, Pause, Play, Trash2, ArrowDown, ArrowUp, Download } from 'lucide-react';
+import { Button } from '../components/ui';
 import { useLogsStream } from './logs/useLogsStream';
+import { downloadLogExport, getLogMessageText } from './logs/logExport';
+import { DEFAULT_LOG_LIMIT, LOG_LIMIT_OPTIONS, normalizeLogLimit } from './logs/logLimits';
 import { getBottomThreshold, getFloatingButtonMode, getScrollTargetMode, isNearBottom } from './logs/scrollBehavior';
 
 const CHANNEL_OPTIONS = ['BOT', 'AGENT', 'LINK', 'SUB', 'SEND', 'DASH', 'AUTH', 'STORE', 'RPC', 'PY', 'HTTP', 'SERVICE'];
@@ -15,31 +17,6 @@ const LEVEL_OPTIONS = [
   { value: 'fatal', label: 'FTL' },
 ];
 
-function formatFields(fields = {}) {
-  const entries = Object.entries(fields).filter(([, value]) => value !== undefined && value !== null && value !== '');
-  if (entries.length === 0) return '';
-  return entries
-    .map(([key, value]) => {
-      if (typeof value === 'string') {
-        return /\s/.test(value) ? `${key}=${JSON.stringify(value)}` : `${key}=${value}`;
-      }
-      if (typeof value === 'object') {
-        return `${key}=${JSON.stringify(value)}`;
-      }
-      return `${key}=${String(value)}`;
-    })
-    .join(' ');
-}
-
-function getMessageText(log) {
-  const action = log.action || '';
-  const fieldsText = formatFields(log.fields);
-  if (action) {
-    return `${action}${fieldsText ? ` ${fieldsText}` : ''}`;
-  }
-  return log.rendered || log.message || '-';
-}
-
 function getLevelBadgeClass(level) {
   const normalized = String(level || '').toUpperCase();
   if (normalized.includes('FTL')) return 'text-rose-200 border-rose-400/40';
@@ -47,13 +24,6 @@ function getLevelBadgeClass(level) {
   if (normalized.includes('WRN')) return 'text-amber-300 border-amber-500/30';
   if (normalized.includes('DBG') || normalized.includes('TRC')) return 'text-sky-300 border-sky-500/30';
   return 'text-emerald-300 border-emerald-500/30';
-}
-
-function getConnectionLabel(connectionState) {
-  if (connectionState === 'open') return '实时流已连接';
-  if (connectionState === 'error') return '连接错误';
-  if (connectionState === 'closed') return '连接断开，等待重连';
-  return '连接中';
 }
 
 const Logs = () => {
@@ -66,12 +36,14 @@ const Logs = () => {
     level: 'info',
     channels: [],
     keyword: '',
+    limit: DEFAULT_LOG_LIMIT,
   });
   const scrollContainerRef = useRef(null);
   const autoFollowRef = useRef(autoFollow);
   const scrollTargetModeRef = useRef(scrollTargetMode);
   const hasMeasuredInitialLogsRef = useRef(false);
-  const { logs, connectionState, clearLogs } = useLogsStream(filters, isPaused);
+  const { logs, clearLogs } = useLogsStream(filters, isPaused);
+  const currentLimit = normalizeLogLimit(filters.limit);
 
   useEffect(() => {
     autoFollowRef.current = autoFollow;
@@ -218,6 +190,10 @@ const Logs = () => {
     });
   };
 
+  const handleExportLogs = () => {
+    downloadLogExport(logs);
+  };
+
   const floatingButtonMode = getFloatingButtonMode({
     hasLogs: logs.length > 0,
     hasOverflow: hasScrollableOverflow,
@@ -225,7 +201,7 @@ const Logs = () => {
   });
 
   return (
-    <div className="logs-shell flex h-[calc(100dvh-7rem)] min-h-0 flex-col space-y-3 overflow-hidden pb-5 md:h-[calc(100dvh-8rem)] md:space-y-4 md:pb-6">
+    <div className="logs-shell flex min-h-0 flex-col space-y-3 overflow-hidden pb-5 md:space-y-4 md:pb-6">
       <header className="flex shrink-0 justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Diagnostics</div>
@@ -234,7 +210,7 @@ const Logs = () => {
         <div className="flex w-full sm:w-auto justify-end gap-2">
           <button
             onClick={clearLogs}
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border-muted)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]"
             title="清空当前视图"
           >
             <Trash2 className="h-4 w-4" />
@@ -250,9 +226,9 @@ const Logs = () => {
       </header>
 
       <GlassCard className="logs-filter shrink-0 bg-[var(--surface)] p-3 sm:p-4">
-        <div className="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)] lg:grid-cols-[180px_minmax(0,1fr)]">
-          <div className="space-y-2">
-            <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</label>
+        <div className="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)] lg:grid-cols-[160px_minmax(0,1fr)_120px_auto]">
+          <label className="block space-y-2">
+            <span className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</span>
             <select
               value={filters.level}
               onChange={(event) => setFilters((prev) => ({ ...prev, level: event.target.value }))}
@@ -264,26 +240,48 @@ const Logs = () => {
                 </option>
               ))}
             </select>
-          </div>
+          </label>
 
-          <div className="space-y-2">
-            <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">关键字</label>
+          <label className="block space-y-2">
+            <span className="block text-xs uppercase tracking-[0.28em] text-gray-500">关键字</span>
             <input
               value={filters.keyword}
               onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
               placeholder="搜索 action / scope / fields"
               className="field-control w-full px-3 py-2 text-sm"
             />
+          </label>
+
+          <label className="block space-y-2">
+            <span className="block text-xs uppercase tracking-[0.28em] text-gray-500">数量</span>
+            <select
+              value={currentLimit}
+              onChange={(event) => setFilters((prev) => ({ ...prev, limit: normalizeLogLimit(event.target.value) }))}
+              className="field-control w-full px-3 py-2 text-sm"
+            >
+              {LOG_LIMIT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex items-end">
+            <Button
+              onClick={handleExportLogs}
+              icon={Download}
+              className="w-full lg:w-auto"
+              disabled={logs.length === 0}
+              title={logs.length === 0 ? '当前无可导出日志' : '导出当前视图日志'}
+              aria-label="导出当前视图日志"
+            >
+              导出
+            </Button>
           </div>
         </div>
 
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <label className="block text-xs uppercase tracking-[0.28em] text-gray-500">Channel</label>
-            <StatusPill tone={connectionState === 'open' ? 'success' : connectionState === 'error' ? 'danger' : 'warn'}>
-              {getConnectionLabel(connectionState)}
-            </StatusPill>
-          </div>
+        <div className="mt-4">
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 custom-scrollbar">
             {CHANNEL_OPTIONS.map((channel) => {
               const active = filters.channels.includes(channel);
@@ -292,7 +290,7 @@ const Logs = () => {
                   key={channel}
                   type="button"
                   onClick={() => toggleChannel(channel)}
-                  className={`shrink-0 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_38%,var(--border))] bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-muted)]'}`}
+                  className={`shrink-0 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_34%,var(--border-subtle))] bg-[var(--accent-soft)] text-[var(--accent-muted)]' : 'border-[var(--border-subtle)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
                 >
                   {channel}
                 </button>
@@ -303,18 +301,18 @@ const Logs = () => {
       </GlassCard>
 
       <GlassCard className="logs-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--surface)] p-0">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 font-mono text-xs text-[var(--muted)] sm:px-4">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-3 py-2 font-mono text-xs text-[var(--muted)] sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
             <Terminal size={12} />
-            <span>root@bot-server:~/logs/stream</span>
+            <span className="truncate">root@bot-server:~/logs/stream</span>
           </div>
-          <div className="hidden md:flex items-center gap-4">
-            <span>{logs.length} lines</span>
+          <div className="flex shrink-0 items-center gap-3">
+            <span>{logs.length} / {currentLimit} lines</span>
             <span>{isPaused ? 'paused' : 'live'}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 border-b border-[var(--border)] px-3 py-2 text-[10px] font-semibold uppercase text-[var(--muted)] sm:px-4 md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]">
+        <div className="grid grid-cols-[92px_52px_minmax(0,1fr)] gap-3 border-b border-[var(--border-subtle)] px-3 py-2 text-[10px] font-semibold uppercase text-[var(--muted)] sm:px-4 md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]">
           <span>Timestamp</span>
           <span>Level</span>
           <span className="hidden md:block">Channel</span>
@@ -322,47 +320,49 @@ const Logs = () => {
           <span>Message</span>
         </div>
 
-        <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-1 custom-scrollbar"
-        >
-          {logs.length === 0 && (
-            <div className="mt-10 text-center italic text-[var(--muted)]">等待日志数据...</div>
-          )}
-          {logs.map((log, index) => (
-            <div
-              key={`${log.timestamp}-${log.channel}-${log.action}-${index}`}
-              data-log-row
-              className="grid grid-cols-[92px_52px_minmax(0,1fr)] items-start gap-3 rounded px-2 py-1.5 hover:bg-[var(--surface-muted)] md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]"
+        <div className="relative flex min-h-0 flex-1">
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="min-h-0 flex-1 overflow-y-auto p-3 pb-16 font-mono text-xs sm:p-4 sm:pb-16 sm:text-sm space-y-1 custom-scrollbar"
+          >
+            {logs.length === 0 && (
+              <div className="mt-10 text-center italic text-[var(--muted)]">等待日志数据...</div>
+            )}
+            {logs.map((log, index) => (
+              <div
+                key={`${log.timestamp}-${log.channel}-${log.action}-${index}`}
+                data-log-row
+                className="grid grid-cols-[92px_52px_minmax(0,1fr)] items-start gap-3 rounded px-2 py-1.5 hover:bg-[var(--surface-hover)] md:grid-cols-[170px_64px_76px_minmax(180px,220px)_minmax(0,1fr)]"
+              >
+                <span className="text-gray-500 whitespace-nowrap truncate">{log.timestampText}</span>
+                <span className={`inline-flex w-fit border-l pl-2 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>
+                  {log.level}
+                </span>
+                <span className="hidden text-sky-200 md:block">{log.channel || '-'}</span>
+                <span className="hidden text-gray-500 break-all md:block">{log.scope || '-'}</span>
+                <span className="text-gray-300 whitespace-pre-wrap break-all leading-relaxed">
+                  {getLogMessageText(log)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {floatingButtonMode && (
+            <button
+              type="button"
+              onClick={floatingButtonMode === 'top' ? jumpToTop : jumpToBottom}
+              className="absolute bottom-4 right-3 z-10 inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] bg-[var(--surface-raised)] px-3 py-2 text-xs font-semibold text-[var(--accent-muted)] shadow-[var(--shadow-floating)] transition-colors hover:bg-[var(--surface-hover)] sm:right-4"
+              title={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
+              aria-label={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
             >
-              <span className="text-gray-500 whitespace-nowrap truncate">{log.timestampText}</span>
-              <span className={`inline-flex w-fit border-l pl-2 text-[10px] font-bold uppercase tracking-[0.18em] ${getLevelBadgeClass(log.level)}`}>
-                {log.level}
-              </span>
-              <span className="hidden text-sky-200 md:block">{log.channel || '-'}</span>
-              <span className="hidden text-gray-500 break-all md:block">{log.scope || '-'}</span>
-              <span className="text-gray-300 whitespace-pre-wrap break-all leading-relaxed">
-                {getMessageText(log)}
-              </span>
-            </div>
-          ))}
+              {floatingButtonMode === 'top' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+              <span className="hidden sm:inline">{floatingButtonMode === 'top' ? '回顶部' : '去底部'}</span>
+            </button>
+          )}
         </div>
 
       </GlassCard>
-
-      {floatingButtonMode && (
-        <button
-          type="button"
-          onClick={floatingButtonMode === 'top' ? jumpToTop : jumpToBottom}
-          className="fixed bottom-5 right-4 md:bottom-7 md:right-8 z-40 inline-flex items-center gap-2 rounded-lg border border-sky-300/20 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-sky-100 shadow-[0_10px_28px_rgba(2,6,23,0.5)] transition-colors hover:bg-slate-900"
-          title={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
-          aria-label={floatingButtonMode === 'top' ? '回顶部' : '去底部'}
-        >
-          {floatingButtonMode === 'top' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-          <span>{floatingButtonMode === 'top' ? '回顶部' : '去底部'}</span>
-        </button>
-      )}
     </div>
   );
 };

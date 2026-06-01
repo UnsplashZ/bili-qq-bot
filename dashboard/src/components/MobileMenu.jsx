@@ -73,15 +73,14 @@ const MobileMenu = ({ isOpen, onClose }) => {
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] sm:w-80 md:hidden">
-        <div className="flex items-center justify-between border-b border-[var(--border)] p-4 sm:p-6">
+      <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--surface)] sm:w-80 md:hidden">
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-4 sm:p-6">
           <div className="flex min-w-0 items-center gap-3">
             <BrandIcon />
             <div className="min-w-0">
               <h1 className="truncate text-xl font-semibold text-[var(--fg)] sm:text-2xl">
                 bili-qq-bot
               </h1>
-              <p className="mt-1 text-xs text-[var(--muted)]">Personal control center</p>
             </div>
           </div>
           <button
@@ -115,7 +114,7 @@ const MobileMenu = ({ isOpen, onClose }) => {
             </div>
           ))}
         </nav>
-        <div className="border-t border-[var(--border)] p-3">
+        <div className="border-t border-[var(--border-subtle)] p-3">
           <Button
             variant="ghost"
             className="w-full justify-start"

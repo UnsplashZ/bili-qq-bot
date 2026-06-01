@@ -12,6 +12,8 @@ import {
 import api from '../utils/auth';
 import { Button, StatusPill, ToggleSwitch } from '../components/ui';
 import { useToast } from '../hooks/useToast';
+import PreviewGradientSection from './settings/components/PreviewGradientSection';
+import usePreviewGradientSettings from './settings/hooks/usePreviewGradientSettings';
 
 const FIELD_LABELS = {
   offsetX: 'X 偏移',
@@ -123,7 +125,7 @@ function NumberControl({ label, value, limits, onChange }) {
           const raw = event.target.value;
           onChange(raw === '' ? null : Number(raw));
         }}
-        className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--fg)] outline-none focus:border-[var(--accent)]"
+        className="min-h-9 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[var(--accent)]"
       />
     </label>
   );
@@ -136,7 +138,7 @@ function SelectControl({ label, value, options, onChange }) {
       <select
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value || null)}
-        className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--fg)] outline-none focus:border-[var(--accent)]"
+        className="min-h-9 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[var(--accent)]"
       >
         <option value="">继承默认</option>
         {options.map((option) => (
@@ -152,7 +154,7 @@ function FieldGroupControls({ groupName, schema, values, onChange }) {
   if (entries.length === 0) return null;
 
   return (
-    <div className="space-y-3 border-t border-[var(--border)] pt-4">
+    <div className="space-y-3 border-t border-[var(--border-subtle)] pt-4">
       <div className="text-xs font-bold uppercase text-[var(--subtle)]">{GROUP_LABELS[groupName]}</div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
         {entries.map(([field, fieldSchema]) => {
@@ -217,6 +219,7 @@ function PreviewOverlay({ elements, container, selectedKey, onSelect }) {
 
 export default function PreviewLayoutEditor() {
   const { show } = useToast();
+  const previewGradientSettings = usePreviewGradientSettings(show);
   const [schema, setSchema] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedType, setSelectedType] = useState('video');
@@ -423,11 +426,11 @@ export default function PreviewLayoutEditor() {
         </div>
       </header>
 
-      <section className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <section className="grid gap-3 rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] p-4 shadow-[var(--shadow-soft)]">
         <div className="grid gap-3 xl:grid-cols-[1.1fr_1fr_0.8fr_0.7fr_auto]">
           <div className="grid gap-1.5">
             <span className="text-xs font-semibold text-[var(--muted)]">来源</span>
-            <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--border)]">
+            <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
               {[
                 ['structure', '结构示例'],
                 ['link', '真实链接']
@@ -439,7 +442,7 @@ export default function PreviewLayoutEditor() {
                   className={`min-h-10 px-3 text-sm font-semibold ${
                     mode === value
                       ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
-                      : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--surface-muted)]'
+                      : 'bg-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)]'
                   }`}
                 >
                   {label}
@@ -455,7 +458,7 @@ export default function PreviewLayoutEditor() {
               onChange={(event) => setInput(event.target.value)}
               disabled={mode !== 'link'}
               placeholder="https://www.bilibili.com/video/BV..."
-              className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--fg)] outline-none disabled:opacity-50"
+              className="min-h-10 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[color-mix(in_oklch,var(--accent)_52%,var(--border))] disabled:opacity-50"
             />
           </label>
 
@@ -464,7 +467,7 @@ export default function PreviewLayoutEditor() {
             <select
               value={groupId}
               onChange={(event) => setGroupId(event.target.value)}
-              className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--fg)] outline-none"
+              className="min-h-10 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[color-mix(in_oklch,var(--accent)_52%,var(--border))]"
             >
               <option value="">全局模板</option>
               {groups.map((group) => (
@@ -478,7 +481,7 @@ export default function PreviewLayoutEditor() {
             <select
               value={selectedType}
               onChange={(event) => setSelectedType(event.target.value)}
-              className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--fg)] outline-none"
+              className="min-h-10 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[color-mix(in_oklch,var(--accent)_52%,var(--border))]"
             >
               {Object.entries(schema?.types || {}).map(([key, value]) => (
                 <option key={key} value={key} disabled={value.status !== 'editable'}>
@@ -504,9 +507,19 @@ export default function PreviewLayoutEditor() {
         )}
       </section>
 
+      {!previewGradientSettings.loadingPreviewGradient && (
+        <PreviewGradientSection
+          previewGradientConfig={previewGradientSettings.previewGradientConfig}
+          onPreviewGradientChange={previewGradientSettings.handlePreviewGradientChange}
+          onResetPreviewGradient={previewGradientSettings.resetPreviewGradientSettings}
+          onSavePreviewGradient={previewGradientSettings.savePreviewGradientSettings}
+          saving={previewGradientSettings.savingPreviewGradient}
+        />
+      )}
+
       <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <aside className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+        <aside className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
+          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3">
             <LayoutTemplate size={17} className="text-[var(--accent)]" />
             <h2 className="text-sm font-semibold">元素</h2>
           </div>
@@ -520,8 +533,8 @@ export default function PreviewLayoutEditor() {
                   onClick={() => setSelectedElement(key)}
                   className={`flex min-h-10 items-center justify-between rounded-lg px-3 text-left text-sm transition-colors ${
                     selectedElement === key
-                      ? 'bg-[var(--accent-soft)] text-[var(--fg)]'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]'
+                      ? 'bg-[var(--accent-surface)] text-[var(--fg)]'
+                      : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]'
                   }`}
                 >
                   <span>{element.label}</span>
@@ -534,8 +547,8 @@ export default function PreviewLayoutEditor() {
           </div>
         </aside>
 
-        <main className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="flex flex-col gap-2 border-b border-[var(--border)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <main className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
+          <div className="flex flex-col gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <ImageIcon size={17} className="text-[var(--accent)]" />
               <h2 className="text-sm font-semibold">预览画布</h2>
@@ -546,7 +559,7 @@ export default function PreviewLayoutEditor() {
           </div>
           <div className="grid min-h-[420px] place-items-center p-4">
             {preview?.image?.base64 ? (
-              <div className="relative max-h-[72vh] max-w-full overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]">
+              <div className="relative max-h-[72vh] max-w-full overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
                 <div className="relative inline-block max-w-full">
                   <img
                     src={`data:${preview.image.mime};base64,${preview.image.base64}`}
@@ -570,8 +583,8 @@ export default function PreviewLayoutEditor() {
           </div>
         </main>
 
-        <aside className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+        <aside className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
+          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3">
             <SlidersHorizontal size={17} className="text-[var(--accent)]" />
             <h2 className="text-sm font-semibold">属性</h2>
           </div>
@@ -584,7 +597,7 @@ export default function PreviewLayoutEditor() {
                 </div>
 
                 {selectedElementSchema.controls.includes('visible') && (
-                  <div className="flex items-center justify-between rounded-lg border border-[var(--border)] p-3">
+                  <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)] p-3">
                     <div>
                       <div className="text-sm font-semibold">显示元素</div>
                       <div className="text-xs text-[var(--muted)]">关闭后本元素从预览中隐藏</div>
@@ -609,7 +622,7 @@ export default function PreviewLayoutEditor() {
                     />
                   ))}
 
-                <div className="grid gap-2 border-t border-[var(--border)] pt-4">
+                <div className="grid gap-2 border-t border-[var(--border-subtle)] pt-4">
                   <Button icon={Wand2} variant="primary" disabled={previewing || !editable} onClick={() => runPreview()}>
                     应用预览
                   </Button>

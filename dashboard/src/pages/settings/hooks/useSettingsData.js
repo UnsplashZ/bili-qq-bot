@@ -7,11 +7,6 @@ const GENERAL_CONFIG_DEFAULTS = {
     showId: true
 }
 
-const PREVIEW_GRADIENT_DEFAULTS = {
-    previewGradientColor1: '#D8C7F1',
-    previewGradientColor2: '#BFE6E2'
-}
-
 const DEFAULT_VIDEO_DOWNLOAD_CONFIG = {
     videoDownloadEnabled: false,
     videoDownloadResolution: '1080p',
@@ -42,8 +37,6 @@ export default function useSettingsData(show) {
 
     const [generalConfig, setGeneralConfig] = useState(GENERAL_CONFIG_DEFAULTS)
     const [savingGeneral, setSavingGeneral] = useState(false)
-    const [previewGradientConfig, setPreviewGradientConfig] = useState(PREVIEW_GRADIENT_DEFAULTS)
-    const [savingPreviewGradient, setSavingPreviewGradient] = useState(false)
 
     const [blacklist, setBlacklist] = useState([])
     const [newBlacklistQQ, setNewBlacklistQQ] = useState('')
@@ -65,7 +58,6 @@ export default function useSettingsData(show) {
                 ])
 
                 setGeneralConfig(extractConfig(configRes.data, GENERAL_CONFIG_DEFAULTS))
-                setPreviewGradientConfig(extractConfig(configRes.data, PREVIEW_GRADIENT_DEFAULTS))
                 setVideoDownloadConfig(extractConfig(configRes.data, DEFAULT_VIDEO_DOWNLOAD_CONFIG))
                 setBlacklist(blacklistRes.data || [])
 
@@ -105,37 +97,6 @@ export default function useSettingsData(show) {
         } finally {
             setSavingGeneral(false)
         }
-    }
-
-    const handlePreviewGradientChange = (field, value) => {
-        setPreviewGradientConfig(prev => ({ ...prev, [field]: value }))
-    }
-
-    const persistPreviewGradientSettings = async (nextConfig, successMessage) => {
-        setSavingPreviewGradient(true)
-        try {
-            await api.post('/api/config', nextConfig)
-            setPreviewGradientConfig(nextConfig)
-            show(successMessage, 'success')
-        } catch (error) {
-            console.error('Failed to save preview gradient settings:', error)
-            const errorMsg = error.response?.data?.error || '保存预览图渐变色失败'
-            show(errorMsg, 'error')
-        } finally {
-            setSavingPreviewGradient(false)
-        }
-    }
-
-    const savePreviewGradientSettings = async () => {
-        await persistPreviewGradientSettings(
-            previewGradientConfig,
-            '预览图渐变色已保存！'
-        )
-    }
-
-    const resetPreviewGradientSettings = () => {
-        setPreviewGradientConfig({ ...PREVIEW_GRADIENT_DEFAULTS })
-        show('已恢复默认氛围色，保存后生效', 'success')
     }
 
     const handleAddBlacklist = async () => {
@@ -184,12 +145,10 @@ export default function useSettingsData(show) {
 
     const saveAllSettings = async () => {
         setSavingGeneral(true)
-        setSavingPreviewGradient(true)
         setSavingVideoDownload(true)
         try {
             await api.post('/api/config', {
                 ...generalConfig,
-                ...previewGradientConfig,
                 ...videoDownloadConfig
             })
             show('设置已保存！', 'success')
@@ -199,7 +158,6 @@ export default function useSettingsData(show) {
             show(errorMsg, 'error')
         } finally {
             setSavingGeneral(false)
-            setSavingPreviewGradient(false)
             setSavingVideoDownload(false)
         }
     }
@@ -210,12 +168,6 @@ export default function useSettingsData(show) {
         savingGeneral,
         handleGeneralChange,
         saveGeneralSettings,
-        previewGradientConfig,
-        setPreviewGradientConfig,
-        savingPreviewGradient,
-        handlePreviewGradientChange,
-        savePreviewGradientSettings,
-        resetPreviewGradientSettings,
         blacklist,
         newBlacklistQQ,
         setNewBlacklistQQ,

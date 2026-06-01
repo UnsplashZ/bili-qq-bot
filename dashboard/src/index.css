@@ -4,32 +4,40 @@
 
 :root {
   color-scheme: light;
-  --bg: oklch(98.5% 0.003 250);
-  --surface: oklch(100% 0 0);
-  --surface-muted: oklch(96.8% 0.006 250);
-  --surface-raised: oklch(99.4% 0.002 250);
-  --fg: oklch(19% 0.012 250);
-  --muted: oklch(49% 0.014 250);
-  --subtle: oklch(63% 0.012 250);
-  --border: oklch(90.5% 0.007 250);
-  --border-strong: oklch(83% 0.01 250);
-  --accent: oklch(58% 0.18 255);
-  --accent-soft: color-mix(in oklch, var(--accent) 11%, transparent);
+  --bg: oklch(98.2% 0.004 255);
+  --surface: oklch(99.6% 0.002 255);
+  --surface-muted: oklch(96.4% 0.006 255);
+  --surface-quiet: oklch(97.4% 0.004 255);
+  --surface-raised: oklch(100% 0 0);
+  --surface-hover: color-mix(in oklch, var(--accent) 5%, var(--surface-muted));
+  --fg: oklch(20% 0.012 255);
+  --muted: oklch(48% 0.012 255);
+  --subtle: oklch(65% 0.01 255);
+  --border-subtle: oklch(93.5% 0.005 255);
+  --border: oklch(89.8% 0.007 255);
+  --border-muted: oklch(91.5% 0.006 255);
+  --border-strong: oklch(80.5% 0.01 255);
+  --accent: oklch(55% 0.125 252);
+  --accent-muted: oklch(48% 0.11 252);
+  --accent-soft: color-mix(in oklch, var(--accent) 9%, transparent);
+  --accent-surface: color-mix(in oklch, var(--accent) 7%, var(--surface));
   --accent-contrast: #ffffff;
-  --success: oklch(56% 0.14 150);
+  --success: oklch(53% 0.105 150);
   --success-soft: color-mix(in oklch, var(--success) 12%, transparent);
-  --warn: oklch(68% 0.16 72);
+  --warn: oklch(64% 0.115 74);
   --warn-soft: color-mix(in oklch, var(--warn) 14%, transparent);
-  --danger: oklch(58% 0.18 28);
+  --danger: oklch(56% 0.14 28);
   --danger-soft: color-mix(in oklch, var(--danger) 12%, transparent);
-  --info: oklch(50% 0.16 235);
+  --info: oklch(52% 0.11 235);
   --info-soft: color-mix(in oklch, var(--info) 11%, transparent);
-  --purple: oklch(50% 0.17 300);
+  --purple: oklch(52% 0.1 300);
   --purple-soft: color-mix(in oklch, var(--purple) 11%, transparent);
-  --pink: oklch(52% 0.18 335);
+  --pink: oklch(54% 0.11 335);
   --pink-soft: color-mix(in oklch, var(--pink) 11%, transparent);
-  --field-bg: oklch(99.4% 0.002 250);
-  --shadow-card: 0 18px 44px color-mix(in oklch, var(--fg) 7%, transparent);
+  --field-bg: oklch(99.1% 0.002 255);
+  --shadow-card: 0 10px 28px color-mix(in oklch, var(--fg) 4.5%, transparent);
+  --shadow-soft: 0 8px 22px color-mix(in oklch, var(--fg) 4%, transparent);
+  --shadow-floating: 0 18px 44px color-mix(in oklch, var(--fg) 12%, transparent);
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
   --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
@@ -37,32 +45,40 @@
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg: oklch(16% 0.01 250);
-  --surface: oklch(20% 0.012 250);
-  --surface-muted: oklch(24% 0.012 250);
-  --surface-raised: oklch(22% 0.012 250);
-  --fg: oklch(94% 0.004 250);
-  --muted: oklch(69% 0.012 250);
-  --subtle: oklch(58% 0.012 250);
-  --border: oklch(31% 0.014 250);
-  --border-strong: oklch(39% 0.014 250);
-  --accent: oklch(68% 0.16 255);
-  --accent-soft: color-mix(in oklch, var(--accent) 14%, transparent);
-  --accent-contrast: oklch(14% 0.01 250);
-  --success: oklch(72% 0.14 150);
+  --bg: oklch(15.5% 0.01 255);
+  --surface: oklch(19.5% 0.012 255);
+  --surface-muted: oklch(23% 0.012 255);
+  --surface-quiet: oklch(21.5% 0.011 255);
+  --surface-raised: oklch(22.5% 0.012 255);
+  --surface-hover: color-mix(in oklch, var(--accent) 9%, var(--surface-muted));
+  --fg: oklch(93.5% 0.004 255);
+  --muted: oklch(70% 0.01 255);
+  --subtle: oklch(57% 0.01 255);
+  --border-subtle: oklch(27% 0.012 255);
+  --border: oklch(31% 0.014 255);
+  --border-muted: oklch(29% 0.013 255);
+  --border-strong: oklch(39% 0.014 255);
+  --accent: oklch(66% 0.13 252);
+  --accent-muted: oklch(72% 0.11 252);
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+  --accent-surface: color-mix(in oklch, var(--accent) 10%, var(--surface));
+  --accent-contrast: oklch(14% 0.01 255);
+  --success: oklch(70% 0.11 150);
   --success-soft: color-mix(in oklch, var(--success) 13%, transparent);
-  --warn: oklch(78% 0.14 72);
+  --warn: oklch(75% 0.11 74);
   --warn-soft: color-mix(in oklch, var(--warn) 13%, transparent);
-  --danger: oklch(70% 0.16 28);
+  --danger: oklch(69% 0.13 28);
   --danger-soft: color-mix(in oklch, var(--danger) 13%, transparent);
-  --info: oklch(72% 0.14 235);
+  --info: oklch(70% 0.11 235);
   --info-soft: color-mix(in oklch, var(--info) 13%, transparent);
-  --purple: oklch(76% 0.15 300);
+  --purple: oklch(73% 0.11 300);
   --purple-soft: color-mix(in oklch, var(--purple) 13%, transparent);
-  --pink: oklch(76% 0.15 335);
+  --pink: oklch(73% 0.11 335);
   --pink-soft: color-mix(in oklch, var(--pink) 13%, transparent);
-  --field-bg: oklch(18% 0.01 250);
-  --shadow-card: 0 18px 46px rgba(0, 0, 0, 0.24);
+  --field-bg: oklch(18% 0.01 255);
+  --shadow-card: 0 14px 34px rgba(0, 0, 0, 0.18);
+  --shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.16);
+  --shadow-floating: 0 22px 52px rgba(0, 0, 0, 0.34);
 }
 
 html, body {
@@ -140,7 +156,7 @@ select {
 }
 
 .field-control {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-muted);
   border-radius: 8px;
   background: var(--field-bg);
   color: var(--fg);
@@ -149,7 +165,7 @@ select {
 
 .field-control:focus {
   outline: none;
-  border-color: color-mix(in oklch, var(--accent) 56%, var(--border));
+  border-color: color-mix(in oklch, var(--accent) 52%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 14%, transparent);
 }
 
@@ -191,6 +207,22 @@ select {
   background: color-mix(in oklch, var(--muted) 44%, transparent);
 }
 
+.logs-shell {
+  height: calc(100dvh - 3.5rem - 1.5rem);
+}
+
+@media (min-width: 640px) {
+  .logs-shell {
+    height: calc(100dvh - 4rem - 2rem);
+  }
+}
+
+@media (min-width: 768px) {
+  .logs-shell {
+    height: calc(100dvh - 4rem);
+  }
+}
+
 @media (max-height: 520px) {
   .logs-shell {
     height: auto;
@@ -199,6 +231,8 @@ select {
   }
 
   .logs-panel {
+    flex: none;
+    height: 16rem;
     min-height: 16rem;
   }
 }
@@ -231,19 +265,19 @@ select {
 .border-white\/10,
 .border-white\/15,
 .border-white\/18 {
-  border-color: var(--border) !important;
+  border-color: var(--border-subtle) !important;
 }
 
 .bg-black\/20,
 .bg-black\/30,
 .bg-white\/5,
 .bg-white\/\[0\.03\] {
-  background-color: var(--surface-muted) !important;
+  background-color: var(--surface-quiet) !important;
 }
 
 .hover\:bg-white\/5:hover,
 .hover\:bg-white\/10:hover {
-  background-color: color-mix(in oklch, var(--accent) 8%, var(--surface-muted)) !important;
+  background-color: var(--surface-hover) !important;
 }
 
 .text-cyan-100,

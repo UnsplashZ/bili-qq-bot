@@ -68,7 +68,7 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      <header className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:h-16 sm:px-4 md:hidden">
+      <header className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center border-b border-[var(--border-subtle)] bg-[var(--surface)] px-3 sm:h-16 sm:px-4 md:hidden">
         <button
           onClick={() => setMobileMenuOpen(true)}
           className="rounded-lg p-1.5 text-[var(--fg)] transition-colors hover:bg-[var(--surface-muted)] sm:p-2"
@@ -82,13 +82,12 @@ const Layout = ({ children }) => {
         </h1>
       </header>
 
-      <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 border-r border-[var(--border)] bg-[var(--surface)] md:flex md:flex-col">
+      <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 border-r border-[var(--border-subtle)] bg-[var(--surface)] md:flex md:flex-col">
         <div className="p-5">
           <div className="flex items-center gap-3">
             <BrandIcon className="h-9 w-9" />
             <div>
               <h1 className="text-base font-semibold text-[var(--fg)]">bili-qq-bot</h1>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">Personal control center</p>
             </div>
           </div>
         </div>
@@ -115,7 +114,7 @@ const Layout = ({ children }) => {
           ))}
         </nav>
 
-        <div className="border-t border-[var(--border)] p-3">
+        <div className="border-t border-[var(--border-subtle)] p-3">
           <Button
             variant="ghost"
             className="w-full justify-start"

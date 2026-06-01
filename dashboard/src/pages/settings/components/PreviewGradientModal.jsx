@@ -1,4 +1,5 @@
 import GlassModal from '../../../components/GlassModal'
+import { Button } from '../../../components/ui'
 import { buildGradientBackground } from './previewGradientModel'
 
 const PreviewGradientModal = ({ isOpen, onClose, color1, color2 }) => {
@@ -11,16 +12,16 @@ const PreviewGradientModal = ({ isOpen, onClose, color1, color2 }) => {
             title="预览图效果"
             className="max-w-xl"
             footer={(
-                <button
+                <Button
                     type="button"
                     onClick={onClose}
-                    className="rounded-lg bg-white/8 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/12"
+                    variant="secondary"
                 >
                     关闭
-                </button>
+                </Button>
             )}
         >
-            <p className="text-sm text-white/70">
+            <p className="text-sm text-[var(--muted)]">
                 这是固定底板与当前氛围色合成后的卡片效果，不等于原始选色本身。
             </p>
 

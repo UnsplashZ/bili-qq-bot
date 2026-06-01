@@ -29,7 +29,7 @@ napcat/*
 
 # Project Logs
 application.log
-logs/
+/logs/
 
 # AI tools
 .claude/

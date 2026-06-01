@@ -14,7 +14,7 @@ export const Surface = ({ children, className }) => {
 export const SurfaceHeader = ({ children, className }) => (
   <div
     className={twMerge(
-      clsx('border-b border-[var(--border)] px-4 py-3 sm:px-5 sm:py-4', className)
+      clsx('border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4', className)
     )}
   >
     {children}

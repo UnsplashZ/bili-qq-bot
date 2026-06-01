@@ -35,15 +35,26 @@ async function testResolveEffectivePreviewGradientColors() {
   })
 }
 
-function testSettingsSectionUsesPreviewModalEntry() {
+function testPreviewGradientSectionUsesPreviewModalEntry() {
   const source = fs.readFileSync(
-    path.join(repoRoot, 'dashboard/src/pages/settings/components/GeneralSettingsSection.jsx'),
+    path.join(repoRoot, 'dashboard/src/pages/settings/components/PreviewGradientSection.jsx'),
     'utf8'
   )
 
   assert.ok(source.includes('PreviewGradientModal'))
   assert.ok(source.includes('查看预览'))
+  assert.ok(source.includes('保存氛围色'))
   assert.ok(!source.includes('即时渐变反馈'))
+}
+
+function testPreviewLayoutEditorHostsPreviewGradientSection() {
+  const source = fs.readFileSync(
+    path.join(repoRoot, 'dashboard/src/pages/PreviewLayoutEditor.jsx'),
+    'utf8'
+  )
+
+  assert.ok(source.includes('PreviewGradientSection'))
+  assert.ok(source.includes('usePreviewGradientSettings'))
 }
 
 function testPreviewModalExists() {
@@ -58,7 +69,8 @@ function testPreviewModalExists() {
 }
 
 await testResolveEffectivePreviewGradientColors()
-testSettingsSectionUsesPreviewModalEntry()
+testPreviewGradientSectionUsesPreviewModalEntry()
+testPreviewLayoutEditorHostsPreviewGradientSection()
 testPreviewModalExists()
 
 console.log('PASS preview-gradient-editor')
