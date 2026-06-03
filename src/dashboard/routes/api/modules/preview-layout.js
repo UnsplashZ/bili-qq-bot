@@ -75,7 +75,7 @@ function normalizeScope(value) {
     return scope
 }
 
-function assertEditableVideo(type) {
+function assertEditableType(type) {
     if (!isEditableType(type)) {
         throw new PreviewLayoutValidationError(`preview layout type is not editable: ${type}`)
     }
@@ -100,18 +100,22 @@ async function resolvePreviewTargetForRequest(body) {
 
     if (mode === 'structure') {
         const mockType = normalizeType(body.mockType)
-        if (mockType !== 'video') {
-            throw new PreviewLayoutValidationError('第一阶段仅支持 video 结构示例')
+        assertEditableType(mockType)
+        let target
+        try {
+            target = buildMockPreviewTarget(mockType, body.structureOptions || {})
+        } catch (error) {
+            throw new PreviewLayoutValidationError(error.message || `unsupported structure preview type: ${mockType}`)
         }
         return {
             mode,
             groupId,
             showId,
-            target: buildMockPreviewTarget('video', body.structureOptions || {}),
+            target,
             resolvedInput: {
                 input: '',
-                normalizedInput: 'preview-lab://structure/video',
-                resolvedLink: { type: 'video', id: 'structure', match: 'preview-lab://structure/video' },
+                normalizedInput: `preview-lab://structure/${mockType}`,
+                resolvedLink: { type: mockType, id: 'structure', match: `preview-lab://structure/${mockType}` },
                 skippedLinks: []
             }
         }
@@ -121,8 +125,14 @@ async function resolvePreviewTargetForRequest(body) {
         throw new PreviewLayoutValidationError('input is required for link preview')
     }
 
-    const resolvedInput = await resolvePreviewInput(body.input, { groupId, cacheMode })
-    const target = await resolvePreviewTarget(resolvedInput.resolvedLink, { groupId, cacheMode })
+    let resolvedInput
+    let target
+    try {
+        resolvedInput = await resolvePreviewInput(body.input, { groupId, cacheMode })
+        target = await resolvePreviewTarget(resolvedInput.resolvedLink, { groupId, cacheMode })
+    } catch (error) {
+        throw new PreviewLayoutValidationError(error.message || '预览链接解析失败')
+    }
     return {
         mode,
         groupId,
@@ -153,7 +163,7 @@ router.post('/preview-layout/config', (req, res) => {
         assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'patch'], 'preview layout config request')
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
-        assertEditableVideo(type)
+        assertEditableType(type)
 
         const groupId = scope === 'group' ? normalizeGroupId(req.body?.groupId) : ''
         if (scope === 'group' && !groupId) {
@@ -183,7 +193,7 @@ router.post('/preview-layout/reset', (req, res) => {
         assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'element'], 'preview layout reset request')
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
-        assertEditableVideo(type)
+        assertEditableType(type)
 
         const groupId = scope === 'group' ? normalizeGroupId(req.body?.groupId) : ''
         if (scope === 'group' && !groupId) {
@@ -232,7 +242,7 @@ router.post('/preview-layout/preview', async (req, res) => {
         }
 
         const cardType = target.cardType || target.info.type || 'video'
-        assertEditableVideo(cardType)
+        assertEditableType(cardType)
 
         const temporaryOverrides = normalizePreviewLayoutPatch(cardType, req.body?.renderOverrides || {}, {
             requireEditable: true,

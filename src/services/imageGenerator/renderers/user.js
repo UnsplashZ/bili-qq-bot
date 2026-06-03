@@ -66,11 +66,11 @@ function renderUserContent(data, show_id, emojiContext = null) {
 
         let mediaHtml = '';
         if (dynImages.length > 0) {
-             mediaHtml = `<div class="user-dynamic-images">
+             mediaHtml = `<div class="user-dynamic-images" data-layout-key="dynamicMedia">
                 ${dynImages.slice(0, 3).map(src => `<img src="${src}" class="user-dynamic-image">`).join('')}
              </div>`;
         } else if (dynVideo) {
-             mediaHtml = `<div class="user-dynamic-video">
+             mediaHtml = `<div class="user-dynamic-video" data-layout-key="dynamicMedia">
                 <img src="${dynVideo.cover}" class="user-dynamic-video-cover">
                 <div class="user-dynamic-video-title">${dynVideo.title}</div>
              </div>`;
@@ -84,45 +84,45 @@ function renderUserContent(data, show_id, emojiContext = null) {
         const supplementalHtml = renderDynamicSupplementalCards(modules, {
             emojiContext
         })
+        const supplementalCardsHtml = [embeddedResourceHtml, supplementalHtml].filter(Boolean).join('')
 
         dynamicHtml = `
-            <div class="user-dynamic-section">
+            <div class="user-dynamic-section" data-layout-key="dynamicSection">
                 <div class="user-dynamic-title">最近动态</div>
-                <div class="user-dynamic-text">${dynContentHtml}</div>
+                <div class="user-dynamic-text" data-layout-key="dynamicText">${dynContentHtml}</div>
                 ${mediaHtml}
-                ${embeddedResourceHtml}
-                ${supplementalHtml}
+                ${supplementalCardsHtml ? `<div data-layout-key="supplementalCards">${supplementalCardsHtml}</div>` : ''}
             </div>
         `;
     }
 
     return `
-        <div class="content">
-            <div class="header user-header">
-                <div class="${userAvatarWrapperClass}">
+        <div class="content" data-layout-key="content">
+            <div class="header user-header" data-layout-key="header">
+                <div class="${userAvatarWrapperClass}" data-layout-key="avatar">
                     <img class="avatar avatar--user ${pendantImage ? '' : 'no-frame'}" src="${face}">
                     ${pendantImage ? `<img class="avatar-frame avatar-frame--user" src="${pendantImage}">` : ''}
                     ${verifyBadgeHtml}
                 </div>
                 <div class="user-info user-info--profile">
-                    <div class="user-name user-name--profile">
+                    <div class="user-name user-name--profile" data-layout-key="authorName">
                         ${name}
                         <span class="user-level lv${level}">Lv${level}</span>
                         ${vipLabel ? `<span class="user-vip-label">${vipLabel}</span>` : ''}
                     </div>
-                    ${show_id ? `<div class="user-id-text">UID: ${info.uid}</div>` : ''}
+                    ${show_id ? `<div class="user-id-text" data-layout-key="uid">UID: ${info.uid}</div>` : ''}
                     ${medalName ? `
-                    <div class="user-medal">
+                    <div class="user-medal" data-layout-key="medal">
                         <div class="user-medal-badge">
                             <span class="user-medal-name">${medalName}</span>
                             <span class="user-medal-level">${medalLevel}</span>
                         </div>
                     </div>` : ''}
-                    ${sign ? `<div class="text-content user-sign">"${sign}"</div>` : ''}
+                    ${sign ? `<div class="text-content user-sign" data-layout-key="signature">"${sign}"</div>` : ''}
                 </div>
             </div>
 
-            <div class="stats user-stats">
+            <div class="stats user-stats" data-layout-key="stats">
                 <div class="user-stat-item">
                     <div class="user-stat-value">${formatNumber(follower)}</div>
                     <div class="user-stat-label">粉丝</div>

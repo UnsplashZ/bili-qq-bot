@@ -54,6 +54,14 @@ function buildMediaDeclarations(media = {}) {
     return declarations
 }
 
+function buildMediaImageDeclarations(media = {}) {
+    const declarations = {}
+    if (media.objectFit !== undefined) declarations['object-fit'] = media.objectFit
+    if (media.objectPosition !== undefined) declarations['object-position'] = media.objectPosition
+    if (media.borderRadius !== undefined) declarations['border-radius'] = px(media.borderRadius)
+    return declarations
+}
+
 function buildPreviewLayoutOverrideCss(rawLayout = {}, options = {}) {
     const { type = 'video', alreadyNormalized = false } = options
     const layout = alreadyNormalized
@@ -87,7 +95,11 @@ function buildPreviewLayoutOverrideCss(rawLayout = {}, options = {}) {
                     ...mediaDeclarations
                 })
             } else {
-                addRule(rules, selector, mediaDeclarations)
+                addRule(rules, selector, {
+                    ...mediaDeclarations,
+                    ...(element.media.borderRadius !== undefined ? { overflow: 'hidden' } : {})
+                })
+                addRule(rules, `${selector} img`, buildMediaImageDeclarations(element.media))
             }
         }
 

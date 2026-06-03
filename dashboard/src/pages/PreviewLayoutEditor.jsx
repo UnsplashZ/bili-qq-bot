@@ -10,7 +10,7 @@ import {
   Wand2
 } from 'lucide-react';
 import api from '../utils/auth';
-import { Button, StatusPill, ToggleSwitch } from '../components/ui';
+import { Button, Card, PanelHeader, StatusPill, ToggleSwitch } from '../components/ui';
 import { useToast } from '../hooks/useToast';
 import PreviewGradientSection from './settings/components/PreviewGradientSection';
 import usePreviewGradientSettings from './settings/hooks/usePreviewGradientSettings';
@@ -39,7 +39,8 @@ const GROUP_LABELS = {
 };
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value || {}));
+  if (value === undefined || value === null) return {};
+  return JSON.parse(JSON.stringify(value));
 }
 
 function isPlainObject(value) {
@@ -106,12 +107,40 @@ function getElementDraft(draft, elementKey) {
   return draft?.elements?.[elementKey] || {};
 }
 
+function getDraftVisibleState(draft, elementKey) {
+  const visible = getElementDraft(draft, elementKey).visible;
+  if (visible === false) return 'hidden';
+  if (visible === true) return 'visible';
+  return 'inherit';
+}
+
+function getElementStatusLabel(draft, elementKey) {
+  const draftVisible = getDraftVisibleState(draft, elementKey);
+  if (draftVisible === 'hidden') return '隐藏';
+  return '显示';
+}
+
 function getApiError(error, fallback) {
   return error?.response?.data?.error || error?.message || fallback;
 }
 
-function NumberControl({ label, value, limits, onChange }) {
+function normalizeDefaultDisplay(value) {
+  if (value === undefined || value === null || value === '') return '';
+  const text = String(value);
+  return text
+    .replace(/^auto\s+/i, '')
+    .replace(/\s*\/\s*/g, '/')
+    .replace(/\.00\b/g, '')
+    .trim();
+}
+
+function getDefaultFieldValue(defaults, groupName, field) {
+  return normalizeDefaultDisplay(defaults?.[groupName]?.[field]);
+}
+
+function NumberControl({ label, value, limits, defaultValue, onChange }) {
   const currentValue = value ?? '';
+  const defaultDisplay = normalizeDefaultDisplay(defaultValue);
   return (
     <label className="grid gap-1.5 text-xs">
       <span className="font-medium text-[var(--muted)]">{label}</span>
@@ -121,6 +150,7 @@ function NumberControl({ label, value, limits, onChange }) {
         max={limits?.max}
         step={limits?.integer ? 1 : 0.1}
         value={currentValue}
+        placeholder={defaultDisplay ? `默认：${defaultDisplay}` : ''}
         onChange={(event) => {
           const raw = event.target.value;
           onChange(raw === '' ? null : Number(raw));
@@ -131,7 +161,8 @@ function NumberControl({ label, value, limits, onChange }) {
   );
 }
 
-function SelectControl({ label, value, options, onChange }) {
+function SelectControl({ label, value, options, defaultValue, onChange }) {
+  const defaultDisplay = normalizeDefaultDisplay(defaultValue);
   return (
     <label className="grid gap-1.5 text-xs">
       <span className="font-medium text-[var(--muted)]">{label}</span>
@@ -140,7 +171,7 @@ function SelectControl({ label, value, options, onChange }) {
         onChange={(event) => onChange(event.target.value || null)}
         className="min-h-9 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[var(--accent)]"
       >
-        <option value="">继承默认</option>
+        <option value="">{defaultDisplay ? `默认：${defaultDisplay}` : '默认'}</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
@@ -149,7 +180,7 @@ function SelectControl({ label, value, options, onChange }) {
   );
 }
 
-function FieldGroupControls({ groupName, schema, values, onChange }) {
+function FieldGroupControls({ groupName, schema, values, defaults, onChange }) {
   const entries = Object.entries(schema || {});
   if (entries.length === 0) return null;
 
@@ -166,6 +197,7 @@ function FieldGroupControls({ groupName, schema, values, onChange }) {
                 label={FIELD_LABELS[field] || field}
                 value={values?.[field]}
                 options={fieldSchema.values || []}
+                defaultValue={getDefaultFieldValue(defaults, groupName, field)}
                 onChange={(nextValue) => onChange(field, nextValue)}
               />
             );
@@ -176,6 +208,7 @@ function FieldGroupControls({ groupName, schema, values, onChange }) {
               label={FIELD_LABELS[field] || field}
               value={values?.[field]}
               limits={fieldSchema.limit}
+              defaultValue={getDefaultFieldValue(defaults, groupName, field)}
               onChange={(nextValue) => onChange(field, nextValue)}
             />
           );
@@ -185,11 +218,12 @@ function FieldGroupControls({ groupName, schema, values, onChange }) {
   );
 }
 
-function PreviewOverlay({ elements, container, selectedKey, onSelect }) {
+function PreviewOverlay({ elements, container, selectedKey, draftOverrides, onSelect }) {
   if (!container?.width || !container?.height) return null;
   return (
     <div className="pointer-events-none absolute inset-0">
       {Object.entries(elements || {}).map(([key, meta]) => {
+        if (getDraftVisibleState(draftOverrides, key) === 'hidden') return null;
         if (!meta?.box || !meta.visible) return null;
         const active = key === selectedKey;
         const style = {
@@ -217,6 +251,48 @@ function PreviewOverlay({ elements, container, selectedKey, onSelect }) {
   );
 }
 
+function PreviewActionBar({
+  editable,
+  loading,
+  previewing,
+  saving,
+  groupId,
+  selectedElement,
+  onPreview,
+  onReload,
+  onResetDraftElement,
+  onSaveGlobal,
+  onSaveGroup,
+  onResetSavedElement,
+  onResetSavedTemplate
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
+      <Button icon={Wand2} variant="primary" disabled={loading || previewing || !editable} onClick={onPreview}>
+        {previewing ? '生成中' : '应用预览'}
+      </Button>
+      <Button icon={RefreshCw} disabled={loading || previewing} onClick={onReload}>
+        重载配置
+      </Button>
+      <Button icon={RotateCcw} disabled={!editable || !selectedElement} onClick={onResetDraftElement}>
+        重置草稿元素
+      </Button>
+      <Button icon={Save} disabled={saving || !editable || Boolean(groupId)} onClick={onSaveGlobal}>
+        保存到全局
+      </Button>
+      <Button icon={Save} disabled={saving || !editable || !groupId} onClick={onSaveGroup}>
+        保存到当前群
+      </Button>
+      <Button variant="danger" icon={RotateCcw} disabled={saving || !editable || !selectedElement} onClick={onResetSavedElement}>
+        重置已保存元素
+      </Button>
+      <Button variant="danger" icon={RotateCcw} disabled={saving || !editable} onClick={onResetSavedTemplate}>
+        重置当前模板
+      </Button>
+    </div>
+  );
+}
+
 export default function PreviewLayoutEditor() {
   const { show } = useToast();
   const previewGradientSettings = usePreviewGradientSettings(show);
@@ -234,6 +310,7 @@ export default function PreviewLayoutEditor() {
   const [loading, setLoading] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [previewPayloadKey, setPreviewPayloadKey] = useState('');
   const debounceRef = useRef(null);
   const lastPreviewPayloadRef = useRef('');
 
@@ -242,6 +319,7 @@ export default function PreviewLayoutEditor() {
   const elements = useMemo(() => typeSchema?.elements || {}, [typeSchema]);
   const selectedElementSchema = elements[selectedElement] || null;
   const selectedDraft = getElementDraft(draftOverrides, selectedElement);
+  const selectedDefaults = preview?.elements?.[selectedElement]?.defaults || {};
   const dirty = !valuesEqual(draftOverrides, savedConfig.effective);
 
   const fetchConfig = useCallback(async () => {
@@ -251,13 +329,15 @@ export default function PreviewLayoutEditor() {
         groupId: groupId || undefined
       }
     });
-    setSavedConfig(response.data);
-    setDraftOverrides(clone(response.data.effective));
-    if (!elements[selectedElement]) {
-      const firstKey = Object.keys(response.data.effective?.elements || {})[0] || Object.keys(elements)[0] || '';
-      setSelectedElement(firstKey);
-    }
-  }, [selectedType, groupId, elements, selectedElement]);
+    const nextConfig = response.data;
+    setSavedConfig(nextConfig);
+    setDraftOverrides(clone(nextConfig.effective));
+    setSelectedElement((currentElement) => {
+      if (elements[currentElement]) return currentElement;
+      return Object.keys(nextConfig.effective?.elements || {}).find((key) => elements[key]) || Object.keys(elements)[0] || '';
+    });
+    return nextConfig;
+  }, [selectedType, groupId, elements]);
 
   useEffect(() => {
     let mounted = true;
@@ -290,26 +370,33 @@ export default function PreviewLayoutEditor() {
     });
   }, [schema, fetchConfig, show]);
 
-  const buildPreviewPayload = useCallback(() => ({
+  const buildPreviewPayload = useCallback((overrides = draftOverrides) => ({
     mode,
     input,
     groupId: groupId || null,
     mockType: selectedType,
     showId: true,
     cacheMode: 'cached',
-    renderOverrides: draftOverrides
+    renderOverrides: overrides
   }), [mode, input, groupId, selectedType, draftOverrides]);
 
-  const runPreview = useCallback(async ({ silent = false } = {}) => {
+  const currentPreviewPayloadKey = useMemo(
+    () => stableStringify(buildPreviewPayload()),
+    [buildPreviewPayload]
+  );
+  const hasPreviewImage = Boolean(preview?.image?.base64);
+  const previewOutdated = Boolean(hasPreviewImage && previewPayloadKey && previewPayloadKey !== currentPreviewPayloadKey);
+
+  const runPreview = useCallback(async ({ silent = false, overrides } = {}) => {
     if (!editable) {
       setPreviewError('当前类型暂未开放编辑');
       return;
     }
     if (mode === 'link' && !input.trim()) {
-      setPreviewError('请输入 B 站视频链接');
+      setPreviewError('请输入 B 站链接');
       return;
     }
-    const payload = buildPreviewPayload();
+    const payload = buildPreviewPayload(overrides);
     const payloadKey = stableStringify(payload);
     lastPreviewPayloadRef.current = payloadKey;
     setPreviewing(true);
@@ -318,6 +405,7 @@ export default function PreviewLayoutEditor() {
       const response = await api.post('/api/preview-layout/preview', payload);
       if (lastPreviewPayloadRef.current !== payloadKey) return;
       setPreview(response.data);
+      setPreviewPayloadKey(payloadKey);
       setPreviewError('');
     } catch (error) {
       if (lastPreviewPayloadRef.current !== payloadKey) return;
@@ -330,20 +418,57 @@ export default function PreviewLayoutEditor() {
   }, [editable, mode, input, buildPreviewPayload]);
 
   useEffect(() => {
-    if (!preview || !dirty || !editable) return undefined;
+    if (!hasPreviewImage || !dirty || !editable || !previewOutdated) return undefined;
+    if (lastPreviewPayloadRef.current === currentPreviewPayloadKey) return undefined;
     window.clearTimeout(debounceRef.current);
     debounceRef.current = window.setTimeout(() => {
       runPreview({ silent: true });
     }, 700);
     return () => window.clearTimeout(debounceRef.current);
-  }, [draftOverrides, dirty, editable, preview, runPreview]);
+  }, [currentPreviewPayloadKey, dirty, editable, hasPreviewImage, previewOutdated, runPreview]);
 
-  const updateElement = (elementKey, patch) => {
-    setDraftOverrides((current) => mergeDeep(current, {
-      elements: {
-        [elementKey]: patch
+  const scheduleDraftPreview = (nextDraftOverrides, delayMs = 0) => {
+    window.clearTimeout(debounceRef.current);
+    if (delayMs > 0) {
+      debounceRef.current = window.setTimeout(() => {
+        runPreview({ silent: true, overrides: nextDraftOverrides });
+      }, delayMs);
+      return;
+    }
+    runPreview({ silent: true, overrides: nextDraftOverrides });
+  };
+
+  const updateElement = (elementKey, patch, options = {}) => {
+    setDraftOverrides((current) => {
+      const nextDraftOverrides = mergeDeep(current, {
+        elements: {
+          [elementKey]: patch
+        }
+      });
+
+      if (options.preview) {
+        scheduleDraftPreview(nextDraftOverrides, options.previewDelayMs || 0);
       }
-    }));
+
+      return nextDraftOverrides;
+    });
+  };
+
+  const toggleElementVisible = (elementKey) => {
+    setDraftOverrides((current) => {
+      const currentVisible = getElementDraft(current, elementKey).visible;
+      const nextVisible = currentVisible === false;
+      const nextDraftOverrides = mergeDeep(current, {
+        elements: {
+          [elementKey]: {
+            visible: nextVisible
+          }
+        }
+      });
+
+      scheduleDraftPreview(nextDraftOverrides, 180);
+      return nextDraftOverrides;
+    });
   };
 
   const updateElementGroupField = (groupName, field, value) => {
@@ -382,7 +507,8 @@ export default function PreviewLayoutEditor() {
         type: selectedType,
         patch
       });
-      await fetchConfig();
+      const nextConfig = await fetchConfig();
+      await runPreview({ silent: true, overrides: nextConfig.effective });
       show('布局配置已保存', 'success');
     } catch (error) {
       show(getApiError(error, '保存失败'), 'error');
@@ -401,7 +527,8 @@ export default function PreviewLayoutEditor() {
         type: selectedType,
         element: element || undefined
       });
-      await fetchConfig();
+      const nextConfig = await fetchConfig();
+      await runPreview({ silent: true, overrides: nextConfig.effective });
       show(element ? '元素配置已重置' : '模板配置已重置', 'success');
     } catch (error) {
       show(getApiError(error, '重置失败'), 'error');
@@ -411,6 +538,7 @@ export default function PreviewLayoutEditor() {
   };
 
   const elementEntries = Object.entries(elements);
+  const canvasStatus = previewing ? '预览更新中' : (previewOutdated ? '预览待更新' : '');
 
   return (
     <div className="space-y-4 pb-6">
@@ -419,15 +547,25 @@ export default function PreviewLayoutEditor() {
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Diagnostics</div>
           <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">预览编辑器</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusPill tone={editable ? 'success' : 'warn'}>{editable ? 'video 可编辑' : '暂未开放'}</StatusPill>
-          <StatusPill tone={dirty ? 'warn' : 'neutral'}>{dirty ? '未保存' : '已同步'}</StatusPill>
-          {savedConfig.scopeMeta?.hasGroupOverride && <StatusPill tone="accent">使用群组覆盖</StatusPill>}
-        </div>
+        {savedConfig.scopeMeta?.hasGroupOverride && (
+          <div className="flex flex-wrap gap-2">
+            <StatusPill tone="accent">使用群组覆盖</StatusPill>
+          </div>
+        )}
       </header>
 
-      <section className="grid gap-3 rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] p-4 shadow-[var(--shadow-soft)]">
-        <div className="grid gap-3 xl:grid-cols-[1.1fr_1fr_0.8fr_0.7fr_auto]">
+      {!previewGradientSettings.loadingPreviewGradient && (
+        <PreviewGradientSection
+          previewGradientConfig={previewGradientSettings.previewGradientConfig}
+          onPreviewGradientChange={previewGradientSettings.handlePreviewGradientChange}
+          onResetPreviewGradient={previewGradientSettings.resetPreviewGradientSettings}
+          onSavePreviewGradient={previewGradientSettings.savePreviewGradientSettings}
+          saving={previewGradientSettings.savingPreviewGradient}
+        />
+      )}
+
+      <Card className="grid gap-3" padded>
+        <div className="grid gap-3 xl:grid-cols-[1.1fr_1fr_0.8fr_0.7fr]">
           <div className="grid gap-1.5">
             <span className="text-xs font-semibold text-[var(--muted)]">来源</span>
             <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
@@ -452,12 +590,12 @@ export default function PreviewLayoutEditor() {
           </div>
 
           <label className="grid gap-1.5">
-            <span className="text-xs font-semibold text-[var(--muted)]">视频链接</span>
+            <span className="text-xs font-semibold text-[var(--muted)]">B 站链接</span>
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
               disabled={mode !== 'link'}
-              placeholder="https://www.bilibili.com/video/BV..."
+              placeholder="https://www.bilibili.com/video/BV... / https://t.bilibili.com/..."
               className="min-h-10 rounded-lg border border-[var(--border-muted)] bg-[var(--field-bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors focus:border-[color-mix(in_oklch,var(--accent)_52%,var(--border))] disabled:opacity-50"
             />
           </label>
@@ -491,72 +629,67 @@ export default function PreviewLayoutEditor() {
             </select>
           </label>
 
-          <div className="flex flex-wrap items-end gap-2">
-            <Button icon={Wand2} variant="primary" disabled={loading || previewing || !editable} onClick={() => runPreview()}>
-              {previewing ? '生成中' : '生成预览'}
-            </Button>
-            <Button icon={RefreshCw} disabled={loading || previewing} onClick={fetchConfig}>
-              重载
-            </Button>
-          </div>
         </div>
         {previewError && (
           <div className="rounded-lg border border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] bg-[var(--danger-soft)] px-3 py-2 text-sm text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]">
             {previewError}
           </div>
         )}
-      </section>
 
-      {!previewGradientSettings.loadingPreviewGradient && (
-        <PreviewGradientSection
-          previewGradientConfig={previewGradientSettings.previewGradientConfig}
-          onPreviewGradientChange={previewGradientSettings.handlePreviewGradientChange}
-          onResetPreviewGradient={previewGradientSettings.resetPreviewGradientSettings}
-          onSavePreviewGradient={previewGradientSettings.savePreviewGradientSettings}
-          saving={previewGradientSettings.savingPreviewGradient}
+        <PreviewActionBar
+          editable={editable}
+          loading={loading}
+          previewing={previewing}
+          saving={saving}
+          groupId={groupId}
+          selectedElement={selectedElement}
+          onPreview={() => runPreview()}
+          onReload={() => fetchConfig()}
+          onResetDraftElement={resetDraftElement}
+          onSaveGlobal={() => saveConfig('global')}
+          onSaveGroup={() => saveConfig('group')}
+          onResetSavedElement={() => resetSaved(groupId ? 'group' : 'global', selectedElement)}
+          onResetSavedTemplate={() => resetSaved(groupId ? 'group' : 'global')}
         />
-      )}
+      </Card>
 
       <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <aside className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
-          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3">
-            <LayoutTemplate size={17} className="text-[var(--accent)]" />
-            <h2 className="text-sm font-semibold">元素</h2>
-          </div>
+        <Card as="aside" className="overflow-hidden" padded={false}>
+          <PanelHeader title="元素" icon={LayoutTemplate} />
           <div className="grid gap-1 p-2">
             {elementEntries.map(([key, element]) => {
-              const meta = preview?.elements?.[key];
+              const statusLabel = getElementStatusLabel(draftOverrides, key);
               return (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setSelectedElement(key)}
-                  className={`flex min-h-10 items-center justify-between rounded-lg px-3 text-left text-sm transition-colors ${
+                  className={`flex min-h-10 items-center justify-between rounded-lg border-l-2 px-3 text-left text-sm transition-colors ${
                     selectedElement === key
-                      ? 'bg-[var(--accent-surface)] text-[var(--fg)]'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]'
+                      ? 'border-[var(--accent)] bg-[var(--accent-surface)] text-[var(--fg)]'
+                      : 'border-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]'
                   }`}
                 >
                   <span>{element.label}</span>
                   <span className="text-[11px] text-[var(--subtle)]">
-                    {meta ? (meta.exists ? (meta.visible ? '可见' : '隐藏') : '缺失') : key}
+                    {statusLabel}
                   </span>
                 </button>
               );
             })}
           </div>
-        </aside>
+        </Card>
 
-        <main className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
-          <div className="flex flex-col gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <ImageIcon size={17} className="text-[var(--accent)]" />
-              <h2 className="text-sm font-semibold">预览画布</h2>
-            </div>
-            <div className="text-xs text-[var(--muted)]">
-              {preview?.resolved?.canonicalUrl || '生成预览后显示真实截图'}
-            </div>
-          </div>
+        <Card as="main" className="overflow-hidden" padded={false}>
+          <PanelHeader
+            title="预览画布"
+            icon={ImageIcon}
+            meta={(
+              <div className="max-w-[48vw] truncate text-xs text-[var(--muted)]">
+                {preview?.resolved?.canonicalUrl || '生成预览后显示真实截图'}
+              </div>
+            )}
+          />
           <div className="grid min-h-[420px] place-items-center p-4">
             {preview?.image?.base64 ? (
               <div className="relative max-h-[72vh] max-w-full overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
@@ -570,24 +703,29 @@ export default function PreviewLayoutEditor() {
                     elements={preview.elements}
                     container={preview.container}
                     selectedKey={selectedElement}
+                    draftOverrides={draftOverrides}
                     onSelect={setSelectedElement}
                   />
+                  {canvasStatus && (
+                    <div className="absolute inset-0 grid place-items-center bg-[color-mix(in_oklch,var(--surface)_58%,transparent)]">
+                      <span className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-[var(--muted)] shadow-[var(--shadow-soft)]">
+                        {canvasStatus}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="grid gap-3 text-center text-[var(--muted)]">
                 <Eye className="mx-auto h-10 w-10 text-[var(--subtle)]" />
-                <div className="text-sm">选择结构示例或输入视频链接后生成预览</div>
+                <div className="text-sm">选择结构示例或输入 B 站链接后生成预览</div>
               </div>
             )}
           </div>
-        </main>
+        </Card>
 
-        <aside className="rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
-          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-4 py-3">
-            <SlidersHorizontal size={17} className="text-[var(--accent)]" />
-            <h2 className="text-sm font-semibold">属性</h2>
-          </div>
+        <Card as="aside" className="overflow-hidden" padded={false}>
+          <PanelHeader title="属性" icon={SlidersHorizontal} />
           <div className="space-y-4 p-4">
             {selectedElementSchema ? (
               <>
@@ -597,14 +735,14 @@ export default function PreviewLayoutEditor() {
                 </div>
 
                 {selectedElementSchema.controls.includes('visible') && (
-                  <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)] p-3">
+                  <div className="flex items-center justify-between gap-3 border-y border-[var(--border-subtle)] py-3">
                     <div>
                       <div className="text-sm font-semibold">显示元素</div>
                       <div className="text-xs text-[var(--muted)]">关闭后本元素从预览中隐藏</div>
                     </div>
                     <ToggleSwitch
                       checked={selectedDraft.visible !== false}
-                      onChange={(checked) => updateElement(selectedElement, { visible: checked })}
+                      onChange={() => toggleElementVisible(selectedElement)}
                       label="显示元素"
                     />
                   </div>
@@ -618,36 +756,16 @@ export default function PreviewLayoutEditor() {
                       groupName={control}
                       schema={schema?.fieldGroups?.[control]}
                       values={selectedDraft[control] || {}}
+                      defaults={selectedDefaults}
                       onChange={(field, value) => updateElementGroupField(control, field, value)}
                     />
                   ))}
-
-                <div className="grid gap-2 border-t border-[var(--border-subtle)] pt-4">
-                  <Button icon={Wand2} variant="primary" disabled={previewing || !editable} onClick={() => runPreview()}>
-                    应用预览
-                  </Button>
-                  <Button icon={RotateCcw} disabled={!editable} onClick={resetDraftElement}>
-                    重置草稿元素
-                  </Button>
-                  <Button icon={Save} disabled={saving || !editable || Boolean(groupId)} onClick={() => saveConfig('global')}>
-                    保存到全局
-                  </Button>
-                  <Button icon={Save} disabled={saving || !editable || !groupId} onClick={() => saveConfig('group')}>
-                    保存到当前群
-                  </Button>
-                  <Button variant="danger" icon={RotateCcw} disabled={saving || !editable} onClick={() => resetSaved(groupId ? 'group' : 'global', selectedElement)}>
-                    重置已保存元素
-                  </Button>
-                  <Button variant="danger" icon={RotateCcw} disabled={saving || !editable} onClick={() => resetSaved(groupId ? 'group' : 'global')}>
-                    重置当前模板
-                  </Button>
-                </div>
               </>
             ) : (
               <div className="text-sm text-[var(--muted)]">当前类型没有可编辑元素。</div>
             )}
           </div>
-        </aside>
+        </Card>
       </section>
     </div>
   );

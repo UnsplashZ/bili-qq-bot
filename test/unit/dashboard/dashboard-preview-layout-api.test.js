@@ -54,7 +54,11 @@ describe('Dashboard preview layout API', function () {
 
         assert.strictEqual(res.status, 200)
         assert.strictEqual(res.body.types.video.status, 'editable')
-        assert.strictEqual(res.body.types.dynamic.status, 'planned')
+        assert.strictEqual(res.body.types.dynamic.status, 'editable')
+        assert.strictEqual(res.body.types.article.status, 'editable')
+        assert.strictEqual(res.body.types.live.status, 'editable')
+        assert.strictEqual(res.body.types.bangumi.status, 'editable')
+        assert.strictEqual(res.body.types.user.status, 'editable')
     })
 
     it('rejects unknown preview layout fields on save', async function () {
@@ -108,6 +112,19 @@ describe('Dashboard preview layout API', function () {
         }
     })
 
+    it('returns 400 for invalid link preview input instead of internal error', async function () {
+        const res = await request(app)
+            .post('/api/preview-layout/preview')
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+                mode: 'link',
+                input: 'not a bilibili link'
+            })
+
+        assert.strictEqual(res.status, 400)
+        assert.match(res.body.error, /未识别到可处理的 B 站链接/)
+    })
+
     it('rejects unknown top-level fields on config and reset requests', async function () {
         const configRes = await request(app)
             .post('/api/preview-layout/config')
@@ -135,18 +152,57 @@ describe('Dashboard preview layout API', function () {
         assert.match(resetRes.body.error, /preview layout reset request contains unknown field/)
     })
 
-    it('rejects non-video config saves in the first phase', async function () {
+    it('saves non-video Bilibili link card layout patches', async function () {
         const res = await request(app)
             .post('/api/preview-layout/config')
             .set('Authorization', `Bearer ${token}`)
             .send({
                 scope: 'global',
                 type: 'dynamic',
-                patch: {}
+                patch: {
+                    elements: {
+                        media: {
+                            visible: false
+                        }
+                    }
+                }
+            })
+
+        assert.strictEqual(res.status, 200)
+        assert.strictEqual(res.body.config.global.elements.media.visible, false)
+    })
+
+    it('rejects internal card types for structure preview layout editing', async function () {
+        const res = await request(app)
+            .post('/api/preview-layout/preview')
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+                mode: 'structure',
+                mockType: 'help_user'
             })
 
         assert.strictEqual(res.status, 400)
-        assert.match(res.body.error, /not editable: dynamic/)
+        assert.match(res.body.error, /not editable: help_user/)
+    })
+
+    it('allows non-video structure targets before validating their render overrides', async function () {
+        const res = await request(app)
+            .post('/api/preview-layout/preview')
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+                mode: 'structure',
+                mockType: 'dynamic',
+                renderOverrides: {
+                    elements: {
+                        notAnElement: {
+                            visible: false
+                        }
+                    }
+                }
+            })
+
+        assert.strictEqual(res.status, 400)
+        assert.match(res.body.error, /unknown preview layout element: notAnElement/)
     })
 
     it('rejects oversized preview layout payloads', async function () {

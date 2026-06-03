@@ -99,7 +99,7 @@ export const ToggleSwitch = ({ checked, onChange, label, disabled = false, class
     onClick={() => onChange(!checked)}
     className={twMerge(
       clsx(
-        'inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex h-6 !min-h-6 w-11 min-w-11 flex-none shrink-0 items-center rounded-full border p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         checked
           ? 'border-[var(--accent)] bg-[var(--accent)]'
           : 'border-[var(--border-muted)] bg-[var(--surface-muted)]',
@@ -109,7 +109,7 @@ export const ToggleSwitch = ({ checked, onChange, label, disabled = false, class
   >
     <span
       className={clsx(
-        'h-4 w-4 rounded-full border shadow-sm transition-transform',
+        'h-4 w-4 shrink-0 rounded-full border shadow-sm transition-transform',
         checked
           ? 'translate-x-5 border-[var(--accent-contrast)] bg-[var(--accent-contrast)]'
           : 'translate-x-0 border-[var(--border)] bg-[var(--surface)]'

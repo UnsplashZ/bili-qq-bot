@@ -228,18 +228,29 @@ const PreviewGradientSection = ({
                         <p className="mt-1 text-xs text-[var(--muted)]">调整 B 站链接解析预览图的背景氛围色。</p>
                     </div>
                 </div>
-                {onSavePreviewGradient && (
+                <div className="flex flex-wrap gap-2">
                     <Button
                         type="button"
-                        onClick={onSavePreviewGradient}
-                        disabled={saving || Object.values(gradientErrors).some(Boolean)}
+                        onClick={handleResetPreviewGradient}
                         variant="primary"
-                        icon={Save}
+                        icon={RotateCcw}
                         size="sm"
                     >
-                        {saving ? '保存中...' : '保存氛围色'}
+                        恢复默认氛围色
                     </Button>
-                )}
+                    {onSavePreviewGradient && (
+                        <Button
+                            type="button"
+                            onClick={onSavePreviewGradient}
+                            disabled={saving || Object.values(gradientErrors).some(Boolean)}
+                            variant="primary"
+                            icon={Save}
+                            size="sm"
+                        >
+                            {saving ? '保存中...' : '保存氛围色'}
+                        </Button>
+                    )}
+                </div>
             </div>
 
             <div className="divide-y divide-[var(--border-subtle)]">
@@ -290,17 +301,6 @@ const PreviewGradientSection = ({
                         </Button>
                     }
                 />
-            </div>
-
-            <div className="mt-5 flex flex-wrap justify-end">
-                <Button
-                    type="button"
-                    onClick={handleResetPreviewGradient}
-                    variant="secondary"
-                    icon={RotateCcw}
-                >
-                    恢复默认氛围色
-                </Button>
             </div>
 
             {pickerState?.field && (

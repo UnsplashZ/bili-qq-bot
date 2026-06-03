@@ -6,6 +6,14 @@ async function collectPreviewLayoutElementMetadata(page, type = 'video') {
     const elementKeys = getEditableElementKeys(type)
 
     return page.evaluate((keys) => {
+        const numberOrNull = (value) => {
+            const number = Number.parseFloat(value)
+            return Number.isFinite(number) ? number : null
+        }
+        const normalizeCssValue = (value) => {
+            if (!value || value === 'none' || value === 'auto' || value === 'normal') return null
+            return String(value)
+        }
         const container = document.querySelector('.container')
         const containerRect = container?.getBoundingClientRect()
         const result = {}
@@ -31,6 +39,8 @@ async function collectPreviewLayoutElementMetadata(page, type = 'video') {
 
             const style = window.getComputedStyle(element)
             const rect = element.getBoundingClientRect()
+            const mediaElement = element.matches('img') ? element : element.querySelector('img')
+            const mediaStyle = mediaElement ? window.getComputedStyle(mediaElement) : style
             const visible = style.display !== 'none' &&
                 style.visibility !== 'hidden' &&
                 Number(style.opacity || 1) !== 0 &&
@@ -41,7 +51,27 @@ async function collectPreviewLayoutElementMetadata(page, type = 'video') {
                 exists: true,
                 visible,
                 box: visible && containerRect ? toBox(rect) : null,
-                className: typeof element.className === 'string' ? element.className : ''
+                className: typeof element.className === 'string' ? element.className : '',
+                defaults: {
+                    layout: {
+                        width: numberOrNull(rect.width),
+                        height: numberOrNull(rect.height),
+                        marginTop: numberOrNull(style.marginTop),
+                        marginBottom: numberOrNull(style.marginBottom)
+                    },
+                    typography: {
+                        fontSize: numberOrNull(style.fontSize),
+                        lineHeight: numberOrNull(style.lineHeight),
+                        maxHeight: normalizeCssValue(style.maxHeight),
+                        maxLines: normalizeCssValue(style.webkitLineClamp)
+                    },
+                    media: {
+                        aspectRatio: normalizeCssValue(mediaStyle.aspectRatio || style.aspectRatio),
+                        objectFit: normalizeCssValue(mediaStyle.objectFit),
+                        objectPosition: normalizeCssValue(mediaStyle.objectPosition),
+                        borderRadius: normalizeCssValue(mediaStyle.borderRadius || style.borderRadius)
+                    }
+                }
             }
         }
 

@@ -7,7 +7,8 @@ const { PREVIEW_LAYOUT_VERSION, isEditableType } = require('./schema')
 const { normalizePreviewLayoutPatch, cleanEmptyLayoutBranches } = require('./normalizer')
 
 function clone(value) {
-    return JSON.parse(JSON.stringify(value || {}))
+    if (value === undefined || value === null) return {}
+    return JSON.parse(JSON.stringify(value))
 }
 
 function isPlainObject(value) {

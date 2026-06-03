@@ -63,22 +63,22 @@ function renderBangumiContent(data, emojiContext = null) {
     }
 
     return `
-        <div class="cover-container">
+        <div class="cover-container" data-layout-key="cover">
             <img class="cover bangumi" src="${info.cover}" />
         </div>
-        <div class="content">
-            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
-            <div class="status-line">
+        <div class="content" data-layout-key="content">
+            <div class="title" data-layout-key="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
+            <div class="status-line" data-layout-key="statusLine">
                 <span class="status-prefix">${statusText}</span>
                 ${metaSuffix ? `<span class="status-meta">${metaSuffix}</span>` : ''}
             </div>
-            <div class="stats">
+            <div class="stats" data-layout-key="stats">
                 <span class="stat-item">${ICONS.view} ${formatNumber(info.stat?.views)}</span>
                 <span class="stat-item">${ICONS.heart} ${formatNumber(info.stat?.follow)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.stat?.danmakus)}</span>
                 <span class="stat-item">${ICONS.star} ${info.rating?.score || 'N/A'}分</span>
             </div>
-            <div class="text-content">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>
+            <div class="text-content" data-layout-key="text">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>
         </div>
     `;
 }

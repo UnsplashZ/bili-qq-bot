@@ -36,6 +36,7 @@ application.log
 .trae/
 .superpowers/
 .playwright-mcp/
+.playwright-cli/
 
 # Editor/IDE
 .vscode/

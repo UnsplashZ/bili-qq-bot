@@ -97,6 +97,237 @@ const VIDEO_ELEMENTS = {
     }
 }
 
+const COMMON_ELEMENTS = {
+    typeBadge: {
+        label: '类型标签',
+        controls: ['visible', 'layout', 'typography']
+    },
+    card: {
+        label: '卡片',
+        controls: ['layout']
+    }
+}
+
+const DYNAMIC_ELEMENTS = {
+    ...COMMON_ELEMENTS,
+    content: {
+        label: '内容区',
+        controls: ['visible', 'layout']
+    },
+    header: {
+        label: '作者栏',
+        controls: ['visible', 'layout']
+    },
+    avatar: {
+        label: '头像',
+        controls: ['visible', 'layout', 'media']
+    },
+    authorName: {
+        label: 'UP 名称',
+        controls: ['visible', 'layout', 'typography']
+    },
+    pubTime: {
+        label: '发布时间',
+        controls: ['visible', 'layout', 'typography']
+    },
+    decorationCard: {
+        label: '装扮卡',
+        controls: ['visible', 'layout', 'media']
+    },
+    title: {
+        label: '标题',
+        controls: ['visible', 'layout', 'typography']
+    },
+    text: {
+        label: '正文',
+        controls: ['visible', 'layout', 'typography']
+    },
+    media: {
+        label: '媒体区',
+        controls: ['visible', 'layout', 'media']
+    },
+    embeddedResource: {
+        label: '引用资源',
+        controls: ['visible', 'layout']
+    },
+    supplementalCards: {
+        label: '补充卡片',
+        controls: ['visible', 'layout']
+    },
+    origCard: {
+        label: '转发卡片',
+        controls: ['visible', 'layout']
+    },
+    stats: {
+        label: '统计栏',
+        controls: ['visible', 'layout', 'typography']
+    }
+}
+
+const ARTICLE_ELEMENTS = {
+    ...COMMON_ELEMENTS,
+    content: {
+        label: '内容区',
+        controls: ['visible', 'layout']
+    },
+    header: {
+        label: '作者栏',
+        controls: ['visible', 'layout']
+    },
+    avatar: {
+        label: '头像',
+        controls: ['visible', 'layout', 'media']
+    },
+    authorName: {
+        label: 'UP 名称',
+        controls: ['visible', 'layout', 'typography']
+    },
+    pubTime: {
+        label: '发布时间',
+        controls: ['visible', 'layout', 'typography']
+    },
+    decorationCard: {
+        label: '装扮卡',
+        controls: ['visible', 'layout', 'media']
+    },
+    cover: {
+        label: '封面',
+        controls: ['visible', 'layout', 'media']
+    },
+    title: {
+        label: '标题',
+        controls: ['visible', 'layout', 'typography']
+    },
+    text: {
+        label: '摘要',
+        controls: ['visible', 'layout', 'typography']
+    },
+    stats: {
+        label: '统计栏',
+        controls: ['visible', 'layout', 'typography']
+    }
+}
+
+const LIVE_ELEMENTS = {
+    ...COMMON_ELEMENTS,
+    cover: {
+        label: '封面',
+        controls: ['visible', 'layout', 'media']
+    },
+    content: {
+        label: '内容区',
+        controls: ['visible', 'layout']
+    },
+    header: {
+        label: '主播栏',
+        controls: ['visible', 'layout']
+    },
+    avatar: {
+        label: '头像',
+        controls: ['visible', 'layout', 'media']
+    },
+    authorName: {
+        label: '主播名称',
+        controls: ['visible', 'layout', 'typography']
+    },
+    roomId: {
+        label: '房间号',
+        controls: ['visible', 'layout', 'typography']
+    },
+    liveBadge: {
+        label: '直播状态',
+        controls: ['visible', 'layout', 'typography']
+    },
+    title: {
+        label: '标题',
+        controls: ['visible', 'layout', 'typography']
+    },
+    stats: {
+        label: '统计栏',
+        controls: ['visible', 'layout', 'typography']
+    }
+}
+
+const BANGUMI_ELEMENTS = {
+    ...COMMON_ELEMENTS,
+    cover: {
+        label: '封面',
+        controls: ['visible', 'layout', 'media']
+    },
+    content: {
+        label: '内容区',
+        controls: ['visible', 'layout']
+    },
+    title: {
+        label: '标题',
+        controls: ['visible', 'layout', 'typography']
+    },
+    statusLine: {
+        label: '状态行',
+        controls: ['visible', 'layout', 'typography']
+    },
+    stats: {
+        label: '统计栏',
+        controls: ['visible', 'layout', 'typography']
+    },
+    text: {
+        label: '简介',
+        controls: ['visible', 'layout', 'typography']
+    }
+}
+
+const USER_ELEMENTS = {
+    ...COMMON_ELEMENTS,
+    content: {
+        label: '内容区',
+        controls: ['visible', 'layout']
+    },
+    header: {
+        label: '用户栏',
+        controls: ['visible', 'layout']
+    },
+    avatar: {
+        label: '头像',
+        controls: ['visible', 'layout', 'media']
+    },
+    authorName: {
+        label: '用户名称',
+        controls: ['visible', 'layout', 'typography']
+    },
+    uid: {
+        label: 'UID',
+        controls: ['visible', 'layout', 'typography']
+    },
+    medal: {
+        label: '粉丝牌',
+        controls: ['visible', 'layout']
+    },
+    signature: {
+        label: '签名',
+        controls: ['visible', 'layout', 'typography']
+    },
+    stats: {
+        label: '统计栏',
+        controls: ['visible', 'layout', 'typography']
+    },
+    dynamicSection: {
+        label: '最近动态',
+        controls: ['visible', 'layout']
+    },
+    dynamicText: {
+        label: '动态正文',
+        controls: ['visible', 'layout', 'typography']
+    },
+    dynamicMedia: {
+        label: '动态媒体',
+        controls: ['visible', 'layout', 'media']
+    },
+    supplementalCards: {
+        label: '补充卡片',
+        controls: ['visible', 'layout']
+    }
+}
+
 const TYPES = {
     video: {
         label: '视频',
@@ -105,28 +336,28 @@ const TYPES = {
     },
     dynamic: {
         label: '动态',
-        status: 'planned',
-        elements: {}
+        status: 'editable',
+        elements: DYNAMIC_ELEMENTS
     },
     article: {
         label: '专栏',
-        status: 'planned',
-        elements: {}
+        status: 'editable',
+        elements: ARTICLE_ELEMENTS
     },
     live: {
         label: '直播',
-        status: 'planned',
-        elements: {}
+        status: 'editable',
+        elements: LIVE_ELEMENTS
     },
     bangumi: {
         label: '番剧',
-        status: 'planned',
-        elements: {}
+        status: 'editable',
+        elements: BANGUMI_ELEMENTS
     },
     user: {
         label: '用户',
-        status: 'planned',
-        elements: {}
+        status: 'editable',
+        elements: USER_ELEMENTS
     }
 }
 

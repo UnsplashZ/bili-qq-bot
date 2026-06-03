@@ -12,14 +12,19 @@ const { mergeLayoutConfigs, stableStringify } = require('../../../src/services/p
 const { buildPreviewLayoutOverrideCss } = require('../../../src/services/previewLayout/css')
 
 describe('preview layout core', function () {
-    it('schema exposes video as editable and planned types as disabled', function () {
+    it('schema exposes Bilibili link card types as editable', function () {
         const schema = getPreviewLayoutSchema()
 
         assert.strictEqual(schema.version, 1)
-        assert.strictEqual(schema.types.video.status, 'editable')
-        assert.strictEqual(schema.types.dynamic.status, 'planned')
+        for (const type of ['video', 'dynamic', 'article', 'live', 'bangumi', 'user']) {
+            assert.strictEqual(schema.types[type].status, 'editable')
+            assert.ok(schema.types[type].elements.typeBadge)
+            assert.ok(schema.types[type].elements.card)
+        }
         assert.ok(schema.types.video.elements.cover)
         assert.ok(schema.types.video.elements.title)
+        assert.ok(schema.types.dynamic.elements.origCard)
+        assert.ok(schema.types.user.elements.dynamicSection)
     })
 
     it('normalizer accepts valid video fields and removes null overrides', function () {
@@ -71,7 +76,43 @@ describe('preview layout core', function () {
         })
     })
 
-    it('normalizer rejects unknown fields, unknown elements, planned types and out-of-range values', function () {
+    it('normalizer accepts valid non-video editable fields', function () {
+        const normalized = normalizePreviewLayoutPatch('dynamic', {
+            elements: {
+                media: {
+                    visible: false,
+                    layout: {
+                        marginTop: 12
+                    },
+                    media: {
+                        borderRadius: 8
+                    }
+                },
+                origCard: {
+                    visible: false
+                }
+            }
+        })
+
+        assert.deepStrictEqual(normalized, {
+            elements: {
+                media: {
+                    visible: false,
+                    layout: {
+                        marginTop: 12
+                    },
+                    media: {
+                        borderRadius: 8
+                    }
+                },
+                origCard: {
+                    visible: false
+                }
+            }
+        })
+    })
+
+    it('normalizer rejects unknown fields, unknown elements, unsupported types and out-of-range values', function () {
         assert.throws(
             () => normalizePreviewLayoutPatch('video', { elements: { unknown: { visible: false } } }),
             PreviewLayoutValidationError
@@ -81,7 +122,7 @@ describe('preview layout core', function () {
             PreviewLayoutValidationError
         )
         assert.throws(
-            () => normalizePreviewLayoutPatch('dynamic', { elements: {} }),
+            () => normalizePreviewLayoutPatch('help_user', { elements: {} }),
             PreviewLayoutValidationError
         )
         assert.throws(
@@ -128,6 +169,30 @@ describe('preview layout core', function () {
         )
     })
 
+    it('merge preserves false visibility overrides', function () {
+        const savedPatch = normalizePreviewLayoutPatch('video', {
+            elements: {
+                typeBadge: { visible: true },
+                cover: { visible: true }
+            }
+        })
+        const temporaryPatch = normalizePreviewLayoutPatch('video', {
+            elements: {
+                typeBadge: { visible: false }
+            }
+        })
+
+        assert.deepStrictEqual(
+            mergeLayoutConfigs(savedPatch, temporaryPatch),
+            {
+                elements: {
+                    typeBadge: { visible: false },
+                    cover: { visible: true }
+                }
+            }
+        )
+    })
+
     it('css builder only emits schema-controlled declarations', function () {
         const css = buildPreviewLayoutOverrideCss({
             elements: {
@@ -151,6 +216,27 @@ describe('preview layout core', function () {
         assert.match(css, /object-fit: contain/)
         assert.doesNotMatch(css, /display:block/)
         assert.doesNotMatch(css, /url\(/)
+    })
+
+    it('css builder applies media controls to non-cover inner images', function () {
+        const css = buildPreviewLayoutOverrideCss({
+            elements: {
+                media: {
+                    media: {
+                        objectFit: 'contain',
+                        objectPosition: 'top',
+                        borderRadius: 12
+                    }
+                }
+            }
+        }, { type: 'dynamic' })
+
+        assert.match(css, /\[data-layout-key="media"\] \{/)
+        assert.match(css, /overflow: hidden/)
+        assert.match(css, /\[data-layout-key="media"\] img \{/)
+        assert.match(css, /object-fit: contain/)
+        assert.match(css, /object-position: top/)
+        assert.match(css, /border-radius: 12px/)
     })
 
     it('stableStringify is key-order independent for layout signatures', function () {

@@ -14,6 +14,7 @@ const { normalizePreviewLayoutPatch } = require('../../previewLayout/normalizer'
 const { getSavedEffectiveLayout } = require('../../previewLayout/merge');
 const { buildPreviewLayoutOverrideCss } = require('../../previewLayout/css');
 const { collectPreviewLayoutElementMetadata } = require('../../previewLayout/elementMetadata');
+const { isEditableType } = require('../../previewLayout/schema');
 
 /**
  * 检测是否为充电专属内容
@@ -66,7 +67,7 @@ function renderTypeBadge(type, data, groupId, currentType) {
     if (!isVisible) return '';
 
     const isCharging = detectChargingContent(type, data)
-    const layoutAttr = type === 'video' ? ' data-layout-key="typeBadge"' : ''
+    const layoutAttr = isEditableType(type) ? ' data-layout-key="typeBadge"' : ''
     return `
         <div class="type-badge"${layoutAttr}>
             <span>${currentType.icon}</span>
@@ -131,7 +132,7 @@ async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true, 
     }
 
     const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
-    const cardLayoutAttr = type === 'video' ? ' data-layout-key="card"' : ''
+    const cardLayoutAttr = isEditableType(type) ? ' data-layout-key="card"' : ''
     const fullHtml = `<html><head>${css}</head><body>
                 <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">
                     ${typeBadgeHtml}
