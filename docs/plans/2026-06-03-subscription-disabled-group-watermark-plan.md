@@ -96,7 +96,7 @@ canReceiveSubscriptionNotification(groupId)
 
 1. 不补发关闭期间的动态、视频、专栏、直播开播和番剧更新。
 2. 仍能正常发送重新开启之后出现的新内容。
-3. 仍能补偿真实发送失败导致的缺失投递。
+3. dynamic/video/article/live 仍能通过现有 delivery ledger 补偿真实发送失败导致的缺失投递。
 
 ### 非目标
 
@@ -107,6 +107,7 @@ canReceiveSubscriptionNotification(groupId)
 3. 不取消真实发送失败后的重试能力。
 4. 不改变用户手动 `check now` 或 force check 的显式强制推送语义，除非调用方本来就要求遵守群开关。
 5. 不重构订阅存储格式为全新的 schema。
+6. 不为番剧新增 per-group delivery ledger；番剧仍是 legacy `lastEpId` 全局水位模型。
 
 ## 方案总览
 
@@ -127,7 +128,7 @@ canReceiveSubscriptionNotification(groupId)
 | `dedupSkippedGroups` | 短期去重命中，等价已覆盖 | 否 | 是 | 是 | 否 |
 | `disabledSkippedGroups` | 群功能关闭，静默消费 | 否 | 是 | 是 | 否 |
 | `ledgerSkippedGroups` | 不适合发送但不一定可消费 | 否 | 否，除非同时在上面字段 | 否 | 视 baseline/ledger |
-| `failedGroups` | 真实发送失败 | 否 | 否 | 否 | 是 |
+| `failedGroups` | 真实发送失败 | 否 | 否 | 否 | dynamic/video/article/live 可通过现有 ledger 补偿；番剧保持 legacy 行为 |
 
 ## 详细设计
 
@@ -269,6 +270,12 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 
 这不需要给番剧新增完整 delivery ledger。
 
+番剧边界：
+
+1. 本次只验收“目标群全部关闭”时的静默消费与 `lastEpId` 推进。
+2. 不新增番剧 per-group partial retry。
+3. 混合场景中如果同时存在关闭群和开启群真实发送失败，番剧仍遵循 legacy 全局水位限制，不作为本次新增补偿能力。
+
 ### 7. activeGroups 是否要过滤 disabled 群
 
 不建议第一阶段在 `checkAll()` 的 `activeGroups` 中直接过滤 disabled 群。
@@ -286,9 +293,18 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 
 ## 兼容性与负面影响控制
 
-### 不影响真实发送失败重试
+### 执行修正说明
 
-真实发送失败仍进入 `failedGroups` 和 `retryableGroups`，不会进入 `disabledSkippedGroups`。因此：
+一审校准后，本次实现按以下边界执行：
+
+1. 番剧保持 legacy `lastEpId` 全局水位模型，不新增 per-group delivery ledger。`disabledSkippedGroups` 只用于让关闭群场景下的番剧更新推进 `lastEpId`，从而避免重开后补发；本次不承诺番剧 partial retry。
+2. 图片推送路径实现时必须先做群 reachability 分类，再处理 `!this.ws`。关闭群即使 WS 不可用，也要进入 `disabledSkippedGroups` 并允许写 tombstone；仍开启但 WS 不可用的群进入 `failedGroups/retryableGroups`，不能写 tombstone。
+3. delivery tombstone 的 partial retry 保证范围是当前已有 delivery ledger 的 dynamic/video/article/live 路径。实现时必须继续只写 `successGroups`、`dedupSkippedGroups`、`disabledSkippedGroups`，不能写 `failedGroups`。
+4. `activeGroups` 继续只表示 Bot 仍在群内，不能提前过滤关闭群；关闭群必须进入 notify 层后被分类为 `group_disabled`，才能写 tombstone 或推进水位。
+
+### 不影响已有真实发送失败重试
+
+真实发送失败仍进入 `failedGroups` 和 `retryableGroups`，不会进入 `disabledSkippedGroups`。对已有 delivery ledger 的 dynamic/video/article/live：
 
 1. WebSocket 不可用不会被误判为静默消费。
 2. NapCat 发送失败不会被吞掉。
@@ -317,7 +333,7 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 
 新增 tombstone 会减少关闭群开启后的历史补发，不会让更多历史内容被补发。
 
-保留原 delivery ledger 的 partial retry 能力：
+保留 dynamic/video/article/live 的原 delivery ledger partial retry 能力：
 
 1. 开启群真实发送失败：仍缺失 delivery，后续可补偿。
 2. 关闭群静默跳过：写 tombstone，后续不补偿。
@@ -365,6 +381,7 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 
 1. `recordNotifyDeliveredGroups('dynamic', '300', { disabledSkippedGroups: ['B'] })` 后，`subscription_delivery.json` 中存在 `B:dynamic:300`。
 2. 后续 `getUndeliveredGroupSourceMap()` 不再返回 B。
+3. A 成功、B 关闭、C 真实发送失败时，delivery ledger 只记录 A/B；C 后续仍能被 `getUndeliveredGroupSourceMap()` 找回。
 
 ### 单元测试 5：动态混合群
 
@@ -382,13 +399,14 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 
 ### 单元测试 6：全部目标群关闭
 
-动态、视频、专栏、直播至少覆盖动态和视频两个代表路径：
+动态、视频、专栏、直播都需要覆盖：
 
 1. 所有目标群关闭。
 2. notify 返回 `disabledSkippedGroups`。
 3. 断言水位推进。
 4. 断言无真实发送。
 5. 重新开启后不补发同一 contentId。
+6. 图片路径 `!ws` 时关闭群仍记录 `disabledSkippedGroups`；开启群 `!ws` 仍进入失败/重试，不写 tombstone。
 
 ### 单元测试 7：番剧
 
@@ -400,6 +418,7 @@ disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups)
 4. notify 返回 `disabledSkippedGroups`。
 5. 断言 `updateBangumiSub(seasonId, { lastEpId: 2 })` 被调用。
 6. 断言没有真实发送。
+7. 不新增番剧 per-group partial retry 断言。
 
 ## 验证命令建议
 
@@ -412,12 +431,27 @@ node test/runners/run-unit-tests.js test/unit/subscriptions/subscription-state-a
 node test/runners/run-unit-tests.js test/unit/subscriptions/updateChecker-dynamic-fallback-ledger.test.js
 ```
 
+定向执行时优先直接使用 Mocha，避免 `test/runners/run-unit-tests.js` 扫描全量测试导致误以为只跑了单文件：
+
+```bash
+./node_modules/.bin/mocha --exit test/unit/subscriptions/subscription-group-reachability.test.js test/unit/subscriptions/updateChecker-notify-result.test.js test/unit/subscriptions/subscription-state-advance-policy.test.js test/unit/subscriptions/updateChecker-dynamic-fallback-ledger.test.js
+```
+
 如果实现涉及视频/专栏/番剧测试，追加：
 
 ```bash
 node test/runners/run-unit-tests.js test/unit/subscriptions/updateChecker-unified-state-advance.test.js
 node test/runners/run-unit-tests.js test/unit/subscriptions/updateChecker-manual-logging.test.js
 ```
+
+Docker 验证必须使用当前本地代码，不能直接依赖 `docker-compose.yml` 默认远端 image：
+
+```bash
+docker build -t bili-qq-bot:subscription-disabled-group-test .
+docker run --rm -v "$PWD":/workspace -w /workspace node:22-bookworm-slim bash -lc "npm ci && ./node_modules/.bin/mocha --exit test/unit/subscriptions/subscription-group-reachability.test.js test/unit/subscriptions/updateChecker-notify-result.test.js test/unit/subscriptions/subscription-state-advance-policy.test.js test/unit/subscriptions/updateChecker-dynamic-fallback-ledger.test.js test/unit/subscriptions/updateChecker-unified-state-advance.test.js test/unit/subscriptions/updateChecker-manual-feed-state-advance.test.js test/unit/subscriptions/updateChecker-bangumi-disabled-state.test.js"
+```
+
+如需服务 smoke，应使用本地构建镜像或临时覆盖 compose，不永久修改 `docker-compose.yml`；主应用健康接口应检查 `/api/status` 或 WebUI 首页可达，不使用 `/api/health` 作为主应用验收端点。
 
 ## 实施顺序
 
@@ -465,5 +499,5 @@ node test/runners/run-unit-tests.js test/unit/subscriptions/updateChecker-manual
 2. 重新开启群功能后，不补发关闭期间内容。
 3. 重新开启后，新产生的订阅内容正常发送。
 4. 其他开启群不受影响，仍正常收到订阅内容。
-5. 真实发送失败仍可重试，不被误认为已消费。
+5. dynamic/video/article/live 的真实发送失败仍可重试，不被误认为已消费；番剧保持 legacy 全局水位边界。
 6. 去重命中仍写 tombstone，不被本次改动破坏。

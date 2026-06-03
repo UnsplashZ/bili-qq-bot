@@ -387,6 +387,7 @@ module.exports = {
         const deliveredGroups = [
             ...(Array.isArray(notifyResult?.successGroups) ? notifyResult.successGroups : []),
             ...(Array.isArray(notifyResult?.dedupSkippedGroups) ? notifyResult.dedupSkippedGroups : []),
+            ...(Array.isArray(notifyResult?.disabledSkippedGroups) ? notifyResult.disabledSkippedGroups : []),
             ...(Array.isArray(extraGroups) ? extraGroups : [])
         ]
         await this.recordDeliveredGroups(contentType, contentId, deliveredGroups)

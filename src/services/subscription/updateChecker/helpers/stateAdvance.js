@@ -8,9 +8,16 @@ function decideAdvance(result) {
     const dedupSkippedGroups = Array.isArray(result?.dedupSkippedGroups)
         ? result.dedupSkippedGroups
         : []
+    const disabledSkippedGroups = Array.isArray(result?.disabledSkippedGroups)
+        ? result.disabledSkippedGroups
+        : []
 
-    if (successGroups.length > 0 || dedupSkippedGroups.length > 0) {
-        return { action: 'advance', reason: 'has_success' }
+    if (
+        successGroups.length > 0 ||
+        dedupSkippedGroups.length > 0 ||
+        disabledSkippedGroups.length > 0
+    ) {
+        return { action: 'advance', reason: 'has_covered_target' }
     }
 
     if (failedGroups.length > 0) {

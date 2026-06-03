@@ -1,7 +1,7 @@
 const { notificationService, imageGenerator, config, logger, notificationHistory } = require('../adapters/deps')
 const { normalizeSourceList } = require('../helpers/sourceMap')
 const { resolveDedupKey } = require('../helpers/dedupKey')
-const { canReceiveSubscriptionNotification } = require('../helpers/groupReachability')
+const { getSubscriptionNotificationReachability } = require('../helpers/groupReachability')
 const runtimeMetricsService = require('../../../runtimeMetricsService')
 const { getPreviewLayoutSignature } = require('../../../previewLayout/merge')
 
@@ -15,6 +15,7 @@ function createNotifyResult(dedupKey = null) {
         failedGroups: [],
         deliveredGroups: [],
         ledgerSkippedGroups: [],
+        disabledSkippedGroups: [],
         dedupSkippedGroups: [],
         retryableGroups: [],
         fallbackUsedGroups: [],
@@ -64,6 +65,23 @@ function recordDedupSkipped(result, gid) {
     recordLedgerSkipped(result, gid)
 }
 
+function recordDisabledSkipped(result, gid) {
+    pushUniqueGroup(result.disabledSkippedGroups, gid)
+    recordLedgerSkipped(result, gid)
+}
+
+function recordReachabilitySkipped(result, gid, reachability) {
+    if (reachability?.reason === 'group_disabled') {
+        recordDisabledSkipped(result, gid)
+        return true
+    }
+    if (reachability && reachability.ok === false) {
+        recordLedgerSkipped(result, gid)
+        return true
+    }
+    return false
+}
+
 module.exports = {
     async notifyGroups(groupTargets, text, dedupKey = null, atAllMeta = {}) {
         const disableDedup = Boolean(atAllMeta && atAllMeta.disableDedup)
@@ -72,13 +90,6 @@ module.exports = {
         const groupSourceMap = this.normalizeGroupSourceMap(groupTargets, fallbackSource)
         const result = createNotifyResult(dedupKey)
         const sendTasks = []
-
-        if (!this.ws) {
-            for (const gid of groupSourceMap.keys()) {
-                recordDeliveryFailure(result, gid, { reason: 'ws_unavailable' })
-            }
-            return result
-        }
 
         groupSourceMap.forEach((_sources, gid) => {
             // Check for deduplication if key is provided
@@ -93,8 +104,13 @@ module.exports = {
                 return
             }
 
-            if (!canReceiveSubscriptionNotification(gid)) {
-                recordLedgerSkipped(result, gid)
+            const reachability = getSubscriptionNotificationReachability(gid)
+            if (recordReachabilitySkipped(result, gid, reachability)) {
+                return
+            }
+
+            if (!this.ws) {
+                recordDeliveryFailure(result, gid, { reason: 'ws_unavailable' })
                 return
             }
 
@@ -147,7 +163,7 @@ module.exports = {
         const dedupId = resolveDedupKey(type, data)
 
         const result = createNotifyResult(dedupId)
-        if (!this.ws || groupIds.length === 0) {
+        if (groupIds.length === 0) {
             runtimeMetricsService.record('subscriptionPush', {
                 ok: true,
                 durationMs: Date.now() - startedAt,
@@ -186,15 +202,40 @@ module.exports = {
             return result
         }
 
+        const receivableGroupIds = []
         // Group by config signature to handle Night Mode / Show ID differences
         const groupsByConfig = new Map() // Key: "night:T|F_label:T|F_showId:T|F" -> [groupIds]
 
         for (const groupId of pendingGroupIds) {
-            if (!canReceiveSubscriptionNotification(groupId)) {
-                recordLedgerSkipped(result, groupId)
+            const reachability = getSubscriptionNotificationReachability(groupId)
+            if (recordReachabilitySkipped(result, groupId, reachability)) {
                 continue
             }
+            receivableGroupIds.push(groupId)
+        }
 
+        if (receivableGroupIds.length === 0) {
+            runtimeMetricsService.record('subscriptionPush', {
+                ok: true,
+                durationMs: Date.now() - startedAt,
+                latest: '无可接收目标'
+            })
+            return result
+        }
+
+        if (!this.ws) {
+            for (const groupId of receivableGroupIds) {
+                recordDeliveryFailure(result, groupId, { reason: 'ws_unavailable' })
+            }
+            runtimeMetricsService.record('subscriptionPush', {
+                ok: false,
+                durationMs: Date.now() - startedAt,
+                latest: `0/${receivableGroupIds.length}`
+            })
+            return result
+        }
+
+        for (const groupId of receivableGroupIds) {
             const isNight = imageGenerator.isNightMode(groupId)
             const showId = config.getGroupConfig(groupId, 'showId')
 
@@ -378,6 +419,7 @@ module.exports = {
             failedGroups: Array.isArray(notifyResult?.failedGroups) ? notifyResult.failedGroups : [],
             deliveredGroups: Array.isArray(notifyResult?.deliveredGroups) ? notifyResult.deliveredGroups : [],
             ledgerSkippedGroups: Array.isArray(notifyResult?.ledgerSkippedGroups) ? notifyResult.ledgerSkippedGroups : [],
+            disabledSkippedGroups: Array.isArray(notifyResult?.disabledSkippedGroups) ? notifyResult.disabledSkippedGroups : [],
             dedupSkippedGroups: Array.isArray(notifyResult?.dedupSkippedGroups) ? notifyResult.dedupSkippedGroups : [],
             retryableGroups: Array.isArray(notifyResult?.retryableGroups) ? notifyResult.retryableGroups : [],
             fallbackUsedGroups: Array.isArray(notifyResult?.fallbackUsedGroups) ? notifyResult.fallbackUsedGroups : [],
