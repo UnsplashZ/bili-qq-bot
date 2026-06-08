@@ -4,6 +4,8 @@ const { resolveDedupKey } = require('../helpers/dedupKey')
 const { getSubscriptionNotificationReachability } = require('../helpers/groupReachability')
 const runtimeMetricsService = require('../../../runtimeMetricsService')
 const { getPreviewLayoutSignature } = require('../../../previewLayout/merge')
+const { getPreviewTemplateSignature } = require('../../../previewTemplate/merge')
+const { isEditableType } = require('../../../previewTemplate/schema')
 
 function subLog(level, message, fields = {}, scope = 'svc:notify') {
     logger.logEvent(level, 'SUB', scope, message, fields)
@@ -246,7 +248,9 @@ module.exports = {
             const showLabel = (labelConfig && labelConfig[subtype] !== undefined)
                 ? labelConfig[subtype]
                 : (labelConfig && labelConfig[type] !== false) // Default true
-            const layoutSignature = getPreviewLayoutSignature(type, groupId)
+            const layoutSignature = isEditableType(type)
+                ? getPreviewTemplateSignature(type, groupId)
+                : getPreviewLayoutSignature(type, groupId)
 
             const key = `night:${isNight}_showId:${showId}_showLabel:${showLabel}_layout:${layoutSignature}`
 

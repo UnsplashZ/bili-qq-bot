@@ -49,9 +49,9 @@ function renderUserContent(data, show_id, emojiContext = null) {
 
         if (dynMajor) {
             if (dynMajor.draw && dynMajor.draw.items) {
-                dynImages = dynMajor.draw.items.map(i => i.src);
+                dynImages = dynMajor.draw.items.map(i => i?.src || i?.url || '').filter(Boolean);
             } else if (dynMajor.opus && dynMajor.opus.pics) {
-                dynImages = dynMajor.opus.pics.map(i => i.url);
+                dynImages = dynMajor.opus.pics.map(i => i?.url || i?.src || '').filter(Boolean);
             } else if (dynMajor.archive) {
                 dynVideo = dynMajor.archive;
             }
@@ -67,12 +67,12 @@ function renderUserContent(data, show_id, emojiContext = null) {
         let mediaHtml = '';
         if (dynImages.length > 0) {
              mediaHtml = `<div class="user-dynamic-images" data-layout-key="dynamicMedia">
-                ${dynImages.slice(0, 3).map(src => `<img src="${src}" class="user-dynamic-image">`).join('')}
+                ${dynImages.slice(0, 3).map(src => `<img src="${escapeHtml(src)}" class="user-dynamic-image">`).join('')}
              </div>`;
         } else if (dynVideo) {
              mediaHtml = `<div class="user-dynamic-video" data-layout-key="dynamicMedia">
-                <img src="${dynVideo.cover}" class="user-dynamic-video-cover">
-                <div class="user-dynamic-video-title">${dynVideo.title}</div>
+                <img src="${escapeHtml(dynVideo.cover || '')}" class="user-dynamic-video-cover">
+                <div class="user-dynamic-video-title">${escapeHtml(dynVideo.title || '')}</div>
              </div>`;
         }
 
@@ -100,13 +100,13 @@ function renderUserContent(data, show_id, emojiContext = null) {
         <div class="content" data-layout-key="content">
             <div class="header user-header" data-layout-key="header">
                 <div class="${userAvatarWrapperClass}" data-layout-key="avatar">
-                    <img class="avatar avatar--user ${pendantImage ? '' : 'no-frame'}" src="${face}">
-                    ${pendantImage ? `<img class="avatar-frame avatar-frame--user" src="${pendantImage}">` : ''}
+                    <img class="avatar avatar--user ${pendantImage ? '' : 'no-frame'}" src="${escapeHtml(face)}">
+                    ${pendantImage ? `<img class="avatar-frame avatar-frame--user" src="${escapeHtml(pendantImage)}">` : ''}
                     ${verifyBadgeHtml}
                 </div>
                 <div class="user-info user-info--profile">
                     <div class="user-name user-name--profile" data-layout-key="authorName">
-                        ${name}
+                        ${escapeHtml(name)}
                         <span class="user-level lv${level}">Lv${level}</span>
                         ${vipLabel ? `<span class="user-vip-label">${vipLabel}</span>` : ''}
                     </div>
@@ -118,7 +118,7 @@ function renderUserContent(data, show_id, emojiContext = null) {
                             <span class="user-medal-level">${medalLevel}</span>
                         </div>
                     </div>` : ''}
-                    ${sign ? `<div class="text-content user-sign" data-layout-key="signature">"${sign}"</div>` : ''}
+                    ${sign ? `<div class="text-content user-sign" data-layout-key="signature">"${escapeHtml(sign)}"</div>` : ''}
                 </div>
             </div>
 

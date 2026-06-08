@@ -327,6 +327,7 @@ function renderDynamicContent(data, emojiContext = null) {
     const module_stat = modules.module_stat || {};
 
     const authorName = module_author.name || 'Unknown';
+    const escapedAuthorName = escapeHtml(authorName)
     const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const pubTime = formatPubTime(data.data.pub_ts) || formatPubTime(module_author.pub_ts) || module_author.pub_time || '';
     const verifyType = Number(module_author.official_verify?.type)
@@ -378,7 +379,7 @@ function renderDynamicContent(data, emojiContext = null) {
             <div class="header" data-layout-key="header">
                 <div class="header-left">
                     <div class="avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--no-frame" data-layout-key="avatar">
-                        <img class="avatar no-frame" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        <img class="avatar no-frame" src="${escapeHtml(authorFace)}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                         ${verifyBadgeNoFrame}
                     </div>
                     <div class="user-info">
@@ -473,19 +474,19 @@ function renderDynamicContent(data, emojiContext = null) {
             <div class="header" data-layout-key="header">
                 <div class="header-left">
                     <div class="${avatarWrapperClass}" data-layout-key="avatar">
-                        <img class="avatar ${pendantUrl ? 'no-border' : 'no-frame'}" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
-                        ${pendantUrl ? `<img class="avatar-frame" src="${pendantUrl}" />` : ''}
+                        <img class="avatar ${pendantUrl ? 'no-border' : 'no-frame'}" src="${escapeHtml(authorFace)}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        ${pendantUrl ? `<img class="avatar-frame" src="${escapeHtml(pendantUrl)}" />` : ''}
                         ${verifyBadgeMain}
                     </div>
                     <div class="user-info">
-                        <span class="user-name" data-layout-key="authorName">${authorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
+                        <span class="user-name" data-layout-key="authorName">${escapedAuthorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
                         <span class="pub-time" data-layout-key="pubTime">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
                 <div class="header-right">
                     ${cardUrl ? `
                         <div class="decoration-card-wrapper" data-layout-key="decorationCard">
-                            <img class="decoration-card" src="${cardUrl}" />
+                            <img class="decoration-card" src="${escapeHtml(cardUrl)}" />
                             ${serial ? `<span class="serial-badge" style="--serial-color: ${fanColor};">No.${serial}</span>` : ''}
                         </div>
                     ` : ''}

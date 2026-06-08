@@ -15,6 +15,9 @@ const { getSavedEffectiveLayout } = require('../../previewLayout/merge');
 const { buildPreviewLayoutOverrideCss } = require('../../previewLayout/css');
 const { collectPreviewLayoutElementMetadata } = require('../../previewLayout/elementMetadata');
 const { isEditableType } = require('../../previewLayout/schema');
+const { renderTemplateArtifacts, buildStructuralElements, sanitizeArtifactHtml } = require('../../previewTemplate/renderer');
+const { getEffectiveTemplate } = require('../../previewTemplate/merge');
+const { collectPreviewTemplateMetadata } = require('../../previewTemplate/metadata');
 
 /**
  * 检测是否为充电专属内容
@@ -99,46 +102,94 @@ function normalizeRenderOverrides(type, renderOverrides = {}) {
     })
 }
 
+function renderContentHtml(type, data, showId, emojiContext) {
+    if (type === 'video') {
+        return renderVideoContent(data, emojiContext);
+    } else if (type === 'bangumi') {
+        return renderBangumiContent(data, emojiContext);
+    } else if (type === 'article') {
+        return renderArticleContent(data, emojiContext);
+    } else if (type === 'live') {
+        return renderLiveContent(data, emojiContext);
+    } else if (type === 'dynamic') {
+        return renderDynamicContent(data, emojiContext);
+    } else if (type === 'interactive_video') {
+        return renderVideoContent(data, emojiContext);
+    } else if (type === 'user') {
+        return renderUserContent(data, showId, emojiContext);
+    }
+    return renderGenericContent(data, emojiContext);
+}
+
+function renderLegacyPreviewBody(type, data, groupId, showId, typeConfig, emojiContext) {
+    const contentHtml = renderContentHtml(type, data, showId, emojiContext)
+    const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
+    const cardLayoutAttr = isEditableType(type) ? ' data-layout-key="card"' : ''
+    return `
+                    ${typeBadgeHtml}
+                    <div class="card"${cardLayoutAttr}>
+                        ${contentHtml}
+                    </div>`
+}
+
 async function buildPreviewRenderArtifacts(data, type, groupId, show_id = true, options = {}) {
     const viewport = calculateViewport(type, data);
     const isNight = isNightMode(groupId);
     const typeConfig = getTypeConfig(type, data);
     const colorData = calculateColors(type, data, typeConfig, isNight);
+    const emojiContext = await createRenderEmojiContext({ seedData: data });
+    const legacyBodyHtml = renderLegacyPreviewBody(type, data, groupId, show_id, typeConfig, emojiContext)
+    if (options.draftTemplate) {
+        const templateArtifacts = renderTemplateArtifacts(options.draftTemplate, data, type, {
+            showId: show_id,
+            url: options.url || '',
+            groupId,
+            typeConfig,
+            emojiContext,
+            legacyHtml: legacyBodyHtml
+        })
+        const css = generateCSS(colorData, viewport, {
+            previewLayoutOverrideCss: templateArtifacts.css
+        });
+        const fullHtml = `<html><head>${css}</head><body>
+                <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">
+                    ${templateArtifacts.html}
+                </div>
+            </body></html>`;
+        const containerBodyHtml = `<div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">${templateArtifacts.html}</div>`
+        const htmlArtifact = options.artifactMode === 'image+html' ? {
+            html: sanitizeArtifactHtml(fullHtml),
+            bodyHtml: sanitizeArtifactHtml(containerBodyHtml),
+            fullCss: css,
+            css: templateArtifacts.css,
+            container: { width: viewport.width, height: 0 },
+            elements: buildStructuralElements(templateArtifacts.template),
+            renderer: 'preview-template-v2'
+        } : null
+        return {
+            fullHtml,
+            htmlArtifact,
+            debugMeta: {
+                viewport,
+                themeClass: colorData.themeClass || '',
+                renderer: 'preview-template-v2',
+                resolvedTypeConfig: {
+                    label: typeConfig.label,
+                    icon: typeConfig.icon
+                },
+                colorSummary: buildColorSummary(colorData)
+            }
+        };
+    }
     const layoutOverrides = normalizeRenderOverrides(type, options.renderOverrides || {});
     const previewLayoutOverrideCss = buildPreviewLayoutOverrideCss(layoutOverrides, {
         type,
         alreadyNormalized: true
     });
     const css = generateCSS(colorData, viewport, { previewLayoutOverrideCss });
-    const emojiContext = await createRenderEmojiContext({ seedData: data });
-
-    let contentHtml = '';
-    if (type === 'video') {
-        contentHtml = renderVideoContent(data, emojiContext);
-    } else if (type === 'bangumi') {
-        contentHtml = renderBangumiContent(data, emojiContext);
-    } else if (type === 'article') {
-        contentHtml = renderArticleContent(data, emojiContext);
-    } else if (type === 'live') {
-        contentHtml = renderLiveContent(data, emojiContext);
-    } else if (type === 'dynamic') {
-        contentHtml = renderDynamicContent(data, emojiContext);
-    } else if (type === 'interactive_video') {
-        contentHtml = renderVideoContent(data, emojiContext);
-    } else if (type === 'user') {
-        contentHtml = renderUserContent(data, show_id, emojiContext);
-    } else {
-        contentHtml = renderGenericContent(data, emojiContext);
-    }
-
-    const typeBadgeHtml = renderTypeBadge(type, data, groupId, typeConfig);
-    const cardLayoutAttr = isEditableType(type) ? ' data-layout-key="card"' : ''
     const fullHtml = `<html><head>${css}</head><body>
                 <div class="container ${colorData.themeClass} gradient-bg ${type === 'article' ? 'article-mode' : ''}" style="--gradient-mix:${colorData.gradientMix};--gradient-atmosphere:${colorData.gradientAtmosphere || colorData.gradientMix};--gradient-content:${colorData.gradientContent || 'none'};--gradient-overlay:${colorData.gradientOverlay || 'none'}">
-                    ${typeBadgeHtml}
-                    <div class="card"${cardLayoutAttr}>
-                        ${contentHtml}
-                    </div>
+                    ${legacyBodyHtml}
                 </div>
             </body></html>`;
 
@@ -164,7 +215,7 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true,
         try {
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-            const { fullHtml, debugMeta } = await buildPreviewRenderArtifacts(data, type, groupId, show_id, options);
+            const { fullHtml, htmlArtifact, debugMeta } = await buildPreviewRenderArtifacts(data, type, groupId, show_id, options);
             await page.setViewport(debugMeta.viewport);
             await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForSelector('.container', { timeout: 5000 });
@@ -241,7 +292,9 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true,
             if (!element) throw new Error('Container element not found');
 
             const elementMetadata = options.collectElementMetadata
-                ? await collectPreviewLayoutElementMetadata(page, type)
+                ? (options.draftTemplate
+                    ? await collectPreviewTemplateMetadata(page)
+                    : await collectPreviewLayoutElementMetadata(page, type))
                 : null
 
             const imageBuffer = await element.screenshot({
@@ -249,11 +302,17 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true,
                 omitBackground: true
             });
 
+            let resolvedHtmlArtifact = htmlArtifact
+            if (resolvedHtmlArtifact && elementMetadata?.container) {
+                resolvedHtmlArtifact = { ...resolvedHtmlArtifact, container: elementMetadata.container }
+            }
+
             return {
                 base64: imageBuffer.toString('base64'),
                 html: fullHtml,
                 debugMeta,
-                elementMetadata
+                elementMetadata,
+                htmlArtifact: resolvedHtmlArtifact
             };
         } finally {
             await browserManager.closePage(page);
@@ -271,21 +330,31 @@ async function generatePreviewCardArtifacts(data, type, groupId, show_id = true,
  */
 async function generatePreviewCard(data, type, groupId, show_id = true) {
     let renderOverrides = {}
+    let draftTemplate = null
     try {
-        renderOverrides = getSavedEffectiveLayout(type, groupId, { tolerateInvalid: true })
+        if (isEditableType(type)) {
+            draftTemplate = getEffectiveTemplate(type, groupId)
+        } else {
+            renderOverrides = getSavedEffectiveLayout(type, groupId, { tolerateInvalid: true })
+        }
     } catch (error) {
         logger.logEvent('warn', 'PREVIEW_LAYOUT', 'svc:image-generator', 'saved-layout-load-failed', {
             type,
             groupId: groupId ? String(groupId) : '',
             error: logger.getErrorMessage(error)
         })
+        if (isEditableType(type)) {
+            throw error
+        }
     }
-    const artifacts = await generatePreviewCardArtifacts(data, type, groupId, show_id, { renderOverrides })
+    const artifacts = await generatePreviewCardArtifacts(data, type, groupId, show_id, { renderOverrides, draftTemplate })
     return artifacts.base64
 }
 
 module.exports = {
     generatePreviewCard,
     generatePreviewCardArtifacts,
-    detectChargingContent
+    detectChargingContent,
+    renderTypeBadge,
+    renderLegacyPreviewBody
 };

@@ -10,9 +10,9 @@ const icons = {
 };
 
 const styles = {
-  success: 'bg-[var(--success-soft)] border-[color-mix(in_oklch,var(--success)_34%,var(--border))] text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]',
-  error: 'bg-[var(--danger-soft)] border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]',
-  info: 'bg-[var(--info-soft)] border-[color-mix(in_oklch,var(--info)_34%,var(--border))] text-[var(--info)]',
+  success: 'bg-[var(--toast-success-bg)] border-[color-mix(in_oklch,var(--success)_34%,var(--border))] text-[color-mix(in_oklch,var(--success)_88%,var(--fg))]',
+  error: 'bg-[var(--toast-danger-bg)] border-[color-mix(in_oklch,var(--danger)_38%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]',
+  info: 'bg-[var(--toast-info-bg)] border-[color-mix(in_oklch,var(--info)_34%,var(--border))] text-[var(--info)]',
 };
 
 const Toast = ({ id, message, type = 'info', onClose }) => {

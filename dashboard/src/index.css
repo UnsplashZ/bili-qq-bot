@@ -35,6 +35,9 @@
   --pink: oklch(54% 0.11 335);
   --pink-soft: color-mix(in oklch, var(--pink) 11%, transparent);
   --field-bg: oklch(99.1% 0.002 255);
+  --toast-success-bg: color-mix(in oklch, var(--success) 16%, var(--surface-raised));
+  --toast-danger-bg: color-mix(in oklch, var(--danger) 16%, var(--surface-raised));
+  --toast-info-bg: color-mix(in oklch, var(--info) 14%, var(--surface-raised));
   --shadow-card: 0 10px 28px color-mix(in oklch, var(--fg) 4.5%, transparent);
   --shadow-soft: 0 8px 22px color-mix(in oklch, var(--fg) 4%, transparent);
   --shadow-floating: 0 18px 44px color-mix(in oklch, var(--fg) 12%, transparent);
@@ -76,6 +79,9 @@
   --pink: oklch(73% 0.11 335);
   --pink-soft: color-mix(in oklch, var(--pink) 13%, transparent);
   --field-bg: oklch(18% 0.01 255);
+  --toast-success-bg: color-mix(in oklch, var(--success) 18%, var(--surface-raised));
+  --toast-danger-bg: color-mix(in oklch, var(--danger) 18%, var(--surface-raised));
+  --toast-info-bg: color-mix(in oklch, var(--info) 16%, var(--surface-raised));
   --shadow-card: 0 14px 34px rgba(0, 0, 0, 0.18);
   --shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.16);
   --shadow-floating: 0 22px 52px rgba(0, 0, 0, 0.34);

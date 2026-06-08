@@ -18,18 +18,28 @@ const {
     normalizePreviewLayoutPatch
 } = require('../../../../services/previewLayout/normalizer')
 const {
-    mergeLayoutConfigs,
-    getSavedEffectiveLayout,
-    getPreviewLayoutConfigForScope,
-    savePreviewLayoutPatch,
-    resetPreviewLayoutPatch
-} = require('../../../../services/previewLayout/merge')
+    getPreviewTemplateSchema
+} = require('../../../../services/previewTemplate/schema')
+const {
+    PreviewTemplateValidationError,
+    normalizeTemplate
+} = require('../../../../services/previewTemplate/normalizer')
+const {
+    migrateV1PatchToTemplate
+} = require('../../../../services/previewTemplate/migrator')
+const {
+    getEffectiveTemplate,
+    getPreviewTemplateConfigForScope,
+    savePreviewTemplate,
+    saveLegacyPatchAsTemplate,
+    resetPreviewTemplate
+} = require('../../../../services/previewTemplate/merge')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
 
 function sendError(req, res, error, fallbackMessage = 'Preview layout request failed') {
-    const statusCode = error instanceof PreviewLayoutValidationError
+    const statusCode = error instanceof PreviewLayoutValidationError || error instanceof PreviewTemplateValidationError
         ? error.statusCode
         : 500
     dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'preview-layout-request-failed', {
@@ -37,7 +47,9 @@ function sendError(req, res, error, fallbackMessage = 'Preview layout request fa
         statusCode
     })
     res.status(statusCode).json({
-        error: statusCode >= 500 ? fallbackMessage : error.message
+        error: statusCode >= 500 ? fallbackMessage : error.message,
+        ...(error.details?.code ? { code: error.details.code } : {}),
+        ...(error.details ? { details: error.details } : {})
     })
 }
 
@@ -143,14 +155,20 @@ async function resolvePreviewTargetForRequest(body) {
 }
 
 router.get('/preview-layout/schema', (req, res) => {
-    res.json(getPreviewLayoutSchema())
+    res.json({
+        ...getPreviewTemplateSchema(),
+        legacyVersion: getPreviewLayoutSchema().version,
+        legacyFieldGroups: getPreviewLayoutSchema().fieldGroups,
+        legacyLimits: getPreviewLayoutSchema().limits
+    })
 })
 
 router.get('/preview-layout/config', (req, res) => {
     try {
         const type = normalizeType(req.query.type)
         const groupId = normalizeGroupId(req.query.groupId)
-        const result = getPreviewLayoutConfigForScope(type, groupId)
+        assertEditableType(type)
+        const result = getPreviewTemplateConfigForScope(type, groupId)
         res.json(result)
     } catch (error) {
         sendError(req, res, error, 'Failed to read preview layout config')
@@ -160,7 +178,7 @@ router.get('/preview-layout/config', (req, res) => {
 router.post('/preview-layout/config', (req, res) => {
     try {
         assertBodySize(req.body)
-        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'patch'], 'preview layout config request')
+        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'patch', 'template'], 'preview layout config request')
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
         assertEditableType(type)
@@ -170,8 +188,25 @@ router.post('/preview-layout/config', (req, res) => {
             throw new PreviewLayoutValidationError('groupId is required for group scope')
         }
 
-        const patch = req.body?.patch || {}
-        const saved = savePreviewLayoutPatch(scope, type, patch, groupId)
+        if (!req.body?.template && !req.body?.patch) {
+            throw new PreviewTemplateValidationError('template or patch is required')
+        }
+        if (req.body?.template && req.body?.patch) {
+            throw new PreviewTemplateValidationError('template and patch cannot be used together', {
+                code: 'PREVIEW_TEMPLATE_AMBIGUOUS_INPUT'
+            })
+        }
+
+        let saved
+        if (req.body?.template) {
+            saved = savePreviewTemplate(scope, type, req.body.template, groupId)
+        } else {
+            const patch = normalizePreviewLayoutPatch(type, req.body.patch || {}, {
+                requireEditable: true,
+                checkSize: true
+            })
+            saved = saveLegacyPatchAsTemplate(scope, type, patch, groupId)
+        }
         dashLog(req, 'info', 'preview-layout-config-saved', {
             scope,
             type,
@@ -180,7 +215,7 @@ router.post('/preview-layout/config', (req, res) => {
         res.json({
             status: 'success',
             saved,
-            config: getPreviewLayoutConfigForScope(type, groupId)
+            config: getPreviewTemplateConfigForScope(type, groupId)
         })
     } catch (error) {
         sendError(req, res, error, 'Failed to save preview layout config')
@@ -190,7 +225,7 @@ router.post('/preview-layout/config', (req, res) => {
 router.post('/preview-layout/reset', (req, res) => {
     try {
         assertBodySize(req.body)
-        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'element'], 'preview layout reset request')
+        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'element', 'nodeId', 'resetScope'], 'preview layout reset request')
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
         assertEditableType(type)
@@ -200,12 +235,13 @@ router.post('/preview-layout/reset', (req, res) => {
             throw new PreviewLayoutValidationError('groupId is required for group scope')
         }
 
+        const nodeId = req.body?.nodeId ? String(req.body.nodeId).trim() : ''
         const element = req.body?.element ? String(req.body.element).trim() : ''
-        if (element && !getElementSchema(type, element)) {
+        if (element && !nodeId && !getElementSchema(type, element)) {
             throw new PreviewLayoutValidationError(`unknown preview layout element: ${element}`)
         }
 
-        const patch = resetPreviewLayoutPatch(scope, type, groupId, element || null)
+        const resetResult = resetPreviewTemplate(scope, type, groupId, nodeId || element || null)
         dashLog(req, 'info', 'preview-layout-config-reset', {
             scope,
             type,
@@ -214,11 +250,26 @@ router.post('/preview-layout/reset', (req, res) => {
         })
         res.json({
             status: 'success',
-            patch,
-            config: getPreviewLayoutConfigForScope(type, groupId)
+            config: resetResult
         })
     } catch (error) {
         sendError(req, res, error, 'Failed to reset preview layout config')
+    }
+})
+
+router.post('/preview-layout/template/validate', (req, res) => {
+    try {
+        assertBodySize(req.body)
+        assertAllowedKeys(req.body, ['type', 'template'], 'preview layout template validate request')
+        const type = normalizeType(req.body?.type)
+        assertEditableType(type)
+        const template = normalizeTemplate(req.body?.template || {}, { type, checkSize: true })
+        res.json({
+            status: 'success',
+            template
+        })
+    } catch (error) {
+        sendError(req, res, error, 'Failed to validate preview layout template')
     }
 })
 
@@ -233,7 +284,10 @@ router.post('/preview-layout/preview', async (req, res) => {
             'showId',
             'cacheMode',
             'renderOverrides',
-            'structureOptions'
+            'draftTemplate',
+            'payloadKey',
+            'structureOptions',
+            'artifactMode'
         ], 'preview layout preview request')
         const { mode, groupId, showId, target, resolvedInput } = await resolvePreviewTargetForRequest(req.body || {})
 
@@ -244,27 +298,42 @@ router.post('/preview-layout/preview', async (req, res) => {
         const cardType = target.cardType || target.info.type || 'video'
         assertEditableType(cardType)
 
-        const temporaryOverrides = normalizePreviewLayoutPatch(cardType, req.body?.renderOverrides || {}, {
-            requireEditable: true,
-            checkSize: true
-        })
-        const savedOverrides = getSavedEffectiveLayout(cardType, groupId, {
-            tolerateInvalid: true,
-            logScope: 'svc:dashboard-preview-layout'
-        })
-        const effectiveOverrides = mergeLayoutConfigs(savedOverrides, temporaryOverrides)
+        if (req.body?.draftTemplate && req.body?.renderOverrides) {
+            throw new PreviewTemplateValidationError('draftTemplate and renderOverrides cannot be used together', {
+                code: 'PREVIEW_TEMPLATE_AMBIGUOUS_INPUT'
+            })
+        }
+
+        let effectiveTemplate
+        if (req.body?.draftTemplate) {
+            effectiveTemplate = normalizeTemplate(req.body.draftTemplate, { type: cardType, checkSize: true })
+        } else if (req.body?.renderOverrides) {
+            const temporaryOverrides = normalizePreviewLayoutPatch(cardType, req.body.renderOverrides || {}, {
+                requireEditable: true,
+                checkSize: true
+            })
+            effectiveTemplate = migrateV1PatchToTemplate(cardType, temporaryOverrides)
+        } else {
+            effectiveTemplate = getEffectiveTemplate(cardType, groupId)
+        }
+        const artifactMode = req.body?.artifactMode
+        if (artifactMode !== undefined && artifactMode !== 'image+html') {
+            throw new PreviewLayoutValidationError('artifactMode must be "image+html" if specified')
+        }
+
         const artifacts = await generatePreviewCardArtifacts(
             target.info,
             cardType,
             groupId || null,
             showId,
             {
-                renderOverrides: effectiveOverrides,
-                collectElementMetadata: true
+                draftTemplate: effectiveTemplate,
+                collectElementMetadata: true,
+                artifactMode: artifactMode || null
             }
         )
 
-        res.json({
+        const responseBody = {
             status: 'success',
             image: {
                 base64: artifacts.base64,
@@ -280,13 +349,18 @@ router.post('/preview-layout/preview', async (req, res) => {
                 skippedLinks: resolvedInput.skippedLinks || []
             },
             debugMeta: artifacts.debugMeta,
+            template: effectiveTemplate,
             layout: {
-                saved: savedOverrides,
-                effective: effectiveOverrides
+                saved: {},
+                effective: {}
             },
             container: artifacts.elementMetadata?.container || { width: 0, height: 0 },
             elements: artifacts.elementMetadata?.elements || {}
-        })
+        }
+        if (artifactMode === 'image+html' && artifacts.htmlArtifact) {
+            responseBody.htmlArtifact = artifacts.htmlArtifact
+        }
+        res.json(responseBody)
     } catch (error) {
         sendError(req, res, error, 'Failed to generate preview layout image')
     }
