@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Install Chrome for Puppeteer tests
-        run: npx puppeteer browsers install chrome --install-deps
+        run: npx puppeteer browsers install chrome
 
       - name: Install Dashboard dependencies
         working-directory: dashboard
