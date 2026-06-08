@@ -310,7 +310,7 @@ function adjustBrightness(hex, percent) {
  * 生成完整的 CSS 样式
  * 包含统一设计系统 + 自定义样式
  */
-function generateCSS(colorData, viewport) {
+function generateCSS(colorData, viewport, options = {}) {
     // Load Custom Fonts
     const { css: customFontsCss, families: customFontFamilies } = getCustomFonts();
 
@@ -1780,7 +1780,7 @@ function generateCSS(colorData, viewport) {
                 color: var(--serial-color, var(--color-subtext));
             }
          </style>
-     `;
+     ` + (options.previewLayoutOverrideCss || '');
 }
 
 module.exports = {

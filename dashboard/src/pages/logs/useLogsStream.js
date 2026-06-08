@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import api, { getToken } from '../../utils/auth';
-
-const MAX_LOGS = 1000;
+import {
+  appendWithLimit,
+  buildLogFilterKey,
+  normalizeLogLimit,
+} from './logLimits';
 
 function formatTimestamp(timestamp) {
   const value = timestamp ? new Date(timestamp) : new Date();
@@ -46,20 +49,12 @@ function normalizeLogEntry(entry) {
   };
 }
 
-function appendWithLimit(prev, nextItems) {
-  const merged = [...prev, ...nextItems];
-  if (merged.length > MAX_LOGS) {
-    return merged.slice(-MAX_LOGS);
-  }
-  return merged;
-}
-
-function buildRecentParams(filters) {
+function buildRecentParams(filters, limit) {
   const params = {};
   if (filters.level) params.level = filters.level;
   if (filters.channels?.length) params.channels = filters.channels.join(',');
   if (filters.keyword?.trim()) params.keyword = filters.keyword.trim();
-  params.limit = MAX_LOGS;
+  params.limit = limit;
   return params;
 }
 
@@ -75,19 +70,27 @@ function buildWsUrl(filters) {
 }
 
 export function useLogsStream(filters, isPaused) {
+  const limit = normalizeLogLimit(filters.limit);
+  const filterKey = buildLogFilterKey({ ...filters, limit });
   const [logs, setLogs] = useState([]);
   const [connectionState, setConnectionState] = useState('connecting');
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const pausedRef = useRef(isPaused);
   const pendingLogsRef = useRef([]);
+  const limitRef = useRef(limit);
 
   useEffect(() => {
     pausedRef.current = isPaused;
     if (!isPaused && pendingLogsRef.current.length > 0) {
-      setLogs((prev) => appendWithLimit(prev, pendingLogsRef.current.splice(0)));
+      setLogs((prev) => appendWithLimit(prev, pendingLogsRef.current.splice(0), limitRef.current));
     }
   }, [isPaused]);
+
+  useEffect(() => {
+    limitRef.current = limit;
+    pendingLogsRef.current = [];
+  }, [filterKey, limit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,13 +98,13 @@ export function useLogsStream(filters, isPaused) {
     async function loadHistory() {
       try {
         const response = await api.get('/api/logs/recent', {
-          params: buildRecentParams(filters),
+          params: buildRecentParams(filters, limit),
         });
         if (cancelled) return;
         const history = Array.isArray(response.data?.logs)
           ? response.data.logs.map(normalizeLogEntry)
           : [];
-        setLogs(history);
+        setLogs(appendWithLimit([], history, limit));
       } catch (error) {
         if (cancelled) return;
         setLogs((prev) =>
@@ -115,7 +118,7 @@ export function useLogsStream(filters, isPaused) {
             fields: {},
             rendered: `history-load-failed error=${error?.message || 'unknown'}`,
             message: `history-load-failed error=${error?.message || 'unknown'}`,
-          }])
+          }], limit)
         );
       }
     }
@@ -125,7 +128,7 @@ export function useLogsStream(filters, isPaused) {
     return () => {
       cancelled = true;
     };
-  }, [filters]);
+  }, [filterKey, filters, limit]);
 
   useEffect(() => {
     const wsUrl = buildWsUrl(filters);
@@ -150,13 +153,13 @@ export function useLogsStream(filters, isPaused) {
 
         if (pausedRef.current) {
           pendingLogsRef.current.push(nextEntry);
-          if (pendingLogsRef.current.length > MAX_LOGS) {
-            pendingLogsRef.current.splice(0, pendingLogsRef.current.length - MAX_LOGS);
+          if (pendingLogsRef.current.length > limitRef.current) {
+            pendingLogsRef.current.splice(0, pendingLogsRef.current.length - limitRef.current);
           }
           return;
         }
 
-        setLogs((prev) => appendWithLimit(prev, [nextEntry]));
+        setLogs((prev) => appendWithLimit(prev, [nextEntry], limitRef.current));
       };
 
       ws.onclose = () => {
@@ -181,7 +184,7 @@ export function useLogsStream(filters, isPaused) {
         wsRef.current.close();
       }
     };
-  }, [filters]);
+  }, [filterKey, filters]);
 
   return {
     connectionState,

@@ -153,6 +153,114 @@ describe('updateChecker unified state advance policy', function () {
         assert.strictEqual(advanced, false)
     })
 
+    it('视频目标群全部关闭时应推进水位并写 disabled tombstone', async function () {
+        const recorded = []
+        const advanced = []
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                video: { videoId: 'BV_OLD', lastCreated: 100 }
+            })
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async (records) => {
+                recorded.push(...records)
+                return { changed: records.length }
+            }
+        }
+        deps.biliApi.getUserVideos = async () => ({
+            status: 'success',
+            data: {
+                videos: [
+                    { bvid: 'BV_NEW', created: 200 },
+                    { bvid: 'BV_OLD', created: 100 }
+                ]
+            }
+        })
+        deps.biliApi.getVideoInfo = async () => ({
+            status: 'success',
+            data: { title: 'video title' }
+        })
+        updateChecker.notifyGroupsWithImageAndCache = async () => ({
+            successGroups: [],
+            failedGroups: [],
+            disabledSkippedGroups: ['1000'],
+            ledgerSkippedGroups: ['1000'],
+            dedupKey: 'video:BV_NEW'
+        })
+        updateChecker.updateVideoState = async (_userItem, state) => {
+            advanced.push(state)
+        }
+        videoDownloadService.downloadAndSendToGroups = async () => {}
+
+        await updateChecker.checkUserVideoUnified({
+            uid: '123',
+            name: 'tester',
+            targetGroups: ['1000'],
+            source: 'manual',
+            manualSub: {
+                lastVideoId: 'BV_OLD',
+                lastVideoCreated: 100
+            }
+        })
+
+        assert.deepStrictEqual(recorded.map(r => `${r.groupId}:${r.type}:${r.contentId}`), ['1000:video:BV_NEW'])
+        assert.deepStrictEqual(advanced, [{ videoId: 'BV_NEW', videoCreated: 200 }])
+    })
+
+    it('专栏目标群全部关闭时应推进水位并写 disabled tombstone', async function () {
+        const recorded = []
+        const advanced = []
+        deps.subscriptionStateStore = {
+            getUserState: async () => ({
+                article: { articleId: 'cv1', lastPublishTime: 100 }
+            })
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async (records) => {
+                recorded.push(...records)
+                return { changed: records.length }
+            }
+        }
+        deps.biliApi.getUserArticles = async () => ({
+            status: 'success',
+            data: {
+                articles: [
+                    { id: 2, publish_time: 200 },
+                    { id: 1, publish_time: 100 }
+                ]
+            }
+        })
+        deps.biliApi.getArticleInfo = async () => ({
+            status: 'success',
+            type: 'article',
+            data: { id: 2, title: 'article title' }
+        })
+        updateChecker.notifyGroupsWithImageAndCache = async () => ({
+            successGroups: [],
+            failedGroups: [],
+            disabledSkippedGroups: ['1000'],
+            ledgerSkippedGroups: ['1000'],
+            dedupKey: 'article:cv2'
+        })
+        updateChecker.updateArticleState = async (_userItem, state) => {
+            advanced.push(state)
+        }
+
+        await updateChecker.checkUserArticleUnified({
+            uid: '123',
+            name: 'tester',
+            targetGroups: ['1000'],
+            source: 'manual',
+            manualSub: {
+                lastArticleId: 'cv1',
+                lastArticlePublishTime: 100
+            }
+        })
+
+        assert.deepStrictEqual(recorded.map(r => `${r.groupId}:${r.type}:${r.contentId}`), ['1000:article:cv2'])
+        assert.deepStrictEqual(advanced, [{ articleId: 'cv2', articlePublishTime: 200 }])
+    })
+
     it('视频检查应在首群上下文失败时回退到后续群上下文', async function () {
         deps.subscriptionStateStore = {
             getUserState: async () => ({

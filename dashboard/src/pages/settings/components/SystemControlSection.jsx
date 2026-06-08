@@ -3,7 +3,7 @@ import { Button } from '../../../components/ui'
 
 const SystemControlSection = ({ onRestart }) => {
     return (
-        <section className="pt-8 border-t border-[var(--border)]">
+        <section className="pt-8 border-t border-[var(--border-subtle)]">
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-xl font-semibold text-[var(--fg)] flex items-center gap-2">

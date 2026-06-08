@@ -5,7 +5,10 @@ const assert = require('assert')
 const config = require('../../../src/config')
 const notifyModule = require('../../../src/services/subscription/updateChecker/modules/notify')
 const videoDownloadService = require('../../../src/services/videoDownloadService')
-const { canReceiveSubscriptionNotification } = require('../../../src/services/subscription/updateChecker/helpers/groupReachability')
+const {
+    canReceiveSubscriptionNotification,
+    getSubscriptionNotificationReachability
+} = require('../../../src/services/subscription/updateChecker/helpers/groupReachability')
 
 function createSourceMap(groupIds) {
     const map = new Map()
@@ -41,6 +44,42 @@ describe('subscription group reachability', function () {
     it('退群时应判定为不可接收订阅推送', function () {
         const reachable = canReceiveSubscriptionNotification('1000')
         assert.strictEqual(reachable, false)
+        assert.deepStrictEqual(getSubscriptionNotificationReachability('1000'), {
+            ok: false,
+            groupId: '1000',
+            reason: 'not_in_group'
+        })
+    })
+
+    it('关闭群功能时应分类为 group_disabled', function () {
+        config.groupConfigs = {
+            '1000': {
+                isInGroup: true
+            }
+        }
+        config.enabledGroups = ['2000']
+
+        assert.deepStrictEqual(getSubscriptionNotificationReachability('1000'), {
+            ok: false,
+            groupId: '1000',
+            reason: 'group_disabled'
+        })
+        assert.strictEqual(canReceiveSubscriptionNotification('1000'), false)
+    })
+
+    it('在群内且功能开启时应分类为 ok', function () {
+        config.groupConfigs = {
+            '1000': {
+                isInGroup: true
+            }
+        }
+        config.enabledGroups = ['1000']
+
+        assert.deepStrictEqual(getSubscriptionNotificationReachability('1000'), {
+            ok: true,
+            groupId: '1000',
+            reason: 'ok'
+        })
     })
 
     it('视频扇出应跳过退群目标（即使下载开关为开）', async function () {
@@ -93,5 +132,7 @@ describe('subscription group reachability', function () {
         assert.strictEqual(sendCalled, false)
         assert.deepStrictEqual(result.successGroups, [])
         assert.deepStrictEqual(result.failedGroups, [])
+        assert.deepStrictEqual(result.disabledSkippedGroups, [])
+        assert.deepStrictEqual(result.ledgerSkippedGroups, ['1000'])
     })
 })

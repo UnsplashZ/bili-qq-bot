@@ -17,10 +17,11 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
             <GlassCard>
                 {biliGlobalStatus.isLoggedIn ? (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-4 rounded-lg border border-[color-mix(in_oklch,var(--success)_34%,var(--border))] bg-[var(--success-soft)] p-4">
-                            <div className="flex items-center gap-3">
-                                <div>
-                                    <p className="text-[var(--fg)] font-medium">
+                        <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-w-0 items-center gap-3">
+                                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_oklch,var(--accent)_16%,transparent)]" />
+                                <div className="min-w-0">
+                                    <p className="truncate font-medium text-[var(--fg)]">
                                         {biliGlobalStatus.username}{' '}
                                         <span className="text-[var(--muted)]">
                                             (UID: {biliGlobalStatus.uid})
@@ -34,7 +35,7 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex shrink-0 gap-2">
                                 <Button
                                     type="button"
                                     onClick={onLogout}
@@ -57,8 +58,9 @@ const BiliGlobalSection = ({ biliGlobalStatus, biliLoading, onLogin, onLogout })
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+                    <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)] p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-3">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--muted)]" />
                             <p className="text-[var(--muted)]">未登录</p>
                         </div>
                         <Button

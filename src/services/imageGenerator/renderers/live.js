@@ -24,26 +24,26 @@ function renderLiveContent(data, emojiContext = null) {
         : `<span class="live-badge-status live-badge-lg live-off">OFFLINE</span>`;
 
     return `
-        <div class="cover-container">
+        <div class="cover-container" data-layout-key="cover">
             <img class="cover live" src="${roomInfo.cover}" />
         </div>
-        <div class="content">
-            <div class="header">
+        <div class="content" data-layout-key="content">
+            <div class="header" data-layout-key="header">
                 <div class="header-left">
-                    <div class="avatar-wrapper">
+                    <div class="avatar-wrapper" data-layout-key="avatar">
                         <img class="avatar no-frame" src="${anchorInfo.base_info?.face}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                     </div>
                     <div class="user-info">
                         <div class="live-header-name-row">
-                            <span class="user-name">${escapeHtml(anchorInfo.base_info?.uname || 'Unknown')}</span>
-                            ${liveBadge}
+                            <span class="user-name" data-layout-key="authorName">${escapeHtml(anchorInfo.base_info?.uname || 'Unknown')}</span>
+                            <span data-layout-key="liveBadge">${liveBadge}</span>
                         </div>
-                        <span class="pub-time">直播间: ${roomInfo.room_id}</span>
+                        <span class="pub-time" data-layout-key="roomId">直播间: ${roomInfo.room_id}</span>
                     </div>
                 </div>
             </div>
-            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
-            <div class="stats">
+            <div class="title" data-layout-key="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
+            <div class="stats" data-layout-key="stats">
                 <span class="stat-item">${ICONS.fire} ${watched.text_large || watched.num || 0}</span>
                 <span class="stat-item">${ICONS.star} ${parseRichText(resolvedParentArea.richTextNodes, resolvedParentArea.text, emojiContext)} · ${parseRichText(resolvedArea.richTextNodes, resolvedArea.text, emojiContext)}</span>
             </div>

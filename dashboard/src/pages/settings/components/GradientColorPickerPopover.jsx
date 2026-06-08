@@ -199,16 +199,16 @@ export default function GradientColorPickerPopover({
         <div
             ref={popoverRef}
             style={style}
-            className="absolute z-30 w-[408px] max-w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-white/18 bg-gray-900/95 shadow-[0_18px_48px_rgba(2,6,23,0.38)]"
+            className="absolute z-30 w-[408px] max-w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-[var(--border-muted)] bg-[var(--surface-raised)] shadow-[var(--shadow-floating)]"
         >
             <span
-                className="absolute top-full h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-white/18 bg-gray-900/95"
+                className="absolute top-full h-4 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-[var(--border-muted)] bg-[var(--surface-raised)]"
                 style={{ left: `${arrowLeft}px` }}
             />
 
-            <div className="border-b border-white/10 bg-white/[0.03] px-5 py-4">
-                <h3 className="whitespace-nowrap text-sm font-semibold text-white">选择{fieldLabel}</h3>
-                <p className="mt-1 whitespace-nowrap text-xs text-white/60">颜色代码仍在外部输入。</p>
+            <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-5 py-4">
+                <h3 className="whitespace-nowrap text-sm font-semibold text-[var(--fg)]">选择{fieldLabel}</h3>
+                <p className="mt-1 whitespace-nowrap text-xs text-[var(--muted)]">颜色代码仍在外部输入。</p>
             </div>
 
             <div className="space-y-5 px-5 py-5">
@@ -216,7 +216,7 @@ export default function GradientColorPickerPopover({
                     <div
                         ref={saturationRef}
                         onPointerDown={startSaturationDrag}
-                        className="relative h-60 cursor-crosshair overflow-hidden rounded-lg border border-white/15"
+                        className="relative h-60 cursor-crosshair overflow-hidden rounded-lg border border-[var(--border-subtle)]"
                         style={{
                             backgroundColor: `hsl(${hsv.h} 100% 50%)`,
                             backgroundImage: 'linear-gradient(to top, black, transparent), linear-gradient(to right, white, transparent)'
@@ -231,7 +231,7 @@ export default function GradientColorPickerPopover({
                     <div
                         ref={hueRef}
                         onPointerDown={startHueDrag}
-                        className="relative cursor-row-resize overflow-hidden rounded-lg border border-white/15"
+                        className="relative cursor-row-resize overflow-hidden rounded-lg border border-[var(--border-subtle)]"
                         style={{
                             backgroundImage: 'linear-gradient(to bottom, #ff004c, #ff8a00, #ffe500, #3adf6d, #00d4ff, #3a6dff, #b248ff, #ff004c)'
                         }}
@@ -244,10 +244,10 @@ export default function GradientColorPickerPopover({
                 </div>
 
                 <div className="flex items-center justify-between gap-4">
-                    <div className="h-16 flex-1 rounded-lg border border-white/15" style={buildPreviewStyle(draftHex)} />
-                    <div className="min-w-[120px] text-right text-xs text-white/60">
+                    <div className="h-16 flex-1 rounded-lg border border-[var(--border-subtle)]" style={buildPreviewStyle(draftHex)} />
+                    <div className="min-w-[120px] text-right text-xs text-[var(--muted)]">
                         当前颜色
-                        <strong className="mt-1 block text-sm text-white">{draftHex}</strong>
+                        <strong className="mt-1 block text-sm text-[var(--fg)]">{draftHex}</strong>
                     </div>
                 </div>
 
@@ -255,14 +255,14 @@ export default function GradientColorPickerPopover({
                     <button
                         type="button"
                         onClick={onClose}
-                        className="h-11 whitespace-nowrap rounded-lg border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/10"
+                        className="h-11 whitespace-nowrap rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] px-5 text-sm font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-hover)]"
                     >
                         取消
                     </button>
                     <button
                         type="button"
                         onClick={() => onApply(draftHex)}
-                        className="h-11 whitespace-nowrap rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400"
+                        className="h-11 whitespace-nowrap rounded-lg border border-[var(--accent)] bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-muted)]"
                     >
                         应用颜色
                     </button>

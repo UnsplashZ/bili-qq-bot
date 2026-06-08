@@ -240,6 +240,65 @@ describe('updateChecker dynamic fallback delivery ledger', function () {
         assert.deepStrictEqual(advanced, ['300'])
     })
 
+    it('关闭群应写入 dynamic tombstone 且失败群仍保留补偿缺口', async function () {
+        const recorded = []
+        deps.subscriptionStateStore = {
+            getUserState: () => ({
+                uid: '123',
+                targets: {
+                    A: { dynamic: { baselineSource: 'existing_target', active: true } },
+                    B: { dynamic: { baselineSource: 'existing_target', active: true } },
+                    C: { dynamic: { baselineSource: 'existing_target', active: true } }
+                }
+            }),
+            getTargetBaseline: (userState, groupId, type) => userState.targets?.[groupId]?.[type] || null
+        }
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async (records) => {
+                recorded.push(...records)
+                return { changed: records.length }
+            },
+            getDeliveryCoverage: async (groups, type, contentId) => {
+                assert.deepStrictEqual(groups, ['A', 'B', 'C'])
+                assert.strictEqual(type, 'dynamic')
+                assert.strictEqual(contentId, '300')
+                const deliveredGroups = recorded
+                    .filter(record => record.type === type && record.contentId === contentId)
+                    .map(record => record.groupId)
+                return {
+                    deliveredGroups,
+                    undeliveredGroups: groups.filter(groupId => !deliveredGroups.includes(groupId)),
+                    hasAnyRecord: deliveredGroups.length > 0
+                }
+            }
+        }
+
+        await updateChecker.recordNotifyDeliveredGroups('dynamic', '300', {
+            successGroups: ['A'],
+            disabledSkippedGroups: ['B'],
+            failedGroups: ['C']
+        })
+
+        assert.deepStrictEqual(
+            recorded.map(r => `${r.groupId}:${r.type}:${r.contentId}`).sort(),
+            ['A:dynamic:300', 'B:dynamic:300']
+        )
+
+        const sourceMap = new Map([
+            ['A', new Set(['manual'])],
+            ['B', new Set(['manual'])],
+            ['C', new Set(['manual'])]
+        ])
+        const retryMap = await updateChecker.getUndeliveredGroupSourceMap({
+            uid: '123',
+            contentType: 'dynamic',
+            contentId: '300',
+            targetGroupSourceMap: sourceMap
+        })
+
+        assert.deepStrictEqual(Array.from(retryMap.keys()), ['C'])
+    })
+
     it('feed dynamic 统一锚点已推进后第二账号群可通过全 UID 台账缺口补发', async function () {
         const notifiedTargets = []
         const recorded = []

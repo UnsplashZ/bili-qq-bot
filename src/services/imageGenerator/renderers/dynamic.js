@@ -110,6 +110,10 @@ function collectDynamicImages(dynamicModule) {
     return []
 }
 
+function wrapLayoutKey(html, key) {
+    return html ? `<div data-layout-key="${key}">${html}</div>` : ''
+}
+
 function resolveDynamicText(dynamicModule, hasImages) {
     let text = ''
     let richTextNodes = null
@@ -323,6 +327,7 @@ function renderDynamicContent(data, emojiContext = null) {
     const module_stat = modules.module_stat || {};
 
     const authorName = module_author.name || 'Unknown';
+    const escapedAuthorName = escapeHtml(authorName)
     const authorFace = module_author.face || 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
     const pubTime = formatPubTime(data.data.pub_ts) || formatPubTime(module_author.pub_ts) || module_author.pub_time || '';
     const verifyType = Number(module_author.official_verify?.type)
@@ -370,20 +375,20 @@ function renderDynamicContent(data, emojiContext = null) {
             : ''
         // 充电专属占位卡片：有意省略 pendant/decoration，保持简洁
         return `
-        <div class="content">
-            <div class="header">
+        <div class="content" data-layout-key="content">
+            <div class="header" data-layout-key="header">
                 <div class="header-left">
-                    <div class="avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--no-frame">
-                        <img class="avatar no-frame" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                    <div class="avatar-wrapper avatar-wrapper--dynamic avatar-wrapper--no-frame" data-layout-key="avatar">
+                        <img class="avatar no-frame" src="${escapeHtml(authorFace)}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                         ${verifyBadgeNoFrame}
                     </div>
                     <div class="user-info">
-                        <span class="user-name">${escapeHtml(authorName)}</span>
-                        <span class="pub-time">${escapeHtml(String(pubTime))}</span>
+                        <span class="user-name" data-layout-key="authorName">${escapeHtml(authorName)}</span>
+                        <span class="pub-time" data-layout-key="pubTime">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
             </div>
-            <div class="charging-blocked-hint">
+            <div class="charging-blocked-hint" data-layout-key="text">
                 <div class="${blockedPanelClass}">
                     ${blockedBgHtml}
                     <div class="charging-blocked-text">
@@ -391,7 +396,7 @@ function renderDynamicContent(data, emojiContext = null) {
                     </div>
                 </div>
             </div>
-            <div class="action-bar">
+            <div class="action-bar" data-layout-key="stats">
                 <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
                 <div class="action-item">${ICONS.comment} ${formatNumber(module_stat.comment?.count)}</div>
                 <div class="action-item">${ICONS.like} ${formatNumber(module_stat.like?.count)}</div>
@@ -452,48 +457,48 @@ function renderDynamicContent(data, emojiContext = null) {
          };
     }
 
-    const mediaHtml = renderMediaHtml(images, videoCard, false);
-    const embeddedResourceHtml = renderEmbeddedResourceCard(
+    const mediaHtml = wrapLayoutKey(renderMediaHtml(images, videoCard, false), 'media');
+    const embeddedResourceHtml = wrapLayoutKey(renderEmbeddedResourceCard(
         resolveDynamicEmbeddedResourceCard(module_dynamic),
         { emojiContext }
-    )
-    const supplementalHtml = renderDynamicSupplementalCards(modules, { emojiContext })
+    ), 'embeddedResource')
+    const supplementalHtml = wrapLayoutKey(renderDynamicSupplementalCards(modules, { emojiContext }), 'supplementalCards')
 
     let origHtml = '';
     if (item.orig) {
-        origHtml = renderOrigContent(item.orig, emojiContext);
+        origHtml = wrapLayoutKey(renderOrigContent(item.orig, emojiContext), 'origCard');
     }
 
     return `
-        <div class="content">
-            <div class="header">
+        <div class="content" data-layout-key="content">
+            <div class="header" data-layout-key="header">
                 <div class="header-left">
-                    <div class="${avatarWrapperClass}">
-                        <img class="avatar ${pendantUrl ? 'no-border' : 'no-frame'}" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
-                        ${pendantUrl ? `<img class="avatar-frame" src="${pendantUrl}" />` : ''}
+                    <div class="${avatarWrapperClass}" data-layout-key="avatar">
+                        <img class="avatar ${pendantUrl ? 'no-border' : 'no-frame'}" src="${escapeHtml(authorFace)}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
+                        ${pendantUrl ? `<img class="avatar-frame" src="${escapeHtml(pendantUrl)}" />` : ''}
                         ${verifyBadgeMain}
                     </div>
                     <div class="user-info">
-                        <span class="user-name">${authorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
-                        <span class="pub-time">${escapeHtml(String(pubTime))}</span>
+                        <span class="user-name" data-layout-key="authorName">${escapedAuthorName} ${authorLevel ? `<span class="user-level lv${authorLevel}">Lv${authorLevel}</span>` : ''}</span>
+                        <span class="pub-time" data-layout-key="pubTime">${escapeHtml(String(pubTime))}</span>
                     </div>
                 </div>
                 <div class="header-right">
                     ${cardUrl ? `
-                        <div class="decoration-card-wrapper">
-                            <img class="decoration-card" src="${cardUrl}" />
+                        <div class="decoration-card-wrapper" data-layout-key="decorationCard">
+                            <img class="decoration-card" src="${escapeHtml(cardUrl)}" />
                             ${serial ? `<span class="serial-badge" style="--serial-color: ${fanColor};">No.${serial}</span>` : ''}
                         </div>
                     ` : ''}
                 </div>
             </div>
-            ${title ? `<div class="title">${title}</div>` : ''}
-            <div class="text-content">${text}</div>
+            ${title ? `<div class="title" data-layout-key="title">${title}</div>` : ''}
+            <div class="text-content" data-layout-key="text">${text}</div>
             ${origHtml}
             ${mediaHtml}
             ${embeddedResourceHtml}
             ${supplementalHtml}
-            <div class="action-bar">
+            <div class="action-bar" data-layout-key="stats">
                  <div class="action-item">${ICONS.share} ${formatNumber(module_stat.forward?.count)}</div>
                  <div class="action-item">${ICONS.comment} ${formatNumber(module_stat.comment?.count)}</div>
                  <div class="action-item">${ICONS.like} ${formatNumber(module_stat.like?.count)}</div>

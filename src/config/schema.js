@@ -218,6 +218,18 @@ const META = {
     showId: { env: null, def: true, type: 'bool' },
     previewGradientColor1: { env: null, def: '#D8C7F1', type: 'string' },
     previewGradientColor2: { env: null, def: '#BFE6E2', type: 'string' },
+    previewLayoutConfig: {
+        env: null,
+        def: {},
+        type: 'object',
+        get: function(overrides) {
+            const value = overrides.previewLayoutConfig
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                return {}
+            }
+            return JSON.parse(JSON.stringify(value))
+        }
+    },
     videoDownloadEnabled: { env: null, def: false, type: 'bool' },
     videoDownloadResolution: { env: null, def: '1080p', type: 'string' },
     videoDownloadMaxDuration: { env: null, def: 600, type: 'int' },

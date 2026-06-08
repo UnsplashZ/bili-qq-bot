@@ -13,9 +13,21 @@ function isGroupInService(groupId) {
 }
 
 function canReceiveSubscriptionNotification(groupId) {
+    return getSubscriptionNotificationReachability(groupId).ok
+}
+
+function getSubscriptionNotificationReachability(groupId) {
     const gid = normalizeGroupId(groupId)
-    if (!gid) return false
-    return isGroupInService(gid) && config.isGroupEnabled(gid)
+    if (!gid) {
+        return { ok: false, groupId: '', reason: 'invalid_group' }
+    }
+    if (!isGroupInService(gid)) {
+        return { ok: false, groupId: gid, reason: 'not_in_group' }
+    }
+    if (!config.isGroupEnabled(gid)) {
+        return { ok: false, groupId: gid, reason: 'group_disabled' }
+    }
+    return { ok: true, groupId: gid, reason: 'ok' }
 }
 
 function canReceiveSubscriptionVideoDownload(groupId) {
@@ -30,6 +42,7 @@ function canReceiveSubscriptionVideoDownload(groupId) {
 module.exports = {
     normalizeGroupId,
     isGroupInService,
+    getSubscriptionNotificationReachability,
     canReceiveSubscriptionNotification,
     canReceiveSubscriptionVideoDownload
 }

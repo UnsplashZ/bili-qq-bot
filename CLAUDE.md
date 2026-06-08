@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to Bilibili content via NapCat (OneBot v11 protocol). It parses Bilibili URLs, generates preview cards using Puppeteer, and supports subscription monitoring.
 
-Current scope intentionally excludes the removed legacy AI/MCP stack. Do not reintroduce AI chat, vector memory, user profile, or MCP tool wiring through the old files or config keys; any future intelligent entry point should be designed as a new Agent architecture with explicit command-vs-agent routing.
+The legacy AI/MCP stack has been removed and replaced by a purpose-built Agent architecture under `/src/agent/` (with explicit command-vs-agent routing, its own runtime/memory/profile/social/specialist modules, and Dashboard surfaces under `AgentDecisions`/`AgentMemory`/`AgentSettings`). Do not reintroduce AI chat, vector memory, user profile, or MCP tool wiring through the old removed files or config keys — all such functionality now lives in and must be extended through the new Agent architecture (`/src/agent/`, `/src/services/agent*Service.js`, `/src/commands/agentMemory.js`, `data/agent/`, `data/contexts/`, `data/profiles/`, `data/vectors/`).
 
 **Tech Stack:** Node.js 18+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
 
@@ -20,10 +20,15 @@ bili-qq-bot/
 │   ├── config/             # Modular configuration system
 │   ├── commands/           # Command modules
 │   ├── handlers/           # Message and link handlers
+│   ├── agent/              # Agent architecture (runtime, memory, profile, social, specialists, tools)
 │   ├── services/           # Core services
 │   │   ├── bili_server_core/ # Python API backend
 │   │   ├── bili_server.py   # Python compatibility entry
 │   │   ├── imageGenerator/  # Preview card rendering and generation
+│   │   ├── previewLayout/   # Legacy patch-based layout overrides (data-layout-key); validation/migration/fallback path
+│   │   ├── previewTemplate/ # Authoritative template-based layout engine (data-template-node-id); source of truth for /preview-layout
+│   │   ├── previewLab/      # Preview Lab service support
+│   │   ├── agentBrowserService.js / agentScreenshotService.js / agentWebSearchService.js # Agent-facing service adapters
 │   │   └── subscription/    # Subscription service and update checker
 │   │       └── updateChecker/ # Feed, video, article, live checks
 │   ├── dashboard/          # Dashboard backend (Express)
@@ -47,6 +52,8 @@ bili-qq-bot/
 │   │   ├── links/          # Link extraction and routing tests
 │   │   ├── messages/       # Message handler tests
 │   │   ├── preview/        # Preview Lab tests
+│   │   ├── preview-layout/ # Legacy previewLayout patch system tests
+│   │   ├── preview-template/ # previewTemplate engine tests (renderer, schema, normalizer, merge, bindings, migrator)
 │   │   ├── rendering/      # Card/rendering tests
 │   │   ├── services/       # Shared service/logging tests
 │   │   └── subscriptions/  # Subscription/update checker tests
@@ -60,7 +67,11 @@ bili-qq-bot/
 ├── data/                   # Persistent data (not in git)
 │   ├── cache/              # API response cache
 │   ├── cookies.json        # Bilibili credentials
-│   └── subscriptions.json  # Subscription mappings
+│   ├── subscriptions.json  # Subscription mappings
+│   ├── agent/              # Agent audit/memory/profile/run state (audit, memory, profile, runs)
+│   ├── contexts/           # Agent conversation context state
+│   ├── profiles/           # Agent user profile state
+│   └── vectors/            # Agent vector memory store
 ├── config/                 # Configuration files
 ├── fonts/                  # Custom fonts for image rendering
 ├── logs/                   # Application logs

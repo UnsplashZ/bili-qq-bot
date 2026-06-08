@@ -93,6 +93,58 @@ describe('updateChecker manual/feed state advance policy', function () {
         assert.strictEqual(touchedLiveStatus, false)
     })
 
+    it('manual live 目标群全部关闭时应推进状态并写 disabled tombstone', async function () {
+        deps.subscriptionStateStore = null
+        const recorded = []
+        deps.subscriptionDeliveryStore = {
+            recordDeliveredBatch: async (records) => {
+                recorded.push(...records)
+                return { changed: records.length }
+            }
+        }
+        deps.biliApi.getUserInfo = async () => ({
+            status: 'success',
+            data: {
+                live_room: {
+                    liveStatus: 1,
+                    roomid: 9527,
+                    url: 'https://live.bilibili.com/9527'
+                }
+            }
+        })
+        deps.biliApi.getLiveRoomInfo = async () => ({
+            status: 'success',
+            type: 'live',
+            data: {}
+        })
+        updateChecker.notifyGroupsWithImageAndCache = async () => ({
+            successGroups: [],
+            failedGroups: [],
+            disabledSkippedGroups: ['1000'],
+            ledgerSkippedGroups: ['1000'],
+            dedupKey: 'live:9527'
+        })
+
+        const updates = []
+        deps.subscriptionManager.updateUserSub = async (_uid, patch) => {
+            updates.push(patch)
+        }
+
+        await updateChecker.checkUserLive({
+            uid: '123',
+            name: 'tester',
+            roomId: 9527,
+            lastLiveStatus: 0,
+            groupIds: ['1000']
+        }, ['1000'], false)
+
+        assert.deepStrictEqual(recorded.map(r => `${r.groupId}:${r.type}:${r.contentId}`), ['1000:live:9527'])
+        assert.deepStrictEqual(updates, [
+            { roomId: '9527' },
+            { lastLiveStatus: 1 }
+        ])
+    })
+
     it('feed dynamic 通知无成功群时不应推进 lastDynamicId', async function () {
         deps.subscriptionStateStore = null
         deps.subscriptionManager.cookieFollowings = {

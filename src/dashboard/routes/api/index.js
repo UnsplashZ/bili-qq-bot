@@ -14,6 +14,7 @@ const logsRoutes = require('./modules/logs')
 const agentConfigRoutes = require('./modules/agent-config')
 const agentTrajectoryRoutes = require('./modules/agent-trajectory')
 const agentMemoryRoutes = require('./modules/agent-memory')
+const previewLayoutRoutes = require('./modules/preview-layout')
 
 const router = express.Router()
 
@@ -49,5 +50,6 @@ router.use(logsRoutes)
 router.use(agentConfigRoutes)
 router.use(agentTrajectoryRoutes)
 router.use(agentMemoryRoutes)
+router.use(previewLayoutRoutes)
 
 module.exports = router

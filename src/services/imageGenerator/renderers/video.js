@@ -21,29 +21,29 @@ function renderVideoContent(data, emojiContext = null) {
     const resolvedTitle = resolvePlainTextContent(info.title)
     const resolvedDesc = resolvePlainTextContent(info.desc)
     return `
-        <div class="cover-container">
+        <div class="cover-container" data-layout-key="cover">
             <img class="cover video" src="${info.pic}" />
         </div>
-        <div class="content">
-            <div class="header">
+        <div class="content" data-layout-key="content">
+            <div class="header" data-layout-key="header">
                 <div class="header-left">
-                    <div class="avatar-wrapper">
+                    <div class="avatar-wrapper" data-layout-key="avatar">
                         <img class="avatar no-frame" src="${ownerFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                         ${verifyBadgeHtml}
                     </div>
                     <div class="user-info">
-                        <span class="user-name">${escapeHtml(ownerName)}</span>
-                        <span class="pub-time">${formatPubTime(info.pubdate)}${durationStr}</span>
+                        <span class="user-name" data-layout-key="authorName">${escapeHtml(ownerName)}</span>
+                        <span class="pub-time" data-layout-key="pubTime">${formatPubTime(info.pubdate)}${durationStr}</span>
                     </div>
                 </div>
             </div>
-            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
-            <div class="stats video-stats">
+            <div class="title" data-layout-key="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
+            <div class="stats video-stats" data-layout-key="stats">
                 <span class="stat-item">${ICONS.view} ${formatNumber(info.view?.count || info.stat?.view)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(info.like || info.stat?.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(info.reply || info.stat?.reply)}</span>
             </div>
-            ${resolvedDesc.text ? `<div class="text-content">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>` : ''}
+            ${resolvedDesc.text ? `<div class="text-content" data-layout-key="text">${parseRichText(resolvedDesc.richTextNodes, resolvedDesc.text, emojiContext)}</div>` : ''}
         </div>
     `;
 }

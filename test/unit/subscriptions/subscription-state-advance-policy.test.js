@@ -22,7 +22,29 @@ describe('subscription state advance policy', function () {
         })
 
         assert.strictEqual(result.action, 'advance')
-        assert.strictEqual(result.reason, 'has_success')
+        assert.strictEqual(result.reason, 'has_covered_target')
+    })
+
+    it('只有关闭群静默消费时应推进', function () {
+        const result = decideAdvance({
+            successGroups: [],
+            failedGroups: [],
+            disabledSkippedGroups: ['1000']
+        })
+
+        assert.strictEqual(result.action, 'advance')
+        assert.strictEqual(result.reason, 'has_covered_target')
+    })
+
+    it('只有普通 ledger skip 时不应推进', function () {
+        const result = decideAdvance({
+            successGroups: [],
+            failedGroups: [],
+            ledgerSkippedGroups: ['1000']
+        })
+
+        assert.strictEqual(result.action, 'skip')
+        assert.strictEqual(result.reason, 'no_targets')
     })
 
     it('无目标群时应跳过推进', function () {

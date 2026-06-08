@@ -17,7 +17,7 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/60" />
+          <div className="fixed inset-0 bg-black/45" />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -34,7 +34,7 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
               <Dialog.Panel
                 className={twMerge(
                   clsx(
-                    'w-full max-w-md transform overflow-hidden rounded-lg bg-gray-900/95 border border-white/10 p-6 text-left align-middle shadow-xl transition-all text-white',
+                    'w-full max-w-md transform overflow-hidden rounded-lg border border-[var(--border-muted)] bg-[var(--surface-raised)] p-6 text-left align-middle text-[var(--fg)] shadow-[var(--shadow-floating)] transition-all',
                     className
                   )
                 )}
@@ -42,19 +42,19 @@ const GlassModal = ({ isOpen, onClose, title, children, footer, className }) => 
                 <div className="flex justify-between items-center mb-4">
                   <Dialog.Title
                     as="h3"
-                    className="text-lg font-medium leading-6 text-white"
+                    className="text-lg font-medium leading-6 text-[var(--fg)]"
                   >
                     {title}
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="rounded-lg p-1 hover:bg-white/10 transition-colors text-gray-400 hover:text-white focus:outline-none"
+                    className="rounded-lg p-1 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] focus:outline-none"
                   >
                     <X size={20} />
                   </button>
                 </div>
 
-                <div className="mt-2 text-gray-300">
+                <div className="mt-2 text-[var(--muted)]">
                   {children}
                 </div>
 

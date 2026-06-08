@@ -42,7 +42,7 @@ const Settings = () => {
     return <div className="p-8 text-center text-[var(--muted)]">正在加载设置...</div>
   }
 
-  const savingSettings = settingsData.savingGeneral || settingsData.savingPreviewGradient || settingsData.savingVideoDownload
+  const savingSettings = settingsData.savingGeneral || settingsData.savingVideoDownload
 
   return (
     <div className="space-y-5 pb-8 md:space-y-7 md:pb-12">
@@ -65,9 +65,6 @@ const Settings = () => {
       <GeneralSettingsSection
         generalConfig={settingsData.generalConfig}
         onGeneralChange={settingsData.handleGeneralChange}
-        previewGradientConfig={settingsData.previewGradientConfig}
-        onPreviewGradientChange={settingsData.handlePreviewGradientChange}
-        onResetPreviewGradient={settingsData.resetPreviewGradientSettings}
       />
 
       <BiliGlobalSection

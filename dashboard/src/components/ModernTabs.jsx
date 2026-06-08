@@ -13,7 +13,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative overflow-x-auto border-b border-[var(--border)] px-3 sm:px-4">
+      <div className="relative overflow-x-auto border-b border-[var(--border-subtle)] px-3 sm:px-4">
         <div
           className="relative grid min-w-max"
           style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(7rem, 1fr))` }}
@@ -25,7 +25,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
               onClick={() => handleSelect(index)}
               className={clsx(
                 'relative z-10 flex shrink-0 items-center justify-center gap-2 px-3 py-3 text-sm font-medium transition-colors focus:outline-none sm:px-4',
-                index === safeIndex ? 'text-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+                index === safeIndex ? 'text-[var(--accent-muted)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
               )}
             >
               {tab.icon && <tab.icon size={16} />}
@@ -33,7 +33,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
             </button>
           ))}
           <div
-            className="absolute bottom-0 h-px bg-[var(--accent)] transition-[left,width] duration-300 ease-out motion-reduce:transition-none"
+            className="absolute bottom-0 h-px bg-[var(--accent-muted)] transition-[left,width] duration-300 ease-out motion-reduce:transition-none"
             style={{ left: activeLeft, width: activeWidth }}
           />
         </div>

@@ -116,24 +116,24 @@ function renderArticleContent(data, emojiContext = null) {
     )
 
     return `
-        <div class="content">
-            <div class="header">
+        <div class="content" data-layout-key="content">
+            <div class="header" data-layout-key="header">
                 <div class="header-left">
-                    <div class="${avatarWrapperClass}">
+                    <div class="${avatarWrapperClass}" data-layout-key="avatar">
                         <img class="avatar ${authorDecoration.pendantUrl ? 'no-border' : 'no-frame'}" src="${authorFace}" onerror="this.src='https://i0.hdslb.com/bfs/face/member/noface.jpg'">
                         ${authorDecoration.pendantUrl ? `<img class="avatar-frame" src="${escapeHtml(authorDecoration.pendantUrl)}" />` : ''}
                         ${verifyBadgeHtml}
                     </div>
                     <div class="user-info">
-                        <span class="user-name">${escapeHtml(info.author_name || 'Unknown')}
+                        <span class="user-name" data-layout-key="authorName">${escapeHtml(info.author_name || 'Unknown')}
                             ${authorDecoration.level ? `<span class="user-level lv${authorDecoration.level}">Lv${authorDecoration.level}</span>` : ''}
                         </span>
-                        <span class="pub-time">${pubDate}</span>
+                        <span class="pub-time" data-layout-key="pubTime">${pubDate}</span>
                     </div>
                 </div>
                 <div class="header-right">
                     ${authorDecoration.cardUrl ? `
-                        <div class="decoration-card-wrapper">
+                        <div class="decoration-card-wrapper" data-layout-key="decorationCard">
                             <img class="decoration-card" src="${escapeHtml(authorDecoration.cardUrl)}" />
                             ${authorDecoration.fanNumber ? `<span class="serial-badge" style="--serial-color: ${escapeHtml(authorDecoration.fanColor)};">No.${escapeHtml(String(authorDecoration.fanNumber))}</span>` : ''}
                         </div>
@@ -141,13 +141,13 @@ function renderArticleContent(data, emojiContext = null) {
                 </div>
             </div>
             ${cover ? `
-                <div class="cover-container article-cover-container">
+                <div class="cover-container article-cover-container" data-layout-key="cover">
                     <img class="cover article" src="${escapeHtml(cover)}" onerror="this.style.display='none'">
                 </div>
             ` : ''}
-            <div class="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
-            <div class="text-content article-excerpt">${contentHtml}</div>
-            <div class="stats article-stats">
+            <div class="title" data-layout-key="title">${parseRichText(resolvedTitle.richTextNodes, resolvedTitle.text, emojiContext)}</div>
+            <div class="text-content article-excerpt" data-layout-key="text">${contentHtml}</div>
+            <div class="stats article-stats" data-layout-key="stats">
                 <span class="stat-item">${ICONS.share} ${formatNumber(stats.share)}</span>
                 <span class="stat-item">${ICONS.like} ${formatNumber(stats.like)}</span>
                 <span class="stat-item">${ICONS.comment} ${formatNumber(stats.reply)}</span>
