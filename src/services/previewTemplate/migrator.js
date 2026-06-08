@@ -183,10 +183,9 @@ function migrateSavedV2PatchValue(type, id, value = {}) {
             if (Object.keys(transform).length > 0) next.layout.transform = transform
         } else {
             next.layout = { mode: migratedLayout.mode || 'flow' }
-            if (migratedLayout.transform) next.layout.transform = migratedLayout.transform
-            if (migratedLayout.width !== undefined) next.layout.width = migratedLayout.width
-            if (migratedLayout.height !== undefined) next.layout.height = migratedLayout.height
-            if (migratedLayout.aspectRatio !== undefined) next.layout.aspectRatio = migratedLayout.aspectRatio
+            for (const key of ['width', 'height', 'padding', 'gap', 'zIndex', 'columns', 'direction', 'align', 'justify', 'aspectRatio', 'anchor', 'absoluteChildren', 'transform']) {
+                if (migratedLayout[key] !== undefined) next.layout[key] = clone(migratedLayout[key])
+            }
         }
     }
     if (isPlainObject(next.style)) {

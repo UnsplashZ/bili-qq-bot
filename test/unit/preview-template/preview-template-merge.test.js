@@ -231,6 +231,33 @@ describe('preview template merge', function () {
         assert.strictEqual(effective.nodesById.text.style.maxLines, 2)
     })
 
+    it('preserves group-scoped root node changes in template patch', function () {
+        const base = getDefaultTemplate('video')
+        const target = JSON.parse(JSON.stringify(base))
+        target.nodesById.root.label = '群专属视频模板'
+        target.nodesById.root.style.opacity = 0.92
+        target.nodesById.root.layout.padding = 24
+        config.previewLayoutConfig = {
+            version: 2,
+            global: { video: { template: base } },
+            groups: {},
+            lastKnownGood: {}
+        }
+
+        savePreviewTemplate('group', 'video', target, '1000')
+
+        const groupEntry = config.previewLayoutConfig.groups['1000'].video
+        assert.strictEqual(groupEntry.templatePatch.nodes.root.value.label, '群专属视频模板')
+        assert.strictEqual(groupEntry.templatePatch.nodes.root.value.style.opacity, 0.92)
+        assert.strictEqual(groupEntry.templatePatch.nodes.root.value.layout.padding, 24)
+        assert.ok(groupEntry.baseNodeSignatures.nodes.root)
+
+        const effective = getEffectiveTemplate('video', '1000')
+        assert.strictEqual(effective.nodesById.root.label, '群专属视频模板')
+        assert.strictEqual(effective.nodesById.root.style.opacity, 0.92)
+        assert.strictEqual(effective.nodesById.root.layout.padding, 24)
+    })
+
     it('collects group patch base signatures only for touched nodes and children', function () {
         const base = getDefaultTemplate('video')
         const signatures = collectPatchBaseSignatures(base, {

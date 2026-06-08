@@ -269,7 +269,6 @@ function diffTemplates(baseTemplate, targetTemplate) {
         if (!target.nodesById[id]) patch.nodes[id] = { op: 'remove' }
     }
     for (const [id, node] of Object.entries(target.nodesById)) {
-        if (id === target.rootId) continue
         if (!base.nodesById[id]) {
             patch.nodes[id] = { op: 'add', value: node }
         } else if (stableStringify(base.nodesById[id]) !== stableStringify(node)) {
