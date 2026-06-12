@@ -150,4 +150,41 @@ describe('subscription empty sync groups semantics', function () {
         assert.strictEqual(capturedData.accountFollows.length, 2)
         assert.strictEqual(capturedData.accountFollowsTitle, '关注列表 - 全部分组')
     })
+
+    it('订阅列表: 本群无订阅且无关注时不应发送生成图片提示', async function () {
+        subscriptionService.refreshCookieFollowings = async () => {}
+        subscriptionService.getSubscriptionsByGroup = async () => ({ users: [], bangumis: [] })
+        subscriptionService.reloadSubscriptions = async () => {}
+        subscriptionService.getFollowingsForGroup = async () => []
+
+        let generateCalled = false
+        imageGenerator.generateSubscriptionList = async () => {
+            generateCalled = true
+            return 'ZmFrZQ=='
+        }
+
+        const replies = []
+        subscriptionCommand.sendGroupMessage = (_ws, _groupId, messageChain) => {
+            replies.push(messageChain?.[0] || null)
+        }
+
+        await subscriptionCommand.handle({
+            ws: {},
+            groupId: 'g-empty',
+            userId: '42',
+            rawMessage: '/订阅列表'
+        })
+
+        const ready = await waitFor(() => replies.some(item => item?.data?.text === '本群暂无订阅，且账户关注列表为空。'))
+        assert.strictEqual(ready, true)
+        assert.strictEqual(generateCalled, false)
+        assert.strictEqual(
+            replies.some(item => item?.data?.text?.includes('正在刷新关注列表并生成图片')),
+            false
+        )
+        assert.strictEqual(
+            replies.some(item => item?.data?.text?.includes('正在生成订阅列表图片')),
+            false
+        )
+    })
 })

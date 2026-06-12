@@ -55,9 +55,6 @@ class SubscriptionCommand {
             }
             this.groupListCmdCd.set(groupId, now);
 
-            // Notify user about refresh
-            this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '正在刷新关注列表并生成图片，请稍候...' } }]);
-
             (async () => {
                 let userSubs = [];
                 let bangumiSubs = [];
@@ -216,6 +213,8 @@ class SubscriptionCommand {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群暂无订阅' + (enableSync ? '，且符合条件的账户关注为空' : '') + '。' } }]);
                          return;
                     }
+
+                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '正在生成订阅列表图片，请稍候...' } }]);
 
                     const base64Image = await imageGenerator.generateSubscriptionList(data, groupId, showId);
                     this.sendGroupMessage(ws, groupId, [{ type: 'image', data: { file: `base64://${base64Image}` } }]);
