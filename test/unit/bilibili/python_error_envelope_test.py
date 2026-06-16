@@ -1,12 +1,17 @@
 import asyncio
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 import json
+from types import SimpleNamespace
 
 from src.services.bili_server_core.auth import credential_refresh
 from src.services.bili_server_core.errors import classify_bili_error
 from src.services.bili_server_core.web import handlers
 from src.services.bili_server_core.services import feed_service, follow_service, user_service
+from src.services.bili_server_core.download import service as download_service
+from src.services.bili_server_core.download.service import VideoQuality
 
 
 class FakeCredential:
@@ -205,6 +210,85 @@ class PythonErrorEnvelopeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["httpStatus"], 504)
         self.assertEqual(payload["retryable"], True)
         self.assertEqual(payload["endpoint"], "video_download")
+
+    async def test_video_download_generic_error_should_not_be_masked_by_log_message_field(self):
+        async def broken_download(*args, **kwargs):
+            raise RuntimeError("stream selection failed")
+
+        with patch.object(handlers, "download_video_file", new=broken_download):
+            response = await handlers.handle_video_download(FakeRequest({
+                "bvid": "BV1xx",
+                "page_index": 0,
+                "resolution": "720p",
+                "group_id": "1000",
+            }))
+
+        payload = json.loads(response.text)
+        self.assertEqual(response.status, 500)
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["message"], "stream selection failed")
+        self.assertEqual(payload["endpoint"], "video_download")
+        self.assertEqual(payload["exceptionClass"], "RuntimeError")
+
+    async def test_video_download_should_fallback_when_best_streams_has_null_codec(self):
+        class FakeVideo:
+            async def get_download_url(self, page_index=0):
+                self.page_index = page_index
+                return {"dash": {"video": [], "audio": []}}
+
+        class FakeDetector:
+            def __init__(self, data):
+                self.data = data
+
+            def detect_best_streams(self, *args, **kwargs):
+                raise AttributeError("'NoneType' object has no attribute 'value'")
+
+            def detect(self, *args, **kwargs):
+                return [
+                    SimpleNamespace(
+                        url="https://example.test/video.m4s",
+                        video_quality=VideoQuality._720P,
+                        video_codecs=None,
+                    ),
+                    SimpleNamespace(
+                        url="https://example.test/audio.m4s",
+                        audio_quality=SimpleNamespace(value=30280),
+                    ),
+                ]
+
+        async def fake_download_stream(url, output_path):
+            with open(output_path, "wb") as f:
+                f.write(url.encode("utf-8"))
+
+        async def fake_ffmpeg(inputs, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"merged")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            allowed_base = os.path.realpath(temp_dir)
+            with patch.object(download_service, "DOWNLOADS_ALLOWED_BASE", allowed_base), \
+                    patch.object(download_service.video, "Video", return_value=FakeVideo()), \
+                    patch.object(download_service, "load_credential", return_value=object()), \
+                    patch.object(download_service, "VideoDownloadURLDataDetecter", FakeDetector), \
+                    patch.object(download_service, "download_stream_to_file", new=fake_download_stream), \
+                    patch.object(download_service, "ffmpeg_copy_streams", new=fake_ffmpeg):
+                result = await download_service.download_video_file(
+                    "BV1xx",
+                    0,
+                    "720p",
+                    allowed_base,
+                    "1000",
+                    {
+                        "title": "测试视频",
+                        "owner": "up主",
+                        "duration": 120,
+                        "total_pages": 1,
+                    },
+                )
+
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["title"], "测试视频")
+            self.assertTrue(os.path.exists(result["file_path"]))
 
 
 if __name__ == "__main__":

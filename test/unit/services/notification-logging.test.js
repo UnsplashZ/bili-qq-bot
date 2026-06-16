@@ -39,7 +39,7 @@ function restore() {
 
 async function run() {
     const logs = []
-    const off = logger.onLog((entry) => logs.push(entry.message))
+    const off = logger.onLog((entry) => logs.push(entry))
 
     try {
         config.groupConfigs = { '1000': { videoDownloadEnabled: true } }
@@ -67,16 +67,46 @@ async function run() {
         })
 
         assert.strictEqual(result.ok, true)
-        assert.ok(logs.some(line => line.includes('INF SEND') && line.includes('[task:') && line.includes('download-start')))
-        assert.ok(logs.some(line => line.includes('INF SEND') && line.includes('[task:') && line.includes('download-ok')))
+        assert.ok(logs.some(entry => entry.message.includes('INF SEND') && entry.message.includes('[task:') && entry.message.includes('download-start')))
+        assert.ok(logs.some(entry => entry.message.includes('INF SEND') && entry.message.includes('[task:') && entry.message.includes('download-ok')))
+
+        logs.length = 0
+        biliApi.downloadVideo = async () => ({
+            status: 'error',
+            message: 'no_streams_available',
+            errorType: 'unknown',
+            failureKind: 'unknown',
+            httpStatus: 200,
+            retryable: false,
+            endpoint: 'video_download',
+            reason: 'empty_streams'
+        })
+        const failed = await videoDownloadService.downloadAndSend({}, '1000', 'BV1NoStream', {
+            data: {
+                title: '无可用流视频',
+                owner: { name: 'up主' },
+                duration: 120,
+                pages: [{ duration: 120 }]
+            }
+        })
+
+        assert.strictEqual(failed.ok, false)
+        const failureLog = logs.find(entry => entry.channel === 'SEND' && entry.action === 'download-fail')
+        assert.ok(failureLog, 'download failure should be logged')
+        assert.strictEqual(failureLog.fields.error, 'no_streams_available')
+        assert.strictEqual(failureLog.fields.errorType, 'unknown')
+        assert.strictEqual(failureLog.fields.failureKind, 'unknown')
+        assert.strictEqual(failureLog.fields.httpStatus, 200)
+        assert.strictEqual(failureLog.fields.retryable, false)
+        assert.strictEqual(failureLog.fields.reason, 'empty_streams')
 
         global.setInterval = () => ({ fake: true })
         global.clearInterval = () => {}
         videoDownloadService._cleanupTimer = null
         videoDownloadService.startCleanupScheduler()
-        assert.ok(logs.some(line => line.includes('INF SEND') && line.includes('[svc:download]') && line.includes('cleanup-scheduler-started')))
-        assert.ok(!logs.some(line => line.includes('[VideoDownload]')))
-        assert.ok(!logs.some(line => line.includes('[NotificationService]')))
+        assert.ok(logs.some(entry => entry.message.includes('INF SEND') && entry.message.includes('[svc:download]') && entry.message.includes('cleanup-scheduler-started')))
+        assert.ok(!logs.some(entry => entry.message.includes('[VideoDownload]')))
+        assert.ok(!logs.some(entry => entry.message.includes('[NotificationService]')))
         console.log('✓ 视频下载发送链路会输出 task scope 摘要日志')
     } finally {
         off()

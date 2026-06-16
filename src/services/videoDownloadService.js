@@ -335,7 +335,13 @@ class VideoDownloadService {
                 groupId,
                 bvid,
                 pageIndex,
-                error: result.message
+                error: result.message,
+                errorType: result.errorType,
+                failureKind: result.failureKind,
+                httpStatus: result.httpStatus,
+                biliCode: result.biliCode,
+                retryable: result.retryable,
+                reason: result.reason
             }, taskScope)
             return finishMetric({ ok: false, reason: result.message })
         }
@@ -639,7 +645,13 @@ class VideoDownloadService {
             sendLog('warn', 'download-fail', {
                 bvid,
                 pageIndex,
-                error: result.message
+                error: result.message,
+                errorType: result.errorType,
+                failureKind: result.failureKind,
+                httpStatus: result.httpStatus,
+                biliCode: result.biliCode,
+                retryable: result.retryable,
+                reason: result.reason
             }, taskScope)
             finishMetric(false, result.message)
             return

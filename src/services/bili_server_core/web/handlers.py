@@ -41,9 +41,20 @@ from .responses import json_result
 logger = logging.getLogger(__name__)
 
 
+def _log_payload(payload):
+    return {key: value for key, value in payload.items() if key != "message"}
+
+
 def _handler_error(handler_name, error, status=500):
     payload = error_envelope(str(error), handler_name, error=error, http_status=status)
-    rpc_log(logger, "error", "handler-failed", handler=handler_name, error=str(error), **payload)
+    rpc_log(
+        logger,
+        "error",
+        "handler-failed",
+        handler=handler_name,
+        error=str(error),
+        **_log_payload(payload),
+    )
     return json_result(payload, status=status)
 
 
@@ -489,7 +500,14 @@ async def handle_credential_info(request):
         )
     except Exception as e:
         payload = error_envelope(str(e), "credential_info", error=e)
-        rpc_log(logger, "error", "handler-failed", handler="credential_info", error=str(e), **payload)
+        rpc_log(
+            logger,
+            "error",
+            "handler-failed",
+            handler="credential_info",
+            error=str(e),
+            **_log_payload(payload),
+        )
         return json_result(payload)
 
 

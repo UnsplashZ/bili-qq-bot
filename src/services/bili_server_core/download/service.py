@@ -17,6 +17,93 @@ from .io_utils import download_stream_to_file
 
 logger = logging.getLogger(__name__)
 
+PREFERRED_CODECS = [VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1]
+
+
+def _has_stream_url(stream) -> bool:
+    return bool(stream and getattr(stream, "url", None))
+
+
+def _is_video_stream(stream) -> bool:
+    return _has_stream_url(stream) and hasattr(stream, "video_quality")
+
+
+def _is_audio_stream(stream) -> bool:
+    return _has_stream_url(stream) and hasattr(stream, "audio_quality")
+
+
+def _quality_value(stream, attr: str) -> int:
+    quality = getattr(stream, attr, None)
+    value = getattr(quality, "value", None)
+    return value if isinstance(value, int) else -1
+
+
+def _codec_score(stream, codecs) -> int:
+    codec = getattr(stream, "video_codecs", None)
+    if codec is None:
+        return -1
+    try:
+        return len(codecs) - codecs.index(codec)
+    except ValueError:
+        return 0
+
+
+def _select_best_streams_from_detected(streams, codecs):
+    video_streams = [stream for stream in streams if _is_video_stream(stream)]
+    audio_streams = [stream for stream in streams if _is_audio_stream(stream)]
+
+    selected = []
+    if video_streams:
+        selected.append(
+            max(
+                video_streams,
+                key=lambda stream: (
+                    _quality_value(stream, "video_quality"),
+                    _codec_score(stream, codecs),
+                ),
+            )
+        )
+    if audio_streams:
+        selected.append(
+            max(audio_streams, key=lambda stream: _quality_value(stream, "audio_quality"))
+        )
+    return selected
+
+
+def _detect_best_streams_safe(detector, target_quality):
+    try:
+        return [
+            stream
+            for stream in detector.detect_best_streams(
+                video_max_quality=target_quality,
+                codecs=PREFERRED_CODECS,
+            )
+            if _has_stream_url(stream)
+        ]
+    except TypeError as e:
+        if "codecs" not in str(e):
+            raise
+        service_log(logger, "warn", "download-codecs-argument-fallback")
+        return [
+            stream
+            for stream in detector.detect_best_streams(video_max_quality=target_quality)
+            if _has_stream_url(stream)
+        ]
+    except AttributeError as e:
+        if "video_codecs" not in str(e) and "NoneType" not in str(e):
+            raise
+        service_log(logger, "warn", "download-codecs-null-fallback", error=str(e))
+
+    try:
+        detected = detector.detect(video_max_quality=target_quality, codecs=PREFERRED_CODECS)
+    except TypeError as e:
+        if "codecs" not in str(e):
+            raise
+        service_log(logger, "warn", "download-detect-codecs-argument-fallback")
+        detected = detector.detect(video_max_quality=target_quality)
+
+    return _select_best_streams_from_detected(detected, PREFERRED_CODECS)
+
 
 async def download_video_file(
     bvid: str,
@@ -59,16 +146,7 @@ async def download_video_file(
 
     download_data = await v.get_download_url(page_index=page_index)
     detector = VideoDownloadURLDataDetecter(download_data)
-    try:
-        streams = detector.detect_best_streams(
-            video_max_quality=target_quality,
-            codecs=[VideoCodecs.AVC, VideoCodecs.HEV, VideoCodecs.AV1],
-        )
-    except TypeError as e:
-        if "codecs" not in str(e):
-            raise
-        service_log(logger, "warn", "download-codecs-fallback")
-        streams = detector.detect_best_streams(video_max_quality=target_quality)
+    streams = _detect_best_streams_safe(detector, target_quality)
 
     if not streams:
         return error_envelope(
