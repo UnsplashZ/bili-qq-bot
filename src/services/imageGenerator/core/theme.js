@@ -355,8 +355,8 @@ function generateCSS(colorData, viewport, options = {}) {
 
             .avatar-wrapper--dynamic.avatar-wrapper--with-frame {
                 --verify-size: 30px;
-                --verify-right: 26px;
-                --verify-bottom: 26px;
+                --verify-right: 20px;
+                --verify-bottom: 20px;
             }
 
             .avatar-wrapper--dynamic.avatar-wrapper--no-frame {
@@ -429,6 +429,11 @@ function generateCSS(colorData, viewport, options = {}) {
                 z-index: 2;
                 filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
                 transition: all 0.3s ease-in-out;
+            }
+
+            .avatar-wrapper--dynamic.avatar-wrapper--with-frame .avatar-frame {
+                width: 150px;
+                height: 150px;
             }
 
             .avatar-frame--user {
