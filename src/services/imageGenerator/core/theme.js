@@ -354,9 +354,11 @@ function generateCSS(colorData, viewport, options = {}) {
             }
 
             .avatar-wrapper--dynamic.avatar-wrapper--with-frame {
-                --verify-size: 30px;
-                --verify-right: 20px;
-                --verify-bottom: 20px;
+                width: 134px;
+                height: 134px;
+                --verify-size: 32px;
+                --verify-right: 7px;
+                --verify-bottom: 7px;
             }
 
             .avatar-wrapper--dynamic.avatar-wrapper--no-frame {
@@ -404,6 +406,11 @@ function generateCSS(colorData, viewport, options = {}) {
                 height: 96px;
             }
 
+            .avatar-wrapper--dynamic.avatar-wrapper--with-frame .avatar {
+                width: 84px;
+                height: 84px;
+            }
+
             .avatar--user {
                 width: 150px;
                 height: 150px;
@@ -432,8 +439,8 @@ function generateCSS(colorData, viewport, options = {}) {
             }
 
             .avatar-wrapper--dynamic.avatar-wrapper--with-frame .avatar-frame {
-                width: 150px;
-                height: 150px;
+                width: 160px;
+                height: 160px;
             }
 
             .avatar-frame--user {
