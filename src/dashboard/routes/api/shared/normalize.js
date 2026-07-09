@@ -10,6 +10,10 @@ function isNumericGroupId(groupId) {
     return typeof groupId === 'string' && /^\d+$/.test(groupId)
 }
 
+function isOfficialOpaqueGroupId(groupId) {
+    return typeof groupId === 'string' && /^[A-Za-z0-9_-]{4,128}$/.test(groupId)
+}
+
 function normalizeQQ(qq) {
     if (qq === null || qq === undefined) return ''
     return String(qq).trim()
@@ -57,6 +61,7 @@ module.exports = {
     normalizeGroupId,
     isPrivateVirtualGroupId,
     isNumericGroupId,
+    isOfficialOpaqueGroupId,
     normalizeQQ,
     normalizeBlacklist,
     normalizeSyncGroupNames,

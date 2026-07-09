@@ -1,4 +1,5 @@
 const notificationService = require('./notificationService')
+const qqProviderRuntime = require('../providers/qq/runtime')
 
 const ROLE_LEVEL = {
     unknown: 0,
@@ -132,6 +133,11 @@ function getWs(options = {}) {
 
 function getSelfId(options = {}) {
     return normalizeId(options.selfId || global.bot?.selfId)
+}
+
+function isOfficialProvider(options = {}) {
+    const provider = options.ws || qqProviderRuntime.getCurrentProvider()
+    return String(provider?.id || '').toLowerCase() === 'official'
 }
 
 class QqGroupAdminService {
@@ -455,6 +461,20 @@ class QqGroupAdminService {
     async deleteMessage({ messageId }, options = {}) {
         const safeMessageId = String(messageId || '').trim()
         if (!safeMessageId) throw new Error('missing_message_id')
+        if (isOfficialProvider(options)) {
+            const response = await notificationService.callAction(options.ws || null, 'delete_msg', {
+                message_id: safeMessageId,
+                group_id: options.groupId || '',
+                user_id: options.userId || ''
+            }, 'QqGroupAdmin', options.timeoutMs || 10000)
+            return {
+                message: `已请求撤回消息 ${safeMessageId}。`,
+                data: {
+                    messageId: safeMessageId,
+                    officialMessageId: response?.data?.official_message_id || ''
+                }
+            }
+        }
         const groupId = options.groupId ? normalizeGroupId(options.groupId) : ''
         if (groupId) {
             const selfId = getSelfId(options)

@@ -3,6 +3,7 @@ const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const subscriptionService = require('../../../../services/subscriptionService')
 const { dashLog } = require('../shared/logging')
+const { writeQqOfficialClientSecret } = require('../../../../config/secretStore')
 
 const router = express.Router()
 const HEX_COLOR_PATTERN = /^#([0-9A-F]{6})$/i
@@ -17,11 +18,35 @@ const ALLOWED_GLOBAL_CONFIG_KEYS = [
     'videoDownloadResolution',
     'videoDownloadMaxDuration',
     'videoDownloadAutoClean',
-    'videoDownloadCleanTimeout'
+    'videoDownloadCleanTimeout',
+    'qqProvider',
+    'qqOfficialAppId',
+    'qqOfficialClientSecret',
+    'qqOfficialApiBase',
+    'qqOfficialTokenUrl',
+    'qqOfficialUseShardedGateway',
+    'qqOfficialIntents',
+    'qqOfficialGatewayAckTimeoutMs',
+    'qqOfficialMediaUploadMode',
+    'qqOfficialTempPublicBaseUrl',
+    'qqOfficialRootOpenids',
+    'qqOfficialAccountQpm',
+    'qqOfficialGroupQpm',
+    'qqOfficialQueueMaxSize'
 ]
 
 function normalizeHexColor(value) {
     return String(value || '').trim().toUpperCase()
+}
+
+function normalizeCsvList(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item).trim()).filter(Boolean)
+    }
+    return String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
 }
 
 // GET /api/config - Read config
@@ -45,6 +70,7 @@ router.get('/config', async (req, res) => {
 router.post('/config', async (req, res) => {
     try {
         const newConfig = req.body
+        let qqOfficialClientSecretUpdated = false
         if (!newConfig || typeof newConfig !== 'object') {
             return res.status(400).json({ error: 'Invalid configuration data' })
         }
@@ -109,10 +135,67 @@ router.post('/config', async (req, res) => {
                 .json({ error: 'invalid videoDownloadResolution' })
         }
 
+        if (filtered.qqProvider !== undefined) {
+            const provider = String(filtered.qqProvider || '').trim().toLowerCase()
+            if (!['napcat', 'onebot', 'official'].includes(provider)) {
+                return res.status(400).json({ error: 'invalid qqProvider' })
+            }
+            filtered.qqProvider = provider === 'official' ? 'official' : 'napcat'
+        }
+
+        for (const key of ['qqOfficialAppId', 'qqOfficialApiBase', 'qqOfficialTokenUrl', 'qqOfficialTempPublicBaseUrl']) {
+            if (filtered[key] !== undefined) {
+                filtered[key] = String(filtered[key] || '').trim()
+            }
+        }
+
+        if (filtered.qqOfficialClientSecret !== undefined) {
+            const nextSecret = String(filtered.qqOfficialClientSecret || '').trim()
+            if (nextSecret) {
+                writeQqOfficialClientSecret(nextSecret)
+                qqOfficialClientSecretUpdated = true
+                if (typeof sysConfig.deleteKeys === 'function') {
+                    sysConfig.deleteKeys(['qqOfficialClientSecret'])
+                }
+            } else {
+                delete filtered.qqOfficialClientSecret
+            }
+            delete filtered.qqOfficialClientSecret
+        }
+
+        if (filtered.qqOfficialUseShardedGateway !== undefined) {
+            filtered.qqOfficialUseShardedGateway = Boolean(filtered.qqOfficialUseShardedGateway)
+        }
+
+        if (filtered.qqOfficialMediaUploadMode !== undefined) {
+            const mode = String(filtered.qqOfficialMediaUploadMode || '').trim().toLowerCase()
+            if (!['hybrid', 'url_only', 'file_data'].includes(mode)) {
+                return res.status(400).json({ error: 'invalid qqOfficialMediaUploadMode' })
+            }
+            filtered.qqOfficialMediaUploadMode = mode
+        }
+
+        if (filtered.qqOfficialRootOpenids !== undefined) {
+            filtered.qqOfficialRootOpenids = normalizeCsvList(filtered.qqOfficialRootOpenids)
+        }
+
+        for (const key of ['qqOfficialIntents', 'qqOfficialGatewayAckTimeoutMs', 'qqOfficialAccountQpm', 'qqOfficialGroupQpm', 'qqOfficialQueueMaxSize']) {
+            if (filtered[key] === undefined) continue
+            const value = parseInt(filtered[key], 10)
+            if (!Number.isFinite(value) || value < 0) {
+                return res.status(400).json({ error: `${key} must be a non-negative integer` })
+            }
+            filtered[key] = value
+        }
+
         Object.assign(sysConfig, filtered)
         sysConfig.save()
+        const restartRequired = qqOfficialClientSecretUpdated ||
+            Object.keys(filtered).some((key) => key.startsWith('qqProvider') || key.startsWith('qqOfficial'))
         dashLog(req, 'info', 'config-updated', {
-            keys: Object.keys(filtered).join(',')
+            keys: Object.keys(filtered).join(','),
+            secretUpdated: qqOfficialClientSecretUpdated,
+            restartRequired
         })
 
         if (filtered.subscriptionCheckInterval !== undefined) {
@@ -125,7 +208,14 @@ router.post('/config', async (req, res) => {
             }
         }
 
-        res.json({ message: 'Configuration updated successfully', config: filtered })
+        res.json({
+            message: 'Configuration updated successfully',
+            config: {
+                ...filtered,
+                qqOfficialClientSecret: qqOfficialClientSecretUpdated ? '[REDACTED]' : undefined
+            },
+            restartRequired
+        })
     } catch (error) {
         dashLog(req, 'error', 'config-update-failed', {
             error: logger.getErrorMessage(error)

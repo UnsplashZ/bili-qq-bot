@@ -9,10 +9,21 @@ const apiRoutes = require('./routes/api');
 const sysConfig = require('../config');
 const { csrfProtection } = require('./middleware/auth'); // 🆕 P2-2
 const updateChecker = require('../services/subscription/updateChecker');
+const qqProviderRuntime = require('../providers/qq/runtime');
 
 let server = null;
 let wss = null;
 let logUnsubscribe = null;
+
+function buildPublicProviderStatus(providerStatus) {
+    if (!providerStatus) return null;
+    return {
+        id: providerStatus.id || 'unknown',
+        name: providerStatus.name || providerStatus.id || 'unknown',
+        connectionState: providerStatus.connectionState || providerStatus.gateway?.state || 'unknown',
+        readyState: providerStatus.readyState ?? null
+    };
+}
 
 function buildStatusPayload() {
     let subscription = null;
@@ -38,6 +49,11 @@ function buildStatusPayload() {
     const subscriptionState = runtime.lastError || runtime.startState === 'error'
         ? 'degraded'
         : (runtime.ready || subscription?.running ? 'ok' : 'starting');
+    const providerStatus = qqProviderRuntime.getProviderStatus();
+    const publicProviderStatus = buildPublicProviderStatus(providerStatus);
+    const providerState = providerStatus
+        ? (providerStatus.connectionState === 'ready' || providerStatus.gateway?.state === 'ready' ? 'ok' : 'starting')
+        : 'not_started';
 
     return {
         status: subscriptionState === 'degraded'
@@ -46,8 +62,10 @@ function buildStatusPayload() {
         uptime: process.uptime(),
         components: {
             dashboard: 'ok',
-            subscriptionRuntime: subscriptionState
+            subscriptionRuntime: subscriptionState,
+            qqProvider: providerState
         },
+        qqProvider: publicProviderStatus,
         subscription
     };
 }
@@ -65,6 +83,12 @@ function start(port = 3000) {
             // Middleware
             app.use(cors());
             app.use(express.json());
+
+            app.use('/qq-official-temp', express.static(path.join(sysConfig.napcatTempPath, 'qq-official-temp'), {
+                index: false,
+                maxAge: '10m',
+                immutable: false
+            }));
 
             // 🆕 P2-2: CSRF保护（应用于所有API路由）
             app.use('/api', csrfProtection);
@@ -189,5 +213,6 @@ function stop() {
 module.exports = {
     start,
     stop,
-    buildStatusPayload
+    buildStatusPayload,
+    buildPublicProviderStatus
 };

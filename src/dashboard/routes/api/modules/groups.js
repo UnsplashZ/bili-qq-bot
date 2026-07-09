@@ -3,10 +3,14 @@ const logger = require('../../../../utils/logger')
 const sysConfig = require('../../../../config')
 const {
     assertWebuiManageableGroup,
+    getKnownManageableGroupIds,
+    getGroupIdsInBotGroupList,
     getKnownManageableNumericGroupIds,
     getNumericGroupIdsInBotGroupList,
-    isInBotGroupList
+    isInBotGroupList,
+    isOfficialProviderMode
 } = require('../shared/group-guard')
+const { isNumericGroupId } = require('../shared/normalize')
 const { dashLog } = require('../shared/logging')
 
 const router = express.Router()
@@ -16,20 +20,27 @@ router.get('/groups', async (req, res) => {
     try {
         const bot = global.bot
         const groupConfigs = sysConfig.groupConfigs || {}
-        const enabledGroups = Array.isArray(sysConfig.enabledGroups)
-            ? sysConfig.enabledGroups.map(id => String(id))
-            : []
+        const allowOpaque = isOfficialProviderMode(sysConfig, bot)
+        const enabledGroups = (typeof sysConfig.getEnabledGroupsForProvider === 'function'
+            ? sysConfig.getEnabledGroupsForProvider(allowOpaque ? 'official' : 'napcat')
+            : (Array.isArray(sysConfig.enabledGroups) ? sysConfig.enabledGroups : [])
+        ).map(id => String(id))
         const enabledSet = new Set(enabledGroups)
         const whitelistMode = enabledGroups.length > 0
-        const allGroupIds = getKnownManageableNumericGroupIds(sysConfig, bot)
+        const allGroupIds = getKnownManageableGroupIds(sysConfig, bot, { allowOpaque })
 
         const groupsData = Array.from(allGroupIds)
-            .sort((a, b) => Number(a) - Number(b))
+            .sort((a, b) => {
+                const aNumeric = isNumericGroupId(a)
+                const bNumeric = isNumericGroupId(b)
+                if (aNumeric && bNumeric) return Number(a) - Number(b)
+                return String(a).localeCompare(String(b))
+            })
             .map(groupId => {
             const groupIdStr = String(groupId)
             const groupIdNum = Number(groupIdStr)
             const groupInfo =
-                bot?.groupList?.get(groupId) || bot?.groupList?.get(groupIdNum)
+                bot?.groupList?.get(groupId) || (isNumericGroupId(groupIdStr) ? bot?.groupList?.get(groupIdNum) : null)
             const groupConfig = groupConfigs[groupIdStr] || {}
             const normalizedRules = sysConfig.normalizeSubscriptionAtAllRules(
                 groupConfig.subscriptionAtAllRules
@@ -41,7 +52,7 @@ router.get('/groups', async (req, res) => {
 
             let isInGroup = true
             if (bot && bot.groupList) {
-                isInGroup = isInBotGroupList(bot, groupIdStr)
+                isInGroup = isInBotGroupList(bot, groupIdStr, { allowOpaque })
             } else {
                 isInGroup = groupConfig.isInGroup !== false
             }
@@ -77,14 +88,13 @@ router.post('/groups/:id/toggle', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
         const groupIdStr = String(groupId)
+        const allowOpaque = isOfficialProviderMode(sysConfig, global.bot)
 
-        if (!sysConfig.enabledGroups) {
-            sysConfig.enabledGroups = []
-        }
-
-        let enabledGroups = Array.isArray(sysConfig.enabledGroups)
-            ? sysConfig.enabledGroups.map(id => String(id))
-            : []
+        const providerScope = allowOpaque ? 'official' : 'napcat'
+        let enabledGroups = (typeof sysConfig.getMutableEnabledGroupsForProvider === 'function'
+            ? sysConfig.getMutableEnabledGroupsForProvider(providerScope)
+            : (Array.isArray(sysConfig.enabledGroups) ? sysConfig.enabledGroups : [])
+        ).map(id => String(id))
         const enabledSet = new Set(enabledGroups)
         const currentlyEnabled = enabledGroups.length === 0 || enabledSet.has(groupIdStr)
         let isEnabled
@@ -92,12 +102,14 @@ router.post('/groups/:id/toggle', async (req, res) => {
         if (currentlyEnabled) {
             if (enabledGroups.length === 0) {
                 // 运行时语义中空白名单表示“全部启用”，禁用单群时先显式展开当前在群列表
-                enabledGroups = Array.from(getNumericGroupIdsInBotGroupList(global.bot))
+                enabledGroups = allowOpaque
+                    ? Array.from(getGroupIdsInBotGroupList(global.bot, { allowOpaque: true }))
+                    : Array.from(getNumericGroupIdsInBotGroupList(global.bot))
                 if (enabledGroups.length === 0) {
                     // Bot 离线时回退到已知群集合，避免“返回禁用成功但空白名单仍表示全部启用”
-                    enabledGroups = Array.from(
-                        getKnownManageableNumericGroupIds(sysConfig, global.bot)
-                    )
+                    enabledGroups = allowOpaque
+                        ? Array.from(getKnownManageableGroupIds(sysConfig, global.bot, { allowOpaque: true }))
+                        : Array.from(getKnownManageableNumericGroupIds(sysConfig, global.bot))
                 }
             }
             enabledGroups = enabledGroups.filter(id => id !== groupIdStr)
@@ -109,7 +121,13 @@ router.post('/groups/:id/toggle', async (req, res) => {
             isEnabled = true
         }
 
-        sysConfig.enabledGroups = Array.from(new Set(enabledGroups))
+        enabledGroups = Array.from(new Set(enabledGroups))
+        if (allowOpaque && typeof sysConfig.getMutableEnabledGroupsForProvider === 'function') {
+            const scopedGroups = sysConfig.getMutableEnabledGroupsForProvider('official')
+            scopedGroups.splice(0, scopedGroups.length, ...enabledGroups)
+        } else {
+            sysConfig.enabledGroups = enabledGroups
+        }
         sysConfig.save()
         dashLog(req, 'info', 'group-toggled', {
             groupId,
@@ -293,10 +311,14 @@ router.delete('/groups/:id', async (req, res) => {
             modified = true
         }
 
-        if (sysConfig.enabledGroups) {
-            const index = sysConfig.enabledGroups.indexOf(groupIdStr)
+        const allowOpaque = isOfficialProviderMode(sysConfig, global.bot)
+        const enabledGroups = allowOpaque && typeof sysConfig.getMutableEnabledGroupsForProvider === 'function'
+            ? sysConfig.getMutableEnabledGroupsForProvider('official')
+            : sysConfig.enabledGroups
+        if (enabledGroups) {
+            const index = enabledGroups.indexOf(groupIdStr)
             if (index !== -1) {
-                sysConfig.enabledGroups.splice(index, 1)
+                enabledGroups.splice(index, 1)
                 modified = true
             }
         }

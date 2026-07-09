@@ -14,6 +14,11 @@ const {
 const {
     canReceiveSubscriptionVideoDownload
 } = require('./subscription/updateChecker/helpers/groupReachability')
+const {
+    isOfficialTransport,
+    isQqTransportReady,
+    resolveOutboundTransport
+} = require('../providers/qq/readiness')
 
 // 下载目录必须与 NapCat 共享目录对齐，否则 NapCat 无法读取本地视频文件
 const DOWNLOADS_DIR = path.join(config.napcatTempPath, 'downloads')
@@ -375,17 +380,21 @@ class VideoDownloadService {
      */
     async _sendForwardMessage(ws, groupId, result, scope = DOWNLOAD_SCOPE) {
         // 优先使用全局当前活跃连接，fallback 到传入参数（防止 stale ws）
-        const activeWs = global.bot?.ws || ws
-        if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
+        const activeWs = resolveOutboundTransport(ws)
+        const isOfficialProvider = isOfficialTransport(activeWs)
+        if (!isQqTransportReady(activeWs)) {
             sendLog('warn', 'video-send-skipped', {
                 groupId,
                 title: result.title,
-                reason: 'ws_not_open'
+                reason: 'transport_not_ready'
             }, scope)
             return false
         }
 
-        const videoFile = `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}`
+        const videoFilePath = isOfficialProvider
+            ? result.file_path
+            : toNapcatReadablePath(result.file_path)
+        const videoFile = `file://${toFileUrlPath(videoFilePath)}`
 
         // 私聊虚拟群场景
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
@@ -397,21 +406,23 @@ class VideoDownloadService {
                 }, scope)
                 return false
             }
-            const payload = {
-                action: 'send_private_msg',
-                params: {
-                    user_id: realUserId,
-                    message: [
-                        { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
-                        { type: 'video', data: { file: videoFile } }
-                    ]
-                }
-            }
-            try {
-                activeWs.send(JSON.stringify(payload))
-                sendLog('info', 'video-sent', {
+        try {
+            const response = await notificationService.sendPrivateMessage(activeWs, realUserId, [
+                { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                { type: 'video', data: { file: videoFile } }
+            ], 'VideoDownload', false)
+            if (response?.fallbackUsed) {
+                sendLog('warn', 'video-send-fallback-used', {
                     userId: realUserId,
                     title: result.title,
+                    targetType: 'private',
+                    reason: response.fallbackReason || 'media_fallback'
+                }, scope)
+                return false
+            }
+            sendLog('info', 'video-sent', {
+                userId: realUserId,
+                title: result.title,
                     targetType: 'private'
                 }, scope)
                 return true
@@ -427,7 +438,7 @@ class VideoDownloadService {
         }
 
         const numericGroupId = Number(groupId)
-        if (!Number.isFinite(numericGroupId)) {
+        if (!isOfficialProvider && !Number.isFinite(numericGroupId)) {
             sendLog('warn', 'video-send-skipped', {
                 groupId,
                 reason: 'invalid_group'
@@ -435,19 +446,20 @@ class VideoDownloadService {
             return false
         }
 
-        const payload = {
-            action: 'send_group_msg',
-            params: {
-                group_id: numericGroupId,
-                message: [
-                    { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
-                    { type: 'video', data: { file: videoFile } }
-                ]
-            }
-        }
-
         try {
-            activeWs.send(JSON.stringify(payload))
+            const response = await notificationService.sendGroupMessage(activeWs, isOfficialProvider ? String(groupId) : numericGroupId, [
+                { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                { type: 'video', data: { file: videoFile } }
+            ], 'VideoDownload', false)
+            if (response?.fallbackUsed) {
+                sendLog('warn', 'video-send-fallback-used', {
+                    groupId,
+                    title: result.title,
+                    targetType: 'group',
+                    reason: response.fallbackReason || 'media_fallback'
+                }, scope)
+                return false
+            }
             sendLog('info', 'video-sent', {
                 groupId,
                 title: result.title,
@@ -589,8 +601,9 @@ class VideoDownloadService {
                 reason: 'disk_space_full'
             }, taskScope)
             const rootAdminQQ = config.getRootAdminQQ()
-            if (rootAdminQQ && ws && ws.readyState === 1) {
-                notificationService.sendPrivateMessage(ws, rootAdminQQ, [
+            const notifyTransport = resolveOutboundTransport(ws)
+            if (rootAdminQQ && isQqTransportReady(notifyTransport)) {
+                notificationService.sendPrivateMessage(notifyTransport, rootAdminQQ, [
                     { type: 'text', data: { text: `⚠️ 下载目录空间不足（超过 5GB），已跳过订阅视频 ${bvid} 的下载。可使用 /清理下载 释放空间` } }
                 ], 'VideoDownload', false)
             }

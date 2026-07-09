@@ -2,7 +2,7 @@
 
 ![License](https://img.shields.io/badge/license-ISC-blue.svg) ![Docker](https://img.shields.io/badge/docker-ready-blue) ![Node](https://img.shields.io/badge/node-%3E%3D22.12.0-green) ![Python](https://img.shields.io/badge/python-%3E%3D3.8-yellow)
 
-基于 [NapCat](https://github.com/NapNeko/NapCatQQ) 框架开发的 Bilibili 链接解析机器人。它能智能识别并解析 B 站各种类型的链接，并为这些内容生成高清预览卡片。
+基于 [NapCat](https://github.com/NapNeko/NapCatQQ) / OneBot 的 Bilibili 链接解析机器人，并提供 QQ 官方机器人 OpenAPI Provider（可选）。它能智能识别并解析 B 站各种类型的链接，并为这些内容生成高清预览卡片。
 
 > 旧版 AI 对话、向量记忆、用户画像、MCP 工具调用等实验性能力已移除。当前分支使用新的 Agent 架构：命令和 B 站链接仍走确定性系统链路，自然语言消息可进入受限 Agent，由 LLM 判断是否回复、记忆或调用白名单工具。
 
@@ -45,7 +45,12 @@
 
 *   📡 **订阅推送**：内置订阅系统，支持分群订阅与同步关注分组，实时追踪 UP 主动态、视频、专栏、直播与番剧更新
 
-*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
+*   🔌 **QQ 接入 Provider**
+    *   默认兼容 OneBot / NapCat 部署
+    *   可在 WebUI 或配置中切换 QQ Official Provider，通过官方 WSS + OpenAPI 收发消息
+    *   Official 模式支持文本、图片、视频、订阅推送、基础指令、Agent 基础回复与机器人消息撤回；NapCat 专属群管能力会按 capability 自动隐藏或降级
+
+*   🖥️ **WebUI 管理面板**：内置可视化管理后台，支持分群配置、QQ 连接模式、视频下载策略、订阅管理、日志查看、B站登录等操作，无需命令行
 
 *   🤖 **受限 Agent（实验性）**
     *   自然语言消息可进入 Agent，由 LLM 结合上下文、群聊节奏、记忆和人格决定回复或沉默
@@ -199,6 +204,8 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | QQ 群管理员/群主 | 基于 QQ 权限管理本群配置和群聊操作 |
 | `ADMIN_QQ` Root | 全局配置、跨群管理、QQ 账号级工具 |
 
+> QQ Official 模式使用 `openid/member_openid/group_openid`，Root 管理员通过 `QQ_OFFICIAL_ROOT_OPENIDS` 配置；不要把数字 QQ 号和官方 openid 混用。
+
 ### 工具和确认
 
 - Agent 只能调用白名单工具，不能执行 shell、不能任意读写文件、不能动态接入 MCP。
@@ -232,6 +239,20 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | :--- | :--- | :--- |
 | `WS_URL` | NapCat 的 WebSocket 地址 | `ws://napcat:3001` (Docker) / `ws://localhost:3001` (本地) |
 | `WS_TOKEN` | WebSocket 连接 Token (可选，留空则不启用身份验证) | 需与 NapCat 配置一致 |
+| `QQ_PROVIDER` | QQ 连接模式：`napcat` 或 `official` | `napcat` |
+| `QQ_OFFICIAL_APP_ID` | QQ 官方机器人 AppID | 留空 |
+| `QQ_OFFICIAL_CLIENT_SECRET` | QQ 官方机器人 Secret（只写入本地 `.env`，不要提交） | 留空 |
+| `QQ_OFFICIAL_API_BASE` | QQ 官方 OpenAPI Base URL | `https://api.sgroup.qq.com` |
+| `QQ_OFFICIAL_TOKEN_URL` | QQ 官方 access token 获取地址 | `https://bots.qq.com/app/getAppAccessToken` |
+| `QQ_OFFICIAL_USE_SHARDED_GATEWAY` | 是否优先使用 `/gateway/bot` 获取 WSS 地址 | `true` |
+| `QQ_OFFICIAL_INTENTS` | WSS intents，默认 `GROUP_AND_C2C_EVENT` | `33554432` |
+| `QQ_OFFICIAL_GATEWAY_ACK_TIMEOUT_MS` | WSS 心跳 ACK 超时 | `90000` |
+| `QQ_OFFICIAL_MEDIA_UPLOAD_MODE` | 富媒体上传策略：`hybrid` / `url_only` / `file_data` | `hybrid` |
+| `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` | Official 发送本地文件/视频时使用的临时公网 Base URL；内置临时静态路由为 `/qq-official-temp/` | 留空 |
+| `QQ_OFFICIAL_ROOT_OPENIDS` | Official 模式 Root 管理员 openid，多个用逗号分隔 | 留空 |
+| `QQ_OFFICIAL_ACCOUNT_QPM` | Official 主动消息账号维度 QPM | `30` |
+| `QQ_OFFICIAL_GROUP_QPM` | Official 主动消息单群 QPM | `20` |
+| `QQ_OFFICIAL_QUEUE_MAX_SIZE` | Official 发送队列上限 | `300` |
 | `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
 | `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
 | `PUPPETEER_EXECUTABLE_PATH` | 指定浏览器可执行文件路径（可选） | 留空（自动检测） |
@@ -273,13 +294,24 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | `videoDownloadMaxDuration` | 视频下载最大时长限制（秒，`0` 表示不限） | `600` |
 | `videoDownloadAutoClean` | 视频文件发送后自动清理 | `true` |
 | `videoDownloadCleanTimeout` | 下载目录兜底清理超时（小时） | `6` |
+| `qqProvider` | WebUI 可切换的 QQ 连接模式；保存后需重启 Bot 生效 | `napcat` |
+| `qqOfficial*` | Official Provider 的非敏感运行配置；Secret 只应放 `.env` 或通过 WebUI 覆盖写入，不会回显 | 见 `.env.example` |
 | `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
 | `labelConfig` | 标签显示配置（视频、番剧、动态、专栏、直播及扩展类型） | `{"video": true, ...}` |
 | `showId` | 是否在卡片中显示 UID | `true` |
 | `groupConfigs` | 群级配置覆盖 (每个群可独立配置) | `{}` |
 | `agent` | 新 Agent 运行时配置，包括开关、Persona、短期/长期记忆、回复策略、工具策略、预算和群级覆盖 | `{"enabled": false, ...}` |
 
-### 3. Agent 开启建议
+### 3. QQ Official 接入说明
+
+- Official Provider 使用 QQ 官方 WSS 长连接接收事件，不要求公网域名服务器；Webhook 模式才需要公网 HTTPS 回调地址。
+- WSS 地址由官方 OpenAPI `/gateway/bot` 或 `/gateway` 获取，Bot 不应把这个地址写死。
+- 官方富媒体上传要求公网可拉取的 `url` 更稳定；`hybrid` 会保留 `file_data` 并在配置 `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` 后同步生成临时 URL。内置 Dashboard 会只读发布 `NAPCAT_TEMP_PATH` 到 `/qq-official-temp/`，例如可把 `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` 配成 `https://bot.example.com/qq-official-temp/`。该地址必须能被 QQ 官方服务器访问，本地 `localhost`/内网地址不可用。
+- 官方群全量消息和主动群发需要群主在 QQ 开放平台/群设置中开启；未开启时仍可使用 @Bot 消息和被动回复场景。
+- 切换 `QQ_PROVIDER` 或 WebUI 的连接模式后，需要重启 Bot 才会重建连接。
+- 可运行 `node test/tools/qq-official-smoke.js` 做 dry-run 自检；具备真实凭据时显式设置 `QQ_OFFICIAL_SMOKE_REAL=1` 后再运行，脚本只输出 token TTL、gateway shard 等状态摘要，不输出 Secret、access token 或 Authorization。
+
+### 4. Agent 开启建议
 
 Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key，不会自动让 Agent 在群里发言；建议按阶段开启：
 

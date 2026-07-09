@@ -9,6 +9,28 @@ const agentScreenshotService = require('../../services/agentScreenshotService')
 const requestApprovalService = require('../../services/requestApprovalService')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const longTermStore = require('../memory/longTermStore')
+const qqProviderRuntime = require('../../providers/qq/runtime')
+
+const OFFICIAL_ALLOWED_QQ_TOOLS = new Set([
+    'qq.delete_message'
+])
+
+const OFFICIAL_HIDDEN_TOOLS = new Set([
+    'browser.screenshot_url'
+])
+
+function isOfficialProviderActive(context = {}) {
+    const provider = context.provider || context.ws || qqProviderRuntime.getCurrentProvider()
+    return String(provider?.id || '').toLowerCase() === 'official'
+}
+
+function isToolSupportedByProvider(name, context = {}) {
+    if (!isOfficialProviderActive(context)) return true
+    const toolName = String(name || '')
+    if (OFFICIAL_HIDDEN_TOOLS.has(toolName)) return false
+    if (toolName.startsWith('qq.')) return OFFICIAL_ALLOWED_QQ_TOOLS.has(toolName)
+    return true
+}
 
 function normalizeBoolean(value) {
     if (typeof value === 'boolean') return value
@@ -1525,8 +1547,8 @@ function getToolDefinition(name) {
     return toolDefinitions[String(name || '').trim()] || null
 }
 
-function listToolDefinitions() {
-    return Object.values(toolDefinitions).map((tool) => ({
+function listToolDefinitions(context = {}) {
+    return Object.values(toolDefinitions).filter((tool) => isToolSupportedByProvider(tool.name, context)).map((tool) => ({
         name: tool.name,
         description: tool.description,
         risk: tool.risk,
@@ -1546,6 +1568,9 @@ function normalizeToolIntent(toolIntent, sessionContext) {
     const name = String(toolIntent.name || toolIntent.tool || toolIntent.toolName || '').trim()
     const definition = getToolDefinition(name)
     if (!definition) throw new Error(`unknown_tool:${name || 'empty'}`)
+    if (!isToolSupportedByProvider(definition.name, sessionContext)) {
+        throw new Error(`unsupported_provider_tool:${definition.name}`)
+    }
 
     const rawArgs = toolIntent.arguments || toolIntent.args || toolIntent.params || {}
     if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
@@ -1589,6 +1614,9 @@ function shouldEnforceTimeout(definition) {
 async function executeToolPlan(plan, context = {}) {
     const definition = getToolDefinition(plan?.name)
     if (!definition) throw new Error(`unknown_tool:${plan?.name || 'empty'}`)
+    if (!isToolSupportedByProvider(definition.name, context)) {
+        throw new Error(`unsupported_provider_tool:${definition.name}`)
+    }
     if (!shouldEnforceTimeout(definition)) {
         return definition.execute(plan.args || {}, context)
     }
@@ -1602,6 +1630,7 @@ async function executeToolPlan(plan, context = {}) {
 module.exports = {
     getToolDefinition,
     listToolDefinitions,
+    isToolSupportedByProvider,
     normalizeToolIntent,
     executeToolPlan
 }

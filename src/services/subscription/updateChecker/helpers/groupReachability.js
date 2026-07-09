@@ -1,4 +1,5 @@
 const config = require('../../../../config')
+const qqProviderRuntime = require('../../../../providers/qq/runtime')
 
 function normalizeGroupId(groupId) {
     if (groupId === null || groupId === undefined) return ''
@@ -26,6 +27,17 @@ function getSubscriptionNotificationReachability(groupId) {
     }
     if (!config.isGroupEnabled(gid)) {
         return { ok: false, groupId: gid, reason: 'group_disabled' }
+    }
+    const provider = qqProviderRuntime.getCurrentProvider()
+    if (String(provider?.id || '').toLowerCase() === 'official') {
+        const groupState = provider.idStore?.getGroup?.(gid)
+        if (groupState && groupState.reachable === false) {
+            return {
+                ok: false,
+                groupId: gid,
+                reason: groupState.reachabilityReason || 'official_group_msg_rejected'
+            }
+        }
     }
     return { ok: true, groupId: gid, reason: 'ok' }
 }

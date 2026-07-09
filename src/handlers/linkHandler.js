@@ -43,7 +43,7 @@ class LinkHandler {
     async sendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null, logContext = null) {
         const scope = logContext?.scope || ''
         try {
-            this.sendGroupMessage(ws, groupId, [
+            await this.sendGroupMessage(ws, groupId, [
                 { type: 'image', data: { file: `base64://${base64Image}` } },
                 { type: 'text', data: { text: `${url}` } }
             ], userId)
@@ -62,7 +62,7 @@ class LinkHandler {
                 reason: 'message_send_failed',
                 error: logger.getErrorMessage(error)
             })
-            this.sendGroupMessage(ws, groupId, [{
+            await this.sendGroupMessage(ws, groupId, [{
                 type: 'text',
                 data: {
                     text: `图片发送失败，已降级为文本链接：\n${url}`
@@ -71,17 +71,17 @@ class LinkHandler {
         }
     }
 
-    sendGroupMessage(ws, groupId, messageChain, userId = null) {
+    async sendGroupMessage(ws, groupId, messageChain, userId = null) {
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
             const realUserId = groupId.replace('private_', '')
-            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
+            await notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
             return
         }
 
         if (groupId) {
-            notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
+            await notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
         } else if (userId) {
-            notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
+            await notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
         } else {
             this.log('warn', '', 'send-skipped', {
                 reason: 'missing_target'

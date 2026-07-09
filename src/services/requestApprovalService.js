@@ -2,6 +2,7 @@ const crypto = require('crypto')
 const config = require('../config')
 const logger = require('../utils/logger')
 const notificationService = require('./notificationService')
+const qqProviderRuntime = require('../providers/qq/runtime')
 
 const DEFAULT_EXPIRE_MS = 24 * 60 * 60 * 1000
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
@@ -645,6 +646,14 @@ class RequestApprovalService {
     }
 
     async _applyDecision(ws, item, decision) {
+        if (qqProviderRuntime.isOfficialProvider(ws)) {
+            return {
+                ok: false,
+                retcode: null,
+                wording: 'unsupported_official_action:request_approval'
+            }
+        }
+
         const approve = decision === 'approve'
         let action = ''
         let params = {}

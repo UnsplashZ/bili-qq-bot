@@ -2,6 +2,7 @@
 
 const express = require('express')
 const logger = require('../../../../utils/logger')
+const sysConfig = require('../../../../config')
 const { resolvePreviewInput } = require('../../../../services/previewLab/inputResolver')
 const { resolvePreviewTarget } = require('../../../../services/previewLab/targetResolver')
 const { buildMockPreviewTarget } = require('../../../../services/previewLab/mockData')
@@ -35,6 +36,8 @@ const {
     resetPreviewTemplate
 } = require('../../../../services/previewTemplate/merge')
 const { dashLog } = require('../shared/logging')
+const { isOfficialProviderMode } = require('../shared/group-guard')
+const { isNumericGroupId, isOfficialOpaqueGroupId } = require('../shared/normalize')
 
 const router = express.Router()
 
@@ -73,10 +76,11 @@ function normalizeType(value) {
 function normalizeGroupId(value) {
     const groupId = String(value || '').trim()
     if (!groupId) return ''
-    if (!/^\d{5,20}$/.test(groupId)) {
-        throw new PreviewLayoutValidationError('groupId must be a numeric QQ group id')
+    if (isNumericGroupId(groupId)) return groupId
+    if (isOfficialProviderMode(sysConfig, global.bot) && isOfficialOpaqueGroupId(groupId)) {
+        return groupId
     }
-    return groupId
+    throw new PreviewLayoutValidationError('groupId must be a numeric QQ group id or Official group_openid')
 }
 
 function normalizeScope(value) {

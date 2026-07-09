@@ -2,6 +2,7 @@ import { useState } from 'react'
 import api from '../utils/auth'
 import { useToast } from '../hooks/useToast'
 import GeneralSettingsSection from './settings/components/GeneralSettingsSection'
+import QqProviderSection from './settings/components/QqProviderSection'
 import BiliGlobalSection from './settings/components/BiliGlobalSection'
 import GlobalBlacklistSection from './settings/components/GlobalBlacklistSection'
 import VideoDownloadSection from './settings/components/VideoDownloadSection'
@@ -65,6 +66,13 @@ const Settings = () => {
       <GeneralSettingsSection
         generalConfig={settingsData.generalConfig}
         onGeneralChange={settingsData.handleGeneralChange}
+      />
+
+      <QqProviderSection
+        config={settingsData.qqProviderConfig}
+        status={settingsData.qqProviderStatus}
+        restartRequired={settingsData.restartRequired}
+        onChange={(field, value) => settingsData.setQqProviderConfig(p => ({ ...p, [field]: value }))}
       />
 
       <BiliGlobalSection

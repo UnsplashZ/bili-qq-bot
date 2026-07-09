@@ -15,6 +15,23 @@ const DEFAULT_VIDEO_DOWNLOAD_CONFIG = {
     videoDownloadCleanTimeout: 6
 }
 
+const DEFAULT_QQ_PROVIDER_CONFIG = {
+    qqProvider: 'napcat',
+    qqOfficialAppId: '',
+    qqOfficialClientSecret: '',
+    qqOfficialClientSecretConfigured: false,
+    qqOfficialApiBase: 'https://api.sgroup.qq.com',
+    qqOfficialTokenUrl: 'https://bots.qq.com/app/getAppAccessToken',
+    qqOfficialUseShardedGateway: true,
+    qqOfficialIntents: 33554432,
+    qqOfficialMediaUploadMode: 'hybrid',
+    qqOfficialTempPublicBaseUrl: '',
+    qqOfficialRootOpenids: [],
+    qqOfficialAccountQpm: 30,
+    qqOfficialGroupQpm: 20,
+    qqOfficialQueueMaxSize: 300
+}
+
 function extractConfig(source, defaults) {
     const result = {}
     for (const [key, def] of Object.entries(defaults)) {
@@ -44,6 +61,9 @@ export default function useSettingsData(show) {
 
     const [videoDownloadConfig, setVideoDownloadConfig] = useState(DEFAULT_VIDEO_DOWNLOAD_CONFIG)
     const [savingVideoDownload, setSavingVideoDownload] = useState(false)
+    const [qqProviderConfig, setQqProviderConfig] = useState(DEFAULT_QQ_PROVIDER_CONFIG)
+    const [qqProviderStatus, setQqProviderStatus] = useState(null)
+    const [restartRequired, setRestartRequired] = useState(false)
 
     const [biliGlobalStatus, setBiliGlobalStatus] = useState(createDefaultBiliStatus())
 
@@ -51,15 +71,24 @@ export default function useSettingsData(show) {
         const fetchData = async () => {
             try {
                 setLoading(true)
-                const [configRes, blacklistRes, biliStatusRes] = await Promise.all([
+                const [configRes, blacklistRes, biliStatusRes, providerStatusRes] = await Promise.all([
                     api.get('/api/config'),
                     api.get('/api/blacklist/global'),
-                    api.get('/api/bili/global-status')
+                    api.get('/api/bili/global-status'),
+                    api.get('/api/qq-provider/status').catch(() => ({ data: { provider: null } }))
                 ])
 
                 setGeneralConfig(extractConfig(configRes.data, GENERAL_CONFIG_DEFAULTS))
                 setVideoDownloadConfig(extractConfig(configRes.data, DEFAULT_VIDEO_DOWNLOAD_CONFIG))
+                setQqProviderConfig({
+                    ...extractConfig(configRes.data, DEFAULT_QQ_PROVIDER_CONFIG),
+                    qqOfficialClientSecret: '',
+                    qqOfficialRootOpenids: Array.isArray(configRes.data.qqOfficialRootOpenids)
+                        ? configRes.data.qqOfficialRootOpenids
+                        : []
+                })
                 setBlacklist(blacklistRes.data || [])
+                setQqProviderStatus(providerStatusRes.data?.provider || null)
 
                 if (biliStatusRes.data.isLoggedIn) {
                     setBiliGlobalStatus({
@@ -147,10 +176,17 @@ export default function useSettingsData(show) {
         setSavingGeneral(true)
         setSavingVideoDownload(true)
         try {
-            await api.post('/api/config', {
+            const response = await api.post('/api/config', {
                 ...generalConfig,
-                ...videoDownloadConfig
+                ...videoDownloadConfig,
+                ...qqProviderConfig
             })
+            setRestartRequired(Boolean(response.data?.restartRequired))
+            setQqProviderConfig(prev => ({
+                ...prev,
+                qqOfficialClientSecret: '',
+                qqOfficialClientSecretConfigured: prev.qqOfficialClientSecretConfigured || Boolean(prev.qqOfficialClientSecret)
+            }))
             show('设置已保存！', 'success')
         } catch (error) {
             console.error('Failed to save settings:', error)
@@ -178,6 +214,10 @@ export default function useSettingsData(show) {
         setVideoDownloadConfig,
         savingVideoDownload,
         saveVideoDownloadSettings,
+        qqProviderConfig,
+        setQqProviderConfig,
+        qqProviderStatus,
+        restartRequired,
         saveAllSettings,
         biliGlobalStatus,
         setBiliGlobalStatus

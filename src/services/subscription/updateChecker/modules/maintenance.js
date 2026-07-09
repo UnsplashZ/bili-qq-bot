@@ -19,7 +19,14 @@ module.exports = {
      */
     notifyAdmin(message) {
         const rootAdminQQ = config.getRootAdminQQ()
-        if (!rootAdminQQ) return
+        const officialRootOpenids = typeof config.getOfficialRootOpenids === 'function'
+            ? config.getOfficialRootOpenids()
+            : []
+        const isOfficialTransport = String(this.ws?.id || '').toLowerCase() === 'official'
+        const adminTargets = isOfficialTransport
+            ? officialRootOpenids
+            : (rootAdminQQ ? [rootAdminQQ] : [])
+        if (adminTargets.length === 0) return
         if (!this.ws) {
             subLog('warn', 'admin-notify-skipped', {
                 reason: 'ws_unavailable',
@@ -27,7 +34,15 @@ module.exports = {
             })
             return
         }
-        notificationService.sendPrivateMessage(this.ws, rootAdminQQ, `[Bot通知] ${message}`)
+        for (const adminId of adminTargets) {
+            Promise.resolve(notificationService.sendPrivateMessage(this.ws, adminId, `[Bot通知] ${message}`))
+                .catch((error) => {
+                    subLog('warn', 'admin-notify-failed', {
+                        targetType: isOfficialTransport ? 'official_openid' : 'qq',
+                        error: logger.getErrorMessage(error)
+                    })
+                })
+        }
     },
 
     getCookieSyncFailureState(groupId) {

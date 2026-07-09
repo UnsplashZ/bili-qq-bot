@@ -9,12 +9,15 @@ const updateChecker = require('./services/subscription/updateChecker');
 const dashboardServer = require('./dashboard/server');
 const requestApprovalService = require('./services/requestApprovalService');
 const { warmupEmojiIndexProvider } = require('./services/imageGenerator/renderers/components/emojiIndexProvider');
+const { createQqProvider } = require('./providers/qq/providerFactory');
+const qqProviderRuntime = require('./providers/qq/runtime');
 
 global.bot = global.bot || { groupList: new Map(), selfId: '0' };
 
 warmupEmojiIndexProvider();
 
 let ws = null;
+let officialProvider = null;
 let reconnectCount = 0;
 let reconnectTimer = null;
 let isManualClose = false;
@@ -55,6 +58,19 @@ function getMessageScope(payload) {
     return logger.createMessageScope(groupId, userId, messageId);
 }
 
+function dispatchMessageToHandler(transport, payload, providerLabel, scope) {
+    Promise.resolve(messageHandler.handleMessage(transport, payload)).catch((e) => {
+        botLog('error', 'message-handler-failed', {
+            provider: providerLabel,
+            groupId: payload?.group_id != null ? String(payload.group_id) : '',
+            userId: payload?.user_id != null ? String(payload.user_id) : '',
+            messageId: payload?.message_id != null ? String(payload.message_id) : '',
+            error: logger.getErrorMessage(e),
+            stack: e.stack || ''
+        }, scope);
+    });
+}
+
 function requestGroupList() {
     if (!ws || ws.readyState !== WS_OPEN) return;
     const echo = `${GROUP_LIST_ECHO_PREFIX}${Date.now()}`;
@@ -66,6 +82,105 @@ function requestGroupList() {
             error: logger.getErrorMessage(e)
         });
     }
+}
+
+function handleOfficialProviderEvent(payload) {
+    try {
+        if (!payload || !officialProvider) return;
+
+        if (payload.post_type === 'message') {
+            const scope = getMessageScope(payload);
+            payload.traceContext = { scope, receivedLogged: true };
+            const resolvedGroupId = payload.message_type === 'private'
+                ? `private_${payload.user_id != null ? String(payload.user_id) : 'unknown'}`
+                : (payload.group_id != null ? String(payload.group_id) : '');
+
+            botLog('info', 'recv', {
+                provider: 'official',
+                groupId: resolvedGroupId,
+                userId: payload.user_id != null ? String(payload.user_id) : '',
+                messageType: payload.message_type
+            }, scope);
+
+            dispatchMessageToHandler(officialProvider, payload, 'official', scope);
+            return;
+        }
+
+        if (payload.post_type === 'notice' && payload.notice_type === 'group_increase') {
+            const groupId = String(payload.group_id || '');
+            if (groupId) {
+                config.ensureGroupConfig(groupId);
+                if (config.groupConfigs[groupId] && config.groupConfigs[groupId].isInGroup === false) {
+                    config.groupConfigs[groupId].isInGroup = true;
+                    config.save();
+                }
+                global.bot.groupList = officialProvider.idStore.toGroupListMap();
+            }
+            messageHandler.handleGroupIncrease(officialProvider, payload);
+            return;
+        }
+
+        if (payload.post_type === 'notice' && payload.notice_type === 'group_decrease') {
+            const groupId = String(payload.group_id || '');
+            if (groupId && config.groupConfigs && config.groupConfigs[groupId]) {
+                config.groupConfigs[groupId].isInGroup = false;
+                config.save();
+            }
+            global.bot.groupList = officialProvider.idStore.toGroupListMap();
+            return;
+        }
+
+        if (payload.post_type === 'notice' && payload.notice_type === 'group_reachability') {
+            botLog('info', 'official-group-reachability', {
+                groupId: String(payload.group_id || ''),
+                reachable: Boolean(payload.reachable),
+                reason: payload.reason || ''
+            });
+        }
+    } catch (e) {
+        botLog('error', 'official-payload-process-failed', {
+            error: logger.getErrorMessage(e),
+            stack: e.stack || ''
+        });
+    }
+}
+
+async function createOfficialProviderConnection() {
+    if (officialProvider) {
+        try {
+            await officialProvider.stop();
+        } catch (e) {
+            botLog('error', 'official-stop-old-failed', {
+                error: logger.getErrorMessage(e)
+            });
+        }
+    }
+
+    officialProvider = createQqProvider({ provider: 'official' });
+    qqProviderRuntime.setCurrentProvider(officialProvider);
+    global.bot = global.bot || { groupList: new Map(), selfId: '0' };
+    global.bot.ws = null;
+    global.bot.provider = officialProvider;
+
+    botLog('info', 'official-connect-attempt', {
+        appId: config.qqOfficialAppId,
+        useShardedGateway: config.qqOfficialUseShardedGateway
+    });
+
+    await officialProvider.start({
+        onEvent: handleOfficialProviderEvent
+    });
+
+    subscriptionService.start(officialProvider);
+
+    const videoDownloadService = require('./services/videoDownloadService');
+    videoDownloadService.startCleanupScheduler();
+
+    botLog('info', 'official-started', {
+        provider: 'official'
+    });
+
+    return officialProvider;
 }
 
 function migrateGroupConfigs() {
@@ -153,8 +268,11 @@ function createWebSocketConnection() {
     });
     ws = new WebSocket(`${config.wsUrl}?access_token=${config.wsToken}`);
     global.bot.ws = ws;
+    const napcatProvider = createQqProvider({ provider: 'napcat', ws });
+    qqProviderRuntime.setCurrentProvider(napcatProvider);
 
     ws.on('open', function open() {
+        napcatProvider.setWebSocket(ws);
         botLog('info', 'connected', {
             wsUrl: config.wsUrl
         });
@@ -227,7 +345,7 @@ function createWebSocketConnection() {
                     }, scope);
                 }
 
-                messageHandler.handleMessage(ws, payload);
+                dispatchMessageToHandler(ws, payload, 'napcat', scope);
                 return;
             }
 
@@ -296,6 +414,10 @@ function createWebSocketConnection() {
         });
 
         if (global.bot.ws === ws) global.bot.ws = null;
+        if (global.bot.provider === napcatProvider) {
+            global.bot.provider = null;
+            qqProviderRuntime.clearCurrentProvider(napcatProvider);
+        }
 
         subscriptionService.stop();
         clearGroupRefreshTimer();
@@ -361,6 +483,18 @@ async function gracefulShutdown(exitCode = 0) {
         }
     }
 
+    if (officialProvider) {
+        try {
+            await officialProvider.stop();
+        } catch (e) {
+            botLog('error', 'official-stop-failed', {
+                error: logger.getErrorMessage(e)
+            });
+        }
+        qqProviderRuntime.clearCurrentProvider(officialProvider);
+        officialProvider = null;
+    }
+
     try {
         dashboardServer.stop();
     } catch (e) {
@@ -396,9 +530,13 @@ async function initializeBot() {
             port: config.dashboardPort
         });
 
-        createWebSocketConnection();
+        if (config.qqProvider === 'official') {
+            await createOfficialProviderConnection();
+        } else {
+            createWebSocketConnection();
+        }
         botLog('info', 'startup-step', {
-            step: 'napcat-websocket'
+            step: config.qqProvider === 'official' ? 'qq-official-provider' : 'napcat-websocket'
         });
 
         botLog('info', 'startup', {
@@ -463,6 +601,7 @@ if (require.main === module) {
 module.exports = {
     initializeBot,
     createWebSocketConnection,
+    createOfficialProviderConnection,
     scheduleReconnect,
     gracefulShutdown,
     registerProcessHandlers,
@@ -472,6 +611,7 @@ module.exports = {
         clearGroupRefreshTimer,
         resetRuntimeState() {
             ws = null;
+            officialProvider = null;
             reconnectCount = 0;
             reconnectTimer = null;
             isManualClose = false;

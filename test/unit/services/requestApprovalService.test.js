@@ -173,6 +173,24 @@ async function run() {
     assert.strictEqual(missingTargetResult.mutation, false, '不存在的 shortId 不应产生 mutation')
     assert.strictEqual(missingTargetResult.status, 'invalid_short_id', '不存在的 shortId 应返回 invalid_short_id')
 
+    await service.handleRequestEvent({}, {
+        post_type: 'request',
+        request_type: 'friend',
+        flag: 'flag_friend_official',
+        user_id: '30004',
+        comment: 'official 边界校验'
+    })
+    const officialPending = Array.from(service.pendingByKey.values()).find(item => item.flag === 'flag_friend_official')
+    const actionCountBeforeOfficial = actionCalls.length
+    const officialDecisionResult = await service.handleExactApprovalDecision({ id: 'official' }, {
+        decision: 'approve',
+        shortId: officialPending.shortId
+    })
+    assert.strictEqual(officialDecisionResult.ok, false, 'Official 模式不应执行 NapCat 审批 action')
+    assert.strictEqual(officialDecisionResult.status, 'failed', 'Official 模式审批应给出可重试失败状态')
+    assert.match(officialDecisionResult.error, /unsupported_official_action:request_approval/)
+    assert.strictEqual(actionCalls.length, actionCountBeforeOfficial, 'Official 模式不应调用 set_*_add_request')
+
     // 非审批文本不应被消费
     const ignored = await service.tryHandleAdminDecision({}, {
         user_id: adminId,

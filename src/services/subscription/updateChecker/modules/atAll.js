@@ -397,7 +397,9 @@ module.exports = {
         }
 
         try {
-            const processedBaseMessageChain = notificationService.processMessageChain(baseMessageChain, 'UpdateChecker')
+            const processedBaseMessageChain = notificationService.processMessageChain(baseMessageChain, 'UpdateChecker', {
+                transport: this.ws
+            })
             const messageChain = await this.buildSubscriptionMessageChain(groupId, processedBaseMessageChain, atAllMeta)
 
             const firstSendResult = await this.sendGroupMessageByAction(groupId, messageChain)

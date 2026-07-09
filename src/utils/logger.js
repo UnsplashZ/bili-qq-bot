@@ -1,4 +1,5 @@
 const log4js = require('log4js');
+const { redactSensitive, redactString } = require('./redactSensitive');
 
 const listeners = new Set();
 const LEVEL_LABELS = {
@@ -99,7 +100,8 @@ function stringifyFieldValue(value) {
 }
 
 function formatFields(fields = {}) {
-    return Object.entries(fields)
+    const safeFields = redactSensitive(fields)
+    return Object.entries(safeFields)
         .filter(([, value]) => value !== undefined && value !== null && value !== '')
         .map(([key, value]) => `${key}=${stringifyFieldValue(value)}`)
         .join(' ')
@@ -140,13 +142,13 @@ function createMessageScope(groupId, userId, messageId) {
 
 function getErrorMessage(error) {
     if (!error) return ''
-    if (typeof error === 'string') return error
-    if (error instanceof Error) return error.message
-    if (typeof error.message === 'string') return error.message
+    if (typeof error === 'string') return redactString(error)
+    if (error instanceof Error) return redactString(error.message)
+    if (typeof error.message === 'string') return redactString(error.message)
     try {
-        return JSON.stringify(error)
+        return redactString(JSON.stringify(redactSensitive(error)))
     } catch (_) {
-        return String(error)
+        return redactString(String(error))
     }
 }
 
@@ -175,7 +177,7 @@ function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = ''
             channel: channelText,
             scope,
             action: message,
-            fields
+            fields: redactSensitive(fields)
         })
     }
 
@@ -210,7 +212,7 @@ function buildEvent(level, channel, scope, message, fields = {}) {
         channel: String(channel || 'BOT').toUpperCase(),
         scope: scope || '',
         action: message || '',
-        fields: fields || {}
+        fields: redactSensitive(fields || {})
     }
     event.rendered = formatEvent({
         level: event.level,
@@ -265,6 +267,8 @@ logger.formatEvent = formatEvent
 logger.createScope = createScope
 logger.createMessageScope = createMessageScope
 logger.getErrorMessage = getErrorMessage
+logger.redactSensitive = redactSensitive
+logger.redactString = redactString
 logger.shouldEmitToStdout = shouldEmitToStdout
 logger.logEvent = (level, channel, scope, message, fields = {}) => {
     const event = buildEvent(level, channel, scope, message, fields)

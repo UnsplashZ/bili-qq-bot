@@ -45,10 +45,15 @@ const config = {
     },
 
     getRootAdminQQ: authConfig.getRootAdminQQ,
-    isRootAdmin: authConfig.isRootAdmin,
+    getOfficialRootOpenids: function() {
+        return authConfig.getOfficialRootOpenids(this)
+    },
+    isRootAdmin: function(userId) {
+        return authConfig.isRootAdmin(userId, this)
+    },
 
     isGroupAdmin: function(groupId, userId) {
-        return authConfig.isGroupAdmin(groupId, userId, this.groupConfigs)
+        return authConfig.isGroupAdmin(groupId, userId, this.groupConfigs, this)
     },
 
     addGroupAdmin: function(groupId, userId) {
@@ -60,20 +65,19 @@ const config = {
     },
 
     isGroupEnabled: function(groupId) {
-        return groupConfig.isGroupEnabled(this.enabledGroups, groupId)
+        return groupConfig.isGroupEnabled(this.getEnabledGroupsForProvider(), groupId)
     },
 
     enableGroup: function(groupId) {
-        if (!this.enabledGroups) this.enabledGroups = []
-        return groupConfig.enableGroup(this.enabledGroups, groupId, () => this.save())
+        return groupConfig.enableGroup(this.getMutableEnabledGroupsForProvider(), groupId, () => this.save())
     },
 
     disableGroup: function(groupId) {
-        return groupConfig.disableGroup(this.enabledGroups, groupId, () => this.save())
+        return groupConfig.disableGroup(this.getMutableEnabledGroupsForProvider(), groupId, () => this.save())
     },
 
     ensureGroupConfig: function(groupId) {
-        return groupConfig.ensureGroupConfig(this.groupConfigs, this.enabledGroups, groupId, () => this.save())
+        return groupConfig.ensureGroupConfig(this.groupConfigs, this.getMutableEnabledGroupsForProvider(), groupId, () => this.save())
     },
 
     applyOverridePatch: function(patch = {}) {
@@ -87,6 +91,10 @@ const config = {
     getConfigSnapshot: function() {
         const snapshot = {}
         Object.keys(META).forEach((key) => {
+            if (key === 'wsToken' || key === 'qqOfficialClientSecret') {
+                snapshot[key] = this[key] ? '[REDACTED]' : ''
+                return
+            }
             const value = this[key]
             if (value && typeof value === 'object') {
                 snapshot[key] = JSON.parse(JSON.stringify(value))
@@ -94,8 +102,38 @@ const config = {
             }
             snapshot[key] = value
         })
-        snapshot.jwtSecret = this.jwtSecret
+        snapshot.jwtSecret = this.jwtSecret ? '[REDACTED]' : ''
         return snapshot
+    },
+
+    getProviderScope: function(provider = null) {
+        const raw = provider || this.qqProvider || 'napcat'
+        return String(raw || '').trim().toLowerCase() === 'official' ? 'official' : 'napcat'
+    },
+
+    getEnabledGroupsForProvider: function(provider = null) {
+        const scope = this.getProviderScope(provider)
+        if (scope === 'napcat') return Array.isArray(this.enabledGroups) ? this.enabledGroups : []
+        const scoped = this.providerScopedEnabledGroups || {}
+        if (Array.isArray(scoped[scope])) return scoped[scope]
+        return Array.isArray(this.enabledGroups) ? this.enabledGroups : []
+    },
+
+    getMutableEnabledGroupsForProvider: function(provider = null) {
+        const scope = this.getProviderScope(provider)
+        if (scope === 'napcat') {
+            if (!Array.isArray(this.enabledGroups)) this.enabledGroups = []
+            return this.enabledGroups
+        }
+        if (!this.providerScopedEnabledGroups || typeof this.providerScopedEnabledGroups !== 'object' || Array.isArray(this.providerScopedEnabledGroups)) {
+            this.providerScopedEnabledGroups = {}
+        }
+        const scoped = this.providerScopedEnabledGroups
+        if (!Array.isArray(scoped[scope])) {
+            scoped[scope] = Array.isArray(this.enabledGroups) ? [...this.enabledGroups] : []
+            this.providerScopedEnabledGroups = scoped
+        }
+        return scoped[scope]
     },
 
     getDashboardConfigSnapshot: function() {
@@ -110,11 +148,25 @@ const config = {
             'videoDownloadResolution',
             'videoDownloadMaxDuration',
             'videoDownloadAutoClean',
-            'videoDownloadCleanTimeout'
+            'videoDownloadCleanTimeout',
+            'qqProvider',
+            'qqOfficialAppId',
+            'qqOfficialApiBase',
+            'qqOfficialTokenUrl',
+            'qqOfficialUseShardedGateway',
+            'qqOfficialIntents',
+            'qqOfficialGatewayAckTimeoutMs',
+            'qqOfficialMediaUploadMode',
+            'qqOfficialTempPublicBaseUrl',
+            'qqOfficialRootOpenids',
+            'qqOfficialAccountQpm',
+            'qqOfficialGroupQpm',
+            'qqOfficialQueueMaxSize'
         ]
         for (const key of keys) {
             snapshot[key] = this[key]
         }
+        snapshot.qqOfficialClientSecretConfigured = Boolean(this.qqOfficialClientSecret)
         return snapshot
     }
 }
