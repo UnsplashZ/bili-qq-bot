@@ -39,10 +39,10 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = originalNotificationAdd
         deps.config.isGroupEnabled = originalIsGroupEnabled
         deps.config.getGroupConfig = originalGetGroupConfig
-        deps.config.groupConfigs = originalGroupConfigs
-        deps.config.enabledGroups = originalEnabledGroups
+        deps.config.__getMutableCompatStateForTests().groupConfigs = originalGroupConfigs
+        deps.config.__getMutableCompatStateForTests().enabledGroups = originalEnabledGroups
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = originalPreviewLayoutConfig
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = originalPreviewLayoutConfig
         deps.config.save = originalConfigSave
         deps.imageGenerator.isNightMode = originalIsNightMode
         deps.imageGenerator.generatePreviewCard = originalGeneratePreviewCard
@@ -125,12 +125,12 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': {
                 isInGroup: true
             }
         }
-        deps.config.enabledGroups = ['2000']
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['2000']
         deps.config.isGroupEnabled = gid => deps.config.enabledGroups.includes(String(gid))
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -182,11 +182,11 @@ describe('updateChecker notify result', function () {
 
     it('notifyGroupsWithImage 在 ws 不可用时仍消费关闭群并让开启群失败重试', async function () {
         deps.notificationHistory.has = () => false
-        deps.config.groupConfigs = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': { isInGroup: true },
             '2000': { isInGroup: true }
         }
-        deps.config.enabledGroups = ['2000']
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['2000']
         deps.config.isGroupEnabled = gid => deps.config.enabledGroups.includes(String(gid))
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -233,7 +233,7 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = { '1000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return false
@@ -291,7 +291,7 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return false
@@ -355,8 +355,8 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = { 'group-openid': {} }
-        deps.config.enabledGroups = ['group-openid']
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { 'group-openid': {} }
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['group-openid']
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return false
@@ -434,10 +434,11 @@ describe('updateChecker notify result', function () {
         assert.equal(uploadCalls[0].groupOpenId, 'group-openid')
         assert.equal(uploadCalls[0].body.file_type, 1)
         assert.equal(uploadCalls[0].body.file_data, 'FAKE_BASE64')
-        assert.equal(sendCalls.length, 2)
+        assert.equal(sendCalls.length, 1)
         assert.equal(sendCalls[0].body.msg_type, 7)
-        assert.equal(sendCalls[1].body.msg_type, 0)
-        assert.deepStrictEqual(scheduleGroupIds, ['group-openid', 'group-openid', 'group-openid'])
+        assert.deepStrictEqual(sendCalls[0].body.media, { file_info: 'official-file-info' })
+        assert.equal(sendCalls[0].body.content, '\ntest\nhttps://www.bilibili.com/video/BV_OFFICIAL')
+        assert.deepStrictEqual(scheduleGroupIds, ['group-openid', 'group-openid'])
     })
 
     it('notifyGroupsWithImage 去重缓存命中时返回 dedupSkippedGroups 供持久台账写 tombstone', async function () {
@@ -445,7 +446,7 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             throw new Error('dedup skip should not add history again')
         }
-        deps.config.groupConfigs = { '1000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -483,7 +484,7 @@ describe('updateChecker notify result', function () {
         const sentGroups = []
 
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = {
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 1,
             groups: {
                 '2000': {
@@ -499,7 +500,7 @@ describe('updateChecker notify result', function () {
                 }
             }
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return true
@@ -557,7 +558,7 @@ describe('updateChecker notify result', function () {
         const sentGroups = []
 
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = {
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 1,
             global: {
                 video: {
@@ -571,7 +572,7 @@ describe('updateChecker notify result', function () {
                 }
             }
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return true

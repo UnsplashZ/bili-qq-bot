@@ -367,7 +367,7 @@ module.exports = {
         return this.filterGroupSourceMapByGroups(targetGroupSourceMap, retryableGroups)
     },
 
-    async recordDeliveredGroups(contentType, contentId, groupIds) {
+    async recordDeliveredGroups(contentType, contentId, groupIds, deliveryPart = 'main') {
         const deliveredGroups = Array.isArray(groupIds)
             ? groupIds.map(gid => String(gid)).filter(Boolean)
             : []
@@ -379,6 +379,7 @@ module.exports = {
             groupId,
             type: contentType,
             contentId: String(contentId),
+            ...(deliveryPart === 'main' ? {} : { deliveryPart }),
             meta: { source: 'updateChecker' }
         })))
     },
@@ -391,6 +392,10 @@ module.exports = {
             ...(Array.isArray(extraGroups) ? extraGroups : [])
         ]
         await this.recordDeliveredGroups(contentType, contentId, deliveredGroups)
+        const fallbackGroups = Array.isArray(notifyResult?.fallbackUsedGroups)
+            ? notifyResult.fallbackUsedGroups
+            : []
+        await this.recordDeliveredGroups(contentType, contentId, fallbackGroups, 'fallback-text')
     },
 
     /**

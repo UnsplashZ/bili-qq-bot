@@ -1,5 +1,10 @@
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
+
+function clone(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
 
 class OfficialIdStore {
     constructor(options = {}) {
@@ -8,7 +13,15 @@ class OfficialIdStore {
         this.members = new Map()
         this.storagePath = options.storagePath || ''
         this.saveTimer = null
-        this.load()
+        this._dirty = { groups: new Set(), users: new Set(), members: new Set() }
+        this._revision = 0
+        this._persistedRevision = -1
+        this._flushInProgress = false
+        this._flushQueued = false
+        this._isFork = Boolean(options.isFork)
+        this._committed = false
+        if (options.snapshot) this._restoreSnapshot(options.snapshot)
+        else this.load()
     }
 
     load() {
@@ -25,6 +38,8 @@ class OfficialIdStore {
                 const key = this.makeMemberKey(member?.groupOpenId, member?.memberOpenId)
                 if (key) this.members.set(key, member)
             }
+            fs.chmodSync(this.storagePath, 0o600)
+            this._persistedRevision = this._revision
         } catch {}
     }
 
@@ -37,17 +52,128 @@ class OfficialIdStore {
         }
     }
 
+    _restoreSnapshot(snapshot) {
+        this.groups = new Map((snapshot?.groups || []).map((item) => [String(item.groupOpenId), clone(item)]))
+        this.users = new Map((snapshot?.users || []).map((item) => [String(item.userOpenId), clone(item)]))
+        this.members = new Map((snapshot?.members || []).map((item) => [this.makeMemberKey(item.groupOpenId, item.memberOpenId), clone(item)]))
+    }
+
+    _markDirty(kind, key) {
+        this._dirty[kind].add(key)
+        this._revision += 1
+    }
+
+    fork() {
+        return new OfficialIdStore({ snapshot: this.serialize(), isFork: true })
+    }
+
+    captureState() {
+        let disk = { exists: false, content: null }
+        if (this.storagePath && fs.existsSync(this.storagePath)) {
+            disk = { exists: true, content: fs.readFileSync(this.storagePath) }
+        }
+        return {
+            data: this.serialize(),
+            revision: this._revision,
+            persistedRevision: this._persistedRevision,
+            dirty: {
+                groups: [...this._dirty.groups],
+                users: [...this._dirty.users],
+                members: [...this._dirty.members]
+            },
+            disk
+        }
+    }
+
+    restoreState(state) {
+        if (!state) throw new TypeError('OfficialIdStore restore state is required')
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer)
+            this.saveTimer = null
+        }
+        if (this.storagePath) {
+            if (state.disk?.exists) {
+                this._atomicFlush(state.disk.content)
+            } else if (fs.existsSync(this.storagePath)) {
+                fs.unlinkSync(this.storagePath)
+                const dirFd = fs.openSync(path.dirname(this.storagePath), 'r')
+                try { fs.fsyncSync(dirFd) } finally { fs.closeSync(dirFd) }
+            }
+        }
+        this._restoreSnapshot(state.data)
+        this._revision = Number(state.revision || 0)
+        this._persistedRevision = Number(state.persistedRevision ?? -1)
+        this._dirty = {
+            groups: new Set(state.dirty?.groups || []),
+            users: new Set(state.dirty?.users || []),
+            members: new Set(state.dirty?.members || [])
+        }
+        this._flushQueued = false
+        this._flushInProgress = false
+        return this
+    }
+
+    commitFrom(candidate) {
+        if (!(candidate instanceof OfficialIdStore) || !candidate._isFork) {
+            throw new TypeError('OfficialIdStore commit source must be a fork')
+        }
+        if (candidate._committed) return this
+        const previous = this.serialize()
+        const previousRevision = this._revision
+        for (const kind of ['groups', 'users', 'members']) {
+            for (const key of candidate._dirty[kind]) {
+                const value = candidate[kind].get(key)
+                if (value === undefined) this[kind].delete(key)
+                else this[kind].set(key, clone(value))
+                this._markDirty(kind, key)
+            }
+        }
+        try {
+            this.flush()
+        } catch (error) {
+            this._restoreSnapshot(previous)
+            this._revision = previousRevision
+            throw error
+        }
+        candidate._committed = true
+        return this
+    }
+
     scheduleSave() {
         if (!this.storagePath) return
         if (this.saveTimer) clearTimeout(this.saveTimer)
         this.saveTimer = setTimeout(() => {
             this.saveTimer = null
-            try {
-                fs.mkdirSync(path.dirname(this.storagePath), { recursive: true })
-                fs.writeFileSync(this.storagePath, JSON.stringify(this.serialize(), null, 2))
-            } catch {}
+            try { this.flush() } catch {}
         }, 50)
         if (typeof this.saveTimer.unref === 'function') this.saveTimer.unref()
+    }
+
+    _atomicFlush(payload) {
+        const directory = path.dirname(this.storagePath)
+        fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
+        const tempPath = path.join(
+            directory,
+            `.${path.basename(this.storagePath)}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`
+        )
+        let fd = null
+        try {
+            fd = fs.openSync(tempPath, 'wx', 0o600)
+            fs.writeFileSync(fd, payload, 'utf8')
+            fs.fsyncSync(fd)
+            fs.closeSync(fd)
+            fd = null
+            fs.renameSync(tempPath, this.storagePath)
+            const dirFd = fs.openSync(directory, 'r')
+            try {
+                fs.fsyncSync(dirFd)
+            } finally {
+                fs.closeSync(dirFd)
+            }
+        } finally {
+            if (fd !== null) fs.closeSync(fd)
+            try { fs.unlinkSync(tempPath) } catch {}
+        }
     }
 
     flush() {
@@ -56,8 +182,23 @@ class OfficialIdStore {
             clearTimeout(this.saveTimer)
             this.saveTimer = null
         }
-        fs.mkdirSync(path.dirname(this.storagePath), { recursive: true })
-        fs.writeFileSync(this.storagePath, JSON.stringify(this.serialize(), null, 2))
+        if (this._flushInProgress) {
+            this._flushQueued = true
+            return
+        }
+        if (this._persistedRevision === this._revision && fs.existsSync(this.storagePath) &&
+            (fs.statSync(this.storagePath).mode & 0o777) === 0o600) return
+        this._flushInProgress = true
+        try {
+            do {
+                this._flushQueued = false
+                const revision = this._revision
+                this._atomicFlush(`${JSON.stringify(this.serialize(), null, 2)}\n`)
+                this._persistedRevision = revision
+            } while (this._flushQueued || this._persistedRevision !== this._revision)
+        } finally {
+            this._flushInProgress = false
+        }
     }
 
     upsertGroup(groupOpenId, patch = {}) {
@@ -82,6 +223,7 @@ class OfficialIdStore {
             updatedAt: Date.now()
         }
         this.groups.set(id, next)
+        this._markDirty('groups', id)
         this.scheduleSave()
         return next
     }
@@ -140,6 +282,7 @@ class OfficialIdStore {
             updatedAt: Date.now()
         }
         this.members.set(key, next)
+        this._markDirty('members', key)
         this.scheduleSave()
         return next
     }
@@ -173,6 +316,7 @@ class OfficialIdStore {
             updatedAt: Date.now()
         }
         this.users.set(id, next)
+        this._markDirty('users', id)
         this.scheduleSave()
         return next
     }

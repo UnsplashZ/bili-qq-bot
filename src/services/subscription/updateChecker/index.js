@@ -22,6 +22,52 @@ Object.assign(
     maintenanceMethods
 )
 
+const config = require('../../../config')
+const qqRuntime = require('../../../providers/qq/runtime')
+
+function runtimeSnapshot() {
+    try {
+        return config.service?.getSnapshot?.() || null
+    } catch {
+        return null
+    }
+}
+
+function wrapTrackedOperation(methodName) {
+    const original = UpdateChecker.prototype[methodName]
+    if (typeof original !== 'function') return
+    UpdateChecker.prototype[methodName] = async function(...args) {
+        if (this.operationRegistry?.getContext()) return original.apply(this, args)
+        let providerLease = null
+        try {
+            providerLease = qqRuntime.acquireProviderLease()
+        } catch (error) {
+            if (error?.code === 'RUNTIME_ADMISSION_DISABLED' || error?.code === 'PROVIDER_INGRESS_PAUSED') {
+                throw error
+            }
+            providerLease = null
+        }
+        try {
+            return await this.operationRegistry.run(methodName, () => original.apply(this, args), {
+                configSnapshot: runtimeSnapshot(),
+                providerLease,
+                providerSlotLease: providerLease,
+                providerGeneration: providerLease?.generation ?? null,
+                generation: providerLease?.generation ?? config.getStatus?.().effectiveGeneration ?? null
+            })
+        } finally {
+            providerLease?.release?.()
+        }
+    }
+}
+
+;[
+    'checkAll',
+    'refreshCookieFollowings',
+    'checkAndRefreshCredential',
+    'warmupGroupAtAllCapabilities'
+].forEach(wrapTrackedOperation)
+
 const updateCheckerInstance = new UpdateChecker()
 
 module.exports = updateCheckerInstance

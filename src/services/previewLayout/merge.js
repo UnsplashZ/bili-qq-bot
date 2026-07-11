@@ -36,8 +36,8 @@ function mergeLayoutConfigs(...configs) {
     }, {}))
 }
 
-function getStoredPreviewLayoutConfig() {
-    const raw = config.previewLayoutConfig
+function getStoredPreviewLayoutConfig(input = config.previewLayoutConfig) {
+    const raw = input
     if (!isPlainObject(raw)) {
         return {
             version: PREVIEW_LAYOUT_VERSION,
@@ -142,19 +142,18 @@ function setNestedTypePatch(rawConfig, scope, type, groupId, patch) {
     return cleanEmptyLayoutBranches(next)
 }
 
-function savePreviewLayoutPatch(scope, type, patch, groupId = null) {
-    const rawConfig = getStoredPreviewLayoutConfig()
+function savePreviewLayoutPatch(scope, type, patch, groupId = null, storedConfig = undefined) {
+    const rawConfig = getStoredPreviewLayoutConfig(storedConfig)
     const normalizedPatch = normalizePreviewLayoutPatch(type, patch, {
         requireEditable: true,
         checkSize: true
     })
     const next = setNestedTypePatch(rawConfig, scope, type, groupId, normalizedPatch)
-    config.previewLayoutConfig = next
-    return normalizedPatch
+    return { nextConfig: next, saved: normalizedPatch }
 }
 
-function resetPreviewLayoutPatch(scope, type, groupId = null, element = null) {
-    const rawConfig = getStoredPreviewLayoutConfig()
+function resetPreviewLayoutPatch(scope, type, groupId = null, element = null, storedConfig = undefined) {
+    const rawConfig = getStoredPreviewLayoutConfig(storedConfig)
     const current = normalizePreviewLayoutPatch(type, getScopePatch(rawConfig, scope, type, groupId), {
         requireEditable: true
     })
@@ -171,8 +170,7 @@ function resetPreviewLayoutPatch(scope, type, groupId = null, element = null) {
     }
 
     const next = setNestedTypePatch(rawConfig, scope, type, groupId, cleanEmptyLayoutBranches(nextPatch))
-    config.previewLayoutConfig = next
-    return nextPatch
+    return { nextConfig: next, result: nextPatch }
 }
 
 function stableStringify(value) {

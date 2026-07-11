@@ -170,44 +170,43 @@ async def download_video_file(
         resolved_dir, f"{safe_bvid}_{safe_group}_{timestamp}_{rand_suffix}.mp4"
     )
 
-    if len(streams) == 1:
-        single_tmp = output_path + "_s.tmp"
-        await download_stream_to_file(streams[0].url, single_tmp)
-        remux_ok = False
-        try:
-            await ffmpeg_copy_streams([single_tmp], output_path)
-            remux_ok = True
-        except Exception as e:
-            service_log(logger, "warn", "download-remux-fallback", error=str(e))
+    temporary_paths = []
+    completed = False
+    try:
+        if len(streams) == 1:
+            single_tmp = output_path + "_s.tmp"
+            temporary_paths.append(single_tmp)
+            await download_stream_to_file(streams[0].url, single_tmp)
             try:
+                await ffmpeg_copy_streams([single_tmp], output_path)
+            except Exception as e:
+                service_log(logger, "warn", "download-remux-fallback", error=str(e))
                 if os.path.exists(output_path):
                     os.remove(output_path)
-            except Exception:
-                pass
-            os.replace(single_tmp, output_path)
-        finally:
-            if remux_ok:
-                try:
-                    if os.path.exists(single_tmp):
-                        os.remove(single_tmp)
-                except Exception:
-                    pass
-    else:
-        video_tmp = output_path + "_v.tmp"
-        audio_tmp = output_path + "_a.tmp"
-        try:
+                os.replace(single_tmp, output_path)
+        else:
+            video_tmp = output_path + "_v.tmp"
+            audio_tmp = output_path + "_a.tmp"
+            temporary_paths.extend([video_tmp, audio_tmp])
             await asyncio.gather(
                 download_stream_to_file(streams[0].url, video_tmp),
                 download_stream_to_file(streams[1].url, audio_tmp),
             )
             await ffmpeg_copy_streams([video_tmp, audio_tmp], output_path)
-        finally:
-            for tmp in [video_tmp, audio_tmp]:
-                try:
-                    if os.path.exists(tmp):
-                        os.remove(tmp)
-                except Exception:
-                    pass
+        completed = True
+    finally:
+        for tmp in temporary_paths:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+        if not completed:
+            try:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
 
     return {
         "status": "success",

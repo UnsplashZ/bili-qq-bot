@@ -38,7 +38,7 @@ describe('updateChecker manual/feed state advance policy', function () {
         deps.subscriptionManager.cookieFollowings = originals.cookieFollowings
         deps.subscriptionManager.userSubs = originals.userSubs
         deps.subscriptionManager.groupToAccountMap = originals.groupToAccountMap
-        const groupConfigs = deps.config.groupConfigs || {}
+        const groupConfigs = deps.config.__getMutableCompatStateForTests().groupConfigs || {}
         for (const key of Object.keys(groupConfigs)) {
             delete groupConfigs[key]
         }
@@ -491,11 +491,11 @@ describe('updateChecker manual/feed state advance policy', function () {
         const notifiedTargets = []
         const deliveryRecords = []
 
-        deps.config.groupConfigs.A = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs.A = {
             isInGroup: true,
             enableCookieSync: true
         }
-        deps.config.groupConfigs.B = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs.B = {
             isInGroup: true,
             enableCookieSync: true
         }

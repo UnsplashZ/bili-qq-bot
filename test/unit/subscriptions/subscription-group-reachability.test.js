@@ -25,18 +25,18 @@ describe('subscription group reachability', function () {
     }
 
     beforeEach(function () {
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': {
                 isInGroup: false,
                 videoDownloadEnabled: true
             }
         }
-        config.enabledGroups = []
+        config.__getMutableCompatStateForTests().enabledGroups = []
     })
 
     afterEach(function () {
-        config.groupConfigs = originals.groupConfigs
-        config.enabledGroups = originals.enabledGroups
+        config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
+        config.__getMutableCompatStateForTests().enabledGroups = originals.enabledGroups
         config.isGroupEnabled = originals.isGroupEnabled
         videoDownloadService._hasDiskSpace = originals.hasDiskSpace
     })
@@ -52,12 +52,12 @@ describe('subscription group reachability', function () {
     })
 
     it('关闭群功能时应分类为 group_disabled', function () {
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': {
                 isInGroup: true
             }
         }
-        config.enabledGroups = ['2000']
+        config.__getMutableCompatStateForTests().enabledGroups = ['2000']
 
         assert.deepStrictEqual(getSubscriptionNotificationReachability('1000'), {
             ok: false,
@@ -68,12 +68,12 @@ describe('subscription group reachability', function () {
     })
 
     it('在群内且功能开启时应分类为 ok', function () {
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': {
                 isInGroup: true
             }
         }
-        config.enabledGroups = ['1000']
+        config.__getMutableCompatStateForTests().enabledGroups = ['1000']
 
         assert.deepStrictEqual(getSubscriptionNotificationReachability('1000'), {
             ok: true,

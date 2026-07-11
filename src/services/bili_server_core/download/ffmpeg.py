@@ -32,6 +32,7 @@ async def ffmpeg_copy_streams(inputs: list[str], output_path: str) -> None:
             )
         except asyncio.TimeoutError:
             proc.kill()
+            await proc.wait()
             raise RuntimeError(f"FFmpeg timeout after {FFMPEG_TIMEOUT_SECONDS}s")
 
         if proc.returncode != 0:
@@ -40,6 +41,6 @@ async def ffmpeg_copy_streams(inputs: list[str], output_path: str) -> None:
         if proc is not None and proc.returncode is None:
             try:
                 proc.kill()
+                await proc.wait()
             except Exception:
                 pass
-

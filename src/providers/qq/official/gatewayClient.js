@@ -37,10 +37,14 @@ class OfficialGatewayClient extends EventEmitter {
         this.reconnectTimer = null
         this.reconnectAttempts = 0
         this.manualStop = false
+        this._stopPromise = null
+        this.stopTimeoutMs = Number(options.stopTimeoutMs || 3000)
+        this.stopForceGraceMs = Number(options.stopForceGraceMs || 500)
     }
 
     async start() {
         this.manualStop = false
+        this._stopPromise = null
         await this.connect()
     }
 
@@ -60,6 +64,7 @@ class OfficialGatewayClient extends EventEmitter {
         this.clearReconnectTimer()
         this.clearHeartbeatTimers()
         const url = this.gatewayUrl && resume ? this.gatewayUrl : await this.resolveGateway()
+        if (this.manualStop) return
         this.state = 'connecting'
         this.ws = new this.WebSocketClass(url)
         this.ws.on('open', () => {
@@ -157,6 +162,7 @@ class OfficialGatewayClient extends EventEmitter {
     }
 
     handleMessage(raw) {
+        if (this.manualStop) return
         let payload
         try {
             payload = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8'))
@@ -256,18 +262,84 @@ class OfficialGatewayClient extends EventEmitter {
         }
     }
 
-    stop() {
+    async stop() {
+        if (this._stopPromise) return this._stopPromise
         this.manualStop = true
         this.clearReconnectTimer()
         this.clearHeartbeatTimers()
-        this.state = 'stopped'
-        if (this.ws) {
-            try {
-                this.ws.close()
-            } catch {}
-            this.ws = null
+        const ws = this.ws
+
+        const stopPromise = (async () => {
+            if (ws && ws.readyState !== 3) {
+                await new Promise((resolve, reject) => {
+                    let settled = false
+                    let timer = null
+                    let forceGraceTimer = null
+                    const cleanup = () => {
+                        if (timer) clearTimeout(timer)
+                        if (forceGraceTimer) clearTimeout(forceGraceTimer)
+                        ws.removeListener?.('close', finish)
+                    }
+                    const finish = () => {
+                        if (settled) return
+                        settled = true
+                        cleanup()
+                        resolve()
+                    }
+                    const fail = (cause) => {
+                        if (settled) return
+                        settled = true
+                        cleanup()
+                        const error = new Error(`Official gateway stop failed: ${cause.message}`)
+                        error.code = 'OFFICIAL_GATEWAY_STOP_FAILED'
+                        error.cause = cause
+                        reject(error)
+                    }
+                    const forceTerminate = () => {
+                        try {
+                            ws.terminate?.()
+                        } catch (cause) {
+                            fail(cause)
+                            return
+                        }
+                        if (ws.readyState === 3) {
+                            finish()
+                            return
+                        }
+                        forceGraceTimer = setTimeout(() => {
+                            if (settled) return
+                            settled = true
+                            cleanup()
+                            const error = new Error('Official gateway socket did not close before hard deadline')
+                            error.code = 'OFFICIAL_GATEWAY_STOP_TIMEOUT'
+                            error.readyState = ws.readyState
+                            reject(error)
+                        }, Math.max(1, this.stopForceGraceMs))
+                    }
+                    ws.once?.('close', finish)
+                    timer = setTimeout(forceTerminate, Math.max(1, this.stopTimeoutMs))
+                    try {
+                        ws.close?.()
+                    } catch {
+                        forceTerminate()
+                    }
+                })
+            }
+            ws?.removeAllListeners?.('open')
+            ws?.removeAllListeners?.('message')
+            ws?.removeAllListeners?.('close')
+            ws?.removeAllListeners?.('error')
+            if (this.ws === ws) this.ws = null
+            this.state = 'stopped'
+            this.emit('state', this.state)
+        })()
+        this._stopPromise = stopPromise
+        try {
+            return await stopPromise
+        } catch (error) {
+            if (this._stopPromise === stopPromise) this._stopPromise = null
+            throw error
         }
-        this.emit('state', this.state)
     }
 
     getStatus() {

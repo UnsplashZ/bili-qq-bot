@@ -55,7 +55,7 @@ describe('UpdateChecker buildUserCheckList UID merge', function () {
         subscriptionManager.groupToAccountMap = {
             '1000': 'acc1'
         }
-        config.groupConfigs['1000'] = {
+        config.__getMutableCompatStateForTests().groupConfigs['1000'] = {
             enableCookieSync: true,
             isInGroup: true
         }

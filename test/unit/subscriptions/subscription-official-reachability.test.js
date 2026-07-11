@@ -15,8 +15,8 @@ describe('subscription official reachability', () => {
 
     beforeEach(() => {
         config.save = () => {}
-        config.enabledGroups = ['group-openid']
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().enabledGroups = ['group-openid']
+        config.__getMutableCompatStateForTests().groupConfigs = {
             'group-openid': {
                 isInGroup: true
             }
@@ -25,8 +25,8 @@ describe('subscription official reachability', () => {
 
     afterEach(() => {
         qqRuntime.clearCurrentProvider()
-        config.enabledGroups = originalEnabledGroups
-        config.groupConfigs = originalGroupConfigs
+        config.__getMutableCompatStateForTests().enabledGroups = originalEnabledGroups
+        config.__getMutableCompatStateForTests().groupConfigs = originalGroupConfigs
         config.save = originalSave
     })
 

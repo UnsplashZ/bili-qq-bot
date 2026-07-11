@@ -8,7 +8,12 @@ const {
     PreviewLayoutValidationError,
     normalizePreviewLayoutPatch
 } = require('../../../src/services/previewLayout/normalizer')
-const { mergeLayoutConfigs, stableStringify } = require('../../../src/services/previewLayout/merge')
+const {
+    mergeLayoutConfigs,
+    resetPreviewLayoutPatch,
+    savePreviewLayoutPatch,
+    stableStringify
+} = require('../../../src/services/previewLayout/merge')
 const { buildPreviewLayoutOverrideCss } = require('../../../src/services/previewLayout/css')
 
 describe('preview layout core', function () {
@@ -167,6 +172,20 @@ describe('preview layout core', function () {
                 }
             }
         )
+    })
+
+    it('save and reset helpers return pure config mutations', function () {
+        const stored = { version: 1, global: {}, groups: {} }
+        const saved = savePreviewLayoutPatch('global', 'video', {
+            elements: { cover: { visible: false } }
+        }, null, stored)
+        assert.deepStrictEqual(stored, { version: 1, global: {}, groups: {} })
+        assert.strictEqual(saved.nextConfig.global.video.elements.cover.visible, false)
+        assert.strictEqual(saved.saved.elements.cover.visible, false)
+
+        const reset = resetPreviewLayoutPatch('global', 'video', null, 'cover', saved.nextConfig)
+        assert.strictEqual(reset.result.elements, undefined)
+        assert.strictEqual(reset.nextConfig.global, undefined)
     })
 
     it('merge preserves false visibility overrides', function () {

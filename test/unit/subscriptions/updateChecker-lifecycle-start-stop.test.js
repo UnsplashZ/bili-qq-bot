@@ -34,7 +34,8 @@ const original = {
     setTimeout: global.setTimeout,
     setInterval: global.setInterval,
     clearTimeout: global.clearTimeout,
-    clearInterval: global.clearInterval
+    clearInterval: global.clearInterval,
+    applicationAdmissionGate: updateChecker.applicationAdmissionGate
 }
 
 function resetChecker() {
@@ -52,6 +53,7 @@ function resetChecker() {
     updateChecker._subscriptionRuntimeReadyAt = null
     updateChecker._subscriptionRuntimeLastError = null
     updateChecker._subscriptionRuntimeLastErrorAt = null
+    updateChecker._cancelAdmissionMaintenance = null
 }
 
 function restore() {
@@ -71,6 +73,7 @@ function restore() {
     global.setInterval = original.setInterval
     global.clearTimeout = original.clearTimeout
     global.clearInterval = original.clearInterval
+    updateChecker.applicationAdmissionGate = original.applicationAdmissionGate
     resetChecker()
 }
 
@@ -180,11 +183,84 @@ async function testSuccessfulStartSchedulesTimersAndReportsReady() {
     assert.equal(scheduledIntervals, 3)
 }
 
+async function testAdmissionGateDefersAndRollbackCancelsStartupMaintenance() {
+    resetChecker()
+
+    let openCallback = null
+    let callbackCancelled = false
+    let credentialRefreshes = 0
+    let warmups = 0
+    let scheduledIntervals = 0
+    updateChecker.applicationAdmissionGate = {
+        snapshot: () => ({ closed: true }),
+        runWhenOpen(callback) {
+            openCallback = callback
+            return () => {
+                callbackCancelled = true
+                if (openCallback === callback) openCallback = null
+                return true
+            }
+        }
+    }
+    subscriptionManager._ensureSubscriptionsLoaded = async () => {}
+    subscriptionManager._ensureFollowersLoaded = async () => {}
+    subscriptionManager.userSubs = []
+    subscriptionManager.cookieFollowings = {}
+    subscriptionStateStore.ensureLoaded = async () => {}
+    subscriptionStateStore.initializeFromLegacy = async () => ({ changed: false })
+    subscriptionDeliveryStore.ensureLoaded = async () => {}
+    subscriptionDeliveryStore.cleanupExpired = async () => ({ removed: 0 })
+    updateChecker.checkAndRefreshCredential = async () => { credentialRefreshes += 1 }
+    updateChecker.warmupGroupAtAllCapabilities = async () => { warmups += 1 }
+    updateChecker.refreshCookieFollowings = async () => {}
+    updateChecker.checkAll = async () => {}
+    global.setTimeout = () => ({ fakeTimeout: true })
+    global.setInterval = () => {
+        scheduledIntervals += 1
+        return { fakeInterval: scheduledIntervals }
+    }
+    global.clearTimeout = () => {}
+    global.clearInterval = () => {}
+
+    await updateChecker.start(true)
+    let status = updateChecker.getStatus()
+    assert.equal(status.runtime.startState, 'admission-deferred')
+    assert.equal(status.runtime.ready, false)
+    assert.equal(status.runtime.startupPending, true)
+    assert.equal(status.timers.admissionMaintenancePending, true)
+    assert.equal(credentialRefreshes, 0)
+    assert.equal(warmups, 0)
+    assert.equal(scheduledIntervals, 2, 'poll and sync timers may exist, credential timer must wait')
+
+    const deferredCallback = openCallback
+    await updateChecker.stop()
+    assert.equal(callbackCancelled, true)
+    assert.equal(openCallback, null)
+    assert.equal(deferredCallback(), false, 'stale admission callback must be token fenced')
+    assert.equal(credentialRefreshes, 0)
+    assert.equal(warmups, 0)
+
+    callbackCancelled = false
+    await updateChecker.start(true)
+    assert.equal(updateChecker.getStatus().runtime.startState, 'admission-deferred')
+    const committedCallback = openCallback
+    committedCallback()
+    status = updateChecker.getStatus()
+    assert.equal(status.runtime.startState, 'ready')
+    assert.equal(status.runtime.ready, true)
+    assert.equal(status.timers.admissionMaintenancePending, false)
+    assert.equal(credentialRefreshes, 1)
+    assert.equal(warmups, 1)
+    assert.equal(scheduledIntervals, 5, 'second start adds poll, sync, and one credential timer')
+}
+
 async function run() {
     try {
         await testStopCancelsPendingStoreInitialization()
         restore()
         await testSuccessfulStartSchedulesTimersAndReportsReady()
+        restore()
+        await testAdmissionGateDefersAndRollbackCancelsStartupMaintenance()
         console.log('PASS updateChecker lifecycle start/stop readiness')
     } finally {
         restore()

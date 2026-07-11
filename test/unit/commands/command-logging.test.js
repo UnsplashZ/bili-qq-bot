@@ -38,7 +38,7 @@ function restore() {
     config.isGroupAdmin = originals.isGroupAdmin
     config.isRootAdmin = originals.isRootAdmin
     subscriptionService.addUserSubscription = originals.addUserSubscription
-    config.videoDownloadEnabled = originals.videoDownloadEnabled
+    config.__getMutableCompatStateForTests().videoDownloadEnabled = originals.videoDownloadEnabled
     global.setInterval = originals.setInterval
     global.clearInterval = originals.clearInterval
     settingsCommand.loginPending.clear()
@@ -63,7 +63,7 @@ async function run() {
         })
 
 
-        config.videoDownloadEnabled = true
+        config.__getMutableCompatStateForTests().videoDownloadEnabled = true
         videoDownloadService.getLastDownloadInfo = () => ({ bvid: 'BV1ZHiyBkExG', totalPages: 2 })
         biliApi.getVideoInfo = async () => ({ status: 'success', data: { title: 'demo' } })
         videoDownloadService.downloadAndSend = async () => {

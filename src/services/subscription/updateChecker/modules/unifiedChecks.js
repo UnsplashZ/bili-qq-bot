@@ -242,12 +242,26 @@ module.exports = {
                         // 订阅推送后下载视频一次，目标集必须与本次实际推送一致。
                         if (canAdvanceCurrentVideo && effectiveTargetGroups.length > 0) {
                             const videoDownloadService = require('../../../videoDownloadService')
-                            videoDownloadService.downloadAndSendToGroups(this.ws, effectiveTargetGroups, bvid, info).catch(e => {
+                            try {
+                                await videoDownloadService.downloadAndSendToGroups(
+                                    this.ws,
+                                    effectiveTargetGroups,
+                                    bvid,
+                                    info,
+                                    0,
+                                    {
+                                        recordDelivery: true,
+                                        contentType: 'video',
+                                        contentId: bvid,
+                                        deliveryPart: 'auto-download'
+                                    }
+                                )
+                            } catch (e) {
                                 subLog('error', 'video-download-dispatch-failed', {
                                     bvid,
                                     error: logger.getErrorMessage(e)
                                 }, userScope)
-                            })
+                            }
                         } else {
                             subLog('warn', 'video-state-advance-skipped', {
                                 name,

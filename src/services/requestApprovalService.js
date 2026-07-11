@@ -21,7 +21,13 @@ class RequestApprovalService {
         this.keyByShortId = new Map()
         this.inflightKeys = new Set()
         this.recentlyHandled = new Map()
+        this._stopPromise = null
+        this.cleanupTimer = null
+    }
 
+    start() {
+        if (this.cleanupTimer) return this.cleanupTimer
+        this._stopPromise = null
         this.cleanupTimer = setInterval(() => {
             try {
                 this.cleanupExpired()
@@ -35,6 +41,12 @@ class RequestApprovalService {
         if (typeof this.cleanupTimer.unref === 'function') {
             this.cleanupTimer.unref()
         }
+        return this.cleanupTimer
+    }
+
+    async restart() {
+        await this.stop()
+        return this.start()
     }
 
     _buildKey(requestType, subType, flag) {
@@ -299,7 +311,7 @@ class RequestApprovalService {
 
     async _sendAdminText(ws, adminId, text) {
         if (!adminId) return
-        notificationService.sendPrivateMessage(ws, adminId, [{ type: 'text', data: { text } }], 'RequestApproval', true)
+        return notificationService.sendPrivateMessage(ws, adminId, [{ type: 'text', data: { text } }], 'RequestApproval', true)
     }
 
     async _sendPendingNotify(ws, adminId, item) {
@@ -329,8 +341,7 @@ class RequestApprovalService {
                     shortId: item.shortId,
                     error: wording
                 })
-                this._sendAdminText(ws, adminId, text)
-                return
+                return this._sendAdminText(ws, adminId, text)
             }
 
             if (messageId !== undefined && messageId !== null) {
@@ -349,14 +360,14 @@ class RequestApprovalService {
                 key: item.key,
                 shortId: item.shortId
             })
-            this._sendAdminText(ws, adminId, text)
+            return this._sendAdminText(ws, adminId, text)
         } catch (e) {
             storeLog('error', 'notify-failed', {
                 key: item.key,
                 shortId: item.shortId,
                 error: logger.getErrorMessage(e)
             })
-            this._sendAdminText(ws, adminId, text)
+            return this._sendAdminText(ws, adminId, text)
         }
     }
 
@@ -891,6 +902,17 @@ class RequestApprovalService {
                 expiredCount
             })
         }
+    }
+
+    async stop() {
+        if (this._stopPromise) return this._stopPromise
+        this._stopPromise = Promise.resolve().then(() => {
+            if (this.cleanupTimer) {
+                clearInterval(this.cleanupTimer)
+                this.cleanupTimer = null
+            }
+        })
+        return this._stopPromise
     }
 }
 

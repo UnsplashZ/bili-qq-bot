@@ -105,7 +105,7 @@ describe('OfficialMessageSender', () => {
         assert.equal(result.data.official_message_id, 'dm-msg')
     })
 
-    it('splits mixed text and video chain into text and media messages', async () => {
+    it('combines mixed text and video chain into one media message with content', async () => {
         const uploads = []
         const sends = []
         const client = {
@@ -130,15 +130,15 @@ describe('OfficialMessageSender', () => {
             { type: 'video', data: { file: 'https://cdn.example.com/a.mp4' } }
         ])
 
-        assert.equal(sends.length, 2)
-        assert.equal(sends[0].body.msg_type, 0)
-        assert.equal(sends[0].body.content, 'before')
+        assert.equal(sends.length, 1)
         assert.equal(uploads[0].body.file_type, 2)
         assert.equal(uploads[0].body.url, 'https://cdn.example.com/a.mp4')
-        assert.equal(sends[1].body.msg_type, 7)
+        assert.equal(sends[0].body.msg_type, 7)
+        assert.equal(sends[0].body.content, 'before')
+        assert.deepEqual(sends[0].body.media, { file_info: 'video-file-info' })
     })
 
-    it('increments passive reply msg_seq across split messages and media upload', async () => {
+    it('combines passive reply text and one image without extra msg_seq', async () => {
         const uploads = []
         const sends = []
         const client = {
@@ -167,15 +167,55 @@ describe('OfficialMessageSender', () => {
             msgSeq: 2
         })
 
-        assert.equal(sends.length, 3)
-        assert.equal(sends[0].body.msg_seq, 2)
+        assert.equal(sends.length, 1)
         assert.equal(uploads[0].body.msg_id, 'incoming-msg')
         assert.equal(uploads[0].body.event_id, undefined)
-        assert.equal(sends[1].body.msg_seq, 3)
-        assert.equal(sends[2].body.msg_seq, 4)
+        assert.equal(sends[0].body.msg_id, 'incoming-msg')
+        assert.equal(sends[0].body.msg_seq, 2)
+        assert.equal(sends[0].body.msg_type, 7)
+        assert.equal(sends[0].body.content, 'beforeafter')
+        assert.deepEqual(sends[0].body.media, { file_info: 'image-file-info' })
     })
 
-    it('falls back to text when media upload fails', async () => {
+    it('increments passive reply msg_seq across messages when multiple media must split', async () => {
+        const uploads = []
+        const sends = []
+        const client = {
+            async uploadGroupMedia(groupOpenId, body) {
+                uploads.push({ groupOpenId, body })
+                return { file_info: `image-file-info-${uploads.length}` }
+            },
+            async sendGroupMessage(groupOpenId, body) {
+                sends.push({ groupOpenId, body })
+                return { id: `msg-${sends.length}` }
+            }
+        }
+        const sender = new OfficialMessageSender({
+            client,
+            mediaUploader: new OfficialMediaUploader({ client, mode: 'url_only' }),
+            rateLimiter: new QpmRateLimiter({ accountLimit: 100, groupLimit: 100 }),
+            messageIdStore: new MessageIdStore()
+        })
+
+        await sender.sendGroupMessage('group-openid', [
+            { type: 'text', data: { text: 'before' } },
+            { type: 'image', data: { file: 'https://cdn.example.com/a.png' } },
+            { type: 'image', data: { file: 'https://cdn.example.com/b.png' } },
+            { type: 'text', data: { text: 'after' } }
+        ], {
+            msgId: 'incoming-msg',
+            msgSeq: 2
+        })
+
+        assert.equal(sends.length, 4)
+        assert.equal(sends[0].body.msg_seq, 2)
+        assert.equal(sends[1].body.msg_seq, 3)
+        assert.equal(sends[2].body.msg_seq, 4)
+        assert.equal(sends[3].body.msg_seq, 5)
+        assert.equal(uploads.length, 2)
+    })
+
+    it('falls back to text when media upload fails and preserves combined content', async () => {
         const sends = []
         const sender = new OfficialMessageSender({
             client: {
@@ -195,11 +235,13 @@ describe('OfficialMessageSender', () => {
         })
 
         await sender.sendGroupMessage('group-openid', [
-            { type: 'image', data: { file: 'base64://bad' } }
+            { type: 'image', data: { file: 'base64://bad' } },
+            { type: 'text', data: { text: 'https://www.bilibili.com/video/BV123' } }
         ])
 
         assert.equal(sends.length, 1)
         assert.equal(sends[0].body.msg_type, 0)
+        assert.match(sends[0].body.content, /https:\/\/www\.bilibili\.com\/video\/BV123/)
         assert.match(sends[0].body.content, /图片发送失败/)
     })
 

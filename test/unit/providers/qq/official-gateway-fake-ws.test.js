@@ -69,7 +69,7 @@ describe('OfficialGatewayClient fake ws', () => {
         ws.emit('message', JSON.stringify({ op: OPCODES.HEARTBEAT_ACK }))
         assert.equal(client.getStatus().awaitingAck, false)
 
-        client.stop()
+        await client.stop()
         assert.equal(client.getStatus().state, 'stopped')
         assert.equal(client.heartbeatTimer, null)
     })
@@ -84,7 +84,7 @@ describe('OfficialGatewayClient fake ws', () => {
         await new Promise(resolve => setImmediate(resolve))
 
         assert.ok(ws.sent.some((item) => item.op === OPCODES.RESUME && item.d.session_id === 'session-1' && item.d.seq === 9))
-        client.stop()
+        await client.stop()
     })
 
     it('drops session on invalid session and reconnects with identify next time', async () => {
@@ -112,7 +112,7 @@ describe('OfficialGatewayClient fake ws', () => {
             assert.equal(typeof timerFn, 'function')
         } finally {
             global.setTimeout = originalSetTimeout
-            client.stop()
+            await client.stop()
         }
     })
 
@@ -139,7 +139,66 @@ describe('OfficialGatewayClient fake ws', () => {
             assert.equal(client.getStatus().state, 'reconnecting')
         } finally {
             global.setTimeout = originalSetTimeout
-            client.stop()
+            await client.stop()
         }
+    })
+
+    it('waits for close, terminates a stuck socket, and ignores dispatch after stop begins', async () => {
+        class StuckWs extends FakeWs {
+            close() {
+                this.closeRequested = true
+            }
+
+            terminate() {
+                this.terminated = true
+                this.readyState = 3
+            }
+        }
+        StuckWs.instances = FakeWs.instances
+        const client = createClient({ WebSocketClass: StuckWs, stopTimeoutMs: 5 })
+        let dispatched = 0
+        client.on('event', () => { dispatched += 1 })
+        await client.start()
+        const ws = FakeWs.instances[0]
+
+        const stopping = client.stop()
+        ws.emit('message', JSON.stringify({ op: OPCODES.DISPATCH, t: 'READY', s: 1, d: { session_id: 'late' } }))
+        await stopping
+
+        assert.equal(dispatched, 0)
+        assert.equal(ws.closeRequested, true)
+        assert.equal(ws.terminated, true)
+        assert.equal(client.ws, null)
+        assert.equal(client.getStatus().state, 'stopped')
+    })
+
+    it('surfaces terminate failure, retains the socket, and permits retry', async () => {
+        class FailingStopWs extends FakeWs {
+            close() {
+                this.closeRequested = true
+            }
+
+            terminate() {
+                throw new Error('terminate failed')
+            }
+        }
+        const client = createClient({
+            WebSocketClass: FailingStopWs,
+            stopTimeoutMs: 5,
+            stopForceGraceMs: 5
+        })
+        await client.start()
+        const ws = FakeWs.instances[0]
+
+        await assert.rejects(() => client.stop(), error => error.code === 'OFFICIAL_GATEWAY_STOP_FAILED')
+        assert.equal(client.ws, ws)
+
+        ws.close = () => {
+            ws.readyState = 3
+            ws.emit('close', 1000, '')
+        }
+        await client.stop()
+        assert.equal(client.ws, null)
+        assert.equal(client.state, 'stopped')
     })
 })

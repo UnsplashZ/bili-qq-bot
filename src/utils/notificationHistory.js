@@ -12,6 +12,7 @@ class NotificationHistory {
 
         // Cleanup interval (run every 5 minutes)
         this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
+        this.cleanupTimer.unref?.();
     }
 
     /**

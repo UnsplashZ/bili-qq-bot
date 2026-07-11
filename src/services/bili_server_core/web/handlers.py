@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import secrets
 import time
 
 from bilibili_api import user
@@ -37,6 +39,7 @@ from ..services.user_service import get_my_info, get_user_card, get_user_info, s
 from ..services.video_service import get_video_info
 from ..logging_utils import rpc_log
 from .responses import json_result
+from .download_tasks import download_task_registry
 
 logger = logging.getLogger(__name__)
 
@@ -85,27 +88,35 @@ async def handle_video_download(request):
         except (ValueError, TypeError):
             return _handler_invalid("video_download", "invalid page_index")
         resolution = data.get("resolution", "1080p")
+        task_id = data.get("task_id") or f"legacy-{secrets.token_hex(8)}"
         group_id = data.get("group_id")
         video_meta = data.get("video_meta")
 
         if not bvid:
             return _handler_invalid("video_download", "bvid is required")
+        try:
+            task_id = download_task_registry.validate_task_id(task_id)
+        except ValueError:
+            return _handler_invalid("video_download", "invalid task_id")
 
         valid_resolutions = {"360p", "480p", "720p", "1080p", "1080p+"}
         if resolution not in valid_resolutions:
             return _handler_invalid("video_download", "invalid resolution")
 
         try:
-            result = await asyncio.wait_for(
-                download_video_file(
-                    bvid,
-                    page_index,
-                    resolution,
-                    DOWNLOADS_ALLOWED_BASE,
-                    group_id,
-                    video_meta,
+            result = await download_task_registry.run(
+                task_id,
+                lambda: asyncio.wait_for(
+                    download_video_file(
+                        bvid,
+                        page_index,
+                        resolution,
+                        DOWNLOADS_ALLOWED_BASE,
+                        group_id,
+                        video_meta,
+                    ),
+                    timeout=DOWNLOAD_HANDLER_TIMEOUT_SECONDS,
                 ),
-                timeout=DOWNLOAD_HANDLER_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
             rpc_log(logger, "error", "handler-timeout", handler="video_download", bvid=bvid)
@@ -123,6 +134,29 @@ async def handle_video_download(request):
         return json_result(result)
     except Exception as e:
         return _handler_error("video_download", e)
+
+
+async def handle_video_download_status(request):
+    try:
+        data = await request.json()
+        return json_result(
+            {"status": "success", **download_task_registry.public_status(data.get("task_id"))}
+        )
+    except ValueError:
+        return _handler_invalid("video_download_status", "invalid task_id")
+    except Exception as e:
+        return _handler_error("video_download_status", e)
+
+
+async def handle_video_download_cancel(request):
+    try:
+        data = await request.json()
+        status = await download_task_registry.cancel(data.get("task_id"))
+        return json_result({"status": "success", **status})
+    except ValueError:
+        return _handler_invalid("video_download_cancel", "invalid task_id")
+    except Exception as e:
+        return _handler_error("video_download_cancel", e)
 
 
 async def handle_bangumi(request):
@@ -472,7 +506,18 @@ async def handle_live_feed(request):
 
 async def health_check(request):
     del request
-    return json_result({"status": "ok"})
+    return json_result(
+        {
+            "status": "ok",
+            "instanceId": os.getenv("BILI_RUNTIME_INSTANCE_ID", ""),
+            "resourceGeneration": int(
+                os.getenv("BILI_RUNTIME_RESOURCE_GENERATION", "0") or "0"
+            ),
+            "effectHash": os.getenv("BILI_RUNTIME_EFFECT_HASH", ""),
+            "buildVersion": os.getenv("BILI_RUNTIME_BUILD_VERSION", ""),
+            "pid": os.getpid(),
+        }
+    )
 
 
 async def handle_credential_info(request):

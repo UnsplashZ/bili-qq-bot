@@ -24,12 +24,31 @@ class OfficialQqProvider extends BaseQqProvider {
         })
         this.config = options.config || config
         this.logger = options.logger || logger
-        this.onEvent = null
+        this.onEvent = options.onEvent || null
+        this.publishGlobal = options.publishGlobal !== false
+        this.runtimeActive = options.runtimeActive ?? this.publishGlobal
+        this._stopPromise = null
         this.state = 'created'
-        this.idStore = options.idStore || new OfficialIdStore({
-            storagePath: path.join(process.cwd(), 'data', 'qq-official-id-store.json')
-        })
-        this.messageIdStore = options.messageIdStore || new OfficialMessageIdStore()
+        this.canonicalSharedState = options.sharedState || {
+            idStore: options.idStore || new OfficialIdStore({
+                storagePath: path.join(process.cwd(), 'data', 'qq-official-id-store.json')
+            }),
+            messageIdStore: options.messageIdStore || new OfficialMessageIdStore()
+        }
+        this._sharedStateCandidate = Boolean(options.forkSharedState)
+        this._sharedStateCommitted = !this._sharedStateCandidate
+        this._sharedStateCommitCheckpoint = null
+        if (this._sharedStateCandidate) {
+            if (typeof this.canonicalSharedState.idStore?.fork !== 'function' ||
+                typeof this.canonicalSharedState.messageIdStore?.fork !== 'function') {
+                throw new TypeError('Official shared state stores must support fork()')
+            }
+            this.idStore = this.canonicalSharedState.idStore.fork()
+            this.messageIdStore = this.canonicalSharedState.messageIdStore.fork()
+        } else {
+            this.idStore = this.canonicalSharedState.idStore
+            this.messageIdStore = this.canonicalSharedState.messageIdStore
+        }
         this.tokenManager = options.tokenManager || new OfficialTokenManager({
             appId: this.config.qqOfficialAppId,
             clientSecret: this.config.qqOfficialClientSecret,
@@ -92,33 +111,202 @@ class OfficialQqProvider extends BaseQqProvider {
         return this.state === 'ready' ? 1 : 0
     }
 
+    isRuntimeReady() {
+        const gatewayState = this.gateway?.getStatus?.().state || this.gateway?.state
+        const socketReady = !this.gateway?.ws || this.gateway.ws.readyState === 1
+        return this.state === 'ready' && gatewayState === 'ready' && socketReady && !this.gateway?.manualStop
+    }
+
+    async preflight() {
+        const appId = String(this.config.qqOfficialAppId || '').trim()
+        const clientSecret = String(this.config.qqOfficialClientSecret || '').trim()
+        if (!appId) {
+            const error = new Error('qq_official_app_id_missing')
+            error.code = 'QQ_OFFICIAL_APP_ID_MISSING'
+            throw error
+        }
+        if (!clientSecret) {
+            const error = new Error('qq_official_client_secret_missing')
+            error.code = 'QQ_OFFICIAL_CLIENT_SECRET_MISSING'
+            throw error
+        }
+
+        await this.tokenManager.getAccessToken()
+        const gateway = this.config.qqOfficialUseShardedGateway
+            ? await this.openapi.getGatewayBot()
+            : await this.openapi.getGateway()
+        const endpoint = String(gateway?.url || gateway?.endpoint || '').trim()
+        let parsed
+        try {
+            parsed = new URL(endpoint)
+        } catch {
+            const error = new Error('qq_official_gateway_url_invalid')
+            error.code = 'QQ_OFFICIAL_GATEWAY_URL_INVALID'
+            throw error
+        }
+        if (parsed.protocol !== 'wss:' || !parsed.hostname) {
+            const error = new Error('qq_official_gateway_url_insecure')
+            error.code = 'QQ_OFFICIAL_GATEWAY_URL_INSECURE'
+            throw error
+        }
+        return {
+            endpoint: parsed.toString(),
+            shards: Math.max(1, Number(gateway?.shards || gateway?.shard_count || 1))
+        }
+    }
+
     async start(options = {}) {
-        this.onEvent = options.onEvent || null
+        this.onEvent = options.onEvent || this.onEvent || null
+        if (options.publishGlobal !== undefined) this.publishGlobal = Boolean(options.publishGlobal)
         this.state = 'starting'
-        global.bot = global.bot || { groupList: new Map(), selfId: '0' }
-        global.bot.selfId = this.selfId || 'official'
-        global.bot.nickname = global.bot.nickname || 'QQ Official Bot'
-        global.bot.ws = null
-        global.bot.groupList = this.idStore.toGroupListMap()
+        if (this.publishGlobal && this.runtimeActive) this.publishGlobalState()
         await this.tokenManager.getAccessToken()
         await this.gateway.start()
         return this
     }
 
     async stop() {
-        this.gateway.stop()
-        this.rateLimiter.stop()
+        if (this._stopPromise) return this._stopPromise
+        this.runtimeActive = false
+        const stopPromise = (async () => {
+            const cleanupTasks = [
+                ['gateway', () => Promise.resolve(this.gateway.stop())],
+                ['rate_limiter', () => Promise.resolve(this.rateLimiter.stop())]
+            ]
+            if (!this._sharedStateCandidate || this._sharedStateCommitted) {
+                cleanupTasks.push(['id_store_flush', () => Promise.resolve(this.idStore.flush())])
+            }
+            const failures = []
+            for (const [component, cleanup] of cleanupTasks) {
+                try {
+                    await cleanup()
+                } catch (error) {
+                    this.recordError(error, component)
+                    failures.push(Object.assign(error, { component }))
+                }
+            }
+            if (failures.length > 0) {
+                const error = new AggregateError(failures, 'Official Provider cleanup failed')
+                error.code = 'OFFICIAL_PROVIDER_CLEANUP_FAILED'
+                error.cleanupErrors = failures
+                throw error
+            }
+            this.state = 'stopped'
+        })()
+        this._stopPromise = stopPromise
         try {
-            this.idStore.flush()
+            return await stopPromise
         } catch (error) {
-            this.recordError(error, 'id_store_flush')
+            if (this._stopPromise === stopPromise) this._stopPromise = null
+            throw error
         }
-        this.state = 'stopped'
     }
 
     updateGroupList() {
+        if (!this.publishGlobal || !this.runtimeActive) return
         global.bot = global.bot || {}
         global.bot.groupList = this.idStore.toGroupListMap()
+    }
+
+    publishGlobalState() {
+        if (!this.publishGlobal || !this.runtimeActive) return
+        global.bot = global.bot || { groupList: new Map(), selfId: '0' }
+        global.bot.selfId = this.selfId || 'official'
+        global.bot.nickname = global.bot.nickname || 'QQ Official Bot'
+        global.bot.ws = null
+        global.bot.groupList = this.idStore.toGroupListMap()
+    }
+
+    activateGlobal() {
+        this.publishGlobal = true
+        this.runtimeActive = true
+        this.publishGlobalState()
+    }
+
+    deactivateGlobal() {
+        this.runtimeActive = false
+    }
+
+    getSharedState() {
+        return this.canonicalSharedState
+    }
+
+    commitSharedState() {
+        if (!this._sharedStateCandidate || this._sharedStateCommitted) return this.canonicalSharedState
+        const canonicalMessages = this.canonicalSharedState.messageIdStore
+        const checkpoint = {
+            canonicalIdState: this.canonicalSharedState.idStore.captureState(),
+            canonicalMessageState: canonicalMessages.snapshot(),
+            candidateIdStore: this.idStore,
+            candidateMessageIdStore: this.messageIdStore
+        }
+        this._sharedStateCommitCheckpoint = checkpoint
+        canonicalMessages.commitFrom(this.messageIdStore)
+        try {
+            this.canonicalSharedState.idStore.commitFrom(this.idStore)
+        } catch (error) {
+            canonicalMessages.restoreSnapshot(checkpoint.canonicalMessageState)
+            checkpoint.candidateMessageIdStore._committed = false
+            this._sharedStateCommitCheckpoint = null
+            throw error
+        }
+        this.idStore = this.canonicalSharedState.idStore
+        this.messageIdStore = canonicalMessages
+        if (this.sender) this.sender.messageIdStore = this.messageIdStore
+        this._sharedStateCommitted = true
+        this._sharedStateCandidate = false
+        return this.canonicalSharedState
+    }
+
+    rollbackSharedStateCommit() {
+        const checkpoint = this._sharedStateCommitCheckpoint
+        if (!checkpoint) return this.canonicalSharedState
+        this.canonicalSharedState.idStore.restoreState(checkpoint.canonicalIdState)
+        this.canonicalSharedState.messageIdStore.restoreSnapshot(checkpoint.canonicalMessageState)
+        checkpoint.candidateIdStore._committed = false
+        checkpoint.candidateMessageIdStore._committed = false
+        this.idStore = checkpoint.candidateIdStore
+        this.messageIdStore = checkpoint.candidateMessageIdStore
+        if (this.sender) this.sender.messageIdStore = this.messageIdStore
+        this._sharedStateCommitted = false
+        this._sharedStateCandidate = true
+        this._sharedStateCommitCheckpoint = null
+        return this.canonicalSharedState
+    }
+
+    finalizeSharedStateCommit() {
+        this._sharedStateCommitCheckpoint = null
+        return this.canonicalSharedState
+    }
+
+    async waitUntilReady(timeoutMs = 15000) {
+        if (this.state === 'ready') return this
+        await new Promise((resolve, reject) => {
+            let timer = null
+            const cleanup = () => {
+                if (timer) clearTimeout(timer)
+                this.gateway.removeListener?.('state', onState)
+                this.gateway.removeListener?.('error', onError)
+            }
+            const onState = (state) => {
+                if (state !== 'ready') return
+                cleanup()
+                resolve()
+            }
+            const onError = (error) => {
+                cleanup()
+                reject(error)
+            }
+            this.gateway.on?.('state', onState)
+            this.gateway.once?.('error', onError)
+            timer = setTimeout(() => {
+                cleanup()
+                const error = new Error('Official gateway readiness timed out')
+                error.code = 'OFFICIAL_READY_TIMEOUT'
+                reject(error)
+            }, Math.max(1, Number(timeoutMs) || 15000))
+        })
+        return this
     }
 
     handleGatewayEvent(event) {

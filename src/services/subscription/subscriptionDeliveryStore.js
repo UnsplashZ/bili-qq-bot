@@ -35,16 +35,18 @@ class SubscriptionDeliveryStore {
         this._operationChain = Promise.resolve()
     }
 
-    static makeKey(groupId, type, contentId) {
+    static makeKey(groupId, type, contentId, deliveryPart = 'main') {
         const normalizedGroupId = normalizePart(groupId)
         const normalizedType = normalizePart(type)
         const normalizedContentId = normalizePart(contentId)
         if (!normalizedGroupId || !normalizedType || !normalizedContentId) return ''
-        return `${normalizedGroupId}:${normalizedType}:${normalizedContentId}`
+        const normalizedDeliveryPart = normalizePart(deliveryPart) || 'main'
+        const baseKey = `${normalizedGroupId}:${normalizedType}:${normalizedContentId}`
+        return normalizedDeliveryPart === 'main' ? baseKey : `${baseKey}:${normalizedDeliveryPart}`
     }
 
-    makeKey(groupId, type, contentId) {
-        return SubscriptionDeliveryStore.makeKey(groupId, type, contentId)
+    makeKey(groupId, type, contentId, deliveryPart = 'main') {
+        return SubscriptionDeliveryStore.makeKey(groupId, type, contentId, deliveryPart)
     }
 
     async ensureLoaded() {
@@ -84,23 +86,23 @@ class SubscriptionDeliveryStore {
         }
     }
 
-    async hasDelivered(groupId, type, contentId) {
+    async hasDelivered(groupId, type, contentId, deliveryPart = 'main') {
         await this._operationChain
         await this.ensureLoaded()
-        const key = this.makeKey(groupId, type, contentId)
+        const key = this.makeKey(groupId, type, contentId, deliveryPart)
         return Boolean(key && this.records[key])
     }
 
-    async getUndeliveredGroups(groupIds, type, contentId) {
+    async getUndeliveredGroups(groupIds, type, contentId, deliveryPart = 'main') {
         await this._operationChain
         await this.ensureLoaded()
         const groups = Array.isArray(groupIds) ? groupIds : []
         return groups
             .map(groupId => normalizePart(groupId))
-            .filter(groupId => groupId && !this.records[this.makeKey(groupId, type, contentId)])
+            .filter(groupId => groupId && !this.records[this.makeKey(groupId, type, contentId, deliveryPart)])
     }
 
-    async getDeliveryCoverage(groupIds, type, contentId) {
+    async getDeliveryCoverage(groupIds, type, contentId, deliveryPart = 'main') {
         await this._operationChain
         await this.ensureLoaded()
         const groups = Array.isArray(groupIds) ? groupIds : []
@@ -110,7 +112,7 @@ class SubscriptionDeliveryStore {
         for (const groupId of groups) {
             const normalizedGroupId = normalizePart(groupId)
             if (!normalizedGroupId) continue
-            if (this.records[this.makeKey(normalizedGroupId, type, contentId)]) {
+            if (this.records[this.makeKey(normalizedGroupId, type, contentId, deliveryPart)]) {
                 deliveredGroups.push(normalizedGroupId)
             } else {
                 undeliveredGroups.push(normalizedGroupId)
@@ -223,7 +225,8 @@ class SubscriptionDeliveryStore {
         const groupId = normalizePart(record.groupId)
         const type = normalizePart(record.type)
         const contentId = normalizePart(record.contentId)
-        const key = normalizePart(record.key) || this.makeKey(groupId, type, contentId)
+        const deliveryPart = normalizePart(record.deliveryPart || record.meta?.deliveryPart) || 'main'
+        const key = this.makeKey(groupId, type, contentId, deliveryPart)
 
         if (!groupId || !type || !contentId || !key) return null
 
@@ -232,6 +235,7 @@ class SubscriptionDeliveryStore {
             groupId,
             type,
             contentId,
+            deliveryPart,
             deliveredAt: normalizeTime(record.deliveredAt, this.now()),
             meta: record.meta && typeof record.meta === 'object' && !Array.isArray(record.meta)
                 ? { ...record.meta }

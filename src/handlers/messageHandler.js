@@ -8,6 +8,7 @@ const imageGenerator = require('../services/imageGenerator'); // Used in handleG
 const requestApprovalService = require('../services/requestApprovalService');
 const { CAPABILITIES, hasCapability } = require('../providers/qq/capabilities');
 const { isQqTransportReady } = require('../providers/qq/readiness');
+const { botOperationRegistry } = require('../services/runtime/botOperationRegistry');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -24,19 +25,22 @@ function parsePositiveInteger(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-const MESSAGE_DEDUP_TTL_MS = parsePositiveInteger(
-    process.env.MESSAGE_DEDUP_TTL_MS || process.env.AI_MESSAGE_DEDUP_TTL_MS,
-    120000
-)
-const MESSAGE_DEDUP_MAX_SIZE = parsePositiveInteger(
-    process.env.MESSAGE_DEDUP_MAX_ENTRIES || process.env.AI_MESSAGE_DEDUP_MAX_ENTRIES,
-    50000
-)
 const processedMessageIds = new Map()
 
+function getMessageDedupConfig() {
+    const current = config.get?.('messageDedup') || {}
+    return {
+        enabled: current.enabled !== false,
+        ttlMs: parsePositiveInteger(current.ttlMs, 120000),
+        maxEntries: parsePositiveInteger(current.maxEntries, 50000)
+    }
+}
+
 function markMessageIfNew(dedupKey, now = Date.now()) {
+    const dedup = getMessageDedupConfig()
+    if (!dedup.enabled) return true
     for (const [key, timestamp] of processedMessageIds) {
-        if (now - timestamp <= MESSAGE_DEDUP_TTL_MS) break
+        if (now - timestamp <= dedup.ttlMs) break
         processedMessageIds.delete(key)
     }
 
@@ -45,7 +49,7 @@ function markMessageIfNew(dedupKey, now = Date.now()) {
     }
 
     processedMessageIds.set(dedupKey, now)
-    if (processedMessageIds.size > MESSAGE_DEDUP_MAX_SIZE) {
+    if (processedMessageIds.size > dedup.maxEntries) {
         const oldestKey = processedMessageIds.keys().next().value
         if (oldestKey !== undefined) {
             processedMessageIds.delete(oldestKey)
@@ -181,10 +185,12 @@ class MessageHandler {
     }
 
     async handleMessage(ws, messageData) {
-        return notificationService.runWithSendContext(
+        const run = () => notificationService.runWithSendContext(
             buildSendContextFromMessage(messageData),
             () => this._handleMessage(ws, messageData)
         )
+        if (botOperationRegistry.getContext()) return run()
+        return botOperationRegistry.runBotOperation('message', run, { transport: ws })
     }
 
     async _handleMessage(ws, messageData) {
@@ -257,7 +263,7 @@ class MessageHandler {
         // Auto-create group configuration if not exists (skip for private messages)
         const isPrivateMsg = typeof groupId === 'string' && groupId.startsWith('private_');
         if (groupId && !isPrivateMsg) {
-            config.ensureGroupConfig(groupId);
+            await config.ensureGroupConfig(groupId);
         }
 
         // 检查用户是否在黑名单中 (Global + Group Isolation)
@@ -439,6 +445,13 @@ class MessageHandler {
     }
 
     async handleGroupIncrease(ws, payload) {
+        if (!botOperationRegistry.getContext()) {
+            return botOperationRegistry.runBotOperation(
+                'group-increase',
+                () => this.handleGroupIncrease(ws, payload),
+                { transport: ws }
+            )
+        }
         const { group_id, user_id, self_id } = payload;
         
         // Only respond if the bot itself joined

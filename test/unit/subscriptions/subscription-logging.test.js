@@ -36,7 +36,7 @@ const originals = {
 }
 
 function restore() {
-    config.groupConfigs = originals.groupConfigs
+    config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
     subscriptionManager._ensureSubscriptionsLoaded = originals.ensureSubscriptionsLoaded
     subscriptionManager.flushPendingFollowerSaves = originals.flushPendingFollowerSaves
     subscriptionManager._ensureFollowersLoaded = originals.ensureFollowersLoaded
@@ -71,6 +71,7 @@ function restore() {
     updateChecker._subscriptionRuntimeStartState = 'stopped'
     updateChecker._subscriptionRuntimeLastError = null
     updateChecker._subscriptionRuntimeLastErrorAt = null
+    updateChecker.resumeOperations()
 }
 
 async function run() {
@@ -81,7 +82,7 @@ async function run() {
         global.setTimeout = () => ({ fakeTimeout: true })
         global.setInterval = () => ({ fakeInterval: true })
         global.clearInterval = () => {}
-        config.groupConfigs = { '1000': { isInGroup: true } }
+        config.__getMutableCompatStateForTests().groupConfigs = { '1000': { isInGroup: true } }
         subscriptionManager._ensureSubscriptionsLoaded = async () => {}
         subscriptionManager._ensureFollowersLoaded = async () => {}
         subscriptionManager.flushPendingFollowerSaves = async () => {}
@@ -112,8 +113,9 @@ async function run() {
         updateChecker.checkBangumi = async () => {}
         updateChecker.refreshMissingNames = async () => {}
 
-        updateChecker.start(true)
-        updateChecker.stop()
+        await updateChecker.start(true)
+        await updateChecker.stop()
+        updateChecker.resumeOperations()
         global.setTimeout = (fn) => {
             fn()
             return { fakeTimeout: true }

@@ -51,29 +51,12 @@ function normalizeGroupId(value, sessionContext) {
     return normalized
 }
 
-function ensureAgentGroupConfig(groupId) {
-    const agentConfig = config.agent
-    if (!agentConfig.groups || typeof agentConfig.groups !== 'object' || Array.isArray(agentConfig.groups)) {
-        agentConfig.groups = {}
-    }
-    if (!agentConfig.groups[groupId] || typeof agentConfig.groups[groupId] !== 'object' || Array.isArray(agentConfig.groups[groupId])) {
-        agentConfig.groups[groupId] = {}
-    }
-    return agentConfig.groups[groupId]
-}
-
-function setAgentGroupFlag(groupId, key, value) {
-    const groupConfig = ensureAgentGroupConfig(groupId)
-    groupConfig[key] = value
-    config.save()
-}
-
-function ensureGroupBlacklist(groupId) {
-    if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {}
-    if (!Array.isArray(config.groupConfigs[groupId].blacklistedQQs)) {
-        config.groupConfigs[groupId].blacklistedQQs = []
-    }
-    return config.groupConfigs[groupId].blacklistedQQs
+async function setAgentGroupFlag(groupId, key, value) {
+    await config.mutate((draft) => {
+        draft.agent.groups ||= {}
+        draft.agent.groups[groupId] ||= {}
+        draft.agent.groups[groupId][key] = value
+    }, { actor: 'agent-tool-group-flag' })
 }
 
 function normalizeAgentGroupFlagArgs(args, sessionContext) {
@@ -1333,7 +1316,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 入口`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'enabled', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'enabled', args.enabled)
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 入口。` }
         }
     },
@@ -1345,7 +1328,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 发言`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'sendEnabled', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'sendEnabled', args.enabled)
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 发言。` }
         }
     },
@@ -1357,7 +1340,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '设置' : '取消'}群 ${args.groupId} 的 Agent 仅观察模式`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'observeOnly', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'observeOnly', args.enabled)
             return { message: `已${args.enabled ? '设置' : '取消'}群 ${args.groupId} 的 Agent 仅观察模式。` }
         }
     },
@@ -1370,9 +1353,9 @@ const toolDefinitions = {
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Bot 功能`,
         execute: async (args) => {
             if (args.enabled) {
-                config.enableGroup(args.groupId)
+                await config.enableGroup(args.groupId)
             } else {
-                config.disableGroup(args.groupId)
+                await config.disableGroup(args.groupId)
             }
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Bot 功能。` }
         }
@@ -1385,11 +1368,12 @@ const toolDefinitions = {
         normalizeArgs: normalizeBlacklistArgs,
         summarize: (args) => `将 ${args.targetUserId} 加入${args.scope === 'global' ? '全局' : `群 ${args.groupId}`}黑名单`,
         execute: async (args) => {
-            const list = args.scope === 'global' ? config.blacklistedQQs : ensureGroupBlacklist(args.groupId)
-            if (!list.includes(args.targetUserId)) {
-                list.push(args.targetUserId)
-                config.save()
-            }
+            await config.mutate((draft) => {
+                const list = args.scope === 'global'
+                    ? (draft.blacklistedQQs ||= [])
+                    : ((draft.groupConfigs[args.groupId] ||= {}).blacklistedQQs ||= [])
+                if (!list.includes(args.targetUserId)) list.push(args.targetUserId)
+            }, { actor: 'agent-tool-blacklist-add' })
             return { message: `已将 ${args.targetUserId} 加入${args.scope === 'global' ? '全局' : '本群'}黑名单。` }
         }
     },
@@ -1401,12 +1385,13 @@ const toolDefinitions = {
         normalizeArgs: normalizeBlacklistArgs,
         summarize: (args) => `将 ${args.targetUserId} 移出${args.scope === 'global' ? '全局' : `群 ${args.groupId}`}黑名单`,
         execute: async (args) => {
-            const list = args.scope === 'global' ? config.blacklistedQQs : ensureGroupBlacklist(args.groupId)
-            const index = list.indexOf(args.targetUserId)
-            if (index >= 0) {
-                list.splice(index, 1)
-                config.save()
-            }
+            await config.mutate((draft) => {
+                const list = args.scope === 'global'
+                    ? (draft.blacklistedQQs ||= [])
+                    : ((draft.groupConfigs[args.groupId] ||= {}).blacklistedQQs ||= [])
+                const index = list.indexOf(args.targetUserId)
+                if (index >= 0) list.splice(index, 1)
+            }, { actor: 'agent-tool-blacklist-remove' })
             return { message: `已将 ${args.targetUserId} 移出${args.scope === 'global' ? '全局' : '本群'}黑名单。` }
         }
     },

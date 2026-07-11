@@ -41,23 +41,23 @@ describe('messageHandler Official command flow', () => {
 
     beforeEach(() => {
         messageHandler._processedMessageIds.clear()
-        config.qqProvider = 'official'
-        config.qqOfficialRootOpenids = ['member-openid']
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().qqProvider = 'official'
+        config.__getMutableCompatStateForTests().qqOfficialRootOpenids = ['member-openid']
+        config.__getMutableCompatStateForTests().groupConfigs = {
             'group-openid': {
                 admins: ['member-openid'],
                 blacklistedQQs: []
             }
         }
-        config.enabledGroups = []
+        config.__getMutableCompatStateForTests().enabledGroups = []
         config.save = () => {}
     })
 
     afterEach(() => {
-        config.qqProvider = originals.qqProvider
-        config.qqOfficialRootOpenids = originals.qqOfficialRootOpenids
-        config.groupConfigs = originals.groupConfigs
-        config.enabledGroups = originals.enabledGroups
+        config.__getMutableCompatStateForTests().qqProvider = originals.qqProvider
+        config.__getMutableCompatStateForTests().qqOfficialRootOpenids = originals.qqOfficialRootOpenids
+        config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
+        config.__getMutableCompatStateForTests().enabledGroups = originals.enabledGroups
         config.save = originals.save
         messageHandler._processedMessageIds.clear()
     })
@@ -114,8 +114,8 @@ describe('messageHandler Official command flow', () => {
     })
 
     it('accepts GROUP_AT commands and authorizes root by user_openid alias', async () => {
-        config.qqOfficialRootOpenids = ['user-openid']
-        config.groupConfigs = {
+        config.__getMutableCompatStateForTests().qqOfficialRootOpenids = ['user-openid']
+        config.__getMutableCompatStateForTests().groupConfigs = {
             'group-openid': {
                 admins: [],
                 blacklistedQQs: []

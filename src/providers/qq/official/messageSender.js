@@ -29,6 +29,27 @@ function getMediaKind(segment) {
     return ''
 }
 
+function getMediaSegments(chain) {
+    return chain
+        .map((segment) => ({ segment, mediaKind: getMediaKind(segment) }))
+        .filter((item) => item.mediaKind)
+}
+
+function getCombinedText(chain) {
+    return chain
+        .map((segment) => getSegmentText(segment))
+        .filter(Boolean)
+        .join('')
+}
+
+function getMediaFallbackText(mediaKind, content = '') {
+    const fallbackText = mediaKind === 'video'
+        ? '视频发送失败，已降级为文本提示。'
+        : '图片发送失败，已降级为文本提示。'
+    const cleanContent = cleanText(content)
+    return cleanContent ? `${cleanContent}\n${fallbackText}` : fallbackText
+}
+
 class OfficialMessageSender {
     constructor(options = {}) {
         this.client = options.client
@@ -115,7 +136,7 @@ class OfficialMessageSender {
         return this.recordSentMessage(targetType, targetId, response)
     }
 
-    async sendMedia({ targetType, targetId, segment, mediaKind, metadata = {} }) {
+    async sendMedia({ targetType, targetId, segment, mediaKind, metadata = {}, content = '' }) {
         const groupId = targetType === 'group' ? targetId : ''
         const upload = await this.rateLimiter.schedule(() => this.mediaUploader.upload({
             targetType,
@@ -129,6 +150,7 @@ class OfficialMessageSender {
         const body = this.buildMessageBody({
             targetType,
             targetId,
+            content: cleanText(content),
             media: { file_info: fileInfo },
             metadata,
             msgType: 7
@@ -139,9 +161,45 @@ class OfficialMessageSender {
 
     async sendMessage({ targetType, targetId, message, metadata = {}, enableMediaFallback = true }) {
         const chain = normalizeChain(message)
+        const mediaSegments = getMediaSegments(chain)
         const results = []
         let pendingText = ''
         let sendIndex = 0
+
+        if (mediaSegments.length === 1) {
+            const { segment, mediaKind } = mediaSegments[0]
+            const content = getCombinedText(chain)
+
+            try {
+                const partMetadata = this.buildSequencedMetadata(metadata, sendIndex)
+                sendIndex += 1
+                results.push(await this.sendMedia({ targetType, targetId, segment, mediaKind, metadata: partMetadata, content }))
+            } catch (error) {
+                if (!enableMediaFallback) throw error
+                this.logger?.logEvent?.('warn', 'QQ', 'svc:qq:send', 'media-send-fallback', {
+                    targetType,
+                    targetId,
+                    mediaKind,
+                    error: this.logger.getErrorMessage ? this.logger.getErrorMessage(error) : String(error)
+                })
+                const fallbackMetadata = this.buildSequencedMetadata(metadata, sendIndex)
+                sendIndex += 1
+                const fallbackResult = await this.sendText({
+                    targetType,
+                    targetId,
+                    text: getMediaFallbackText(mediaKind, content),
+                    metadata: fallbackMetadata
+                })
+                fallbackResult.fallbackUsed = true
+                fallbackResult.fallbackReason = mediaKind === 'video' ? 'video_media_send_failed' : 'image_media_send_failed'
+                results.push(fallbackResult)
+            }
+
+            if (results.length === 0) {
+                return { status: 'ok', retcode: 0, data: { message_id: '' }, skipped: true }
+            }
+            return results[results.length - 1]
+        }
 
         for (const segment of chain) {
             const mediaKind = getMediaKind(segment)
@@ -164,9 +222,6 @@ class OfficialMessageSender {
                 results.push(await this.sendMedia({ targetType, targetId, segment, mediaKind, metadata: partMetadata }))
             } catch (error) {
                 if (!enableMediaFallback) throw error
-                const fallbackText = mediaKind === 'video'
-                    ? '视频发送失败，已降级为文本提示。'
-                    : '图片发送失败，已降级为文本提示。'
                 this.logger?.logEvent?.('warn', 'QQ', 'svc:qq:send', 'media-send-fallback', {
                     targetType,
                     targetId,
@@ -178,7 +233,7 @@ class OfficialMessageSender {
                 const fallbackResult = await this.sendText({
                     targetType,
                     targetId,
-                    text: fallbackText,
+                    text: getMediaFallbackText(mediaKind),
                     metadata: fallbackMetadata
                 })
                 fallbackResult.fallbackUsed = true

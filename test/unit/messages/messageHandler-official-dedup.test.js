@@ -4,10 +4,29 @@
 const assert = require('assert')
 
 const messageHandler = require('../../../src/handlers/messageHandler')
+const config = require('../../../src/config')
 
 describe('messageHandler official dedup key', () => {
     beforeEach(() => {
         messageHandler._processedMessageIds.clear()
+    })
+
+    it('uses the live config facade instead of process.env for dedup limits', () => {
+        const originalGet = config.get
+        const originalEnv = process.env.MESSAGE_DEDUP_MAX_ENTRIES
+        process.env.MESSAGE_DEDUP_MAX_ENTRIES = '999'
+        config.get = (key) => key === 'messageDedup'
+            ? { enabled: true, ttlMs: 120000, maxEntries: 1 }
+            : originalGet.call(config, key)
+        try {
+            assert.equal(messageHandler._markMessageIfNew('first', 1000), true)
+            assert.equal(messageHandler._markMessageIfNew('second', 1000), true)
+            assert.equal(messageHandler._markMessageIfNew('first', 1000), true)
+        } finally {
+            config.get = originalGet
+            if (originalEnv === undefined) delete process.env.MESSAGE_DEDUP_MAX_ENTRIES
+            else process.env.MESSAGE_DEDUP_MAX_ENTRIES = originalEnv
+        }
     })
 
     it('prefers official event id', () => {

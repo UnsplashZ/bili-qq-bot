@@ -5,6 +5,18 @@ const { normalizeServiceError } = require('./biliApiServiceError');
 const BILI_API_SCOPE = logger.createScope('svc', 'bili-api')
 
 class BiliApi {
+    getRuntimeStatus() {
+        return {
+            running: Boolean(serviceManager.process),
+            instanceId: serviceManager.activeIdentity?.instanceId || null,
+            resourceGeneration: serviceManager.resourceGeneration
+        }
+    }
+
+    async getDownloadTaskStatus(taskId) {
+        return serviceManager.sendCommand('video_download/status', { task_id: taskId }, { timeoutMs: 5000 })
+    }
+
     _normalizeServiceResult(result, endpoint) {
         if (result && String(result.status || '').toLowerCase() === 'error') {
             return normalizeServiceError({
@@ -93,7 +105,7 @@ class BiliApi {
         );
     }
 
-    async downloadVideo(bvid, pageIndex, resolution, groupId, videoMeta = null) {
+    async downloadVideo(bvid, pageIndex, resolution, groupId, videoMeta = null, options = {}) {
         // 下载操作不缓存，超时设为 5 分钟
         // output_dir 由 Python 侧固定为脚本相对路径，不再由 Node 侧传入
         try {
@@ -107,18 +119,35 @@ class BiliApi {
                 resolution,
                 group_id: groupId,
             }
+            if (options.taskId !== undefined) payload.task_id = options.taskId
             if (videoMeta) payload.video_meta = videoMeta
-            const result = await serviceManager.sendCommand('video_download', payload, { timeoutMs: 5 * 60 * 1000 })
+            const commandOptions = { timeoutMs: options.timeoutMs || 5 * 60 * 1000 }
+            if (options.signal !== undefined) commandOptions.signal = options.signal
+            const result = await serviceManager.sendCommand('video_download', payload, commandOptions)
             return this._normalizeServiceResult(result, 'video_download')
         } catch (error) {
+            let terminalConfirmed = false
+            if (options.taskId) {
+                try {
+                    const cancellation = await serviceManager.sendCommand('video_download/cancel', {
+                        task_id: options.taskId
+                    }, { timeoutMs: 15000 })
+                    terminalConfirmed = Boolean(cancellation?.terminal)
+                } catch (cancelError) {
+                    error.cancelError = cancelError
+                }
+            }
             logger.logEvent('error', 'RPC', BILI_API_SCOPE, 'video-download-failed', {
                 bvid,
                 pageIndex,
                 resolution,
                 groupId,
-                error: logger.getErrorMessage(error)
+                error: logger.getErrorMessage(error),
+                terminalConfirmed
             })
-            return normalizeServiceError(error, 'video_download')
+            const normalized = normalizeServiceError(error, 'video_download')
+            normalized.terminalConfirmed = terminalConfirmed
+            return normalized
         }
     }
 

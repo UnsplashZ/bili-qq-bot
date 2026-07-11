@@ -55,11 +55,12 @@ function restoreAgentEnv() {
 }
 
 const originals = {
-    agentConfig: config._overrides.agent,
+    agentConfig: config.__getMutableCompatStateForTests().agent,
     isRootAdmin: config.isRootAdmin,
     isGroupAdmin: config.isGroupAdmin,
     isGroupEnabled: config.isGroupEnabled,
     ensureGroupConfig: config.ensureGroupConfig,
+    mutate: config.mutate,
     blacklistedQQs: config.blacklistedQQs,
     groupConfigs: config.groupConfigs,
     commandDispatch: commandManager.dispatch,
@@ -71,16 +72,17 @@ const originals = {
 function restore() {
     restoreAgentEnv()
     if (originals.agentConfig === undefined) {
-        delete config._overrides.agent
+        delete config.__getMutableCompatStateForTests().agent
     } else {
-        config._overrides.agent = originals.agentConfig
+        config.__getMutableCompatStateForTests().agent = originals.agentConfig
     }
     config.isRootAdmin = originals.isRootAdmin
     config.isGroupAdmin = originals.isGroupAdmin
     config.isGroupEnabled = originals.isGroupEnabled
     config.ensureGroupConfig = originals.ensureGroupConfig
-    config.blacklistedQQs = originals.blacklistedQQs
-    config.groupConfigs = originals.groupConfigs
+    config.__getMutableCompatStateForTests().blacklistedQQs = originals.blacklistedQQs
+    config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
+    config.mutate = originals.mutate
     commandManager.dispatch = originals.commandDispatch
     linkService.prepareIncomingMessageLinks = originals.prepareIncomingMessageLinks
     agent.agentIngress.observe = originals.agentObserve
@@ -96,7 +98,7 @@ function restore() {
 }
 
 function enableAgent(overrides = {}) {
-    config._overrides.agent = {
+    config.__getMutableCompatStateForTests().agent = {
         enabled: true,
         observeOnly: true,
         logTrajectory: false,
@@ -153,8 +155,8 @@ function prepareRuntime() {
     config.isGroupAdmin = () => false
     config.isGroupEnabled = () => true
     config.ensureGroupConfig = () => {}
-    config.blacklistedQQs = []
-    config.groupConfigs = {}
+    config.__getMutableCompatStateForTests().blacklistedQQs = []
+    config.__getMutableCompatStateForTests().groupConfigs = {}
     commandManager.dispatch = async () => false
     linkService.prepareIncomingMessageLinks = async ({ rawMessage }) => ({
         rawMessage,
@@ -172,7 +174,7 @@ async function run() {
     try {
         shortTermStore.reset()
         budgetGuard.resetBudget()
-        config._overrides.agent = {
+        config.__getMutableCompatStateForTests().agent = {
             enabled: false,
             observeOnly: true,
             logTrajectory: false,

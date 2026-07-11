@@ -22,10 +22,10 @@ commandManager.dispatch = defaultDispatch
 
 const config = require(path.join(__dirname, '../../../src/config'))
 config.isRootAdmin = () => false
-config.blacklistedQQs = []
+config.__getMutableCompatStateForTests().blacklistedQQs = []
 config.isGroupEnabled = () => true
 config.ensureGroupConfig = () => {}
-config.groupConfigs = {}
+config.__getMutableCompatStateForTests().groupConfigs = {}
 
 // --- Mock WebSocket ---
 function makeMockWs() {

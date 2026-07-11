@@ -5,6 +5,7 @@ const { AsyncLocalStorage } = require('async_hooks');
 const logger = require('../utils/logger');
 const config = require('../config');
 const qqProviderRuntime = require('../providers/qq/runtime');
+const { botOperationRegistry } = require('./runtime/botOperationRegistry');
 
 const TEMP_IMAGE_CLEANUP_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 const TEMP_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1h
@@ -18,9 +19,14 @@ function sendLog(level, message, fields = {}, scope = NOTIFICATION_SCOPE) {
     logger.logEvent(level, 'SEND', scope, message, fields);
 }
 
+function trackRuntimePromise(promise) {
+    const context = botOperationRegistry.getContext()
+    return context?.trackPromise ? context.trackPromise(promise) : promise
+}
+
 function getOfficialProvider(handle = null) {
-    if (handle && String(handle.id || '').toLowerCase() === 'official') {
-        return handle;
+    if (handle) {
+        return String(handle.id || '').toLowerCase() === 'official' ? handle : null;
     }
     const provider = qqProviderRuntime.getCurrentProvider();
     if (String(provider?.id || '').toLowerCase() === 'official') {
@@ -67,14 +73,14 @@ class NotificationService {
     static callAction(ws, action, params = {}, logPrefix = 'NotificationService', timeoutMs = 5000) {
         const officialProvider = getOfficialProvider(ws);
         if (officialProvider) {
-            return officialProvider.callAction(action, params, {
+            return trackRuntimePromise(officialProvider.callAction(action, params, {
                 ...this.getOfficialSendMetadata(params),
                 source: normalizeSource(logPrefix),
                 timeoutMs
-            });
+            }));
         }
 
-        return new Promise((resolve, reject) => {
+        return trackRuntimePromise(new Promise((resolve, reject) => {
             if (!ws) {
                 reject(new Error('WebSocket is not available'));
                 return;
@@ -137,7 +143,7 @@ class NotificationService {
                 clearTimeout(pending.timeoutId);
                 pending.reject(e);
             }
-        });
+        }));
     }
 
     static _ensureActionDispatcher(ws) {
@@ -226,15 +232,25 @@ class NotificationService {
      * 启动图片临时文件清理任务（每小时执行一次，清理超过 24 小时的 .png）
      */
     static startTempImageCleanupScheduler() {
-        if (this._tempImageCleanupTimer) return;
+        if (this._tempImageCleanupTimer) return this._tempImageCleanupPromise;
 
         const runCleanup = async () => {
+            const cleanupPromise = (async () => {
+                try {
+                    await this.cleanupExpiredTempImages();
+                } catch (e) {
+                    sendLog('error', 'temp-image-cleanup-failed', {
+                        error: logger.getErrorMessage(e)
+                    });
+                }
+            })();
+            this._tempImageCleanupPromise = cleanupPromise;
             try {
-                await this.cleanupExpiredTempImages();
-            } catch (e) {
-                sendLog('error', 'temp-image-cleanup-failed', {
-                    error: logger.getErrorMessage(e)
-                });
+                await cleanupPromise;
+            } finally {
+                if (this._tempImageCleanupPromise === cleanupPromise) {
+                    this._tempImageCleanupPromise = null;
+                }
             }
         };
 
@@ -247,15 +263,23 @@ class NotificationService {
             this._tempImageCleanupTimer.unref();
         }
         sendLog('info', 'temp-image-cleanup-scheduler-started');
+        return this._tempImageCleanupPromise;
     }
 
     /**
      * 停止图片临时文件清理任务（主要用于测试）
      */
-    static stopTempImageCleanupScheduler() {
-        if (!this._tempImageCleanupTimer) return;
-        clearInterval(this._tempImageCleanupTimer);
-        this._tempImageCleanupTimer = null;
+    static async stopTempImageCleanupScheduler() {
+        if (this._tempImageCleanupTimer) {
+            clearInterval(this._tempImageCleanupTimer);
+            this._tempImageCleanupTimer = null;
+        }
+        const pendingCleanup = this._tempImageCleanupPromise;
+        if (pendingCleanup) await pendingCleanup;
+    }
+
+    static async stop() {
+        await this.stopTempImageCleanupScheduler();
     }
 
     /**
@@ -468,7 +492,7 @@ class NotificationService {
                 groupId,
                 chainLength: messageChain.length
             });
-            return officialProvider.sendGroupMessage(groupId, messageChain, {
+            return trackRuntimePromise(officialProvider.sendGroupMessage(groupId, messageChain, {
                 ...this.getOfficialSendMetadata(),
                 source: normalizeSource(logPrefix)
             }).then((result) => {
@@ -500,7 +524,7 @@ class NotificationService {
                     });
                 }
                 throw e;
-            });
+            }));
         }
 
         if (!ws) {
@@ -589,7 +613,7 @@ class NotificationService {
                 userId,
                 chainLength: messageChain.length
             });
-            return officialProvider.sendPrivateMessage(userId, messageChain, {
+            return trackRuntimePromise(officialProvider.sendPrivateMessage(userId, messageChain, {
                 ...this.getOfficialSendMetadata(),
                 source: normalizeSource(logPrefix)
             }).then((result) => {
@@ -621,7 +645,7 @@ class NotificationService {
                     });
                 }
                 throw e;
-            });
+            }));
         }
 
         if (!ws) {
@@ -736,9 +760,8 @@ class NotificationService {
 
 NotificationService._tempImageCleanupTimer = null;
 NotificationService._tempImageCleanupRunning = false;
+NotificationService._tempImageCleanupPromise = null;
 NotificationService._actionPendingByWs = new WeakMap();
 NotificationService._actionDispatcherByWs = new WeakMap();
 NotificationService._sendContext = new AsyncLocalStorage();
-NotificationService.startTempImageCleanupScheduler();
-
 module.exports = NotificationService;

@@ -1,4 +1,4 @@
-const { DEFAULT_AGENT_CONFIG } = require('../../config/schema')
+const { DEFAULT_AGENT_CONFIG } = require('../../config/schemaV1')
 const config = require('../../config')
 
 function clone(value) {
@@ -29,24 +29,8 @@ function parseNumber(value, fallback) {
     return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function parseBoolean(value, fallback = false) {
-    if (value === undefined || value === null || value === '') return fallback
-    if (typeof value === 'boolean') return value
-    const normalized = String(value).trim().toLowerCase()
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
-    if (['0', 'false', 'no', 'off'].includes(normalized)) return false
-    return fallback
-}
-
-function envValue(env, key, fallback) {
-    const value = env[key]
-    return value === undefined || value === null || value === '' ? fallback : value
-}
-
 function getRawAgentConfig() {
-    return Object.prototype.hasOwnProperty.call(config._overrides, 'agent')
-        ? config._overrides.agent
-        : undefined
+    return config.agent
 }
 
 function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
@@ -137,20 +121,22 @@ function normalizeAgentConfig(rawConfig = getRawAgentConfig()) {
     tools.requireConfirmationFor = [...new Set([...requiredRisks, 'high'])]
 
     const llm = normalized.llm
-    llm.enabled = parseBoolean(process.env.AGENT_LLM_ENABLED, Boolean(llm.enabled))
-    llm.provider = String(envValue(process.env, 'AGENT_LLM_PROVIDER', llm.provider || DEFAULT_AGENT_CONFIG.llm.provider)).trim()
-    llm.baseURL = String(envValue(process.env, 'AGENT_LLM_BASE_URL', llm.baseURL || '')).trim()
-    llm.model = String(envValue(process.env, 'AGENT_LLM_MODEL', llm.model || '')).trim()
-    llm.apiKeyEnv = String(envValue(process.env, 'AGENT_LLM_API_KEY_ENV', llm.apiKeyEnv || DEFAULT_AGENT_CONFIG.llm.apiKeyEnv)).trim()
-    llm.timeoutMs = Math.max(1000, Math.trunc(parseNumber(envValue(process.env, 'AGENT_LLM_TIMEOUT_MS', llm.timeoutMs), DEFAULT_AGENT_CONFIG.llm.timeoutMs)))
-    llm.temperature = Math.min(2, Math.max(0, parseNumber(envValue(process.env, 'AGENT_LLM_TEMPERATURE', llm.temperature), DEFAULT_AGENT_CONFIG.llm.temperature)))
-    llm.maxTokens = Math.max(100, Math.trunc(parseNumber(envValue(process.env, 'AGENT_LLM_MAX_TOKENS', llm.maxTokens), DEFAULT_AGENT_CONFIG.llm.maxTokens)))
+    llm.enabled = Boolean(llm.enabled)
+    llm.provider = String(llm.provider || DEFAULT_AGENT_CONFIG.llm.provider).trim()
+    llm.baseUrl = String(llm.baseUrl || llm.baseURL || '').trim()
+    llm.baseURL = llm.baseUrl // read-only runtime compatibility alias; YAML stays baseUrl
+    llm.model = String(llm.model || '').trim()
+    llm.apiKey = String(llm.apiKey || '')
+    delete llm.apiKeyEnv
+    llm.timeoutMs = Math.max(1000, Math.trunc(parseNumber(llm.timeoutMs, DEFAULT_AGENT_CONFIG.llm.timeoutMs)))
+    llm.temperature = Math.min(2, Math.max(0, parseNumber(llm.temperature, DEFAULT_AGENT_CONFIG.llm.temperature)))
+    llm.maxTokens = Math.max(100, Math.trunc(parseNumber(llm.maxTokens, DEFAULT_AGENT_CONFIG.llm.maxTokens)))
 
     const budget = normalized.budget
-    budget.enabled = parseBoolean(process.env.AGENT_BUDGET_ENABLED, Boolean(budget.enabled))
-    budget.windowMs = Math.max(1000, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_WINDOW_MS', budget.windowMs), DEFAULT_AGENT_CONFIG.budget.windowMs)))
-    budget.maxLlmCallsPerGroupPerMinute = Math.max(1, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE', budget.maxLlmCallsPerGroupPerMinute), DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerGroupPerMinute)))
-    budget.maxLlmCallsPerUserPerMinute = Math.max(1, Math.trunc(parseNumber(envValue(process.env, 'AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE', budget.maxLlmCallsPerUserPerMinute), DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerUserPerMinute)))
+    budget.enabled = Boolean(budget.enabled)
+    budget.windowMs = Math.max(1000, Math.trunc(parseNumber(budget.windowMs, DEFAULT_AGENT_CONFIG.budget.windowMs)))
+    budget.maxLlmCallsPerGroupPerMinute = Math.max(1, Math.trunc(parseNumber(budget.maxLlmCallsPerGroupPerMinute, DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerGroupPerMinute)))
+    budget.maxLlmCallsPerUserPerMinute = Math.max(1, Math.trunc(parseNumber(budget.maxLlmCallsPerUserPerMinute, DEFAULT_AGENT_CONFIG.budget.maxLlmCallsPerUserPerMinute)))
 
     return normalized
 }

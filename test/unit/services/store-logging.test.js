@@ -16,7 +16,6 @@ const notificationService = require('../../../src/services/notificationService')
 const originals = {
     setTimeout: global.setTimeout,
     clearTimeout: global.clearTimeout,
-    performSave: config._performSave,
     cacheDir: cacheManager.cacheDir,
     cacheInitPromise: cacheManager.initPromise,
     dataCacheTTL: config.dataCacheTTL,
@@ -27,11 +26,9 @@ const originals = {
 function restore() {
     global.setTimeout = originals.setTimeout
     global.clearTimeout = originals.clearTimeout
-    config._performSave = originals.performSave
-    config._saveTimer = null
     cacheManager.cacheDir = originals.cacheDir
     cacheManager.initPromise = originals.cacheInitPromise
-    config.dataCacheTTL = originals.dataCacheTTL
+    config.__getMutableCompatStateForTests().dataCacheTTL = originals.dataCacheTTL
     config.getRootAdminQQ = originals.getRootAdminQQ
     notificationService.callAction = originals.callAction
     requestApprovalService.pendingByKey.clear()
@@ -53,8 +50,7 @@ async function run() {
             return { fake: true }
         }
         global.clearTimeout = () => {}
-        config._performSave = async () => {}
-        config.dataCacheTTL = 1
+        config.__getMutableCompatStateForTests().dataCacheTTL = 1
         cacheManager.cacheDir = tempCacheDir
         cacheManager.initPromise = fs.promises.mkdir(tempCacheDir, { recursive: true })
         config.getRootAdminQQ = () => '10000'
@@ -64,7 +60,6 @@ async function run() {
             data: { message_id: 12345 }
         })
 
-        config.save()
         checkSizeAndTrim(new Array(40).fill({ text: 'x'.repeat(64) }), 128, 0.25)
 
         const expiredPath = path.join(tempCacheDir, 'video_demo.json')
@@ -82,8 +77,6 @@ async function run() {
             comment: 'hello'
         })
 
-        assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:config]') && line.includes('config-save-queued')))
-        console.log('✓ config.save 会输出 STORE 摘要日志')
         assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:storage]') && line.includes('trim-complete')))
         console.log('✓ storageUtils.checkSizeAndTrim 会输出 STORE 摘要日志')
         assert.ok(logs.some(line => line.includes('INF STORE') && line.includes('[svc:cache]') && line.includes('cache-expired') && line.includes('key=video_demo')))

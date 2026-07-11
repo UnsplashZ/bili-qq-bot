@@ -1,15 +1,16 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const logger = require('../../../utils/logger');
+const config = require('../../../config');
+const { applicationAdmissionGate } = require('../../runtime/applicationAdmissionGate');
 
 function browserLog(level, message, fields = {}, scope = 'svc:browser') {
     logger.logEvent(level, 'SERVICE', scope, message, fields);
 }
 
 function resolveBrowserExecutablePath() {
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        return process.env.PUPPETEER_EXECUTABLE_PATH
-    }
+    const configured = String(config.puppeteerExecutablePath || config.chromiumPath || '').trim()
+    if (configured) return configured
 
     const candidates = [
         '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -34,8 +35,17 @@ function resolveBrowserExecutablePath() {
  * 负责创建和管理浏览器实例，提供页面池管理和自动清理功能
  */
 class BrowserManager {
-    constructor() {
+    constructor(options = {}) {
         this.browser = null;
+        this.launchBrowser = options.launchBrowser || ((launchOptions) => puppeteer.launch(launchOptions));
+        this.executablePath = options.executablePath || resolveBrowserExecutablePath();
+        this.generation = 1;
+        this.initPromise = null;
+        this.reconfigureChain = Promise.resolve();
+        this.acceptingLeases = true;
+        this.generationLeases = 0;
+        this.leaseWaiters = new Set();
+        this.pageLeases = new Map();
         this.pagePool = new Set(); // 页面池，追踪所有活跃页面
         this.maxPages = 5; // 最大同时打开页面数
         this.pageTimeout = 60000; // 页面超时时间（60秒）
@@ -47,8 +57,10 @@ class BrowserManager {
         this.idleCloseInProgress = false; // 空闲关闭防重入
         this.cleanupInterval = null; // 定期清理定时器
         this.idleMonitorInterval = null; // 空闲监控定时器
-        this.startCleanupMonitor();
-        this.startIdleMonitor();
+        if (options.startMonitors !== false) {
+            this.startCleanupMonitor();
+            this.startIdleMonitor();
+        }
     }
 
     /**
@@ -88,6 +100,7 @@ class BrowserManager {
                 });
             }
         }, 60000); // 每分钟执行一次
+        this.cleanupInterval.unref?.()
     }
 
     /**
@@ -106,6 +119,7 @@ class BrowserManager {
                 });
             });
         }, this.idleCheckIntervalMs);
+        this.idleMonitorInterval.unref?.()
     }
 
     /**
@@ -138,6 +152,9 @@ class BrowserManager {
         }
         this.pageTimeouts.clear();
         this.pagePool.clear();
+        for (const lease of this.pageLeases.values()) lease.release()
+        this.pageLeases.clear()
+        this.notifyLeaseWaiters()
     }
 
     /**
@@ -146,6 +163,7 @@ class BrowserManager {
     async checkAndCloseIdleBrowser() {
         if (!this.browser) return;
         if (this.activeRenderCount > 0) return;
+        if (this.generationLeases > 0) return;
         if (this.idleCloseInProgress) return;
 
         const idleMs = Date.now() - this.lastRequestAt;
@@ -154,7 +172,7 @@ class BrowserManager {
         this.idleCloseInProgress = true;
         try {
             // 二次校验，避免检查与关闭之间有新任务进入
-            if (!this.browser || this.activeRenderCount > 0) {
+            if (!this.browser || this.activeRenderCount > 0 || this.generationLeases > 0) {
                 return;
             }
 
@@ -173,9 +191,12 @@ class BrowserManager {
      * 初始化浏览器实例 (懒加载)
      */
     async init() {
-        if (!this.browser) {
-            const executablePath = resolveBrowserExecutablePath()
-            this.browser = await puppeteer.launch({
+        if (this.browser) return this.browser
+        if (this.initPromise) return this.initPromise
+        const generation = this.generation
+        const executablePath = this.executablePath
+        this.initPromise = (async () => {
+            const browser = await this.launchBrowser({
                 executablePath,
                 args: [
                     '--no-sandbox',
@@ -195,16 +216,131 @@ class BrowserManager {
                 headless: "new",
                 protocolTimeout: 60000 // 增加协议超时时间到 60s
             });
+            if (generation !== this.generation) {
+                await browser.close()
+                throw new Error('browser_generation_changed_during_init')
+            }
+            this.browser = browser
             browserLog('info', 'browser-initialized', {
                 executablePath
             });
             
             // 监听浏览器断开连接事件
-            this.browser.on('disconnected', () => {
+            browser.on('disconnected', () => {
+                if (this.browser !== browser) return
                 browserLog('warn', 'browser-disconnected');
                 this.browser = null;
                 this.clearTrackedPageState();
             });
+            return browser
+        })()
+        try {
+            return await this.initPromise
+        } finally {
+            this.initPromise = null
+        }
+    }
+
+    acquireGenerationLease() {
+        applicationAdmissionGate.assertOpen()
+        if (!this.acceptingLeases) {
+            const error = new Error('browser_reconfigure_in_progress')
+            error.code = 'BROWSER_RECONFIGURE_IN_PROGRESS'
+            throw error
+        }
+        const generation = this.generation
+        this.generationLeases += 1
+        let released = false
+        return {
+            generation,
+            executablePath: this.executablePath,
+            release: () => {
+                if (released) return
+                released = true
+                this.generationLeases = Math.max(0, this.generationLeases - 1)
+                this.notifyLeaseWaiters()
+            }
+        }
+    }
+
+    notifyLeaseWaiters() {
+        if (this.generationLeases !== 0 || this.pagePool.size !== 0 || this.activeRenderCount !== 0) return
+        for (const waiter of this.leaseWaiters) {
+            clearTimeout(waiter.timer)
+            waiter.resolve()
+        }
+        this.leaseWaiters.clear()
+    }
+
+    async waitForGenerationDrain(timeoutMs = 30000) {
+        if (this.generationLeases === 0 && this.pagePool.size === 0 && this.activeRenderCount === 0) return
+        return new Promise((resolve, reject) => {
+            const waiter = { resolve, reject, timer: null }
+            waiter.timer = setTimeout(() => {
+                this.leaseWaiters.delete(waiter)
+                const error = new Error('browser_generation_drain_timeout')
+                error.code = 'BROWSER_GENERATION_DRAIN_TIMEOUT'
+                reject(error)
+            }, timeoutMs)
+            this.leaseWaiters.add(waiter)
+        })
+    }
+
+    async reconfigure(options = {}) {
+        const run = async () => {
+            const nextExecutablePath = String(options.executablePath || '').trim() || undefined
+            if (nextExecutablePath === this.executablePath) return { changed: false, generation: this.generation }
+            this.acceptingLeases = false
+            try {
+                await this.waitForGenerationDrain(options.timeoutMs ?? 30000)
+                const previousBrowser = this.browser
+                this.browser = null
+                if (previousBrowser) await previousBrowser.close()
+                this.clearTrackedPageState()
+                this.executablePath = nextExecutablePath
+                this.generation += 1
+                return { changed: true, generation: this.generation }
+            } finally {
+                if (!options.keepPaused) this.acceptingLeases = true
+            }
+        }
+        const next = this.reconfigureChain.then(run, run)
+        this.reconfigureChain = next.catch(() => {})
+        return next
+    }
+
+    createReloadHandler() {
+        let previousExecutablePath = this.executablePath
+        let applied = false
+        const resolveCandidate = (candidate) => String(
+            candidate?.paths?.puppeteerExecutable || candidate?.paths?.chromium || ''
+        ).trim() || undefined
+        return {
+            id: 'browser-runtime',
+            effects: ['browser'],
+            ownedPaths: ['paths.chromium', 'paths.puppeteerExecutable'],
+            preflight: async (candidate) => resolveCandidate(candidate),
+            pauseIngress: async () => { this.acceptingLeases = false },
+            preCommitDrain: async () => this.waitForGenerationDrain(30000),
+            prepareExclusive: async (candidate) => {
+                previousExecutablePath = this.executablePath
+                const result = await this.reconfigure({
+                    executablePath: resolveCandidate(candidate),
+                    timeoutMs: 30000,
+                    keepPaused: true
+                })
+                applied = result.changed
+            },
+            rollbackExclusive: async () => {
+                if (!applied) return
+                await this.reconfigure({
+                    executablePath: previousExecutablePath,
+                    timeoutMs: 30000,
+                    keepPaused: true
+                })
+            },
+            restorePrevious: async () => { this.acceptingLeases = true },
+            enableIngress: async () => { this.acceptingLeases = true }
         }
     }
 
@@ -216,6 +352,7 @@ class BrowserManager {
      */
     async withRetry(operation, maxRetries = 1) {
         let lastError
+        const lease = this.acquireGenerationLease()
         this.markRequestStart()
 
         try {
@@ -262,6 +399,8 @@ class BrowserManager {
             throw lastError;
         } finally {
             this.markRequestEnd();
+            lease.release()
+            this.notifyLeaseWaiters()
         }
     }
 
@@ -322,18 +461,27 @@ class BrowserManager {
      * @returns {Promise<Page>} Puppeteer Page 实例
      */
     async createPage(viewport) {
-        await this.init();
-        await this.waitForAvailableSlot();
+        const lease = this.acquireGenerationLease()
+        let page
+        try {
+            await this.init();
+            await this.waitForAvailableSlot();
+            page = await this.browser.newPage();
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        const page = await this.browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        if (viewport) {
-            await page.setViewport(viewport);
+            if (viewport) {
+                await page.setViewport(viewport);
+            }
+        } catch (error) {
+            try { await page?.close?.() } catch { /* ignore */ }
+            lease.release()
+            this.notifyLeaseWaiters()
+            throw error
         }
 
         // 添加到页面池并设置超时
         this.pagePool.add(page);
+        this.pageLeases.set(page, lease);
         this.setupPageTimeout(page);
 
         browserLog('debug', 'page-created', {
@@ -357,6 +505,9 @@ class BrowserManager {
 
             // 从页面池中移除
             this.pagePool.delete(page);
+            this.pageLeases.get(page)?.release()
+            this.pageLeases.delete(page)
+            this.notifyLeaseWaiters()
 
             // 关闭页面
             if (!page.isClosed()) {
@@ -373,6 +524,9 @@ class BrowserManager {
             });
             // 即使出错也要从池中移除
             this.pagePool.delete(page);
+            this.pageLeases.get(page)?.release()
+            this.pageLeases.delete(page)
+            this.notifyLeaseWaiters()
         }
     }
 
@@ -394,11 +548,28 @@ class BrowserManager {
         };
     }
 
+    getResourceCounts() {
+        return {
+            browser: this.browser ? 1 : 0,
+            pages: this.pagePool.size,
+            pageTimeouts: this.pageTimeouts.size,
+            generationLeases: this.generationLeases,
+            leaseWaiters: this.leaseWaiters.size,
+            activeRenders: this.activeRenderCount,
+            cleanupTimer: this.cleanupInterval ? 1 : 0,
+            idleTimer: this.idleMonitorInterval ? 1 : 0,
+            acceptingLeases: this.acceptingLeases
+        }
+    }
+
     /**
      * 清理所有资源（用于程序退出时）
      */
-    async cleanup() {
+    async cleanup(options = {}) {
         browserLog('info', 'browser-cleanup-started');
+
+        this.acceptingLeases = false
+        await this.waitForGenerationDrain(options.timeoutMs ?? 30000)
 
         // 停止清理监控
         if (this.cleanupInterval) {
@@ -424,10 +595,31 @@ class BrowserManager {
         this.clearTrackedPageState();
         this.activeRenderCount = 0;
         this.idleCloseInProgress = false;
+        this.notifyLeaseWaiters()
+        this.acceptingLeases = false
 
         browserLog('info', 'browser-cleanup-finished');
+    }
+
+    forceCleanup() {
+        this.acceptingLeases = false
+        if (this.cleanupInterval) clearInterval(this.cleanupInterval)
+        if (this.idleMonitorInterval) clearInterval(this.idleMonitorInterval)
+        this.cleanupInterval = null
+        this.idleMonitorInterval = null
+        for (const page of this.pagePool) Promise.resolve(page.close?.()).catch(() => {})
+        try { this.browser?.process?.()?.kill?.('SIGKILL') } catch { /* best effort before process exit */ }
+        try { this.browser?.disconnect?.() } catch { /* best effort before process exit */ }
+        this.browser = null
+        this.clearTrackedPageState()
+        this.activeRenderCount = 0
+        this.notifyLeaseWaiters()
+        return this.getResourceCounts()
     }
 }
 
 // 导出单例
-module.exports = new BrowserManager();
+const browserManager = new BrowserManager();
+module.exports = browserManager;
+module.exports.BrowserManager = BrowserManager;
+module.exports.resolveBrowserExecutablePath = resolveBrowserExecutablePath;

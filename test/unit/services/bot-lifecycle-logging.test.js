@@ -3,6 +3,7 @@
 
 const assert = require('assert')
 const path = require('path')
+const { EventEmitter } = require('events')
 
 const logger = require('../../../src/utils/logger')
 
@@ -57,7 +58,8 @@ async function run() {
             cleanup: async () => {}
         })
         mockModule(require.resolve('../../../src/services/ServiceManager'), {
-            start: async () => {}
+            start: async () => {},
+            cleanup: async () => ({ residualPids: [] })
         })
         mockModule(require.resolve('../../../src/services/subscription/updateChecker'), {
             notifyAdmin() {}
@@ -66,27 +68,36 @@ async function run() {
             start: async () => {},
             stop() {}
         })
+        let approvalSchedulerStarted = false
         mockModule(require.resolve('../../../src/services/requestApprovalService'), {
-            handleRequestEvent() {}
+            handleRequestEvent() {},
+            start() { approvalSchedulerStarted = true },
+            stop: async () => {}
         })
         mockModule(require.resolve('../../../src/services/imageGenerator/renderers/components/emojiIndexProvider'), {
             warmupEmojiIndexProvider() {}
         })
 
-        class FakeWebSocket {
+        class FakeWebSocket extends EventEmitter {
             constructor() {
+                super()
                 this.readyState = 1
-                this.handlers = new Map()
             }
 
-            on(event, handler) {
-                this.handlers.set(event, handler)
+            send(raw) {
+                const request = JSON.parse(String(raw))
+                if (request.action === 'get_login_info') {
+                    queueMicrotask(() => this.emit('message', JSON.stringify({
+                        status: 'ok',
+                        retcode: 0,
+                        data: { user_id: 12345, nickname: 'test-bot' },
+                        echo: request.echo
+                    })))
+                }
             }
-
-            send() {}
-            close() {}
-            removeAllListeners() {
-                this.handlers.clear()
+            close() {
+                this.readyState = 3
+                this.emit('close', 1000, 'test-close')
             }
         }
 
@@ -106,6 +117,7 @@ async function run() {
         assert.strictEqual(typeof bot.gracefulShutdown, 'function', 'bot.gracefulShutdown should be exported for lifecycle testing')
 
         await bot.initializeBot()
+        assert.strictEqual(approvalSchedulerStarted, true)
         bot.scheduleReconnect()
         if (bot.__testHooks && typeof bot.__testHooks.clearReconnectTimer === 'function') {
             bot.__testHooks.clearReconnectTimer()

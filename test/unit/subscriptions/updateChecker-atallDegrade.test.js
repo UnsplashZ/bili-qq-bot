@@ -20,7 +20,7 @@ const originalEnabledGroups = Array.isArray(config.enabledGroups) ? [...config.e
 const originalGlobalBot = global.bot ? { ...global.bot } : undefined
 
 function overwriteGroupConfigs(next) {
-    const groupConfigs = config.groupConfigs || {}
+    const groupConfigs = config.__getMutableCompatStateForTests().groupConfigs || {}
     for (const key of Object.keys(groupConfigs)) {
         delete groupConfigs[key]
     }
@@ -28,7 +28,7 @@ function overwriteGroupConfigs(next) {
 }
 
 function overwriteEnabledGroups(next) {
-    const enabledGroups = config.enabledGroups || []
+    const enabledGroups = config.__getMutableCompatStateForTests().enabledGroups || []
     enabledGroups.splice(0, enabledGroups.length, ...next.map(String))
 }
 

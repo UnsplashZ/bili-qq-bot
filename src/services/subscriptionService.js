@@ -33,17 +33,37 @@ class SubscriptionService {
         await subscriptionManager._ensureSubscriptionsLoaded();
     }
 
-    start(ws) {
+    start(ws, options = {}) {
         updateChecker.setWs(ws);
-        updateChecker.start();
+        return updateChecker.start(false, options);
     }
 
     stop() {
-        updateChecker.stop();
+        return updateChecker.stop();
     }
 
     updateCheckInterval(seconds) {
         updateChecker.updateCheckInterval(seconds);
+    }
+
+    pauseOperations(reason = 'reload') {
+        return updateChecker.pauseOperations(reason)
+    }
+
+    resumeOperations() {
+        return updateChecker.resumeOperations()
+    }
+
+    drainOperations(timeoutMs = 30000) {
+        return updateChecker.drainOperations(timeoutMs)
+    }
+
+    abortOperations(reason = 'forced-cleanup') {
+        return updateChecker.abortOperations(reason)
+    }
+
+    getOperationStatus() {
+        return updateChecker.operationRegistry?.getResourceCounts() || { activeOperations: 0, paused: false }
     }
 
     // Proxy Methods
