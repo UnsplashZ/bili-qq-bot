@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "groupOpenId": "group-openid",
+      "groupName": "Fixture Group",
+      "reachable": true,
+      "updatedAt": 1
+    }
+  ],
+  "users": [
+    {
+      "userOpenId": "user-openid",
+      "nickname": "Fixture User",
+      "updatedAt": 1
+    }
+  ],
+  "members": [
+    {
+      "groupOpenId": "group-openid",
+      "memberOpenId": "member-openid",
+      "userOpenId": "user-openid",
+      "nickname": "Fixture Member",
+      "role": "member",
+      "updatedAt": 1
+    }
+  ]
+}

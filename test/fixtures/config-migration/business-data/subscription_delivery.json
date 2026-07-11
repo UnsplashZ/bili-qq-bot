@@ -1,0 +1,20 @@
+{
+  "records": {
+    "dynamic:dyn-100:12345:main": {
+      "key": "dynamic:dyn-100:12345:main",
+      "groupId": "12345",
+      "type": "dynamic",
+      "contentId": "dyn-100",
+      "deliveryPart": "main",
+      "deliveredAt": 123456789
+    },
+    "dynamic:dyn-100:12345:fallback": {
+      "key": "dynamic:dyn-100:12345:fallback",
+      "groupId": "12345",
+      "type": "dynamic",
+      "contentId": "dyn-100",
+      "deliveryPart": "fallback",
+      "deliveredAt": 123456790
+    }
+  }
+}

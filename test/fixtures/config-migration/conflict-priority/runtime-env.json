@@ -1,0 +1,14 @@
+{
+  "WS_URL": "ws://runtime.example:3001",
+  "QQ_PROVIDER": "official",
+  "QQ_OFFICIAL_CLIENT_SECRET": "runtime-official-secret",
+  "QQ_OFFICIAL_ROOT_OPENIDS": "runtime-root-1,runtime-root-2",
+  "JWT_SECRET": "runtime-jwt-secret",
+  "ADMIN_QQ": "20002",
+  "PYTHON_PATH": "/runtime/python",
+  "BILI_SERVER_PORT": "12001",
+  "AGENT_LLM_PROVIDER": "runtime-agent-provider",
+  "AGENT_LLM_API_KEY_ENV": "RUNTIME_AGENT_KEY",
+  "RUNTIME_AGENT_KEY": "runtime-agent-secret",
+  "CONFIG_AGENT_KEY": "runtime-config-agent-secret"
+}

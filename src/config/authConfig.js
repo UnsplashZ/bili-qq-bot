@@ -1,5 +1,5 @@
-function getRootAdminQQ() {
-    const raw = process.env.ADMIN_QQ
+function getRootAdminQQ(config = null) {
+    const raw = config?.rootAdminQQ ?? config?.admin?.rootQQ
     if (raw === undefined || raw === null) return ''
     return String(raw).trim()
 }
@@ -8,11 +8,7 @@ function getOfficialRootOpenids(config = null) {
     const fromConfig = Array.isArray(config?.qqOfficialRootOpenids)
         ? config.qqOfficialRootOpenids
         : []
-    const fromEnv = String(process.env.QQ_OFFICIAL_ROOT_OPENIDS || '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    return [...fromConfig, ...fromEnv]
+    return [...fromConfig]
 }
 
 function isOfficialRootAdmin(userId, config = null) {
@@ -25,7 +21,7 @@ function isRootAdmin(userId, config = null) {
     if (String(config?.qqProvider || '').toLowerCase() === 'official' && isOfficialRootAdmin(userId, config)) {
         return true
     }
-    const rootAdminQQ = getRootAdminQQ()
+    const rootAdminQQ = getRootAdminQQ(config)
     if (!rootAdminQQ || userId === undefined || userId === null) return false
     return String(userId) === rootAdminQQ
 }

@@ -1,37 +1,27 @@
-const fs = require('fs')
-const path = require('path')
+'use strict'
 
-const CONFIG_DIR = path.join(__dirname, '../../config')
-const QQ_OFFICIAL_SECRET_PATH = path.join(CONFIG_DIR, '.qqOfficialClientSecret')
-let qqOfficialSecretPathOverride = ''
+// Deprecated in-memory compatibility shim. Production and tests must not read
+// or write .qqOfficialClientSecret; migration code owns explicit legacy reads.
+
+const QQ_OFFICIAL_SECRET_PATH = ''
+let compatibilitySecret = ''
 
 function getQqOfficialClientSecretPath() {
-    return qqOfficialSecretPathOverride || QQ_OFFICIAL_SECRET_PATH
+    return ''
 }
 
-function setQqOfficialClientSecretPathForTest(filePath = '') {
-    qqOfficialSecretPathOverride = String(filePath || '')
+function setQqOfficialClientSecretPathForTest() {
+    compatibilitySecret = ''
 }
 
 function readQqOfficialClientSecret() {
-    const secretPath = getQqOfficialClientSecretPath()
-    try {
-        if (!fs.existsSync(secretPath)) return ''
-        return fs.readFileSync(secretPath, 'utf8').trim()
-    } catch {
-        return ''
-    }
+    return compatibilitySecret
 }
 
 function writeQqOfficialClientSecret(secret) {
     const value = String(secret || '').trim()
     if (!value) return false
-    const secretPath = getQqOfficialClientSecretPath()
-    fs.mkdirSync(path.dirname(secretPath), { recursive: true })
-    fs.writeFileSync(secretPath, `${value}\n`, { mode: 0o600 })
-    try {
-        fs.chmodSync(secretPath, 0o600)
-    } catch {}
+    compatibilitySecret = value
     return true
 }
 

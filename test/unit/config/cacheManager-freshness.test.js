@@ -21,13 +21,13 @@ describe('cacheManager freshness semantics', function () {
         tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cache-manager-freshness-'))
         cacheManager.cacheDir = tempDir
         cacheManager.initPromise = fs.mkdir(tempDir, { recursive: true })
-        config.dataCacheTTL = 60
+        config.__getMutableCompatStateForTests().dataCacheTTL = 60
     })
 
     afterEach(async function () {
         cacheManager.cacheDir = originals.cacheDir
         cacheManager.initPromise = originals.initPromise
-        config.dataCacheTTL = originals.dataCacheTTL
+        config.__getMutableCompatStateForTests().dataCacheTTL = originals.dataCacheTTL
 
         if (tempDir) {
             await fs.rm(tempDir, { recursive: true, force: true })

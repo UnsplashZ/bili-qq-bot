@@ -1,0 +1,10 @@
+{
+  "12345": {
+    "users": {
+      "42": {
+        "lastDynamicId": "dyn-99",
+        "lastVideoId": "BV0TEST"
+      }
+    }
+  }
+}

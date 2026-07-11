@@ -27,11 +27,12 @@ function run() {
         assert.strictEqual(groupLabels[key], true, `群级回退 labelConfig 应包含 ${key}`)
     })
 
-    assert.strictEqual(globalLabels, sameGlobalLabels, '全局 labelConfig 应保持同一引用')
+    assert.notStrictEqual(globalLabels, sameGlobalLabels, '兼容 getter 不应暴露可变内部引用')
+    assert.deepStrictEqual(globalLabels, sameGlobalLabels)
     globalLabels.favorite_list = false
-    assert.strictEqual(config.labelConfig.favorite_list, false, '原地修改全局 labelConfig 后应立即可读')
+    assert.strictEqual(config.labelConfig.favorite_list, true, '原地修改 getter 快照不得污染配置真源')
 
-    config.groupConfigs[tempGroupId] = {
+    config.__getMutableCompatStateForTests().groupConfigs[tempGroupId] = {
         labelConfig: {
             favorite_list: false
         }
@@ -59,9 +60,9 @@ function run() {
         globalLabels[key] = originalGlobalLabels[key]
     })
     if (originalTempGroupConfig === undefined) {
-        delete config.groupConfigs[tempGroupId]
+        delete config.__getMutableCompatStateForTests().groupConfigs[tempGroupId]
     } else {
-        config.groupConfigs[tempGroupId] = originalTempGroupConfig
+        config.__getMutableCompatStateForTests().groupConfigs[tempGroupId] = originalTempGroupConfig
     }
 
     assert.ok(!Object.prototype.hasOwnProperty.call(config.normalizeSubscriptionAtAllRules({}).categories, 'favorite_list'))

@@ -1,9 +1,8 @@
-const path = require('path')
-const dotenv = require('dotenv')
-const { readQqOfficialClientSecret } = require('./secretStore')
+'use strict'
 
-const CONFIG_DIR = path.join(__dirname, '../../config')
-dotenv.config({ path: path.join(CONFIG_DIR, '.env') })
+// Legacy flat-key metadata retained for migration fixtures and compatibility
+// lookups only. Runtime loading is owned by ConfigService/schemaV1 and this
+// module must remain free of filesystem, dotenv, Secret, and process.env reads.
 
 const SUBSCRIPTION_AT_ALL_SOURCE_KEYS = ['manual', 'cookieSync']
 const SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = [
@@ -206,7 +205,7 @@ const META = {
         def: 'napcat',
         type: 'string',
         get: function(overrides) {
-            const raw = overrides.qqProvider !== undefined ? overrides.qqProvider : (process.env.QQ_PROVIDER || this.def)
+            const raw = overrides.qqProvider !== undefined ? overrides.qqProvider : this.def
             const normalized = String(raw || '').trim().toLowerCase()
             return normalized === 'official' ? 'official' : 'napcat'
         }
@@ -217,12 +216,9 @@ const META = {
         def: '',
         type: 'string',
         get: function(overrides) {
-            if (process.env.QQ_OFFICIAL_CLIENT_SECRET) return String(process.env.QQ_OFFICIAL_CLIENT_SECRET).trim()
-            const stored = readQqOfficialClientSecret()
-            if (stored) return stored
             return overrides.qqOfficialClientSecret !== undefined
                 ? String(overrides.qqOfficialClientSecret || '').trim()
-                : ''
+                : this.def
         }
     },
     qqOfficialApiBase: { env: 'QQ_OFFICIAL_API_BASE', def: 'https://api.sgroup.qq.com', type: 'string' },
@@ -236,7 +232,7 @@ const META = {
         get: function(overrides) {
             const raw = overrides.qqOfficialMediaUploadMode !== undefined
                 ? overrides.qqOfficialMediaUploadMode
-                : (process.env.QQ_OFFICIAL_MEDIA_UPLOAD_MODE || this.def)
+                : this.def
             const normalized = String(raw || '').trim().toLowerCase()
             return ['hybrid', 'url_only', 'file_data'].includes(normalized) ? normalized : 'hybrid'
         }
@@ -249,7 +245,7 @@ const META = {
         get: function(overrides) {
             const raw = overrides.qqOfficialRootOpenids !== undefined
                 ? overrides.qqOfficialRootOpenids
-                : (process.env.QQ_OFFICIAL_ROOT_OPENIDS || this.def)
+                : this.def
             return parseCsvList(raw)
         }
     },
@@ -264,10 +260,6 @@ const META = {
         type: 'string',
         get: function(overrides) {
             if ('pythonPath' in overrides) return overrides.pythonPath
-            const envVal = process.env.PYTHON_PATH
-            if (envVal) return envVal
-            const venvPath = path.join(__dirname, '../../venv/bin/python')
-            if (require('fs').existsSync(venvPath)) return venvPath
             return this.def
         }
     },

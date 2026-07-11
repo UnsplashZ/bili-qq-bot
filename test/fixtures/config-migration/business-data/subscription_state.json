@@ -1,0 +1,8 @@
+{
+  "targets": {
+    "12345:dynamic:42": {
+      "baselineId": "dyn-100",
+      "baselineRoomId": "7788"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-const { DEFAULT_LABEL_CONFIG } = require('./schema')
+const { DEFAULT_LABEL_CONFIG } = require('./schemaV1')
 const {
     createDefaultSubscriptionAtAllRules,
     ensureNormalizedLabelConfigObject
