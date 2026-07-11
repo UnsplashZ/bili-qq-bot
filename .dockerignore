@@ -20,6 +20,10 @@ yarn-error.log*
 config/.env
 config/config.json
 config/.jwtSecret
+config/.qqOfficialClientSecret
+config/config.yaml
+config/config.yaml.*
+.bili-deployment-state
 
 # Data & Logs (Runtime)
 data/

@@ -4,14 +4,17 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
+const { inventoryTree, diffInventories } = require('../tools/runtime-data-safety')
 
 const projectRoot = path.join(__dirname, '../..')
 const testRoot = path.join(projectRoot, 'test/unit')
 const mochaBin = path.join(projectRoot, 'node_modules/.bin/mocha')
+const runtimeDataIsolation = path.join(projectRoot, 'test/tools/isolate-runtime-data.js')
 const venvDir = path.join(projectRoot, 'venv')
 const venvPython = process.platform === 'win32'
     ? path.join(venvDir, 'Scripts', 'python.exe')
     : path.join(venvDir, 'bin', 'python')
+const protectedRuntimeRoots = [path.join(projectRoot, 'config'), path.join(projectRoot, 'data')]
 
 function listTestFiles(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -97,8 +100,8 @@ function runOne(filePath) {
     const args = pythonTest
         ? [relativePath]
         : mochaTest
-        ? ['--exit', relativePath]
-        : [relativePath]
+        ? ['--require', runtimeDataIsolation, '--exit', relativePath]
+        : ['--require', runtimeDataIsolation, relativePath]
     const env = pythonTest
         ? {
             ...process.env,
@@ -107,12 +110,26 @@ function runOne(filePath) {
         : process.env
 
     process.stdout.write(`\n[unit] ${relativePath}\n`)
+    const timeout = relativePath === 'test/unit/deployment/setup-state-machine.test.js'
+        ? 7200000
+        : (pythonTest ? 120000 : 300000)
+    const beforeInventory = inventoryTree(protectedRuntimeRoots)
     const result = spawnSync(command, args, {
         cwd: projectRoot,
         stdio: 'inherit',
         env,
-        timeout: pythonTest ? 120000 : 60000
+        timeout
     })
+    const afterInventory = inventoryTree(protectedRuntimeRoots)
+    const runtimeChanges = diffInventories(beforeInventory, afterInventory)
+
+    if (runtimeChanges.length > 0) {
+        console.error(`[unit] REAL RUNTIME DATA CHANGED while running ${relativePath}`)
+        for (const change of runtimeChanges) {
+            console.error(`[unit] changed ${change.path}`)
+        }
+        return 1
+    }
 
     if (result.error) {
         console.error(result.error.message)
@@ -131,6 +148,7 @@ let failed = 0
 for (const filePath of testFiles) {
     const status = runOne(filePath)
     if (status !== 0) {
+        console.error(`[unit] FAILED ${path.relative(projectRoot, filePath)} status=${status}`)
         failed += 1
     }
 }

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "users": [
+    {
+      "uid": "42",
+      "name": "fixture-user",
+      "groupIds": ["1000"],
+      "lastDynamicId": "100"
+    }
+  ],
+  "bangumis": []
+}

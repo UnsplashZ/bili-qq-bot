@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "records": {
+    "1000:dynamic:100": {
+      "key": "1000:dynamic:100",
+      "groupId": "1000",
+      "type": "dynamic",
+      "contentId": "100",
+      "deliveredAt": 1000,
+      "meta": {
+        "source": "fixture"
+      }
+    }
+  }
+}

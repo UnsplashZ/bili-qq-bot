@@ -1,42 +1,74 @@
+# Canonical setup-managed template. setup.sh renders a digest-pinned candidate
+# from config/config.yaml before installation or upgrade. User-owned labels,
+# resource limits, logging drivers, and additional networks are preserved by
+# the Compose ownership model rather than edited in this file with sed/awk.
 services:
   napcat:
-    image: mlikiowa/napcat-docker:latest
+    image: ${BILI_NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
     container_name: napcat
     restart: always
+    init: true
+    stop_grace_period: 30s
     ports:
-      - "6099:6099" # NapCat WebUI
-      - "3001:3001" # WebSocket Server
+      - "${BILI_NAPCAT_WEBUI_HOST_PORT:-6099}:6099"
+      - "${BILI_NAPCAT_WS_HOST_PORT:-3001}:3001"
     environment:
-      - TZ=Asia/Shanghai
-      - WS_ENABLE=true
-      - HTTP_ENABLE=true
+      TZ: Asia/Shanghai
+      WS_ENABLE: "true"
+      HTTP_ENABLE: "true"
     volumes:
-      - ./napcat/config:/app/napcat/config
-      - ./napcat/qq:/app/.config/QQ
+      - type: bind
+        source: ./napcat/config
+        target: /app/napcat/config
+      - type: bind
+        source: ./napcat/qq
+        target: /app/.config/QQ
     networks:
       - bot_network
 
   bili-qq-bot:
-    image: unsplash/bili-qq-bot:latest
-    # build: .
+    image: ${BILI_BOT_IMAGE:-unsplash/bili-qq-bot:latest}
+    pull_policy: if_not_present
     container_name: bili-qq-bot
     restart: always
+    init: true
+    stop_grace_period: 45s
     depends_on:
-      - napcat
+      napcat:
+        condition: service_started
     environment:
-      - TZ=Asia/Shanghai
-      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
-      - UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-      - UV_EXTRA_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+      TZ: Asia/Shanghai
     volumes:
-      - ./config:/app/config
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./fonts/custom:/app/fonts/custom
-      # 映射此目录以将生成的图片写入 NapCat 可访问的位置
-      - ./napcat/qq:/app/.config/QQ
+      - type: bind
+        source: ./config
+        target: /app/config
+      - type: bind
+        source: ./data
+        target: /app/data
+      - type: bind
+        source: ./logs
+        target: /app/logs
+      - type: bind
+        source: ./fonts/custom
+        target: /app/fonts/custom
+      - type: bind
+        source: ./napcat/qq
+        target: /app/.config/QQ
     ports:
-      - "3000:3000" # WebUI
+      - "${BILI_DASHBOARD_HOST_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/api/live')
+          .then(r=>{if(!r.ok)process.exit(1)})
+          .catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - bot_network
 
