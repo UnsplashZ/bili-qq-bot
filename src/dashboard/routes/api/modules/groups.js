@@ -12,6 +12,12 @@ const {
 } = require('../shared/group-guard')
 const { isNumericGroupId } = require('../shared/normalize')
 const { dashLog } = require('../shared/logging')
+const {
+    assertExpectedGeneration,
+    configErrorResponse,
+    configErrorStatus,
+    emptyMutationResult
+} = require('../shared/config-mutation')
 
 const router = express.Router()
 
@@ -69,6 +75,8 @@ router.get('/groups', async (req, res) => {
         dashLog(req, 'info', 'groups-fetched', {
             count: groupsData.length
         })
+        const status = sysConfig.getStatus()
+        res.set('X-Config-Generation', String(status.documentGeneration))
         res.json(groupsData)
     } catch (error) {
         dashLog(req, 'error', 'groups-fetch-failed', {
@@ -81,6 +89,7 @@ router.get('/groups', async (req, res) => {
 // POST /api/groups/:id/toggle - Toggle group enabled status
 router.post('/groups/:id/toggle', async (req, res) => {
     try {
+        const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
         const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
             paramName: 'id',
             requireInGroup: true
@@ -91,10 +100,12 @@ router.post('/groups/:id/toggle', async (req, res) => {
         const allowOpaque = isOfficialProviderMode(sysConfig, global.bot)
 
         const providerScope = allowOpaque ? 'official' : 'napcat'
-        let enabledGroups = (typeof sysConfig.getMutableEnabledGroupsForProvider === 'function'
-            ? sysConfig.getMutableEnabledGroupsForProvider(providerScope)
-            : (Array.isArray(sysConfig.enabledGroups) ? sysConfig.enabledGroups : [])
-        ).map(id => String(id))
+        const snapshot = sysConfig.getSnapshot()
+        let enabledGroups = (providerScope === 'official'
+            ? snapshot.providerScopedEnabledGroups?.official
+            : snapshot.enabledGroups
+        )
+        enabledGroups = (Array.isArray(enabledGroups) ? enabledGroups : []).map(id => String(id))
         const enabledSet = new Set(enabledGroups)
         const currentlyEnabled = enabledGroups.length === 0 || enabledSet.has(groupIdStr)
         let isEnabled
@@ -122,30 +133,32 @@ router.post('/groups/:id/toggle', async (req, res) => {
         }
 
         enabledGroups = Array.from(new Set(enabledGroups))
-        if (allowOpaque && typeof sysConfig.getMutableEnabledGroupsForProvider === 'function') {
-            const scopedGroups = sysConfig.getMutableEnabledGroupsForProvider('official')
-            scopedGroups.splice(0, scopedGroups.length, ...enabledGroups)
-        } else {
-            sysConfig.enabledGroups = enabledGroups
-        }
-        sysConfig.save()
+        const path = allowOpaque
+            ? ['providerScopedEnabledGroups', 'official']
+            : ['enabledGroups']
+        const result = await sysConfig.patch([
+            { op: 'set', path, value: enabledGroups }
+        ], { actor: 'dashboard', expectedGeneration })
         dashLog(req, 'info', 'group-toggled', {
             groupId,
             isEnabled
         })
-        res.json({ message: `Group ${groupId} toggled`, isEnabled })
+        res.json({ ...result, message: `Group ${groupId} toggled`, isEnabled })
     } catch (error) {
-        dashLog(req, 'error', 'group-toggle-failed', {
+        const payload = configErrorResponse(sysConfig, error)
+        const statusCode = configErrorStatus(error)
+        dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'group-toggle-failed', {
             groupId: req.params.id,
-            error: logger.getErrorMessage(error)
+            code: payload.code
         })
-        res.status(500).json({ error: 'Failed to toggle group status' })
+        res.status(statusCode).json(payload)
     }
 })
 
 // POST /api/groups/:id/config - Update specific group config
 router.post('/groups/:id/config', async (req, res) => {
     try {
+        const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
         const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
             paramName: 'id',
             requireInGroup: true
@@ -153,14 +166,11 @@ router.post('/groups/:id/config', async (req, res) => {
         if (!guarded) return
         const groupId = guarded.groupId
         const groupIdStr = String(groupId)
-        const updates = req.body
+        const updates = { ...req.body }
+        delete updates.expectedGeneration
 
         if (!updates || typeof updates !== 'object') {
             return res.status(400).json({ error: 'Invalid configuration data' })
-        }
-
-        if (!sysConfig.groupConfigs) {
-            sysConfig.groupConfigs = {}
         }
 
         if (
@@ -252,42 +262,44 @@ router.post('/groups/:id/config', async (req, res) => {
             updates.subscriptionAtAllRules === null
         ) {
             delete cleanedUpdates.subscriptionAtAllRules
-            if (sysConfig.groupConfigs[groupIdStr]) {
-                delete sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules
-            }
         }
 
-        const groupConfig = sysConfig.groupConfigs[groupIdStr] || {}
+        const currentGroupConfigs = sysConfig.getSnapshot().groupConfigs || {}
+        const groupConfig = { ...(currentGroupConfigs[groupIdStr] || {}) }
+        if (updates.subscriptionAtAllRules === null) delete groupConfig.subscriptionAtAllRules
         Object.assign(groupConfig, cleanedUpdates)
-        sysConfig.groupConfigs[groupIdStr] = groupConfig
-
-        sysConfig.save()
-
-        const normalizedRules = sysConfig.normalizeSubscriptionAtAllRules(
-            sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules
-        )
-        sysConfig.groupConfigs[groupIdStr].subscriptionAtAllRules = normalizedRules
+        const result = await sysConfig.patch([
+            { op: 'set', path: ['groupConfigs', groupIdStr], value: groupConfig }
+        ], { actor: 'dashboard', expectedGeneration })
+        const savedGroup = sysConfig.getSnapshot().groupConfigs?.[groupIdStr] || {}
 
         dashLog(req, 'info', 'group-config-updated', {
             groupId,
             keys: Object.keys(cleanedUpdates).join(',')
         })
         res.json({
+            ...result,
             message: `Group ${groupId} configuration updated`,
-            config: sysConfig.groupConfigs[groupIdStr]
+            config: {
+                ...savedGroup,
+                subscriptionAtAllRules: sysConfig.normalizeSubscriptionAtAllRules(savedGroup.subscriptionAtAllRules)
+            }
         })
     } catch (error) {
-        dashLog(req, 'error', 'group-config-update-failed', {
+        const payload = configErrorResponse(sysConfig, error)
+        const statusCode = configErrorStatus(error)
+        dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'group-config-update-failed', {
             groupId: req.params.id,
-            error: logger.getErrorMessage(error)
+            code: payload.code
         })
-        res.status(500).json({ error: 'Failed to update group configuration' })
+        res.status(statusCode).json(payload)
     }
 })
 
 // DELETE /api/groups/:id - Delete config for a left group
 router.delete('/groups/:id', async (req, res) => {
     try {
+        const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
         const guarded = assertWebuiManageableGroup(req, res, sysConfig, {
             paramName: 'id'
         })
@@ -301,47 +313,74 @@ router.delete('/groups/:id', async (req, res) => {
             })
         }
 
-        let modified = false
+        const snapshot = sysConfig.getSnapshot()
+        const operations = []
 
-        if (
-            sysConfig.groupConfigs &&
-            Object.prototype.hasOwnProperty.call(sysConfig.groupConfigs, groupIdStr)
-        ) {
-            delete sysConfig.groupConfigs[groupIdStr]
-            modified = true
+        if (Object.prototype.hasOwnProperty.call(snapshot.groupConfigs || {}, groupIdStr)) {
+            operations.push({ op: 'remove', path: ['groupConfigs', groupIdStr] })
         }
 
         const allowOpaque = isOfficialProviderMode(sysConfig, global.bot)
-        const enabledGroups = allowOpaque && typeof sysConfig.getMutableEnabledGroupsForProvider === 'function'
-            ? sysConfig.getMutableEnabledGroupsForProvider('official')
-            : sysConfig.enabledGroups
-        if (enabledGroups) {
-            const index = enabledGroups.indexOf(groupIdStr)
-            if (index !== -1) {
-                enabledGroups.splice(index, 1)
-                modified = true
-            }
+        const enabledGroups = allowOpaque
+            ? snapshot.providerScopedEnabledGroups?.official
+            : snapshot.enabledGroups
+        if (Array.isArray(enabledGroups) && enabledGroups.includes(groupIdStr)) {
+            operations.push({
+                op: 'set',
+                path: allowOpaque ? ['providerScopedEnabledGroups', 'official'] : ['enabledGroups'],
+                value: enabledGroups.filter((id) => String(id) !== groupIdStr)
+            })
         }
 
-        if (!modified) {
+        if (operations.length === 0) {
             return res.status(404).json({ error: 'Group config not found' })
         }
 
+        const result = await sysConfig.patch(operations, { actor: 'dashboard', expectedGeneration })
         const subscriptionManager = require('../../../../services/subscription/subscriptionManager')
-        await subscriptionManager.removeGroupFromAllSubscriptions(groupId)
-
-        sysConfig.save()
+        try {
+            await subscriptionManager.removeGroupFromAllSubscriptions(groupId)
+        } catch (cleanupError) {
+            const rollback = []
+            if (Object.prototype.hasOwnProperty.call(snapshot.groupConfigs || {}, groupIdStr)) {
+                rollback.push({ op: 'set', path: ['groupConfigs', groupIdStr], value: snapshot.groupConfigs[groupIdStr] })
+            }
+            if (Array.isArray(enabledGroups) && enabledGroups.includes(groupIdStr)) {
+                rollback.push({
+                    op: 'set',
+                    path: allowOpaque ? ['providerScopedEnabledGroups', 'official'] : ['enabledGroups'],
+                    value: enabledGroups
+                })
+            }
+            try {
+                if (rollback.length > 0) {
+                    await sysConfig.patch(rollback, {
+                        actor: 'dashboard-rollback',
+                        expectedGeneration: result.documentGeneration
+                    })
+                }
+            } catch (rollbackError) {
+                logger.logEvent('error', 'DASH', req.logScope || 'group-delete', 'group-config-delete-rollback-failed', {
+                    code: rollbackError?.code || 'CONFIG_ROLLBACK_ERROR'
+                })
+            }
+            const error = new Error('Failed to remove group subscriptions')
+            error.code = 'GROUP_SUBSCRIPTION_CLEANUP_FAILED'
+            throw error
+        }
 
         dashLog(req, 'info', 'group-config-deleted', {
             groupId
         })
-        res.json({ success: true, message: `Config for group ${groupId} deleted` })
+        res.json({ ...result, success: true, message: `Config for group ${groupId} deleted` })
     } catch (error) {
-        dashLog(req, 'error', 'group-config-delete-failed', {
+        const payload = configErrorResponse(sysConfig, error)
+        const statusCode = configErrorStatus(error)
+        dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'group-config-delete-failed', {
             groupId: req.params.id,
-            error: logger.getErrorMessage(error)
+            code: payload.code
         })
-        res.status(500).json({ error: 'Failed to delete group config' })
+        res.status(statusCode).json(payload)
     }
 })
 

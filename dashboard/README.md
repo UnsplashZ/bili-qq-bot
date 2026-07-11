@@ -41,4 +41,4 @@ npm run build
 
 ## 登录与配置
 
-Dashboard 登录密码配置在主项目 `config/.env` 的 `DASHBOARD_PASSWORD`，默认值为 `admin`。公网访问时请配置 `DASHBOARD_ALLOWED_ORIGINS`，避免未授权来源访问管理接口。
+Dashboard 登录密码只配置在主项目 `config/config.yaml` 的 `dashboard.password`（默认值为 `admin`）。公网访问时请在同一 YAML 的 `dashboard.allowedOrigins` 中列出允许来源；运行期不会从 `.env` 或其他旧配置读取这些值。

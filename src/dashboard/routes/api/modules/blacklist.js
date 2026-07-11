@@ -1,74 +1,83 @@
+'use strict'
+
 const express = require('express')
-const sysConfig = require('../../../../config')
+const defaultConfig = require('../../../../config')
 const { normalizeBlacklist, normalizeQQ } = require('../shared/normalize')
+const { dashLog } = require('../shared/logging')
+const {
+    assertExpectedGeneration,
+    assertCurrentGeneration,
+    configErrorResponse,
+    configErrorStatus,
+    emptyMutationResult
+} = require('../shared/config-mutation')
 
-const router = express.Router()
+function getBlacklist(config) {
+    const snapshot = typeof config.getSnapshot === 'function' ? config.getSnapshot() : null
+    return normalizeBlacklist(snapshot?.blacklistedQQs ?? config.blacklistedQQs)
+}
 
-// GET /api/blacklist/global - Get global blacklist
-router.get('/blacklist/global', async (req, res) => {
-    try {
-        const original = Array.isArray(sysConfig.blacklistedQQs)
-            ? sysConfig.blacklistedQQs
-            : []
-        const normalized = normalizeBlacklist(original)
-        const changed =
-            original.length !== normalized.length ||
-            original.some((q, i) => String(q) !== normalized[i])
+function createBlacklistRouter(options = {}) {
+    const config = options.config || defaultConfig
+    const router = express.Router()
 
-        if (changed) {
-            sysConfig.blacklistedQQs = normalized
-            sysConfig.save()
+    router.get('/blacklist/global', async (req, res) => {
+        try {
+            res.json(getBlacklist(config))
+        } catch (error) {
+            dashLog(req, 'error', 'global-blacklist-fetch-failed', { code: error?.code || 'CONFIG_ERROR' })
+            res.status(500).json(configErrorResponse(config, error))
         }
+    })
 
-        res.json(normalized)
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch blacklist' })
-    }
-})
-
-// POST /api/blacklist/global - Add to global blacklist
-router.post('/blacklist/global', async (req, res) => {
-    try {
-        const { qq } = req.body
-        const qqToStore = normalizeQQ(qq)
-        if (!qqToStore) {
-            return res.status(400).json({ error: 'Missing QQ number' })
+    router.post('/blacklist/global', async (req, res) => {
+        try {
+            const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
+            const qqToStore = normalizeQQ(req.body?.qq)
+            if (!qqToStore) return res.status(400).json({ error: 'Missing QQ number' })
+            const current = getBlacklist(config)
+            const next = current.includes(qqToStore) ? current : [...current, qqToStore]
+            assertCurrentGeneration(config, expectedGeneration)
+            const result = next.length === current.length
+                ? emptyMutationResult(config)
+                : await config.patch([
+                    { op: 'set', path: ['blacklistedQQs'], value: next }
+                ], { actor: 'dashboard', expectedGeneration })
+            res.json({ ...result, message: 'Added to blacklist', blacklist: next })
+        } catch (error) {
+            const payload = configErrorResponse(config, error)
+            const code = configErrorStatus(error)
+            dashLog(req, code >= 500 ? 'error' : 'warn', 'global-blacklist-update-failed', { code: payload.code })
+            res.status(code).json(payload)
         }
+    })
 
-        sysConfig.blacklistedQQs = normalizeBlacklist(sysConfig.blacklistedQQs)
-
-        if (!sysConfig.blacklistedQQs.includes(qqToStore)) {
-            sysConfig.blacklistedQQs.push(qqToStore)
-            sysConfig.save()
+    router.delete('/blacklist/global/:qq', async (req, res) => {
+        try {
+            const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
+            const qqToRemove = normalizeQQ(req.params.qq)
+            if (!qqToRemove) return res.status(400).json({ error: 'Missing QQ number' })
+            const current = getBlacklist(config)
+            const next = current.filter((qq) => qq !== qqToRemove)
+            assertCurrentGeneration(config, expectedGeneration)
+            const result = next.length === current.length
+                ? emptyMutationResult(config)
+                : await config.patch([
+                    { op: 'set', path: ['blacklistedQQs'], value: next }
+                ], { actor: 'dashboard', expectedGeneration })
+            res.json({ ...result, message: 'Removed from blacklist', blacklist: next })
+        } catch (error) {
+            const payload = configErrorResponse(config, error)
+            const code = configErrorStatus(error)
+            dashLog(req, code >= 500 ? 'error' : 'warn', 'global-blacklist-update-failed', { code: payload.code })
+            res.status(code).json(payload)
         }
+    })
 
-        res.json({ message: 'Added to blacklist', blacklist: sysConfig.blacklistedQQs })
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update blacklist' })
-    }
-})
+    return router
+}
 
-// DELETE /api/blacklist/global/:qq - Remove from global blacklist
-router.delete('/blacklist/global/:qq', async (req, res) => {
-    try {
-        const qqToRemove = normalizeQQ(req.params.qq)
-        if (!qqToRemove) {
-            return res.status(400).json({ error: 'Missing QQ number' })
-        }
-
-        const normalized = normalizeBlacklist(sysConfig.blacklistedQQs)
-        const filtered = normalized.filter(q => q !== qqToRemove)
-
-        if (filtered.length !== normalized.length) {
-            sysConfig.blacklistedQQs = filtered
-            sysConfig.save()
-        }
-
-        res.json({ message: 'Removed from blacklist', blacklist: filtered })
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update blacklist' })
-    }
-})
+const router = createBlacklistRouter()
 
 module.exports = router
-
+module.exports.createBlacklistRouter = createBlacklistRouter

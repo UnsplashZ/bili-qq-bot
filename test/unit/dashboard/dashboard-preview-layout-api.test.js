@@ -22,12 +22,33 @@ describe('Dashboard preview layout API', function () {
     let app
     let token
     let originalSave
+    let suiteOriginalSave
     let originalPreviewLayoutConfig
+    let originalJwtSecret
+    let originalPatch
+    let originalGetSnapshot
+    let originalGetStatus
+    let generation
 
     before(function () {
         app = express()
         app.use(express.json({ limit: '128kb' }))
+        app.use((req, res, next) => {
+            if (['/api/preview-layout/config', '/api/preview-layout/reset'].includes(req.path) &&
+                req.method === 'POST' && req.headers['x-test-omit-generation'] !== '1' &&
+                req.body?.expectedGeneration === undefined) {
+                req.body.expectedGeneration = generation
+            }
+            next()
+        })
         app.use('/api', apiRouter)
+        originalJwtSecret = config.jwtSecret
+        suiteOriginalSave = config.save
+        config.save = () => {}
+        config.__getMutableCompatStateForTests().jwtSecret = 'dashboard-preview-test-secret'
+        originalPatch = config.patch
+        originalGetSnapshot = config.getSnapshot
+        originalGetStatus = config.getStatus
         token = buildToken()
     })
 
@@ -35,12 +56,54 @@ describe('Dashboard preview layout API', function () {
         originalSave = config.save
         originalPreviewLayoutConfig = config.previewLayoutConfig
         config.save = () => {}
-        config.previewLayoutConfig = {}
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {}
+        generation = 1
+        config.getSnapshot = () => ({
+            rendering: { previewLayout: JSON.parse(JSON.stringify(config.previewLayoutConfig || {})) }
+        })
+        config.getStatus = () => ({
+            documentGeneration: generation,
+            effectiveGeneration: generation,
+            fingerprint: `public-${generation}`
+        })
+        config.patch = async (operations) => {
+            config.__getMutableCompatStateForTests().previewLayoutConfig = JSON.parse(JSON.stringify(operations[0].value))
+            generation += 1
+            return {
+                documentGeneration: generation,
+                effectiveGeneration: generation,
+                generation,
+                applied: ['rendering.previewLayout'],
+                reloaded: ['rendering'],
+                deploymentApplyRequired: [],
+                warnings: []
+            }
+        }
     })
 
     afterEach(function () {
-        config.previewLayoutConfig = originalPreviewLayoutConfig
+        config.__getMutableCompatStateForTests().previewLayoutConfig = originalPreviewLayoutConfig
         config.save = originalSave
+        config.patch = originalPatch
+        config.getSnapshot = originalGetSnapshot
+        config.getStatus = originalGetStatus
+    })
+
+    after(function () {
+        config.save = () => {}
+        config.__getMutableCompatStateForTests().jwtSecret = originalJwtSecret
+        config.save = suiteOriginalSave
+    })
+
+    it('requires expectedGeneration for preview layout mutations', async function () {
+        const res = await request(app)
+            .post('/api/preview-layout/config')
+            .set('Authorization', `Bearer ${token}`)
+            .set('X-Test-Omit-Generation', '1')
+            .send({ scope: 'global', type: 'video', template: getDefaultTemplate('video') })
+
+        assert.strictEqual(res.status, 400)
+        assert.strictEqual(res.body.code, 'CONFIG_EXPECTED_GENERATION_REQUIRED')
     })
 
     it('requires auth for preview layout schema', async function () {

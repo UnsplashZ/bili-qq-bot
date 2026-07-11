@@ -6,6 +6,7 @@ import QqProviderSection from './settings/components/QqProviderSection'
 import BiliGlobalSection from './settings/components/BiliGlobalSection'
 import GlobalBlacklistSection from './settings/components/GlobalBlacklistSection'
 import VideoDownloadSection from './settings/components/VideoDownloadSection'
+import ConfigRuntimeStatusSection from './settings/components/ConfigRuntimeStatusSection'
 import SystemControlSection from './settings/components/SystemControlSection'
 import RestartConfirmModal from './settings/components/RestartConfirmModal'
 import BiliQrModal from './settings/components/BiliQrModal'
@@ -44,6 +45,7 @@ const Settings = () => {
   }
 
   const savingSettings = settingsData.savingGeneral || settingsData.savingVideoDownload
+  const recoveryRequired = settingsData.configStatus?.recoveryRequired?.required === true
 
   return (
     <div className="space-y-5 pb-8 md:space-y-7 md:pb-12">
@@ -55,7 +57,7 @@ const Settings = () => {
         <Button
           type="button"
           onClick={settingsData.saveAllSettings}
-          disabled={savingSettings}
+          disabled={savingSettings || recoveryRequired || settingsData.recoveringConfig}
           variant="primary"
           icon={Save}
         >
@@ -66,12 +68,25 @@ const Settings = () => {
       <GeneralSettingsSection
         generalConfig={settingsData.generalConfig}
         onGeneralChange={settingsData.handleGeneralChange}
+        disabled={recoveryRequired}
+      />
+
+      <ConfigRuntimeStatusSection
+        status={settingsData.configStatus}
+        migration={settingsData.migrationStatus}
+        lastApplyResult={settingsData.lastApplyResult}
+        reloading={settingsData.reloadingConfig}
+        onReload={settingsData.reloadConfig}
+        recovering={settingsData.recoveringConfig}
+        recoveryResult={settingsData.recoveryResult}
+        onRecover={settingsData.recoverConfig}
       />
 
       <QqProviderSection
         config={settingsData.qqProviderConfig}
         status={settingsData.qqProviderStatus}
-        restartRequired={settingsData.restartRequired}
+        onClearSecret={settingsData.clearOfficialSecret}
+        disabled={recoveryRequired}
         onChange={(field, value) => settingsData.setQqProviderConfig(p => ({ ...p, [field]: value }))}
       />
 
@@ -89,11 +104,13 @@ const Settings = () => {
         onNewBlacklistQQChange={settingsData.setNewBlacklistQQ}
         onAddBlacklist={settingsData.handleAddBlacklist}
         onRemoveBlacklist={settingsData.handleRemoveBlacklist}
+        disabled={recoveryRequired}
       />
 
       <VideoDownloadSection
         videoDownloadConfig={settingsData.videoDownloadConfig}
         onVideoDownloadChange={(field, value) => settingsData.setVideoDownloadConfig(p => ({ ...p, [field]: value }))}
+        disabled={recoveryRequired}
       />
 
       <SystemControlSection onRestart={handleRestart} />

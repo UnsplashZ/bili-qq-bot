@@ -16,7 +16,8 @@ function isOfficialOpaqueGroupId(groupId) {
 
 function normalizeQQ(qq) {
     if (qq === null || qq === undefined) return ''
-    return String(qq).trim()
+    const normalized = String(qq).trim()
+    return SAFE_ENTITY_ID_RE.test(normalized) ? normalized : ''
 }
 
 function normalizeBlacklist(input) {
@@ -68,3 +69,6 @@ module.exports = {
     extractFollowerUid,
     resolveFollowerName
 }
+const { SAFE_ENTITY_ID_PATTERN } = require('../../../../config/schemaV1')
+
+const SAFE_ENTITY_ID_RE = new RegExp(SAFE_ENTITY_ID_PATTERN)

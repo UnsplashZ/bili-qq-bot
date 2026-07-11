@@ -8,7 +8,8 @@ const GlobalBlacklistSection = ({
     addingBlacklist,
     onNewBlacklistQQChange,
     onAddBlacklist,
-    onRemoveBlacklist
+    onRemoveBlacklist,
+    disabled = false
 }) => {
     return (
         <section>
@@ -22,6 +23,7 @@ const GlobalBlacklistSection = ({
                         <input
                             type="text"
                             value={newBlacklistQQ}
+                            disabled={disabled}
                             onChange={(e) => onNewBlacklistQQChange(e.target.value)}
                             placeholder="输入 QQ 号"
                             className="field-control flex-1 px-3 py-2"
@@ -30,7 +32,7 @@ const GlobalBlacklistSection = ({
                         <Button
                             type="button"
                             onClick={onAddBlacklist}
-                            disabled={addingBlacklist || !newBlacklistQQ}
+                            disabled={disabled || addingBlacklist || !newBlacklistQQ}
                             variant="danger"
                         >
                             添加
@@ -47,6 +49,8 @@ const GlobalBlacklistSection = ({
                                 <div key={qq} className="flex items-center gap-2 rounded-lg border border-[color-mix(in_oklch,var(--danger)_34%,var(--border))] bg-[var(--danger-soft)] px-3 py-1.5 text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]">
                                     <span>{qq}</span>
                                     <button
+                                        type="button"
+                                        disabled={disabled}
                                         onClick={() => onRemoveBlacklist(qq)}
                                         className="rounded-md text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
                                     >

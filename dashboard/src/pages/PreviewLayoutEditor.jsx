@@ -526,13 +526,14 @@ function PropertyPanel({ node, schema, onChange, onDelete, onDuplicate, liveLayo
 
 export default function PreviewLayoutEditor() {
   const { show } = useToast();
+  const configGenerationRef = useRef(null);
   const {
     previewGradientConfig,
     savingPreviewGradient,
     handlePreviewGradientChange,
     savePreviewGradientSettings,
     resetPreviewGradientSettings
-  } = usePreviewGradientSettings(show);
+  } = usePreviewGradientSettings(show, configGenerationRef);
   const [schema, setSchema] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedType, setSelectedType] = useState('video');
@@ -608,6 +609,8 @@ export default function PreviewLayoutEditor() {
     const response = await api.get('/api/preview-layout/config', {
       params: { type: selectedType, groupId: groupId || undefined }
     });
+    const generation = Number(response.headers?.['x-config-generation']);
+    if (Number.isSafeInteger(generation)) configGenerationRef.current = generation;
     const nextTemplate = response.data.template || createEmptyTemplate(selectedType);
     setTemplate(nextTemplate);
     setSavedTemplate(clone(nextTemplate));
@@ -737,12 +740,15 @@ export default function PreviewLayoutEditor() {
     }
     setSaving(true);
     try {
-      await api.post('/api/preview-layout/config', {
+      if (!Number.isSafeInteger(configGenerationRef.current)) throw new Error('配置 generation 尚未就绪，请刷新后重试');
+      const response = await api.post('/api/preview-layout/config', {
         scope,
         groupId: scope === 'group' ? groupId : null,
         type: selectedType,
-        template
+        template,
+        expectedGeneration: configGenerationRef.current
       });
+      configGenerationRef.current = response.data.documentGeneration ?? response.data.generation;
       const nextTemplate = await fetchConfig();
       await runPreview({ silent: true, draft: nextTemplate });
       show('模板已保存', 'success');
@@ -756,12 +762,15 @@ export default function PreviewLayoutEditor() {
   const resetSaved = async (nodeId = '') => {
     setSaving(true);
     try {
-      await api.post('/api/preview-layout/reset', {
+      if (!Number.isSafeInteger(configGenerationRef.current)) throw new Error('配置 generation 尚未就绪，请刷新后重试');
+      const response = await api.post('/api/preview-layout/reset', {
         scope: groupId ? 'group' : 'global',
         groupId: groupId || null,
         type: selectedType,
-        nodeId: nodeId || undefined
+        nodeId: nodeId || undefined,
+        expectedGeneration: configGenerationRef.current
       });
+      configGenerationRef.current = response.data.documentGeneration ?? response.data.generation;
       const nextTemplate = await fetchConfig();
       await runPreview({ silent: true, draft: nextTemplate });
       show(nodeId ? '节点已重置' : '模板已重置', 'success');

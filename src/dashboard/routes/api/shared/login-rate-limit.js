@@ -65,7 +65,7 @@ function startLoginRateLimitCleanup() {
                 loginAttempts.delete(ip)
             }
         }
-    }, CLEANUP_INTERVAL)
+    }, CLEANUP_INTERVAL).unref?.()
 }
 
 module.exports = {

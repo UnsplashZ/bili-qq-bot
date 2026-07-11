@@ -1,6 +1,6 @@
 import GlassCard from '../../../components/GlassCard'
 import SettingRow from '../../../components/SettingRow'
-import { ToggleSwitch, StatusPill } from '../../../components/ui'
+import { Button, ToggleSwitch, StatusPill } from '../../../components/ui'
 import { Network, KeyRound } from 'lucide-react'
 
 function asOpenidText(value) {
@@ -10,8 +10,9 @@ function asOpenidText(value) {
 const QqProviderSection = ({
     config,
     status,
-    restartRequired,
-    onChange
+    onClearSecret,
+    onChange,
+    disabled = false
 }) => {
     const provider = config.qqProvider === 'official' ? 'official' : 'napcat'
     const statusProvider = status?.id === 'official' ? 'QQ Official' : status?.id === 'napcat' ? 'OneBot / NapCat' : '未连接'
@@ -26,7 +27,7 @@ const QqProviderSection = ({
             <div className="mb-4 flex items-center gap-2">
                 <Network className="text-[var(--accent)]" />
                 <h2 className="text-xl font-semibold text-[var(--fg)]">QQ 连接模式</h2>
-                {restartRequired && <StatusPill tone="warn">需重启</StatusPill>}
+                <StatusPill tone="accent">受控热重载</StatusPill>
             </div>
             <GlassCard>
                 <div className="divide-y divide-[var(--border-subtle)]">
@@ -48,6 +49,7 @@ const QqProviderSection = ({
                         control={
                             <select
                                 value={provider}
+                                disabled={disabled}
                                 onChange={(event) => onChange('qqProvider', event.target.value)}
                                 className="field-control w-full px-3 py-2 md:w-56"
                             >
@@ -66,6 +68,7 @@ const QqProviderSection = ({
                                     <input
                                         type="text"
                                         value={config.qqOfficialAppId || ''}
+                                        disabled={disabled}
                                         onChange={(event) => onChange('qqOfficialAppId', event.target.value)}
                                         className="field-control w-full px-3 py-2 md:w-72"
                                     />
@@ -74,16 +77,24 @@ const QqProviderSection = ({
 
                             <SettingRow
                                 title="Secret"
-                                description={config.qqOfficialClientSecretConfigured ? '已配置；留空不会覆盖当前值。' : '尚未配置。'}
+                                description={config.qqOfficialClientSecretConfigured ? '已配置；留空不会覆盖当前值，清除必须显式操作。' : '尚未配置。'}
                                 status={<KeyRound size={14} />}
                                 control={
-                                    <input
-                                        type="password"
-                                        value={config.qqOfficialClientSecret || ''}
-                                        onChange={(event) => onChange('qqOfficialClientSecret', event.target.value)}
-                                        placeholder={config.qqOfficialClientSecretConfigured ? '已配置，留空不变' : ''}
-                                        className="field-control w-full px-3 py-2 md:w-72"
-                                    />
+                                    <div className="flex flex-col gap-2 sm:flex-row">
+                                        <input
+                                            type="password"
+                                            value={config.qqOfficialClientSecret || ''}
+                                            disabled={disabled}
+                                            onChange={(event) => onChange('qqOfficialClientSecret', event.target.value)}
+                                            placeholder={config.qqOfficialClientSecretConfigured ? '已配置，留空不变' : ''}
+                                            className="field-control w-full px-3 py-2 md:w-72"
+                                        />
+                                        {config.qqOfficialClientSecretConfigured && (
+                                            <Button type="button" size="sm" variant="danger" disabled={disabled} onClick={onClearSecret}>
+                                                显式清除
+                                            </Button>
+                                        )}
+                                    </div>
                                 }
                             />
 
@@ -94,6 +105,7 @@ const QqProviderSection = ({
                                     <input
                                         type="text"
                                         value={asOpenidText(config.qqOfficialRootOpenids)}
+                                        disabled={disabled}
                                         onChange={(event) => onChange('qqOfficialRootOpenids', event.target.value)}
                                         className="field-control w-full px-3 py-2 md:w-72"
                                     />
@@ -108,6 +120,7 @@ const QqProviderSection = ({
                                         checked={config.qqOfficialUseShardedGateway !== false}
                                         onChange={(checked) => onChange('qqOfficialUseShardedGateway', checked)}
                                         label="分片 Gateway"
+                                        disabled={disabled}
                                     />
                                 }
                             />
@@ -118,6 +131,7 @@ const QqProviderSection = ({
                                 control={
                                     <select
                                         value={config.qqOfficialMediaUploadMode || 'hybrid'}
+                                        disabled={disabled}
                                         onChange={(event) => onChange('qqOfficialMediaUploadMode', event.target.value)}
                                         className="field-control w-full px-3 py-2 md:w-56"
                                     >
@@ -135,6 +149,7 @@ const QqProviderSection = ({
                                     <input
                                         type="url"
                                         value={config.qqOfficialTempPublicBaseUrl || ''}
+                                        disabled={disabled}
                                         onChange={(event) => onChange('qqOfficialTempPublicBaseUrl', event.target.value)}
                                         className="field-control w-full px-3 py-2 md:w-72"
                                     />
@@ -149,6 +164,7 @@ const QqProviderSection = ({
                                         <input
                                             type="number"
                                             min="1"
+                                            disabled={disabled}
                                             value={config.qqOfficialAccountQpm || 30}
                                             onChange={(event) => onChange('qqOfficialAccountQpm', parseInt(event.target.value, 10) || 30)}
                                             className="field-control w-full px-3 py-2"
@@ -156,6 +172,7 @@ const QqProviderSection = ({
                                         <input
                                             type="number"
                                             min="1"
+                                            disabled={disabled}
                                             value={config.qqOfficialGroupQpm || 20}
                                             onChange={(event) => onChange('qqOfficialGroupQpm', parseInt(event.target.value, 10) || 20)}
                                             className="field-control w-full px-3 py-2"

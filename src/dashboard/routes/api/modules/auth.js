@@ -44,7 +44,17 @@ router.post('/login', (req, res) => {
         logger.logEvent('info', 'AUTH', req.logScope || '', 'login-succeeded', {
             ip
         })
-        return res.json({ token })
+        let recoveryRequired = false
+        try {
+            recoveryRequired = sysConfig.getStatus?.().recoveryRequired?.required === true
+        } catch {
+            // Authentication must remain available even when status projection is unavailable.
+        }
+        return res.json({
+            token,
+            recoveryRequired,
+            redirectPath: recoveryRequired ? '/settings' : '/'
+        })
     }
 
     recordFailedAttempt(ip)

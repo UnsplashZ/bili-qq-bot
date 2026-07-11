@@ -39,7 +39,9 @@ function Groups() {
     setSelectedGroupId,
     loading,
     handleToggleGroup,
-    handleDeleteConfig
+    handleDeleteConfig,
+    requireExpectedGeneration,
+    syncConfigGeneration
   } = useGroupList({ show });
 
   const {
@@ -72,7 +74,9 @@ function Groups() {
     groups,
     setGroups,
     show,
-    atAllTargets
+    atAllTargets,
+    requireExpectedGeneration,
+    syncConfigGeneration
   });
 
   const {
@@ -107,7 +111,9 @@ function Groups() {
     formData,
     setFormData,
     runLockedAction,
-    show
+    show,
+    requireExpectedGeneration,
+    syncConfigGeneration
   });
 
   const {
@@ -122,7 +128,9 @@ function Groups() {
   } = useGroupVideoDownloadConfig({
     selectedGroupId,
     runLockedAction,
-    show
+    show,
+    requireExpectedGeneration,
+    syncConfigGeneration
   });
 
   const VIDEO_DOWNLOAD_TAB_INDEX = GROUP_TAB_CATEGORIES.findIndex((category) => category.name === '视频下载');

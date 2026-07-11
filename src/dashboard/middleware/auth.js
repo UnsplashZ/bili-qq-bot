@@ -1,6 +1,57 @@
 const jwt = require('jsonwebtoken');
 const config = require('../../config');
 const logger = require('../../utils/logger');
+const {
+    canonicalHttpOrigin,
+    validateDashboardAllowedOrigins
+} = require('../../config/validator');
+
+function canonicalOrigin(value) {
+    return canonicalHttpOrigin(value);
+}
+
+function configuredAllowedOrigins() {
+    const listenPort = config.dashboardPort || 3000;
+    const defaults = [
+        `http://localhost:${listenPort}`,
+        `http://127.0.0.1:${listenPort}`
+    ];
+    const configured = validateDashboardAllowedOrigins(
+        Array.isArray(config.dashboardAllowedOrigins) ? config.dashboardAllowedOrigins : []
+    );
+    return new Set([...defaults, ...configured]);
+}
+
+function canonicalRequestOrigin(req) {
+    const rawHost = req.headers.host;
+    if (typeof rawHost !== 'string' || rawHost.length === 0 || rawHost.length > 255 ||
+        rawHost.trim() !== rawHost ||
+        !/^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::[1-9][0-9]{0,4})?$/u.test(rawHost)) {
+        return null;
+    }
+    const protocol = req.socket?.encrypted ? 'https:' : 'http:';
+    try {
+        const url = new URL(`${protocol}//${rawHost}`);
+        if (url.protocol !== protocol || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+            return null;
+        }
+        if (!url.hostname || (url.port && Number(url.port) > 65535)) return null;
+        return url.origin;
+    } catch {
+        return null;
+    }
+}
+
+function requestSourceOrigin(value) {
+    if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) return null;
+    try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+        return url.origin;
+    } catch {
+        return null;
+    }
+}
 
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -31,68 +82,26 @@ function csrfProtection(req, res, next) {
     }
 
     // 1. 验证请求来源（Origin或Referer）
-    const origin = req.headers.origin || req.headers.referer;
+    const originHeader = req.headers.origin;
+    const origin = originHeader || req.headers.referer;
     if (origin) {
-        const allowedOrigins = [
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            `http://localhost:${config.dashboardPort || 3000}`,
-            `http://127.0.0.1:${config.dashboardPort || 3000}`
-        ];
-
-        // 🆕 添加用户配置的允许来源（用于公网部署）
-        if (config.dashboardAllowedOrigins) {
-            const customOrigins = config.dashboardAllowedOrigins
-                .split(',')
-                .map(o => o.trim())
-                .filter(o => o.length > 0);
-            allowedOrigins.push(...customOrigins);
-        }
-
-        try {
-            const originUrl = new URL(origin);
-
-            // 检查是否在允许的origin列表中
-            const isAllowed = allowedOrigins.some(allowed => {
-                const allowedUrl = new URL(allowed);
-                return originUrl.origin === allowedUrl.origin;
-            });
-
-            // 🆕 如果不在列表中，检查是否是内网IP（Tailscale、局域网等）
-            if (!isAllowed) {
-                const hostname = originUrl.hostname;
-                const isPrivateIP =
-                    // Tailscale IP range: 100.64.0.0/10
-                    /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(hostname) ||
-                    // Private IP ranges
-                    /^10\./.test(hostname) ||
-                    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
-                    /^192\.168\./.test(hostname) ||
-                    // IPv6 private ranges
-                    /^(fe80|fc00|fd00):/.test(hostname);
-
-                if (isPrivateIP) {
-                    logger.logEvent('debug', 'AUTH', req.logScope || '', 'csrf-private-origin', {
-                        origin
-                    });
-                } else {
-                    logger.logEvent('warn', 'AUTH', req.logScope || '', 'csrf-rejected', {
-                        origin: originUrl.origin
-                    });
-                    return res.status(403).json({
-                        error: 'CSRF validation failed: Invalid origin',
-                        message: 'Access from public network requires configuration. Set DASHBOARD_ALLOWED_ORIGINS environment variable.',
-                        origin: originUrl.origin
-                    });
-                }
-            }
-        } catch (e) {
-            // URL解析失败（如 Origin: null 或格式错误），拒绝请求
+        const sourceOrigin = originHeader ? canonicalOrigin(origin) : requestSourceOrigin(origin);
+        const requestOrigin = canonicalRequestOrigin(req);
+        if (!sourceOrigin) {
             logger.logEvent('warn', 'AUTH', req.logScope || '', 'csrf-invalid-origin', {
-                origin,
-                error: e.message
+                origin
             });
             return res.status(403).json({ error: 'CSRF validation failed: Invalid origin header' });
+        }
+        if (sourceOrigin !== requestOrigin && !configuredAllowedOrigins().has(sourceOrigin)) {
+            logger.logEvent('warn', 'AUTH', req.logScope || '', 'csrf-rejected', {
+                origin: sourceOrigin
+            });
+            return res.status(403).json({
+                error: 'CSRF validation failed: Invalid origin',
+                message: 'Access requires the request Host origin or an exact URL origin in config/config.yaml dashboard.allowedOrigins.',
+                origin: sourceOrigin
+            });
         }
     }
 
@@ -113,3 +122,6 @@ function csrfProtection(req, res, next) {
 
 module.exports = authenticateToken;
 module.exports.csrfProtection = csrfProtection;
+module.exports.canonicalOrigin = canonicalOrigin;
+module.exports.configuredAllowedOrigins = configuredAllowedOrigins;
+module.exports.canonicalRequestOrigin = canonicalRequestOrigin;

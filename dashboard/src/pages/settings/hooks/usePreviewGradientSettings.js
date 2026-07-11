@@ -17,7 +17,7 @@ function extractConfig(source = {}) {
     }
 }
 
-export default function usePreviewGradientSettings(show) {
+export default function usePreviewGradientSettings(show, configGenerationRef) {
     const [previewGradientConfig, setPreviewGradientConfig] = useState(PREVIEW_GRADIENT_DEFAULTS)
     const [loadingPreviewGradient, setLoadingPreviewGradient] = useState(true)
     const [savingPreviewGradient, setSavingPreviewGradient] = useState(false)
@@ -27,13 +27,15 @@ export default function usePreviewGradientSettings(show) {
         try {
             const response = await api.get('/api/config')
             setPreviewGradientConfig(extractConfig(response.data))
+            const generation = Number(response.data.generation)
+            if (Number.isSafeInteger(generation) && configGenerationRef) configGenerationRef.current = generation
         } catch (error) {
             console.error('Failed to load preview gradient settings:', error)
             show('加载预览图氛围色失败', 'error')
         } finally {
             setLoadingPreviewGradient(false)
         }
-    }, [show])
+    }, [show, configGenerationRef])
 
     useEffect(() => {
         loadPreviewGradientSettings()
@@ -46,7 +48,12 @@ export default function usePreviewGradientSettings(show) {
     const savePreviewGradientSettings = async () => {
         setSavingPreviewGradient(true)
         try {
-            await api.post('/api/config', previewGradientConfig)
+            if (!Number.isSafeInteger(configGenerationRef?.current)) throw new Error('配置 generation 尚未就绪，请刷新后重试')
+            const response = await api.post('/api/config', {
+                expectedGeneration: configGenerationRef.current,
+                values: previewGradientConfig
+            })
+            configGenerationRef.current = response.data.documentGeneration ?? response.data.generation
             show('预览图氛围色已保存！', 'success')
         } catch (error) {
             console.error('Failed to save preview gradient settings:', error)

@@ -1,76 +1,219 @@
-#!/usr/bin/env node
 'use strict'
 
 const assert = require('assert')
 const express = require('express')
-const fs = require('fs')
-const os = require('os')
-const path = require('path')
 const request = require('supertest')
+const { createConfigRouter } = require('../../../src/dashboard/routes/api/modules/config')
+const { emptyMutationResult } = require('../../../src/dashboard/routes/api/shared/config-mutation')
 
-const configRouter = require('../../../src/dashboard/routes/api/modules/config')
-const sysConfig = require('../../../src/config')
-const secretStore = require('../../../src/config/secretStore')
-
-describe('dashboard qq provider config', () => {
-    const originals = {
-        qqProvider: sysConfig.qqProvider,
-        qqOfficialClientSecret: sysConfig.qqOfficialClientSecret,
-        qqOfficialRootOpenids: sysConfig.qqOfficialRootOpenids,
-        save: sysConfig.save
-    }
-    let tempDir = ''
-
-    beforeEach(() => {
-        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-official-secret-'))
-        secretStore.setQqOfficialClientSecretPathForTest(path.join(tempDir, '.qqOfficialClientSecret'))
-        sysConfig.save = () => {}
-    })
-
-    afterEach(() => {
-        sysConfig.qqProvider = originals.qqProvider
-        if (typeof sysConfig.deleteKeys === 'function') {
-            sysConfig.deleteKeys(['qqOfficialClientSecret'])
+function createStub() {
+    const calls = []
+    let generation = 7
+    let secretConfigured = false
+    const config = {
+        service: {
+            lastReloadResult: null,
+            toPublicError(error) {
+                return { code: error.code || 'CONFIG_ERROR', path: error.path || '', line: null, column: null }
+            }
+        },
+        getStatus() {
+            return {
+                valid: true,
+                schemaVersion: 1,
+                documentGeneration: generation,
+                effectiveGeneration: generation,
+                fingerprint: 'public-fingerprint',
+                components: {}
+            }
+        },
+        getDashboardConfigSnapshot() {
+            return {
+                qqProvider: 'napcat',
+                qqOfficialClientSecretConfigured: secretConfigured,
+                generation
+            }
+        },
+        getRootAdminQQ() {
+            return '10001'
+        },
+        async patch(operations, options) {
+            calls.push({ operations, options })
+            if (options.expectedGeneration !== generation) {
+                const error = new Error('conflict')
+                error.code = 'CONFIG_GENERATION_CONFLICT'
+                error.conflictPaths = ['qq.provider']
+                throw error
+            }
+            if (operations.some((operation) => operation.path.join('.') === 'qq.official.clientSecret' && operation.op === 'set')) {
+                secretConfigured = true
+            }
+            if (operations.some((operation) => operation.path.join('.') === 'qq.official.clientSecret' && operation.op === 'clear-secret')) {
+                secretConfigured = false
+            }
+            generation += 1
+            return {
+                generation,
+                documentGeneration: generation,
+                effectiveGeneration: generation,
+                applied: operations.map((operation) => operation.path.join('.')),
+                reloaded: ['qqProvider'],
+                deploymentApplyRequired: [],
+                warnings: [],
+                diff: []
+            }
+        },
+        async reload() {
+            return {
+                generation,
+                documentGeneration: generation,
+                effectiveGeneration: generation,
+                applied: [],
+                reloaded: [],
+                deploymentApplyRequired: [],
+                warnings: []
+            }
+        },
+        async recover(options) {
+            calls.push({ recovery: true, options })
+            return { recovered: true, handlers: ['qq-provider-runtime'], documentGeneration: generation }
         }
-        sysConfig.qqOfficialRootOpenids = originals.qqOfficialRootOpenids
-        sysConfig.save = originals.save
-        secretStore.setQqOfficialClientSecretPathForTest('')
-        if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+    return { config, calls }
+}
+
+function createApp(stub, migration = null) {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', createConfigRouter({
+        config: stub.config,
+        getMigrationStatus: async () => migration
+    }))
+    return app
+}
+
+describe('dashboard config v1 API', () => {
+    it('exposes the token-fenced ConfigService recovery action', async () => {
+        const stub = createStub()
+        const response = await request(createApp(stub))
+            .post('/api/config/recover')
+            .send({})
+        assert.strictEqual(response.status, 200)
+        assert.strictEqual(response.body.recovered, true)
+        assert.deepStrictEqual(response.body.handlers, ['qq-provider-runtime'])
+        assert.deepStrictEqual(stub.calls[0], {
+            recovery: true,
+            options: { source: 'dashboard' }
+        })
     })
 
-    it('saves provider mode and redacts returned secret', async () => {
-        const app = express()
-        app.use(express.json())
-        app.use('/api', configRouter)
-
-        const res = await request(app)
+    it('uses expectedGeneration ConfigService.patch and never echoes a Secret', async () => {
+        const stub = createStub()
+        const response = await request(createApp(stub))
             .post('/api/config')
             .send({
+                expectedGeneration: 7,
                 qqProvider: 'official',
-                qqOfficialClientSecret: 'secret-value',
+                qqOfficialClientSecret: 'fixture-secret',
                 qqOfficialRootOpenids: 'root-a,root-b'
             })
 
-        assert.equal(res.status, 200)
-        assert.equal(res.body.config.qqProvider, 'official')
-        assert.equal(res.body.config.qqOfficialClientSecret, '[REDACTED]')
-        assert.equal(res.body.restartRequired, true)
-        assert.deepEqual(sysConfig.qqOfficialRootOpenids, ['root-a', 'root-b'])
-        assert.equal(secretStore.readQqOfficialClientSecret(), 'secret-value')
-        assert.equal(sysConfig._overrides.qqOfficialClientSecret, undefined)
+        assert.strictEqual(response.status, 200)
+        assert.strictEqual(response.body.generation, 8)
+        assert.deepStrictEqual(response.body.reloaded, ['qqProvider'])
+        assert.strictEqual(response.body.config.qqOfficialClientSecretConfigured, true)
+        assert.ok(!JSON.stringify(response.body).includes('fixture-secret'))
+        assert.strictEqual(stub.calls[0].options.actor, 'dashboard')
+        assert.strictEqual(stub.calls[0].options.expectedGeneration, 7)
+        assert.ok(stub.calls[0].operations.some((operation) => operation.path.join('.') === 'qq.official.clientSecret'))
     })
 
-    it('accepts onebot as the dashboard label and stores napcat compatibility mode', async () => {
-        const app = express()
-        app.use(express.json())
-        app.use('/api', configRouter)
-
-        const res = await request(app)
+    it('treats omitted/empty Secret as unchanged and requires explicit clear-secret', async () => {
+        const stub = createStub()
+        await request(createApp(stub))
             .post('/api/config')
-            .send({ qqProvider: 'onebot' })
+            .send({ expectedGeneration: 7, qqOfficialClientSecret: 'fixture-secret' })
 
-        assert.equal(res.status, 200)
-        assert.equal(res.body.config.qqProvider, 'napcat')
-        assert.equal(sysConfig.qqProvider, 'napcat')
+        const unchanged = await request(createApp(stub))
+            .post('/api/config')
+            .send({ expectedGeneration: 8, qqProvider: 'official', qqOfficialClientSecret: '' })
+        assert.strictEqual(unchanged.status, 200)
+        assert.ok(!stub.calls[1].operations.some((operation) => operation.path.join('.') === 'qq.official.clientSecret'))
+
+        const cleared = await request(createApp(stub))
+            .post('/api/config')
+            .send({
+                expectedGeneration: 9,
+                secretActions: { qqOfficialClientSecret: 'clear' }
+            })
+        assert.strictEqual(cleared.status, 200)
+        assert.strictEqual(cleared.body.config.qqOfficialClientSecretConfigured, false)
+        assert.ok(stub.calls[2].operations.some((operation) => operation.op === 'clear-secret'))
+    })
+
+    it('returns a redacted 409 conflict and rejects missing generation', async () => {
+        const stub = createStub()
+        const missing = await request(createApp(stub))
+            .post('/api/config')
+            .send({ qqProvider: 'official' })
+        assert.strictEqual(missing.status, 400)
+        assert.strictEqual(missing.body.code, 'CONFIG_EXPECTED_GENERATION_REQUIRED')
+
+        const conflict = await request(createApp(stub))
+            .post('/api/config')
+            .send({ expectedGeneration: 6, qqProvider: 'official' })
+        assert.strictEqual(conflict.status, 409)
+        assert.strictEqual(conflict.body.generation, 7)
+        assert.deepStrictEqual(conflict.body.conflictPaths, ['qq.provider'])
+        assert.strictEqual(conflict.body.message, undefined)
+    })
+
+    it('uses the same typed migration projection for the migrations endpoint', async () => {
+        const stub = createStub()
+        const migration = {
+            migrationId: 'config-v0-to-v1',
+            checkpoint: 'probe_ready',
+            phase: 'probe',
+            deliveryGuarantee: 'best-effort',
+            warningCodes: ['LEGACY_INFLIGHT_DELIVERY_AMBIGUOUS']
+        }
+        const response = await request(createApp(stub, migration)).get('/api/config/migrations')
+        assert.strictEqual(response.status, 200)
+        assert.deepStrictEqual(response.body.migration, migration)
+    })
+
+    it('accepts segment arrays and strict RFC 6901 pointers but rejects dotted or malformed paths', async () => {
+        const stub = createStub()
+        const arrayPath = await request(createApp(stub)).post('/api/config').send({
+            expectedGeneration: 7,
+            patch: [{ op: 'set', path: ['qq', 'provider'], value: 'official' }]
+        })
+        assert.strictEqual(arrayPath.status, 200)
+
+        const pointer = await request(createApp(stub)).post('/api/config').send({
+            expectedGeneration: 8,
+            patch: [{ op: 'set', path: '/qq/provider', value: 'napcat' }]
+        })
+        assert.strictEqual(pointer.status, 200)
+
+        for (const path of ['qq.provider', '/qq/~2provider', '/qq//provider']) {
+            const response = await request(createApp(stub)).post('/api/config').send({
+                expectedGeneration: 9,
+                patch: [{ op: 'set', path, value: 'official' }]
+            })
+            assert.strictEqual(response.status, 400)
+            assert.strictEqual(response.body.code, 'CONFIG_PATH_INVALID')
+        }
+    })
+
+    it('keeps persisted deployment pending paths in no-op mutation responses', () => {
+        const result = emptyMutationResult({
+            getStatus: () => ({
+                documentGeneration: 11,
+                effectiveGeneration: 11,
+                pendingDeploymentApply: ['deployment.ports.dashboardHost']
+            })
+        })
+        assert.deepStrictEqual(result.deploymentApplyRequired, ['deployment.ports.dashboardHost'])
     })
 })

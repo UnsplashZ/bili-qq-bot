@@ -20,17 +20,25 @@ const apiRouter = require('../../../src/dashboard/routes/api')
 global.setInterval = originalSetInterval
 
 const originals = {
-    dashboardPassword: config.dashboardPassword,
+    dashboardPasswordDescriptor: Object.getOwnPropertyDescriptor(config, 'dashboardPassword'),
+    jwtSecretDescriptor: Object.getOwnPropertyDescriptor(config, 'jwtSecret'),
     ensureGroupConfig: config.ensureGroupConfig,
     save: config.save,
+    patch: config.patch,
+    getStatus: config.getStatus,
+    getDashboardConfigSnapshot: config.getDashboardConfigSnapshot,
     groupConfigs: JSON.parse(JSON.stringify(config.groupConfigs || {})),
     bot: global.bot
 }
 
 function restore() {
-    config.dashboardPassword = originals.dashboardPassword
+    Object.defineProperty(config, 'dashboardPassword', originals.dashboardPasswordDescriptor)
+    Object.defineProperty(config, 'jwtSecret', originals.jwtSecretDescriptor)
     config.ensureGroupConfig = originals.ensureGroupConfig
     config.save = originals.save
+    config.patch = originals.patch
+    config.getStatus = originals.getStatus
+    config.getDashboardConfigSnapshot = originals.getDashboardConfigSnapshot
     const groupConfigs = config.groupConfigs || {}
     for (const key of Object.keys(groupConfigs)) delete groupConfigs[key]
     Object.assign(groupConfigs, JSON.parse(JSON.stringify(originals.groupConfigs)))
@@ -50,11 +58,37 @@ async function run() {
         app.use(express.json())
         app.use('/api', apiRouter)
 
-        config.dashboardPassword = 'test-pass'
+        Object.defineProperty(config, 'dashboardPassword', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: 'test-pass'
+        })
+        Object.defineProperty(config, 'jwtSecret', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: 'dashboard-logging-test-secret'
+        })
         config.ensureGroupConfig = (groupId) => {
-            config.groupConfigs[groupId] = config.groupConfigs[groupId] || {}
+            config.__getMutableCompatStateForTests().groupConfigs[groupId] = config.groupConfigs[groupId] || {}
         }
         config.save = () => {}
+        config.getStatus = () => ({
+            documentGeneration: 1,
+            effectiveGeneration: 1,
+            fingerprint: 'public-1'
+        })
+        config.getDashboardConfigSnapshot = () => ({ showId: false, generation: 2 })
+        config.patch = async () => ({
+            documentGeneration: 2,
+            effectiveGeneration: 2,
+            generation: 2,
+            applied: ['rendering.showId'],
+            reloaded: ['rendering'],
+            deploymentApplyRequired: [],
+            warnings: []
+        })
         global.bot = {
             groupList: new Map([['1000', { group_name: 'Test Group' }]])
         }
@@ -70,7 +104,7 @@ async function run() {
         const updateRes = await request(app)
             .post('/api/config')
             .set('Authorization', `Bearer ${token}`)
-            .send({ showId: false })
+            .send({ expectedGeneration: 1, values: { showId: false } })
 
         assert.strictEqual(updateRes.status, 200)
 

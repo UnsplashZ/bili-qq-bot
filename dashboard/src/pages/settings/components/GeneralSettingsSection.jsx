@@ -5,7 +5,8 @@ import { Settings as SettingsIcon } from 'lucide-react'
 
 const GeneralSettingsSection = ({
     generalConfig,
-    onGeneralChange
+    onGeneralChange,
+    disabled = false
 }) => {
     return (
         <section>
@@ -23,6 +24,7 @@ const GeneralSettingsSection = ({
                             <input
                                 type="number"
                                 min="10"
+                                disabled={disabled}
                                 value={generalConfig.subscriptionCheckInterval}
                                 onChange={(event) => onGeneralChange('subscriptionCheckInterval', parseInt(event.target.value, 10) || 0)}
                                 className="field-control w-full px-3 py-2 md:w-40"
@@ -38,6 +40,7 @@ const GeneralSettingsSection = ({
                             <input
                                 type="number"
                                 min="0"
+                                disabled={disabled}
                                 value={generalConfig.linkCacheTimeout}
                                 onChange={(event) => onGeneralChange('linkCacheTimeout', parseInt(event.target.value, 10) || 0)}
                                 className="field-control w-full px-3 py-2 md:w-40"
@@ -53,6 +56,7 @@ const GeneralSettingsSection = ({
                                 checked={!!generalConfig.showId}
                                 onChange={(checked) => onGeneralChange('showId', checked)}
                                 label="显示 UID"
+                                disabled={disabled}
                             />
                         }
                     />

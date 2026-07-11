@@ -4,7 +4,8 @@ import { ToggleSwitch } from '../../../components/ui'
 
 const VideoDownloadSection = ({
     videoDownloadConfig,
-    onVideoDownloadChange
+    onVideoDownloadChange,
+    disabled = false
 }) => {
     return (
         <section>
@@ -19,6 +20,7 @@ const VideoDownloadSection = ({
                             checked={!!videoDownloadConfig.videoDownloadEnabled}
                             onChange={(checked) => onVideoDownloadChange('videoDownloadEnabled', checked)}
                             label="启用视频下载"
+                            disabled={disabled}
                         />
                         }
                     />
@@ -29,6 +31,7 @@ const VideoDownloadSection = ({
                         control={
                         <select
                             value={videoDownloadConfig.videoDownloadResolution}
+                            disabled={disabled}
                             onChange={e => onVideoDownloadChange('videoDownloadResolution', e.target.value)}
                             className="field-control px-3 py-1.5 text-sm"
                         >
@@ -47,6 +50,7 @@ const VideoDownloadSection = ({
                         <input
                             type="number"
                             min="0"
+                            disabled={disabled}
                             value={videoDownloadConfig.videoDownloadMaxDuration}
                             onChange={e => onVideoDownloadChange('videoDownloadMaxDuration', parseInt(e.target.value) || 0)}
                             className="field-control w-24 px-3 py-1.5 text-right text-sm"
@@ -62,6 +66,7 @@ const VideoDownloadSection = ({
                             checked={!!videoDownloadConfig.videoDownloadAutoClean}
                             onChange={(checked) => onVideoDownloadChange('videoDownloadAutoClean', checked)}
                             label="发送后自动删除"
+                            disabled={disabled}
                         />
                         }
                     />
@@ -74,6 +79,7 @@ const VideoDownloadSection = ({
                         <input
                             type="number"
                             min="1"
+                            disabled={disabled}
                             max="168"
                             value={videoDownloadConfig.videoDownloadCleanTimeout}
                             onChange={e => onVideoDownloadChange('videoDownloadCleanTimeout', parseInt(e.target.value) || 6)}
