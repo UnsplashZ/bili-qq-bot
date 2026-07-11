@@ -9,6 +9,28 @@ const subscriptionService = require('../../../src/services/subscriptionService')
 const qqProviderRuntime = require('../../../src/providers/qq/runtime')
 
 describe('application bootstrap startup gate', () => {
+    it('allows automatic legacy migration without an operator fencing flag', async () => {
+        let receivedOptions = null
+        const error = Object.assign(new Error('stop after option capture'), { code: 'CONFIG_BOOTSTRAP_INVALID_INPUT' })
+        const previous = process.env.BILI_LEGACY_WRITER_FENCED
+        delete process.env.BILI_LEGACY_WRITER_FENCED
+        try {
+            await assert.rejects(bot.startBot({
+                bootstrap: {
+                    async run(options) {
+                        receivedOptions = options
+                        throw error
+                    }
+                }
+            }), (caught) => caught === error)
+            assert.strictEqual(receivedOptions.allowLegacyMigration, true)
+        } finally {
+            if (previous === undefined) delete process.env.BILI_LEGACY_WRITER_FENCED
+            else process.env.BILI_LEGACY_WRITER_FENCED = previous
+            bot.__testHooks.resetRuntimeState()
+        }
+    })
+
     it('starts no runtime side effects when bootstrap fails', async () => {
         const calls = []
         const restore = []

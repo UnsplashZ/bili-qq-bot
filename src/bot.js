@@ -1539,7 +1539,7 @@ async function startBot(options = {}) {
         mode,
         installInput,
         createIfMissing: Boolean(installInput),
-        allowLegacyMigration: process.env.BILI_LEGACY_WRITER_FENCED === '1',
+        allowLegacyMigration: true,
         deploymentAttemptId: process.env.BILI_DEPLOYMENT_ATTEMPT_ID || null,
         releaseEpoch: process.env.BILI_RELEASE_EPOCH || null,
         retainLockForHandoff: true

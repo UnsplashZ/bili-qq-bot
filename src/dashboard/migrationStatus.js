@@ -41,7 +41,7 @@ function readAttemptStatus(stateRoot, attemptId) {
 }
 
 function getCurrentMigrationStatus(options = {}) {
-    const bootstrapStatus = getApplicationBootstrapStatus()
+    const bootstrapStatus = options.stateRoot ? null : getApplicationBootstrapStatus()
     if (bootstrapStatus) return bootstrapStatus
     const stateRoot = path.resolve(options.stateRoot || path.join(__dirname, '../../data/setup-state'))
     const activeAttemptPath = path.join(stateRoot, 'active-attempt')

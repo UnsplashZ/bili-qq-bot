@@ -1,7 +1,7 @@
 # 主程序接管配置与业务数据升级实施计划
 
 **日期：** 2026-07-12  
-**状态：** IMPLEMENTED — 验证与独立评审完成于 2026-07-12  
+**状态：** IMPLEMENTED — 定向验证与独立评审完成于 2026-07-12
 **目标：** 将配置 schema 升级、四类 legacy 配置迁移和业务数据 migration 的正常 owner 从 `setup.sh` 迁入主程序启动链；`setup.sh` 收缩为首次安装和部署事务协调器。  
 **基线提交：** `ba2121e`、`68ff17e`、`d4ae91c`、`202a1b5`、`f82f962`
 
@@ -635,3 +635,15 @@ src/cli/data-migrate.js apply
 - setup 的 deployment checkpoint 仍只服务 fencing、snapshot、health、rollback、Compose CAS、relocation 与归档；22 个 accepted-risk 保持原状。
 
 独立审查重点覆盖启动副作用、owner handoff、migration 幂等、数据 preserve 与 setup 边界；审查发现与修复记录包括 probe/normal 间 archive proof 保留和 release epoch 公开关联。
+
+### 16.1 验证结果与未完成范围
+
+已明确通过：bootstrap/legacy/data registry、ConfigService、CLI、启动零副作用、Provider runtime、Dashboard readiness；Dashboard 4 个 test file 共 10 项、lint、build；Python runtime 3 项；`bash -n setup.sh`、`docker compose config -q`、JavaScript syntax 和 `git diff --check`。
+
+setup 状态机完整执行受单次工具执行窗口限制，在连续 23 项通过且未出现失败后终止；Official/NapCat 首装、legacy 升级和 ready 后 archive proof 归档等关键路径另有定向通过记录。根 `npm test` 同样因执行窗口限制，在大量 suite 通过且未出现失败后终止。因此不能把完整 setup fault-injection 矩阵或根测试全量描述为已执行通过。
+
+未完成的全量执行不改变已接受风险边界：legacy-v0 首次 cutover 的极小概率重复/漏推，以及 setup 已知限制文档记录的 22 个 crash-only/same-UID 场景仍然存在。发布到 `main` 后，镜像工作流还会重新执行根测试、Python Bilibili 测试、Dashboard lint/build；只有该 workflow 成功后才能认为发布镜像可用。
+
+### 16.2 后续 Docker 自动迁移策略调整
+
+根据项目实际部署模型，普通镜像替换采用“一套 config/data 挂载目录只运行一个 Bot 容器”的产品假设。主程序不再要求 `BILI_LEGACY_WRITER_FENCED=1` 才执行 legacy migration；`docker compose pull && docker compose up -d` 重建单个 Bot 容器即可自动迁移。bootstrap/config owner lock 仍阻止两个新版本实例并发，旧、新容器同时写同一目录明确不受支持。

@@ -4572,7 +4572,6 @@ services:
       BILI_RELEASE_EPOCH: "$RELEASE_EPOCH"
       BILI_MIGRATION_MANIFEST: "/app/data/setup-state/$ATTEMPT_ID/upgrade-manifest.json"
       BILI_DEPLOYMENT_ATTEMPT_ID: "$ATTEMPT_ID"
-      BILI_LEGACY_WRITER_FENCED: "1"
 EOF
     if [ -f "$ATTEMPT_DIR/bootstrap-input.json" ]; then
         cat >> "$file" <<EOF

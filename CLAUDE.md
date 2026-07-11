@@ -303,6 +303,8 @@ await sysConfig.update((draft) => {
 
 Normal runtime never consumes legacy files after bootstrap. `ApplicationMigrationBootstrap` reads them only when `config.yaml` is absent; existing valid YAML always wins. The same service backs direct Node/Compose startup and offline CLI migration.
 
+Replacing the Docker image and recreating the single Bot container automatically runs legacy/schema/data migration. `BILI_LEGACY_WRITER_FENCED` is not required and is not persisted into YAML. The supported deployment model is one Bot container per mounted config/data directory; concurrently running old and new containers against the same directory is an unsupported operator error.
+
 Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Only host ports, volumes, and Docker networks return `deploymentApplyRequired` and require `setup.sh --apply`.
 
 Useful offline CLI entry points:

@@ -57,6 +57,25 @@ describe('ApplicationMigrationBootstrap', () => {
         assert.deepStrictEqual(result.archive.legacyFiles.sort(), ['.env', '.jwtSecret', '.qqOfficialClientSecret', 'config.json'].sort())
     })
 
+    it('automatically migrates a legacy Official image mount without a fencing flag', async () => {
+        const paths = fixture(); roots.push(paths.root)
+        fs.writeFileSync(path.join(paths.configDir, '.env'), [
+            'QQ_PROVIDER=official',
+            'QQ_OFFICIAL_APP_ID=official-app',
+            'QQ_OFFICIAL_ROOT_OPENIDS=root-a,root-b',
+            `JWT_SECRET=${'9'.repeat(64)}`,
+            ''
+        ].join('\n'), { mode: 0o600 })
+        fs.writeFileSync(path.join(paths.configDir, '.qqOfficialClientSecret'), 'official-secret\n', { mode: 0o600 })
+        const result = await bootstrap(paths).run({ runtimeEnv: {} })
+        const value = YAML.parse(fs.readFileSync(path.join(paths.configDir, 'config.yaml'), 'utf8'))
+        assert.strictEqual(result.sourceClass, 'legacy-v0')
+        assert.strictEqual(value.qq.provider, 'official')
+        assert.strictEqual(value.qq.official.appId, 'official-app')
+        assert.strictEqual(value.qq.official.clientSecret, 'official-secret')
+        assert.deepStrictEqual(value.qq.official.rootOpenids, ['root-a', 'root-b', 'root-a', 'root-b'])
+    })
+
     it('keeps an existing valid YAML authoritative over all legacy files', async () => {
         const paths = fixture(); roots.push(paths.root)
         const config = createDefaultV1Config({ wsUrl: 'ws://managed', jwtSecret: 'd'.repeat(64) })

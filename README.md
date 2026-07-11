@@ -234,6 +234,8 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 直接运行 `node src/bot.js` 或使用手写 Compose 也走同一 bootstrap。离线诊断/显式迁移可使用 Config CLI 与 data migration CLI；它们调用相同 service，不是正常部署的第二套 migration owner。
 
+使用 Docker 时，只要继续挂载原来的 `/app/config` 和 `/app/data`，执行 `docker compose pull && docker compose up -d` 即可在新容器启动阶段自动迁移 legacy 配置与业务数据，不需要设置额外的 fencing 环境变量。项目支持的部署模型是一套挂载目录只运行一个 Bot 容器；不要让旧、新两个容器同时写入同一目录。
+
 ```bash
 node src/cli/config.js init --output config/config.yaml
 node src/cli/config.js validate --config config/config.yaml

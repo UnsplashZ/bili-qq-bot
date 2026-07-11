@@ -81,36 +81,30 @@
 - 测试执行时间过长，完整部署文件串行运行超过四十分钟；
 - review 很难区分部署正确性和应用迁移正确性。
 
-### 4.3 非 setup 启动不能自动升级
+### 4.3 非 setup 启动自动升级（已完成）
 
-当前主程序在 `src/bot.js` 中直接执行：
+手写 Compose、Docker、systemd 或直接 `node src/bot.js` 均已进入同一个 `ApplicationMigrationBootstrap`。已有 YAML 始终权威；在项目支持的单目录单实例部署模型下，legacy migration 无需人工 fencing 标志即可自动执行。旧、新两个容器同时写入同一目录属于不支持的运维误用。
 
-```js
-await config.initialize({ createIfMissing: false, watch: true })
-```
+### 4.4 migration owner 边界（已完成）
 
-如果用户通过手写 Compose、Docker、systemd 或直接 `node src/bot.js` 启动新版本，而目录中只有旧配置，主程序不会自行迁移。迁移能力虽然位于 Node 模块中，但正常入口仍由 `setup.sh` 驱动。
+当前 owner 已明确为：
 
-### 4.4 migration owner 不够清晰
+- `ApplicationMigrationBootstrap`：配置发现、schema/legacy/data migration、应用 manifest 与 archive proof；
+- `src/cli/config.js` / `src/cli/data-migrate.js`：同一 service 的离线诊断、显式迁移和恢复入口；
+- `setup.sh`：旧 writer fencing、部署 snapshot、Compose、health、rollback 和 ready 后归档；
+- ConfigService：bootstrap 成功 handoff 后的运行时配置 owner。
 
-当前存在三个相关入口：
+后续不得重新把 schema、legacy priority 或 data registry 推进逻辑放回 setup。
 
-- `setup.sh`：部署状态机和迁移编排；
-- `src/cli/config.js` / `src/cli/data-migrate.js`：离线迁移命令；
-- `src/bot.js` / ConfigService：运行时配置 owner。
+## 5. 已完成的职责收缩
 
-下一阶段需要明确主程序是逻辑 migration 的唯一 owner；CLI 只是同一 bootstrap service 的离线适配器；setup 只提供部署 fencing 和快照。
-
-## 5. 后续收缩原则
-
-1. 不重写已经验证过的 `legacyLoader`、ConfigWriter、manifest 和 data registry。
-2. 把它们封装进主程序启动前的 `ApplicationMigrationBootstrap`。
-3. `setup.sh` 不再解释应用 schema，不再决定字段级配置优先级。
-4. setup 只负责确保旧进程不再写入、创建目录快照、启动新版本、检查 health 和恢复部署快照。
-5. Config CLI 保留，但调用 bootstrap service，不再拥有独立迁移语义。
-6. 主程序 migration 在任何 Provider、Dashboard listener、Python child、browser、subscription timer 启动前完成。
-7. 逻辑 migration 失败时进程以 typed exit code 退出，不启动部分 runtime。
-8. setup 根据 typed exit/health 结果决定恢复旧部署；直接启动用户可根据同一错误码修复后重试。
+1. 复用既有 `legacyLoader`、ConfigWriter、manifest 和 data registry。
+2. 在主程序启动前运行 `ApplicationMigrationBootstrap`。
+3. 从 setup 正常 install/upgrade 路径移除 config/data migration 命令。
+4. 保留 setup 的 fencing、snapshot、Compose、health、rollback、CAS、apply 和 relocation 职责。
+5. 统一 CLI 的 bootstrap owner、manifest 与 typed error 语义。
+6. 用测试证明 bootstrap 失败时不启动 Provider、Dashboard、Python、browser 或 subscription timer。
+7. 由主程序生成 archive proof，setup 在 normal ready 后验证并归档 legacy 文件。
 
 ## 6. 暂不处理事项
 
@@ -122,7 +116,7 @@ await config.initialize({ createIfMissing: false, watch: true })
 
 ## 7. 完成条件
 
-当后续计划完成后，本记录可以归档，但第 3 节仍必须保留在历史记录中。至少应满足：
+职责收缩已经完成，但本记录继续保留第 3 节 accepted-risk。完成情况：
 
 - 没有 `setup.sh` 也能从 legacy 配置首次启动新程序；
 - setup 正常升级不再调用独立的 config/data migrate 命令；
