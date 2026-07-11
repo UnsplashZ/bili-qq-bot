@@ -30,6 +30,12 @@ function baseContext(overrides = {}) {
             releaseEpoch: 'epoch-1',
             appliesToCommittedRuntime: true
         },
+        applicationBootstrap: {
+            status: 'ready',
+            configSchemaVersion: 1,
+            dataGeneration: 1,
+            releaseEpoch: 'epoch-1'
+        },
         dashboard: component(),
         python: component({ instanceId: 'python-1' }),
         qqProvider: component({

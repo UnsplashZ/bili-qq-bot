@@ -13,6 +13,7 @@ const {
 } = require('../migrations/config/manifest')
 const { MigrationError } = require('../migrations/common/errors')
 const { withOfflineRuntimeOwner } = require('../config/configLock')
+const { ApplicationMigrationBootstrap } = require('../bootstrap/applicationMigrationBootstrap')
 const {
     parseArgs,
     requireOption,
@@ -193,20 +194,43 @@ async function commandCheck(args, dependencies = {}) {
 
 async function commandApply(args, dependencies = {}) {
     const registry = createRegistry(args, dependencies)
-    const result = await withOfflineRuntimeOwner(runtimeOwnerPath(args), () => registry.apply())
+    const root = args.root ? resolvePath(args.root) : null
+    const dataDir = root ? path.join(root, 'data') : resolvePath(requireOption(args, 'data-dir'))
+    const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
+        configDir: root ? path.join(root, 'config') : path.join(path.dirname(dataDir), 'config'),
+        dataDir,
+        runtimeOwnerPath: runtimeOwnerPath(args),
+        dataRegistry: registry
+    })
+    const result = await service.runDataOnly()
     return {
         ok: true,
         action: 'apply',
         changed: result.changed,
-        schemaVersion: result.state.schemaVersion,
-        applied: [...result.state.applied],
+        schemaVersion: result.data.generation,
+        applied: [...result.data.migrationsApplied],
         inventory: summarizeInventory(result.afterInventory)
     }
 }
 
 async function commandRollback(args, dependencies = {}) {
     const registry = createRegistry(args, dependencies)
-    const result = await withOfflineRuntimeOwner(runtimeOwnerPath(args), () => registry.rollback())
+    const root = args.root ? resolvePath(args.root) : null
+    const dataDir = root ? path.join(root, 'data') : resolvePath(requireOption(args, 'data-dir'))
+    const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
+        configDir: root ? path.join(root, 'config') : path.join(path.dirname(dataDir), 'config'),
+        dataDir,
+        runtimeOwnerPath: runtimeOwnerPath(args),
+        dataRegistry: registry
+    })
+    await service.bootstrapLock.acquire()
+    service.held = true
+    let result
+    try {
+        result = await registry.rollback()
+    } finally {
+        await service.release()
+    }
     return {
         ok: true,
         action: 'rollback',

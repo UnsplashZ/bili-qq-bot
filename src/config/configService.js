@@ -136,6 +136,9 @@ class ConfigService extends EventEmitter {
     async initialize(options = {}) {
         try {
             const leaseToken = await this.ownerLock.acquire()
+            if (typeof options.afterOwnerAcquired === 'function') {
+                await options.afterOwnerAcquired(leaseToken)
+            }
             const createIfMissing = Boolean(options.createIfMissing)
             try {
                 await this.fsPromises.access(this.configPath, fs.constants.F_OK)

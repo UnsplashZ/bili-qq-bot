@@ -97,6 +97,26 @@ case "$command" in
                 set_state napcat-old running true
                 if printf '%s\n' "${args[*]}" | grep -q 'runtime-probe'; then
                     printf 'probe\n' > "$STATE_DIR/runtime-mode"
+                    if [ ! -f "$INSTALL_DIR/config/config.yaml" ]; then
+                        bootstrap_input="$INSTALL_DIR/data/setup-state/${BILI_SETUP_ATTEMPT_ID:-fixture-attempt}/bootstrap-input.json"
+                        node - "$INSTALL_DIR" "$bootstrap_input" "$FAKE_REPO_ROOT" <<'NODE'
+const fs = require('fs')
+const [installDir, inputPath, repoRoot] = process.argv.slice(2)
+const { ApplicationMigrationBootstrap } = require(`${repoRoot}/src/bootstrap/applicationMigrationBootstrap`)
+const installInput = fs.existsSync(inputPath) ? JSON.parse(fs.readFileSync(inputPath, 'utf8')) : null
+new ApplicationMigrationBootstrap({
+  configDir: `${installDir}/config`,
+  dataDir: `${installDir}/data`
+}).run({
+  installInput,
+  createIfMissing: Boolean(installInput),
+  runtimeEnv: { ADMIN_QQ: '10000', WS_TOKEN: 'fake-token' },
+  deploymentAttemptId: process.env.BILI_SETUP_ATTEMPT_ID || 'fixture-attempt',
+  releaseEpoch: `release-${process.env.BILI_SETUP_ATTEMPT_ID || 'fixture-attempt'}`
+})
+  .then(() => process.exit(0), error => { process.stderr.write(`${error.code || error.message}\n`); process.exit(1) })
+NODE
+                    fi
                     if [ "${FAKE_PROBE_MUTATE_RELOCATED_DATA:-0}" = "1" ] && [ -n "${FAKE_RELOCATE_DATA_SOURCE:-}" ]; then
                         relocated_data=$FAKE_RELOCATE_DATA_SOURCE
                         case "$relocated_data" in

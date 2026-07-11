@@ -4,6 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const { readManifest, toPublicMigrationStatus } = require('../migrations/config/manifest')
 const { readPrivateText } = require('../migrations/common/privateFile')
+const { getApplicationBootstrapStatus } = require('../bootstrap/bootstrapStatus')
 
 const ATTEMPT_ID_PATTERN = /^(?!\.)(?!.*\.$)[a-zA-Z0-9][a-zA-Z0-9._:-]{0,199}$/
 const RELEASE_EPOCH_PATTERN = /^[a-zA-Z0-9._-]{1,200}$/
@@ -40,6 +41,8 @@ function readAttemptStatus(stateRoot, attemptId) {
 }
 
 function getCurrentMigrationStatus(options = {}) {
+    const bootstrapStatus = getApplicationBootstrapStatus()
+    if (bootstrapStatus) return bootstrapStatus
     const stateRoot = path.resolve(options.stateRoot || path.join(__dirname, '../../data/setup-state'))
     const activeAttemptPath = path.join(stateRoot, 'active-attempt')
     let attemptId = null

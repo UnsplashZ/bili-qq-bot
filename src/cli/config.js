@@ -12,6 +12,7 @@ const { resolveSchemaNode } = require('../config/schemaV1')
 const { stringifyConfigYaml, validateConfigObject } = require('../migrations/config/configDocument')
 const { createDefaultV1Config } = require('../migrations/config/legacyLoader')
 const { migrateLegacy, validateConfigFile } = require('../migrations/config')
+const { ApplicationMigrationBootstrap } = require('../bootstrap/applicationMigrationBootstrap')
 const { readManifest, toPublicMigrationStatus } = require('../migrations/config/manifest')
 const { renderCompose, readYamlObject } = require('./compose')
 const { writeDeploymentBaseline } = require('../config/deploymentBaseline')
@@ -254,7 +255,7 @@ function commandValidate(args, dependencies = {}) {
     return { ok: true, action: 'validate', config: summarizeConfig(config) }
 }
 
-function commandMigrateLegacy(args, dependencies = {}) {
+async function commandMigrateLegacy(args, dependencies = {}) {
     const configDir = resolvePath(args['legacy-root'] || requireOption(args, 'config-dir'))
     const manifestPath = args.manifest ? resolvePath(args.manifest) : undefined
     const outputPath = args.output ? resolvePath(args.output) : (args.config ? resolvePath(args.config) : path.join(configDir, 'config.yaml'))
@@ -276,24 +277,34 @@ function commandMigrateLegacy(args, dependencies = {}) {
         cutover: defaultLegacyCutover(cutoverInput.cutover || cutoverInput),
         validator: dependencies.validator || loadConfigValidator()
     }
-    const execute = () => migrateLegacy(migrationOptions)
-    let result
-    if (args['dry-run']) {
-        result = execute()
-    } else {
-        // Even the no-copy authoritative-YAML path must be observed while the
-        // offline owner lease is held.  Otherwise a live ConfigService can race
-        // the validation/hash read and the CLI can incorrectly report a safe
-        // skipped migration.
-        result = withOfflineRuntimeOwner(runtimeOwnerPathForConfig(outputPath, args['owner-lock']), execute)
+    if (path.resolve(outputPath) !== path.resolve(configDir, 'config.yaml')) {
+        throw new MigrationError('CONFIG_BOOTSTRAP_OUTPUT_MUST_BE_CANONICAL')
+    }
+    const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
+        configDir,
+        dataDir,
+        runtimeOwnerPath: runtimeOwnerPathForConfig(outputPath, args['owner-lock']),
+        migrators: dependencies.migrators
+    })
+    const result = await service.run({
+        runtimeEnv: args['runtime-env-file'] ? readProtectedJson(args['runtime-env-file']) : process.env,
+        allowLegacyMigration: true,
+        validator: migrationOptions.validator,
+        dryRun: Boolean(args['dry-run'])
+    })
+    if (args['dry-run']) return {
+        ok: true, action: 'migrate-legacy', result: 'planned',
+        warnings: result.warnings,
+        migration: null,
+        config: summarizeConfig(result.configValue)
     }
     return {
         ok: true,
         action: 'migrate-legacy',
-        result: result.status,
+        result: result.sourceClass === 'managed-v1+' ? 'skipped-existing-yaml' : 'candidate-written',
         warnings: result.warnings.map((warning) => ({ code: warning.code, path: warning.path })),
         migration: result.publicStatus,
-        config: summarizeConfig(result.config)
+        config: summarizeConfig(validateConfigFile(outputPath, { validator: migrationOptions.validator }))
     }
 }
 

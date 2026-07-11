@@ -27,6 +27,7 @@ function buildReadinessPayload(context = {}) {
     const config = context.config || {}
     const documentGeneration = Number(config.documentGeneration || 0)
     const migration = context.migration || null
+    const applicationBootstrap = context.applicationBootstrap || (migration?.configSchemaVersion ? migration : null)
     const dashboard = normalizeComponent(context.dashboard, documentGeneration, {
         state: 'not-ready',
         observedDocumentGeneration: 0
@@ -56,21 +57,21 @@ function buildReadinessPayload(context = {}) {
     const providerResourceGeneration = Number(qqProvider.resourceGeneration || 0)
     const providerActiveReleaseEpoch = providerActiveSlot?.releaseEpoch || qqProvider.activeReleaseEpoch || null
     const providerQuiescent = !providerCandidate && !qqProvider.cleanupPending
-    let migrationReady = migration === null
+    let migrationReady = applicationBootstrap?.status === 'ready'
     let providerReady = false
     let subscriptionReady = false
 
     if (mode === 'upgrade-probe') {
-        migrationReady = Boolean(migration && PROBE_CHECKPOINTS.has(migration.checkpoint) && !migration.appliesToCommittedRuntime)
+        migrationReady = applicationBootstrap?.status === 'ready'
         providerReady = ['preflight-ready', 'deferred'].includes(qqProvider.state) && providerQuiescent
         subscriptionReady = subscription.state === 'ready' && subscription.paused === true
     } else {
-        const checkpointReady = migration === null || migration.checkpoint === 'runtime_released' || FINAL_CHECKPOINTS.has(migration.checkpoint)
-        const epochReady = migration === null || (
+        const checkpointReady = applicationBootstrap?.status === 'ready'
+        const epochReady = applicationBootstrap?.status === 'ready' && (migration?.releaseEpoch === null || migration?.releaseEpoch === undefined || (
             typeof migration.releaseEpoch === 'string' &&
             migration.releaseEpoch.length > 0 &&
             qqProvider.releaseEpoch === migration.releaseEpoch
-        )
+        ))
         migrationReady = checkpointReady && epochReady
         const activeGenerationReady = Boolean(providerActiveSlot) &&
             providerActiveGeneration > 0 &&
@@ -95,6 +96,7 @@ function buildReadinessPayload(context = {}) {
             fingerprint: config.fingerprint || null
         },
         migration,
+        applicationBootstrap,
         dashboard,
         python,
         qqProvider,

@@ -167,9 +167,10 @@ Follow existing code style:
 
 ### Bot Runtime Lifecycle
 
-`/src/bot.js` is the runtime entry point and owns the application lifecycle around the selected QQ Provider. It keeps the cross-module runtime handle in one place, serializes configuration reloads, and gates bot-scoped services on Provider readiness.
+`/src/bot.js` is the runtime entry point and owns the application lifecycle around the selected QQ Provider. `ApplicationMigrationBootstrap` runs first, before ConfigService and every runtime side effect, then atomically hands ownership to ConfigService.
 
-- Initialize the singleton `ConfigService` and its watcher before runtime consumers
+- Discover/migrate config and business data under the bootstrap owner lock
+- Acquire the ConfigService owner before releasing the bootstrap owner, then start its watcher
 - Establish and maintain the selected NapCat or QQ Official Provider
 - Publish a new Provider generation only after candidate readiness and release checks
 - Fence stale sockets and keep in-flight work on the Provider generation whose lease it acquired
@@ -300,7 +301,7 @@ await sysConfig.update((draft) => {
 - auth and admin helpers: `/src/config/authConfig.js`
 - shape normalization helpers: `/src/config/normalizers.js`
 
-The application does not load `.env`, `config.json`, `.jwtSecret`, or `.qqOfficialClientSecret` at runtime. They are read only by the isolated first-upgrade migration path. Existing YAML always wins over residual legacy files.
+Normal runtime never consumes legacy files after bootstrap. `ApplicationMigrationBootstrap` reads them only when `config.yaml` is absent; existing valid YAML always wins. The same service backs direct Node/Compose startup and offline CLI migration.
 
 Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Only host ports, volumes, and Docker networks return `deploymentApplyRequired` and require `setup.sh --apply`.
 
@@ -309,7 +310,8 @@ Useful offline CLI entry points:
 ```bash
 node src/cli/config.js init --output config/config.yaml
 node src/cli/config.js validate --config config/config.yaml
-node src/cli/config.js migrate-legacy --legacy-root config --output config/config.yaml --manifest data/migrations/config-manifest.json
+node src/cli/config.js migrate-legacy --legacy-root config --output config/config.yaml
+node src/cli/data-migrate.js apply --root .
 node src/cli/config.js deployment-plan --config config/config.yaml --output data/config-state/deployment-plan.json
 ```
 

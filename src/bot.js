@@ -21,6 +21,9 @@ const { botOperationRegistry } = require('./services/runtime/botOperationRegistr
 const { getCurrentMigrationStatus } = require('./dashboard/migrationStatus');
 const { applicationAdmissionGate } = require('./services/runtime/applicationAdmissionGate');
 const { ConfigControlServer } = require('./config/configControl');
+const fs = require('fs');
+const { readPrivateText } = require('./migrations/common/privateFile');
+const { ApplicationMigrationBootstrap } = require('./bootstrap/applicationMigrationBootstrap');
 
 global.bot = global.bot || { groupList: new Map(), selfId: '0' };
 
@@ -206,6 +209,9 @@ async function armCurrentReleaseEpoch(options = {}) {
         throw markerError;
     }
     if (!migration) return null;
+    if (migration.status === 'ready' && migration.configSchemaVersion) {
+        return migration.releaseEpoch || null;
+    }
     const epoch = String(migration.releaseEpoch || '').trim();
     const allowed = new Set(['runtime_released', 'runtime_ready', 'upgrade_complete']);
     if (!epoch || !allowed.has(migration.checkpoint)) {
@@ -1504,11 +1510,42 @@ function registerProcessHandlers() {
     });
 }
 
-async function startBot() {
+function readBootstrapInstallInput(filePath) {
+    if (!filePath) return null;
+    const value = JSON.parse(readPrivateText(path.resolve(filePath), {
+        mode: 0o600,
+        fileCode: 'CONFIG_BOOTSTRAP_INVALID_INPUT',
+        permissionCode: 'CONFIG_BOOTSTRAP_INVALID_INPUT'
+    }));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        const error = new Error('Invalid bootstrap install input');
+        error.code = 'CONFIG_BOOTSTRAP_INVALID_INPUT';
+        throw error;
+    }
+    return value;
+}
+
+async function startBot(options = {}) {
     registerProcessHandlers();
     const upgradeMode = String(process.env.BILI_UPGRADE_MODE || '').trim().toLowerCase();
     const mode = upgradeMode === 'probe' ? 'probe' : 'normal';
-    await config.initialize({ createIfMissing: false, watch: true });
+    const bootstrap = options.bootstrap || new ApplicationMigrationBootstrap({
+        configDir: options.configDir,
+        dataDir: options.dataDir
+    });
+    const installInputPath = options.installInputPath || process.env.BILI_BOOTSTRAP_INPUT;
+    const installInput = options.installInput || readBootstrapInstallInput(installInputPath);
+    await bootstrap.run({
+        mode,
+        installInput,
+        createIfMissing: Boolean(installInput),
+        allowLegacyMigration: process.env.BILI_LEGACY_WRITER_FENCED === '1',
+        deploymentAttemptId: process.env.BILI_DEPLOYMENT_ATTEMPT_ID || null,
+        releaseEpoch: process.env.BILI_RELEASE_EPOCH || null,
+        retainLockForHandoff: true
+    });
+    await bootstrap.handoff(config, { watch: true });
+    if (installInputPath) fs.unlinkSync(path.resolve(installInputPath));
     try {
         await startConfigControlServer();
     } catch (error) {

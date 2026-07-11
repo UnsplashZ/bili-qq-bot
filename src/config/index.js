@@ -51,7 +51,8 @@ const config = {
         initializePromise = (async () => {
             await service.initialize({
                 createIfMissing: Boolean(options.createIfMissing),
-                initialConfig: options.initialConfig
+                initialConfig: options.initialConfig,
+                afterOwnerAcquired: options.afterOwnerAcquired
             })
             initialized = true
             syncCompatState(service.getSnapshot())

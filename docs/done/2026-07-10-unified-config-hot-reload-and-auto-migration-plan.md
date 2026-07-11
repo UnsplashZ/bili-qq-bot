@@ -1,7 +1,7 @@
 # 单一 config.yaml、全量热重载与历史数据自动迁移方案
 
 **日期：** 2026-07-10  
-**状态：** `COMPLETE — ACCEPTED RESIDUAL RISKS RECORDED`；用户已接受 legacy-v0 首次升级在不可判定 in-flight 窗口内采用 best-effort、允许极小概率重复或漏推，并接受 18.45 所列 setup crash-only 残余边界。最新三路独立 review、Config CAS 聚焦复核与三路第 14 节 auditor 均 PASS；最终验证和证据矩阵见 18.47  
+**状态：** `ARCHIVED — COMPLETE WITH ACCEPTED RESIDUAL RISKS`；2026-07-12 已归档至 `docs/done/`。用户已接受 legacy-v0 首次升级在不可判定 in-flight 窗口内采用 best-effort、允许极小概率重复或漏推，并接受 18.45 所列 setup crash-only 残余边界。最新三路独立 review、Config CAS 聚焦复核与三路第 14 节 auditor 均 PASS；最终验证和证据矩阵见 18.47  
 **目标：** 将当前分散在 `config/.env`、`config/config.json`、`config/.jwtSecret`、`config/.qqOfficialClientSecret` 的应用配置统一到唯一的 `config/config.yaml`，让用户只维护一个配置文件；新版本部署时自动迁移旧配置和需要升级的历史持久化数据；除宿主机端口、Docker volume 等基础设施级变更外，应用配置均通过直接刷新或受控重建子系统生效。
 
 ---

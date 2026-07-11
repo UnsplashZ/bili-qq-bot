@@ -126,7 +126,7 @@
 
 ## 一键快速部署
 
-运行下方命令，脚本会通过统一配置 CLI 生成 `config/config.yaml`，并按选择启动 NapCat 或 QQ Official。脚本同时支持首次安装、旧版升级、部署参数应用和失败恢复。
+运行下方命令。脚本负责安装问答、旧进程 fencing、Compose、volume、网络、health gate 与部署回滚；最终 `config/config.yaml`、legacy 配置迁移和业务数据 migration 由目标主程序在任何运行时副作用启动前完成。
 *[点我跳转到视频教程](https://www.bilibili.com/video/BV1YsrEBVEs6/ "bilibili")*
 
 ```bash
@@ -147,7 +147,7 @@ sudo ./setup.sh --apply                 # 应用端口、volume、网络等部�
 sudo ./setup.sh --non-interactive ...   # 自动化环境；缺少必要参数时 fail-closed
 ```
 
-升级会先备份并验证配置/数据，在 probe health 通过后写入同一 `releaseEpoch` 的 release marker，再启动正式 Provider。marker 前失败恢复旧镜像、旧配置、原数据、Compose、网络和 managed writer；marker 后只允许 same-epoch recovery。旧配置仅在新版本 normal readiness 成功后移入 `data/setup-state/<attempt>/retained-vault/`，不会由 setup 自动删除。归档 intent 也会以 0600 私有终态保留在 vault 中；`inventory.json` 使用 generation 与文件身份校验记录每个保留对象及占用字节，避免续跑时覆盖并发变化。setup 会在首次切换以及每次续跑的恢复、复制、归档阶段重新检查剩余容量和 inode；不足时保持 journal/intent 可续跑并要求在同一 attempt 恢复。确认升级长期稳定后，由管理员核对 inventory，再人工清理对应 attempt 目录以释放空间。
+升级会先备份并验证配置/数据，再由目标进程 bootstrap 完成配置和数据升级。probe health 通过后写入同一 `releaseEpoch` 的 release marker，再启动正式 Provider。marker 前失败恢复旧镜像、旧配置、原数据、Compose、网络和 managed writer；marker 后只允许 same-epoch recovery。legacy 文件只在 normal readiness 成功且 archive proof 复核通过后移入 `data/setup-state/<attempt>/retained-vault/`。
 
 
 ## WebUI 管理面板
@@ -230,7 +230,9 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 ## 配置说明
 
-唯一配置真源是 `config/config.yaml`。新安装以及迁移成功后的 `config/` 目录只包含这个文件；应用运行期不会再读取 `.env`、`config.json`、`.jwtSecret` 或 `.qqOfficialClientSecret`。这些旧文件仅由升级迁移器在隔离阶段读取，成功前不会归档。
+唯一配置真源是 `config/config.yaml`。主程序每次启动先运行 `ApplicationMigrationBootstrap`：已有合法 YAML 永远权威；没有 YAML 时才读取 `.env`、`config.json`、`.jwtSecret` 与 `.qqOfficialClientSecret`；随后执行 schema registry 和业务数据 registry，再移交 ConfigService owner。失败时 Dashboard、Provider、Python、browser 和订阅 timer 都不会启动。
+
+直接运行 `node src/bot.js` 或使用手写 Compose 也走同一 bootstrap。离线诊断/显式迁移可使用 Config CLI 与 data migration CLI；它们调用相同 service，不是正常部署的第二套 migration owner。
 
 ```bash
 node src/cli/config.js init --output config/config.yaml

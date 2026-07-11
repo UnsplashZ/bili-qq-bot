@@ -4240,6 +4240,12 @@ fs.writeFileSync(output, `${JSON.stringify({ provider: "napcat", wsUrl: "ws://na
         fi
         config_cli "${init_args[@]}"
         if [ -n "$OFFICIAL_INIT_INPUT" ]; then
+            atomic_copy_file "$OFFICIAL_INIT_INPUT" "$ATTEMPT_DIR/bootstrap-input.json" 600
+        fi
+        if [ -n "$NAPCAT_INIT_INPUT" ]; then
+            atomic_copy_file "$NAPCAT_INIT_INPUT" "$ATTEMPT_DIR/bootstrap-input.json" 600
+        fi
+        if [ -n "$OFFICIAL_INIT_INPUT" ]; then
             safe_remove_file "$OFFICIAL_INIT_INPUT"
             OFFICIAL_INIT_INPUT=""
         fi
@@ -4248,19 +4254,10 @@ fs.writeFileSync(output, `${JSON.stringify({ provider: "napcat", wsUrl: "ws://na
             NAPCAT_INIT_INPUT=""
         fi
     else
-        local migration_args=(
-            migrate-legacy
-            --legacy-root /current/config
-            --output /staging/work/config/config.yaml
-            --manifest /staging/upgrade-manifest.json
-            --owner-lock /current/data/runtime/config-owner.lock
-            --json
-        )
-        if [ -f "$RUNTIME_ENV_FILE" ]; then
-            migration_args+=(--runtime-env-file /staging/runtime-env.snapshot)
-        fi
-        migration_args+=(--cutover-input /staging/checkpoint-input.json)
-        config_cli "${migration_args[@]}" >/dev/null
+        # Deployment rendering needs a schema-shaped preview before the target
+        # process runs. This preview is never published as application config;
+        # the target bootstrap owns legacy discovery and final YAML creation.
+        config_cli init --provider "$PROVIDER" --output /staging/work/config/config.yaml --json >/dev/null
     fi
     if [ "$temporary_owner_runtime_dir" -eq 1 ]; then
         rmdir -- "$DATA_DIR/runtime"
@@ -4539,7 +4536,9 @@ process.stdout.write(String(targets[0]))
 }
 
 apply_candidate_files() {
-    atomic_copy_file "$WORK_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml" 600
+    if [ -n "$CONFIG_INPUT" ]; then
+        atomic_copy_file "$WORK_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml" 600
+    fi
     if [ -d "$WORK_DIR/data" ]; then
         local file relative
         while IFS= read -r -d '' file; do
@@ -4572,7 +4571,14 @@ services:
       BILI_UPGRADE_MODE: "$mode"
       BILI_RELEASE_EPOCH: "$RELEASE_EPOCH"
       BILI_MIGRATION_MANIFEST: "/app/data/setup-state/$ATTEMPT_ID/upgrade-manifest.json"
+      BILI_DEPLOYMENT_ATTEMPT_ID: "$ATTEMPT_ID"
+      BILI_LEGACY_WRITER_FENCED: "1"
 EOF
+    if [ -f "$ATTEMPT_DIR/bootstrap-input.json" ]; then
+        cat >> "$file" <<EOF
+      BILI_BOOTSTRAP_INPUT: "/app/data/setup-state/$ATTEMPT_ID/bootstrap-input.json"
+EOF
+    fi
     if [ "$RELOCATION_ACTIVE" -eq 1 ] && [ -n "$RELOCATED_DATA_DIR" ] && [ "$RELOCATED_DATA_DIR" != "$DATA_DIR" ]; then
         cat >> "$file" <<EOF
     volumes:
@@ -4604,17 +4610,18 @@ fetch(`http://127.0.0.1:${port}/api/ready`)
     clearTimeout(timeout)
     if (!response.ok || !body || body.config?.valid !== true) process.exit(3)
     const migration = body.migration || {}
+    const bootstrap = body.applicationBootstrap || {}
     const provider = body.qqProvider || {}
     const subscription = body.subscription || {}
     if (expected === "probe") {
       const providerOk = provider.id === "official"
         ? provider.state === "preflight-ready"
         : ["preflight-ready", "deferred"].includes(provider.state)
-      const checkpointOk = ["data_applied", "probe_started", "probe_ready", "release_prepared"].includes(migration.checkpoint)
+      const checkpointOk = bootstrap.status === "ready"
       process.exit(body.mode === "upgrade-probe" && checkpointOk && providerOk && subscription.paused === true ? 0 : 4)
     }
     const epochOk = !epoch || provider.releaseEpoch === epoch || migration.releaseEpoch === epoch
-    const checkpointOk = ["runtime_released", "runtime_ready", "upgrade_complete"].includes(migration.checkpoint)
+    const checkpointOk = bootstrap.status === "ready"
     process.exit(body.mode === "normal" && checkpointOk && provider.state === "ready" && subscription.state === "ready" && subscription.paused !== true && epochOk ? 0 : 5)
   })
   .catch(() => process.exit(6))
@@ -4707,16 +4714,32 @@ file_identity() {
 }
 
 capture_legacy_archive_proof() {
+    # The target application publishes the proof after it has consumed the
+    # legacy sources. setup copies and verifies that proof only after readiness.
+    return 0
+}
+
+load_application_archive_proof() {
     [ "$SOURCE_RUNTIME_CLASS" = "legacy-v0" ] || return 0
-    : > "$LEGACY_ARCHIVE_PROOF_FILE"
-    local legacy identity
-    for legacy in .env .env.example config.json config.json.example .jwtSecret .jwtSecret.example .qqOfficialClientSecret .qqOfficialClientSecret.example; do
-        [ -f "$CONFIG_DIR/$legacy" ] || continue
-        identity=$(file_identity "$CONFIG_DIR/$legacy")
-        printf '%s|%s|%s\n' "$legacy" "$identity" "$(hash_file "$CONFIG_DIR/$legacy")" >> "$LEGACY_ARCHIVE_PROOF_FILE"
-    done
-    chmod 600 "$LEGACY_ARCHIVE_PROOF_FILE"
-    file_sync "$LEGACY_ARCHIVE_PROOF_FILE"
+    local source="$DATA_DIR/application-migration/archive-proof.tsv"
+    local manifest="$DATA_DIR/application-migration/manifest.json"
+    [ -f "$manifest" ] && [ ! -L "$manifest" ] || die "application migration manifest is missing"
+    [ -f "$source" ] && [ ! -L "$source" ] || die "application archive proof is missing"
+    node - "$manifest" "$source" "$ATTEMPT_ID" "$RELEASE_EPOCH" <<'NODE'
+const crypto = require('crypto')
+const fs = require('fs')
+const [manifestPath, proofPath, attemptId, releaseEpoch] = process.argv.slice(2)
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+const proof = fs.readFileSync(proofPath, 'utf8')
+if (manifest.status !== 'ready' || manifest.deploymentAttemptId !== attemptId || manifest.releaseEpoch !== releaseEpoch) process.exit(2)
+if (manifest.archive?.eligible !== true || manifest.archive.proofArtifact !== 'archive-proof.tsv') process.exit(3)
+if (!/^[a-f0-9]{64}$/.test(manifest.archive.proofId || '') || !proof.trim()) process.exit(4)
+for (const line of proof.trim().split('\n')) {
+  const [name, dev, ino, hash] = line.split('|')
+  if (!name || name.includes('/') || !/^\d+$/.test(dev) || !/^\d+$/.test(ino) || !/^[a-f0-9]{64}$/.test(hash)) process.exit(5)
+}
+NODE
+    atomic_copy_file "$source" "$LEGACY_ARCHIVE_PROOF_FILE" 600
 }
 
 secure_archive_file() {
@@ -5037,6 +5060,7 @@ start_probe_and_release() {
     checkpoint "runtime_ready"
     # Recheck after the runtime_ready checkpoint to close the manifest/health loop.
     wait_for_health "normal"
+    load_application_archive_proof
     record_applied_deployment_baseline
     archive_legacy_config
     finalize_mount_relocations
@@ -5264,8 +5288,6 @@ run_install() {
     prepare_worktree
     prepare_config_candidate
     checkpoint "candidate_written"
-    data_cli check --root /staging/work --manifest /staging/upgrade-manifest.json --json >/dev/null
-    data_cli apply --root /staging/work --manifest /staging/upgrade-manifest.json --json >/dev/null
     render_compose_candidate
     verify_compose_snapshot_cas
     apply_candidate_files
@@ -5298,14 +5320,11 @@ run_upgrade() {
     if [ "$FORCED_STOP_USED" -eq 0 ]; then
         create_snapshot 0
     fi
-    data_cli check --root /staging/snapshot --manifest /staging/upgrade-manifest.json --json >/dev/null
     checkpoint "snapshot_ready"
 
     prepare_worktree
     prepare_config_candidate
     checkpoint "candidate_written"
-    data_cli check --root /staging/work --manifest /staging/upgrade-manifest.json --json >/dev/null
-    data_cli apply --root /staging/work --manifest /staging/upgrade-manifest.json --json >/dev/null
     render_compose_candidate
     test_mutate_compose_before_publish
     verify_compose_snapshot_cas

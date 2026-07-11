@@ -441,7 +441,7 @@ describe('config CLI', () => {
         }
     })
 
-    it('migrate-legacy dry-run performs no writes and existing YAML wins without runtime snapshot', () => {
+    it('migrate-legacy dry-run performs no writes and existing YAML wins without runtime snapshot', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-cli-migrate-'))
         const configDir = path.join(root, 'config')
         const dataDir = path.join(root, 'data')
@@ -450,7 +450,7 @@ describe('config CLI', () => {
         fs.chmodSync(configDir, 0o700)
         fs.chmodSync(path.join(configDir, 'runtime-env.json'), 0o600)
         try {
-            const dryRun = run([
+            const dryRun = await run([
                 'migrate-legacy',
                 '--config-dir', configDir,
                 '--data-dir', dataDir,
@@ -464,7 +464,7 @@ describe('config CLI', () => {
             fs.rmSync(configDir, { recursive: true, force: true })
             fs.cpSync(path.join(FIXTURES, 'existing-yaml'), configDir, { recursive: true })
             fs.chmodSync(path.join(configDir, 'config.yaml'), 0o600)
-            const existing = run([
+            const existing = await run([
                 'migrate-legacy',
                 '--config-dir', configDir,
                 '--data-dir', dataDir,
@@ -472,13 +472,13 @@ describe('config CLI', () => {
             ], { validator })
             assert.strictEqual(existing.result, 'skipped-existing-yaml')
             assert.strictEqual(existing.config.provider, 'official')
-            assert.strictEqual(fs.existsSync(dataDir), false)
+            assert.strictEqual(fs.existsSync(path.join(dataDir, 'migrations/data-schema-state.json')), true)
         } finally {
             fs.rmSync(root, { recursive: true, force: true })
         }
     })
 
-    it('fails closed for unsafe authoritative YAML instead of reporting a skipped migration', () => {
+    it('fails closed for unsafe authoritative YAML instead of reporting a skipped migration', async () => {
         for (const unsafeKind of ['mode', 'symlink', 'hardlink']) {
             const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-cli-unsafe-yaml-'))
             const configDir = path.join(root, 'config')
@@ -495,9 +495,9 @@ describe('config CLI', () => {
                     fs.symlinkSync(target, configPath)
                 }
                 if (unsafeKind === 'hardlink') fs.linkSync(configPath, path.join(root, 'managed-hardlink.yaml'))
-                assert.throws(
-                    () => run(['migrate-legacy', '--config-dir', configDir], { validator }),
-                    (error) => ['CONFIG_FILE_UNSAFE', 'CONFIG_FILE_PERMISSION_UNSAFE'].includes(error.code),
+                await assert.rejects(
+                    run(['migrate-legacy', '--config-dir', configDir], { validator }),
+                    (error) => error.code === 'CONFIG_BOOTSTRAP_INVALID_INPUT',
                     unsafeKind
                 )
             } finally {
@@ -506,7 +506,7 @@ describe('config CLI', () => {
         }
     })
 
-    it('checks authoritative same-path YAML only while holding the offline owner boundary', () => {
+    it('checks authoritative same-path YAML only while holding the offline owner boundary', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-cli-live-owner-'))
         const configDir = path.join(root, 'config')
         const ownerLock = path.join(root, 'data', 'runtime', 'config-owner.lock')
@@ -520,12 +520,12 @@ describe('config CLI', () => {
             acquiredAt: new Date().toISOString()
         })}\n`, { mode: 0o600 })
         try {
-            assert.throws(
-                () => run([
+            await assert.rejects(
+                run([
                     'migrate-legacy', '--config-dir', configDir,
                     '--owner-lock', ownerLock
                 ], { validator }),
-                (error) => error.name === 'ConfigConflictError' && /Runtime is active/.test(error.message)
+                (error) => error.code === 'CONFIG_BOOTSTRAP_OWNER_CONFLICT'
             )
         } finally {
             fs.rmSync(root, { recursive: true, force: true })
@@ -547,7 +547,7 @@ describe('config CLI', () => {
                         'migrate-legacy', '--legacy-root', configDir,
                         '--runtime-env-file', runtimeEnv, '--dry-run', '--json'
                     ], { validator })),
-                    (error) => error.code === 'LEGACY_JWT_SECRET_EFFECTIVE_UNPROVABLE'
+                    (error) => error.code === 'CONFIG_BOOTSTRAP_INVALID_INPUT'
                 )
             } finally {
                 fs.rmSync(root, { recursive: true, force: true })
