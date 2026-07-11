@@ -126,7 +126,7 @@
 
 ## 一键快速部署
 
-运行下方命令，脚本将自动检测环境、安装 Docker、配置 NapCat 并启动所有服务。
+运行下方命令，脚本会通过统一配置 CLI 生成 `config/config.yaml`，并按选择启动 NapCat 或 QQ Official。脚本同时支持首次安装、旧版升级、部署参数应用和失败恢复。
 *[点我跳转到视频教程](https://www.bilibili.com/video/BV1YsrEBVEs6/ "bilibili")*
 
 ```bash
@@ -137,11 +137,17 @@ wget -O setup.sh https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/he
 wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/setup.sh && chmod +x setup.sh && sudo ./setup.sh
 ```
 
-**部署流程：**
-1.  **环境检查**：自动安装 docker 等必要依赖。
-2.  **配置引导**：脚本会引导您输入 Bot QQ 号、WebUI 密码，并可选配置 Agent LLM Provider/API Key。
-3.  **服务启动**：自动拉取镜像并启动容器。注意：一键部署使用发布镜像，只有镜像发布后才包含最新开发分支能力。
-4.  **扫码登录**：直接在终端显示 NapCat 日志和二维码，扫码即可完成登录。
+常用模式：
+
+```bash
+sudo ./setup.sh                         # 首装或自动识别旧版升级
+sudo ./setup.sh --dry-run               # 只输出计划，不写配置、不操作容器
+sudo ./setup.sh --upgrade               # 显式升级
+sudo ./setup.sh --apply                 # 应用端口、volume、网络等部署级变更
+sudo ./setup.sh --non-interactive ...   # 自动化环境；缺少必要参数时 fail-closed
+```
+
+升级会先备份并验证配置/数据，在 probe health 通过后写入同一 `releaseEpoch` 的 release marker，再启动正式 Provider。marker 前失败恢复旧镜像、旧配置、原数据、Compose、网络和 managed writer；marker 后只允许 same-epoch recovery。旧配置仅在新版本 normal readiness 成功后移入 `data/setup-state/<attempt>/retained-vault/`，不会由 setup 自动删除。归档 intent 也会以 0600 私有终态保留在 vault 中；`inventory.json` 使用 generation 与文件身份校验记录每个保留对象及占用字节，避免续跑时覆盖并发变化。setup 会在首次切换以及每次续跑的恢复、复制、归档阶段重新检查剩余容量和 inode；不足时保持 journal/intent 可续跑并要求在同一 attempt 恢复。确认升级长期稳定后，由管理员核对 inventory，再人工清理对应 attempt 目录以释放空间。
 
 
 ## WebUI 管理面板
@@ -154,12 +160,11 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 ### 访问说明
 
 *   **本地访问**：`localhost` 或 `127.0.0.1` 无需额外配置，自动允许访问
-*   **内网访问**：通过 Tailscale 或局域网 IP 访问，自动检测并允许
-*   **公网部署**：如需通过公网域名或 IP 访问，必须配置 `config/.env` 中的 `DASHBOARD_ALLOWED_ORIGINS`（参考 [配置说明](#配置说明)）
+*   **其他来源**：Tailscale、局域网、公网域名或 IP 都必须把完整 origin（例如 `https://bot.example.com`）逐项写入 `config/config.yaml` 的 `dashboard.allowedOrigins`
 
 ### 登录
 
-首次访问需要输入密码登录。默认密码为 `admin`，可通过 `config/.env` 中的 `DASHBOARD_PASSWORD` 修改。登录基于 JWT 令牌，有效期 24 小时。连续登录失败 5 次会被临时锁定 5 分钟。
+首次访问需要输入密码登录。默认密码为 `admin`，请直接修改 `config/config.yaml` 的 `dashboard.password`。JWT Secret 也保存在该 YAML 中，但 API/WebUI 只返回 `configured` 状态，绝不回显明文。
 
 ### 功能模块
 
@@ -173,7 +178,7 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 | **Agent 记忆** | 查看长期记忆、人物画像、表达习惯和回复效果；长期记忆支持筛选、删除和清理 |
 | **实时日志** | WebSocket 实时推送应用日志，支持暂停/清空 |
 
-> 说明：WebUI 仅管理真实群聊（数字群号），不支持私聊会话（`private_*`）管理。
+> 说明：WebUI 仅管理真实群聊标识：NapCat 使用数字群号，QQ Official 使用安全的 `group_openid`；不支持私聊会话（`private_*`）管理。
 
 </details>
 
@@ -202,9 +207,9 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 | 普通群成员 | 聊天、查询、提出请求 |
 | 配置群管理员 | 管理本群 Bot/Agent 配置和订阅 |
 | QQ 群管理员/群主 | 基于 QQ 权限管理本群配置和群聊操作 |
-| `ADMIN_QQ` Root | 全局配置、跨群管理、QQ 账号级工具 |
+| YAML Root 管理员 | NapCat 使用 `admin.rootQQ`；QQ Official 使用 `qq.official.rootOpenids` |
 
-> QQ Official 模式使用 `openid/member_openid/group_openid`，Root 管理员通过 `QQ_OFFICIAL_ROOT_OPENIDS` 配置；不要把数字 QQ 号和官方 openid 混用。
+> QQ Official 模式使用 `openid/member_openid/group_openid`，Root 管理员配置在 `config/config.yaml` 的 `qq.official.rootOpenids`；不要把数字 QQ 号和官方 openid 混用。
 
 ### 工具和确认
 
@@ -225,103 +230,38 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 ## 配置说明
 
-本项目采用双重配置系统：`config/.env` 用于启动/敏感信息，`config.json` 用于运行时动态配置。
+唯一配置真源是 `config/config.yaml`。新安装以及迁移成功后的 `config/` 目录只包含这个文件；应用运行期不会再读取 `.env`、`config.json`、`.jwtSecret` 或 `.qqOfficialClientSecret`。这些旧文件仅由升级迁移器在隔离阶段读取，成功前不会归档。
 
-> `.env` 保存启动参数、敏感信息和 Agent LLM Provider/API Key；`config.json` 保存运行时动态配置。旧 MCP 配置不再保留。
+```bash
+node src/cli/config.js init --output config/config.yaml
+node src/cli/config.js validate --config config/config.yaml
+node src/cli/config.js status --manifest data/migrations/config-manifest.json
+node src/cli/config.js deployment-plan --config config/config.yaml --output data/config-state/deployment-plan.json
+```
 
-<details>
-<summary><b>展开查看具体配置</b></summary>
+YAML 使用 versioned schema（当前 `version: 1`），主要分区包括 `qq`、`dashboard`、`deployment`、`paths`、`pythonService`、`cache`、`subscription`、`rendering`、`videoDownload`、`logging`、`groupConfigs` 和 `agent`。Secret（NapCat token、Official client secret、Dashboard password/JWT、Agent API key）均写入 YAML，文件/目录权限为 `0600/0700`；Dashboard 和 API 只返回 configured marker。
 
-### 1. 基础配置 (.env)
-复制 `config/.env.example` 为 `config/.env`，填入 WebSocket 连接等启动参数：
+手工编辑合法 YAML 后，ConfigService 会按 diff 自动即时应用或重建对应子系统：日志/缓存/订阅 timer、Python、Dashboard listener、浏览器、下载路径以及 NapCat/Official Provider 都无需手工重启整个 Bot。非法 YAML、重复 key、危险对象路径或未知字段会被拒绝，运行实例继续使用 last-good snapshot。仅宿主机端口、volume 和 Docker 网络属于 deployment apply，需执行 `setup.sh --apply`。
 
-| 变量名 | 说明 | 示例 / 默认值 |
-| :--- | :--- | :--- |
-| `WS_URL` | NapCat 的 WebSocket 地址 | `ws://napcat:3001` (Docker) / `ws://localhost:3001` (本地) |
-| `WS_TOKEN` | WebSocket 连接 Token (可选，留空则不启用身份验证) | 需与 NapCat 配置一致 |
-| `QQ_PROVIDER` | QQ 连接模式：`napcat` 或 `official` | `napcat` |
-| `QQ_OFFICIAL_APP_ID` | QQ 官方机器人 AppID | 留空 |
-| `QQ_OFFICIAL_CLIENT_SECRET` | QQ 官方机器人 Secret（只写入本地 `.env`，不要提交） | 留空 |
-| `QQ_OFFICIAL_API_BASE` | QQ 官方 OpenAPI Base URL | `https://api.sgroup.qq.com` |
-| `QQ_OFFICIAL_TOKEN_URL` | QQ 官方 access token 获取地址 | `https://bots.qq.com/app/getAppAccessToken` |
-| `QQ_OFFICIAL_USE_SHARDED_GATEWAY` | 是否优先使用 `/gateway/bot` 获取 WSS 地址 | `true` |
-| `QQ_OFFICIAL_INTENTS` | WSS intents，默认 `GROUP_AND_C2C_EVENT` | `33554432` |
-| `QQ_OFFICIAL_GATEWAY_ACK_TIMEOUT_MS` | WSS 心跳 ACK 超时 | `90000` |
-| `QQ_OFFICIAL_MEDIA_UPLOAD_MODE` | 富媒体上传策略：`hybrid` / `url_only` / `file_data` | `hybrid` |
-| `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` | Official 发送本地文件/视频时使用的临时公网 Base URL；内置临时静态路由为 `/qq-official-temp/` | 留空 |
-| `QQ_OFFICIAL_ROOT_OPENIDS` | Official 模式 Root 管理员 openid，多个用逗号分隔 | 留空 |
-| `QQ_OFFICIAL_ACCOUNT_QPM` | Official 主动消息账号维度 QPM | `30` |
-| `QQ_OFFICIAL_GROUP_QPM` | Official 主动消息单群 QPM | `20` |
-| `QQ_OFFICIAL_QUEUE_MAX_SIZE` | Official 发送队列上限 | `300` |
-| `NAPCAT_TEMP_PATH` | 机器人写入图片的临时路径 | `/app/.config/QQ/tmp/` |
-| `NAPCAT_READ_PATH` | NapCat 读取图片的路径 (需与上条映射到同一物理路径) | `/app/.config/QQ/tmp/` |
-| `PUPPETEER_EXECUTABLE_PATH` | 指定浏览器可执行文件路径（可选） | 留空（自动检测） |
-| `CHROMIUM_PATH` | Agent 网页读取/截图使用的 Chromium 路径（可选） | 留空（自动检测） |
-| `PYTHON_PATH` | Python 解释器路径 (本地开发用，Docker 默认无需配置) | `venv/bin/python` |
-| `ADMIN_QQ` | 管理员 QQ 号 (用于特权指令) | `123456789` |
-| `USE_BASE64_SEND` | 是否使用 Base64 发送图片 | `false` |
-| `DATA_CACHE_TTL` | 数据缓存过期时间 (秒) | `3600` (1小时) |
-| `AGENT_LLM_ENABLED` | 是否启用 Agent LLM 调用；默认关闭，开启后仍需在运行时配置中启用 Agent/群级开关 | `false` |
-| `AGENT_LLM_PROVIDER` | LLM Provider，目前支持 OpenAI-compatible | `openai-compatible` |
-| `AGENT_LLM_BASE_URL` | OpenAI-compatible Base URL | `https://api.example.com` |
-| `AGENT_LLM_MODEL` | Agent 决策模型名 | `model-name` |
-| `AGENT_LLM_API_KEY_ENV` | 保存 API Key 的环境变量名 | `AGENT_API_KEY` |
-| `AGENT_API_KEY` | Agent LLM API Key（本地填写，示例文件留空） | 留空 |
-| `AGENT_LLM_TIMEOUT_MS` | LLM 请求超时（毫秒） | `12000` |
-| `AGENT_LLM_TEMPERATURE` | LLM 决策温度 | `0.2` |
-| `AGENT_LLM_MAX_TOKENS` | LLM 最大输出 token；不是上下文窗口大小，群聊上下文由 `config.json` 的 `agent.shortTerm.*` 控制 | `500` |
-| `AGENT_BUDGET_ENABLED` | 是否启用 Agent LLM 调用预算 | `true` |
-| `AGENT_BUDGET_WINDOW_MS` | 预算统计窗口（毫秒） | `60000` |
-| `AGENT_BUDGET_MAX_LLM_CALLS_PER_GROUP_PER_MINUTE` | 每群每分钟最大 LLM 调用数 | `60` |
-| `AGENT_BUDGET_MAX_LLM_CALLS_PER_USER_PER_MINUTE` | 每用户每分钟最大 LLM 调用数 | `20` |
-| `JWT_SECRET` | Dashboard JWT 签名密钥（可选，不填则自动生成并持久化） | 留空 |
-| `DASHBOARD_PASSWORD` | WebUI 管理面板登录密码 | `admin` |
-| `DASHBOARD_ALLOWED_ORIGINS` | WebUI 公网访问白名单 (逗号分隔，仅公网部署时需要) | 留空 (仅允许本地/内网访问) |
+Dashboard/API 更新必须携带 `expectedGeneration`。响应会区分 `applied`、`reloaded`、`deploymentApplyRequired` 和 `warnings`；Secret 留空表示保持不变，清除必须使用显式 secret action。
 
-### 2. 动态配置 (config.json)
-这些配置随 bot 运行自动创建，支持热更新（通过 `/设置` 相关指令和 WebUI），无需手动修改。
+### QQ Official
 
-内部实现现已拆分为模块化配置子系统：`src/config.js` 作为兼容入口，实际逻辑位于 `src/config/` 目录（如 `schema.js`、`store.js`、`groupConfig.js`、`authConfig.js`、`jwtSecretOwner.js`、`normalizers.js`）。对外调用方式保持兼容，仍可通过 `require('./src/config')` 或现有 `config` 入口访问。
+- 配置位于 `qq.provider: official` 与 `qq.official.*`；`group_openid`、`user_openid`、`member_openid` 使用安全 opaque ID，不与数字 QQ 号混用。
+- Provider 配置和 `paths.napcatTemp` 热更新会受控重建连接；candidate 在 commit 前不接收业务入口，失败时恢复旧 generation。
+- Official ID store、reply/recall mapping 与 per-target `msg_seq` 使用共享 COW 状态，失败 candidate 不写正式文件。
+- 富媒体公网临时地址配置为 `qq.official.tempPublicBaseUrl`，内置只读路径仍为 `/qq-official-temp/`。
 
-| 字段名 | 说明 | 默认值 |
-| :--- | :--- | :--- |
-| `blacklistedQQs` | 黑名单 QQ 列表 | `[]` |
-| `enabledGroups` | 允许响应的群组 (空为全部) | `[]` |
-| `linkCacheTimeout` | 链接解析缓存时间 (秒) | `600` |
-| `subscriptionCheckInterval` | 订阅轮询间隔 (秒) | `60` |
-| `videoDownloadEnabled` | 视频下载全局开关 | `false` |
-| `videoDownloadResolution` | 视频下载默认分辨率 (`360p/480p/720p/1080p/1080p+`) | `1080p` |
-| `videoDownloadMaxDuration` | 视频下载最大时长限制（秒，`0` 表示不限） | `600` |
-| `videoDownloadAutoClean` | 视频文件发送后自动清理 | `true` |
-| `videoDownloadCleanTimeout` | 下载目录兜底清理超时（小时） | `6` |
-| `qqProvider` | WebUI 可切换的 QQ 连接模式；保存后需重启 Bot 生效 | `napcat` |
-| `qqOfficial*` | Official Provider 的非敏感运行配置；Secret 只应放 `.env` 或通过 WebUI 覆盖写入，不会回显 | 见 `.env.example` |
-| `nightMode` | 深色模式配置 | `{"mode": "off", ...}` |
-| `labelConfig` | 标签显示配置（视频、番剧、动态、专栏、直播及扩展类型） | `{"video": true, ...}` |
-| `showId` | 是否在卡片中显示 UID | `true` |
-| `groupConfigs` | 群级配置覆盖 (每个群可独立配置) | `{}` |
-| `agent` | 新 Agent 运行时配置，包括开关、Persona、短期/长期记忆、回复策略、工具策略、预算和群级覆盖 | `{"enabled": false, ...}` |
+### Agent 开启建议
 
-### 3. QQ Official 接入说明
+Agent 默认关闭。一键部署不会自动让 Agent 在群里发言；建议按阶段开启：
 
-- Official Provider 使用 QQ 官方 WSS 长连接接收事件，不要求公网域名服务器；Webhook 模式才需要公网 HTTPS 回调地址。
-- WSS 地址由官方 OpenAPI `/gateway/bot` 或 `/gateway` 获取，Bot 不应把这个地址写死。
-- 官方富媒体上传要求公网可拉取的 `url` 更稳定；`hybrid` 会保留 `file_data` 并在配置 `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` 后同步生成临时 URL。内置 Dashboard 会只读发布 `NAPCAT_TEMP_PATH` 到 `/qq-official-temp/`，例如可把 `QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL` 配成 `https://bot.example.com/qq-official-temp/`。该地址必须能被 QQ 官方服务器访问，本地 `localhost`/内网地址不可用。
-- 官方群全量消息和主动群发需要群主在 QQ 开放平台/群设置中开启；未开启时仍可使用 @Bot 消息和被动回复场景。
-- 切换 `QQ_PROVIDER` 或 WebUI 的连接模式后，需要重启 Bot 才会重建连接。
-- 可运行 `node test/tools/qq-official-smoke.js` 做 dry-run 自检；具备真实凭据时显式设置 `QQ_OFFICIAL_SMOKE_REAL=1` 后再运行，脚本只输出 token TTL、gateway shard 等状态摘要，不输出 Secret、access token 或 Authorization。
-
-### 4. Agent 开启建议
-
-Agent 默认关闭。一键部署脚本只会可选写入 LLM Provider/API Key，不会自动让 Agent 在群里发言；建议按阶段开启：
-
-1. WebUI 或 `config.json` 设置 `agent.enabled=true`、目标群 `agent.groups.<群号>.enabled=true`。
+1. WebUI 或 YAML 设置 `agent.enabled=true`、目标群 `agent.groups.<群ID>.enabled=true`。
 2. 先保持 `agent.observeOnly=true`、`agent.sendEnabled=false`，在 Agent 决策页观察 LLM 判断。
 3. 确认效果后切到 `decisionMode=llm_live`，再开启 `sendEnabled=true`。
 4. 需要自然语言管理订阅、配置或 QQ 群时，再开启 `agent.tools.enabled=true`。
 5. 中高风险工具保留确认，尤其是禁言、踢人、撤回、关闭 Bot、处理申请等操作。
 6. 如需偶尔插话，在 Agent 设置中开启 `agent.social.enabled=true`，并逐步调高插话概率和每日上限。
-</details>
 
 
 ### Agent 实测建议
@@ -442,3 +382,5 @@ Root 可使用私聊能力，但私聊仅支持链接解析/下载；`/设置`�
 | `/设置 显示UID` | `<开\|关>` | 开关卡片中 UID 的显示 | **当前群** |
 | `/设置 深色模式` | `<开\|关\|定时> [时间]` | 配置深色模式。定时格式如 `21:00-07:00` | **当前群** |
 | `/设置 管理员` | `<添加\|移除> <QQ>` | (仅 Root) 设置本群的管理员 | **当前群** |
+
+</details>

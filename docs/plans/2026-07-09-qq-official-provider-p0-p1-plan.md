@@ -2,6 +2,9 @@
 
 日期：2026-07-09
 
+> [!IMPORTANT]
+> 本文是 QQ Official Provider 接入的历史设计记录。配置、Secret、热重载、部署和回滚合同已经由 [2026-07-10 单一 config.yaml 方案](./2026-07-10-unified-config-hot-reload-and-auto-migration-plan.md) 取代。当前实现只以 `config/config.yaml` 为应用配置真源；不再把 `.env` 或独立 Secret 文件作为运行时配置源，Provider 变更通过 ConfigService 受控重连，只有 host port、volume 和网络变更需要 `setup.sh --apply`。本文后续出现的旧配置示例仅用于解释当时背景，不代表当前行为。
+
 ## 背景
 
 当前项目通过 NapCat / OneBot v11 接入 QQ，核心链路集中在：
@@ -41,9 +44,9 @@ P0-P1 不承诺完整替代以下 NapCat 专属能力：
 
 这些能力需要通过 Provider capability 标记为 unavailable，并在 Agent 工具、命令和 Dashboard 中降级或隐藏。
 
-## 配置设计
+## 配置设计（历史记录，已被统一 YAML 合同取代）
 
-本地 `config/.env` 新增：
+当时方案拟在本地 `config/.env` 新增：
 
 ```env
 QQ_PROVIDER=napcat
@@ -446,11 +449,13 @@ P1 验证清单：
 | Official 被动回复窗口 | 已实现，待真实验证 | `AsyncLocalStorage` 将 inbound `msg_id/event_id/msg_seq` 透传至 notification facade；sender 支持被动回复字段 |
 | 完整群管/审批/账号状态 | 不在 P0-P1 等价范围 | Official 下通过 capability gate 隐藏或拒绝；NapCat 保持完整能力 |
 
-## 最终验收快照（2026-07-09）
+## 最终验收快照（2026-07-09，历史行为）
 
-结论：QQ Official Provider P0-P1 已完成本地代码落地和自动化验证。当前实现支持在后台设置页切换 `OneBot / NapCat` 与 `QQ Official`，保存后返回 `restartRequired=true`，重启后由 `src/bot.js` 按 `config.qqProvider` 选择 NapCat WebSocket 或 QQ Official WSS Provider。`onebot` 作为后台兼容标签会归一化保存为 `napcat`。
+> 下述快照只记录 2026-07-09 当时的实现。`restartRequired=true`、`.env`、独立 Secret store 和 `config.json` 均已被 2026-07-10 统一 YAML、受控热重载与自动迁移合同取代，不得作为当前部署或开发指引。
 
-本地 `config/.env` 已配置 Official AppID 与 Secret；本文档和测试输出均不记录真实值。WebUI 写入 Secret 时会落到本地 secret store 并以 `[REDACTED]` 回显，`config.json` 快照不保存明文 Secret。
+2026-07-09 当时的结论是：QQ Official Provider P0-P1 已完成本地代码落地和自动化验证；当时后台切换 Provider 后返回 `restartRequired=true`，重启后再生效。该行为现已废止，当前 Provider 配置通过统一 YAML 与受控重连生效。
+
+当时的本地验证使用 `config/.env` 与独立 Secret store；本文档和测试输出没有记录真实值。该存储模型现已废止，当前 Secret 只由 `config/config.yaml` 持有，公开接口只返回 configured marker。
 
 ### P0 完成矩阵
 
