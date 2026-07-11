@@ -20,7 +20,7 @@ const { FLAT_KEY_TO_PATH, DASHBOARD_INGRESS_PORT } = require('./config/schemaV1'
 const { botOperationRegistry } = require('./services/runtime/botOperationRegistry');
 const { getCurrentMigrationStatus } = require('./dashboard/migrationStatus');
 const { applicationAdmissionGate } = require('./services/runtime/applicationAdmissionGate');
-const { ConfigControlServer } = require('./config/configControl');
+const { ConfigControlServer, defaultConfigControlSocketPath } = require('./config/configControl');
 const fs = require('fs');
 const { readPrivateText } = require('./migrations/common/privateFile');
 const { ApplicationMigrationBootstrap } = require('./bootstrap/applicationMigrationBootstrap');
@@ -1226,7 +1226,7 @@ async function gracefulShutdown(exitCode = 0, options = {}) {
 async function startConfigControlServer(options = {}) {
     if (!configControlServer) {
         configControlServer = options.server || new ConfigControlServer(config.service, {
-            socketPath: path.join(path.dirname(config.service.stateDir), 'runtime', 'config-control.sock')
+            socketPath: defaultConfigControlSocketPath()
         });
     }
     try {

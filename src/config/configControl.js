@@ -7,7 +7,61 @@ const { ensurePrivateDirectory, syncDirectory } = require('./configWriter')
 const { getIn } = require('./configUtils')
 
 const MAX_REQUEST_BYTES = 1024 * 1024
+const SOCKET_CHMOD_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'])
 
+function defaultConfigControlSocketPath(options = {}) {
+    const explicit = options.explicitPath || process.env.BILI_CONFIG_CONTROL_SOCKET
+    if (explicit) return path.resolve(explicit)
+    const containerized = options.containerized ?? fs.existsSync('/.dockerenv')
+    return containerized
+        ? path.resolve('/tmp/bili-qq-bot/config-control.sock')
+        : path.resolve(options.cwd || process.cwd(), 'data/runtime/config-control.sock')
+}
+
+async function assertPrivateSocketDirectory(directory, fsPromises = fs.promises) {
+    const directoryStat = await fsPromises.lstat(directory)
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory() || (directoryStat.mode & 0o777) !== 0o700) {
+        const unsafe = new Error('CONFIG_CONTROL_SOCKET_UNSAFE')
+        unsafe.code = 'CONFIG_CONTROL_SOCKET_UNSAFE'
+        throw unsafe
+    }
+}
+
+async function secureControlSocket(socketPath, directory, fsPromises = fs.promises) {
+    try {
+        await fsPromises.chmod(socketPath, 0o600)
+    } catch (error) {
+        if (!SOCKET_CHMOD_UNSUPPORTED.has(error?.code)) throw error
+        await assertPrivateSocketDirectory(directory, fsPromises)
+        try {
+            const socketStat = await fsPromises.lstat(socketPath)
+            if (socketStat.isSymbolicLink() || !socketStat.isSocket()) {
+                const unsafe = new Error('CONFIG_CONTROL_SOCKET_UNSAFE')
+                unsafe.code = 'CONFIG_CONTROL_SOCKET_UNSAFE'
+                throw unsafe
+            }
+        } catch (statError) {
+            if (!SOCKET_CHMOD_UNSUPPORTED.has(statError?.code) || !await socketIsActive(socketPath)) throw statError
+        }
+    }
+}
+
+async function removeStaleControlSocket(socketPath, directory, fsPromises = fs.promises) {
+    try {
+        const stat = await fsPromises.lstat(socketPath)
+        if (stat.isSymbolicLink() || !stat.isSocket()) throw new Error('CONFIG_CONTROL_SOCKET_UNSAFE')
+    } catch (error) {
+        if (error?.code === 'ENOENT') return
+        if (!SOCKET_CHMOD_UNSUPPORTED.has(error?.code)) throw error
+        await assertPrivateSocketDirectory(directory, fsPromises)
+    }
+    if (await socketIsActive(socketPath)) throw new Error('CONFIG_CONTROL_SOCKET_ACTIVE')
+    try {
+        await fsPromises.unlink(socketPath)
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+    }
+}
 function publicFailure(service, error) {
     return {
         ok: false,
@@ -38,7 +92,7 @@ function socketIsActive(socketPath, timeoutMs = 300) {
 class ConfigControlServer {
     constructor(service, options = {}) {
         this.service = service
-        this.socketPath = path.resolve(options.socketPath || path.join(process.cwd(), 'data/runtime/config-control.sock'))
+        this.socketPath = defaultConfigControlSocketPath({ explicitPath: options.socketPath })
         this.server = null
     }
 
@@ -46,21 +100,13 @@ class ConfigControlServer {
         if (this.server) return this
         const directory = path.dirname(this.socketPath)
         await ensurePrivateDirectory(directory)
-        try {
-            const stat = await fs.promises.lstat(this.socketPath)
-            if (stat.isSymbolicLink() || !stat.isSocket()) throw new Error('CONFIG_CONTROL_SOCKET_UNSAFE')
-            if (await socketIsActive(this.socketPath)) throw new Error('CONFIG_CONTROL_SOCKET_ACTIVE')
-            await fs.promises.unlink(this.socketPath)
-        } catch (error) {
-            if (error?.code !== 'ENOENT' && !['CONFIG_CONTROL_SOCKET_UNSAFE', 'CONFIG_CONTROL_SOCKET_ACTIVE'].includes(error?.message)) throw error
-            if (['CONFIG_CONTROL_SOCKET_UNSAFE', 'CONFIG_CONTROL_SOCKET_ACTIVE'].includes(error?.message)) throw error
-        }
+        await removeStaleControlSocket(this.socketPath, directory)
         this.server = net.createServer((socket) => this._handle(socket))
         await new Promise((resolve, reject) => {
             this.server.once('error', reject)
             this.server.listen(this.socketPath, resolve)
         })
-        await fs.promises.chmod(this.socketPath, 0o600)
+        await secureControlSocket(this.socketPath, directory)
         await syncDirectory(directory)
         return this
     }
@@ -178,5 +224,8 @@ module.exports = {
     ConfigControlServer,
     requestConfigControl,
     socketIsActive,
+    secureControlSocket,
+    removeStaleControlSocket,
+    defaultConfigControlSocketPath,
     MAX_REQUEST_BYTES
 }

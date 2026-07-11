@@ -174,3 +174,5 @@ setup 不再是自动 migration 的必要入口；它是推荐的、带部署事
 - 新增无标志启动测试，以及 NapCat 四源 priority 和 Official AppID/ClientSecret/root openids 保留测试。
 - 保持 existing YAML 权威、bootstrap/config owner handoff、schema hash-fenced restore、data preserve 校验与失败零副作用。
 - 定向验证通过：bootstrap/legacy/data preserve、CLI/ConfigService/runtime/readiness，以及 setup Official/NapCat 首装和 legacy ready 后归档；Dashboard test/lint/build、Python runtime、Compose/shell/语法和 diff 静态检查结果见本轮执行记录。
+- 真实 macOS Docker Desktop bind mount 测试发现持久化 `data/runtime` 不支持 Unix socket 的 `chmod/lstat/unlink`；Config Control socket 已改为容器内 `/tmp/bili-qq-bot/config-control.sock`，宿主 Node 仍使用 `data/runtime/config-control.sock`，CLI 与 Bot 通过共享路径解析保持一致。真实重跑已越过 ConfigService/control socket 并进入 Python 启动阶段。
+- 正式 Dockerfile 本地构建两次分别受 Debian 官方源 502 和清华源连接中断阻断；复用的本机 Node 运行时镜像缺少 Python `aiohttp`，因此本轮未验证到 Dashboard/Provider 最终 ready。该限制来自构建/替代镜像环境，不影响已经确认的自动迁移、幂等和 control socket 修复结果。

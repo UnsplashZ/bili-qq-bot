@@ -12,7 +12,7 @@ const {
     assertNoActiveRuntimeOwner,
     withOfflineRuntimeOwner
 } = require('../../../src/config/configLock')
-const { ConfigControlServer, requestConfigControl } = require('../../../src/config/configControl')
+const { ConfigControlServer, requestConfigControl, secureControlSocket, removeStaleControlSocket, defaultConfigControlSocketPath } = require('../../../src/config/configControl')
 const { normalizePatchPath } = require('../../../src/config/schemaV1')
 const { run } = require('../../../src/cli/config')
 const { createDefaultConfig } = require('../../../src/config/schemaV1')
@@ -273,6 +273,65 @@ describe('config writer, owner lease and control socket', () => {
             await server.stop().catch(() => {})
             fs.rmSync(root, { recursive: true, force: true })
         }
+    })
+
+    it('accepts unsupported socket chmod only inside a verified private directory', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bcc-'))
+        const directory = path.join(root, 'runtime')
+        const socketPath = path.join(directory, 'config-control.sock')
+        fs.mkdirSync(directory, { mode: 0o700 })
+        const server = require('net').createServer()
+        await new Promise((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(socketPath, resolve)
+        })
+        const fsPromises = {
+            chmod: async () => { throw Object.assign(new Error('unsupported'), { code: 'EINVAL' }) },
+            lstat: fs.promises.lstat.bind(fs.promises)
+        }
+        try {
+            await secureControlSocket(socketPath, directory, fsPromises)
+            fs.chmodSync(directory, 0o755)
+            await assert.rejects(
+                secureControlSocket(socketPath, directory, fsPromises),
+                (error) => error.code === 'CONFIG_CONTROL_SOCKET_UNSAFE'
+            )
+        } finally {
+            await new Promise((resolve) => server.close(resolve))
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('removes an inactive bind-mount socket when socket lstat is unsupported', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bcs-'))
+        const directory = path.join(root, 'runtime')
+        const socketPath = path.join(directory, 'control.sock')
+        fs.mkdirSync(directory, { mode: 0o700 })
+        fs.writeFileSync(socketPath, '')
+        const fsPromises = {
+            lstat: async (target) => {
+                if (target === socketPath) throw Object.assign(new Error('unsupported'), { code: 'ENOTSUP' })
+                return fs.promises.lstat(target)
+            },
+            unlink: fs.promises.unlink.bind(fs.promises)
+        }
+        try {
+            await removeStaleControlSocket(socketPath, directory, fsPromises)
+            assert.strictEqual(fs.existsSync(socketPath), false)
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('keeps host control state under data but uses tmpfs inside containers', () => {
+        assert.strictEqual(
+            defaultConfigControlSocketPath({ containerized: false, cwd: '/workspace' }),
+            path.resolve('/workspace/data/runtime/config-control.sock')
+        )
+        assert.strictEqual(
+            defaultConfigControlSocketPath({ containerized: true }),
+            path.resolve('/tmp/bili-qq-bot/config-control.sock')
+        )
     })
 
     it('holds an explicit offline owner lease across the write and leaves no owner behind', () => {

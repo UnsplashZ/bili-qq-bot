@@ -7,7 +7,7 @@ const path = require('path')
 const { atomicWriteFile } = require('../migrations/common/atomicFile')
 const { MigrationError } = require('../migrations/common/errors')
 const { withOfflineRuntimeOwner } = require('../config/configLock')
-const { requestConfigControl } = require('../config/configControl')
+const { requestConfigControl, defaultConfigControlSocketPath } = require('../config/configControl')
 const { resolveSchemaNode } = require('../config/schemaV1')
 const { stringifyConfigYaml, validateConfigObject } = require('../migrations/config/configDocument')
 const { createDefaultV1Config } = require('../migrations/config/legacyLoader')
@@ -121,7 +121,7 @@ function parseCliValue(source) {
 }
 
 function controlSocketPath(args) {
-    return resolvePath(args.socket || path.join(process.cwd(), 'data/runtime/config-control.sock'))
+    return args.socket ? resolvePath(args.socket) : defaultConfigControlSocketPath()
 }
 
 async function commandGet(args) {
