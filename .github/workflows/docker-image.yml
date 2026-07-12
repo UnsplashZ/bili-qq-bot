@@ -38,6 +38,10 @@ jobs:
         working-directory: dashboard
         run: npm ci
 
+      - name: Build Dashboard
+        working-directory: dashboard
+        run: npm run build
+
       - name: Run root unit tests
         run: npm test
 
@@ -56,10 +60,6 @@ jobs:
       - name: Lint Dashboard
         working-directory: dashboard
         run: npm run lint
-
-      - name: Build Dashboard
-        working-directory: dashboard
-        run: npm run build
 
   build-push:
     if: github.ref == 'refs/heads/main'

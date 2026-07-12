@@ -106,5 +106,10 @@ if (!currentNodeOptions.includes(preloadOption)) {
 
 process.once('exit', () => {
     barrier.restore()
-    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20
+    })
 })

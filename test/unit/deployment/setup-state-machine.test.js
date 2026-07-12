@@ -426,7 +426,8 @@ try { fs.renameSync(path.join(installWorkspace, 'install-quarantine'), path.join
 if (!crossMountRejected) process.exit(2)
 `
         const result = spawnSync('docker', [
-            'run', '--rm', '-v', `${install}:/install:rw`, '-v', `${dataParent}:/data-parent:rw`,
+            'run', '--rm', '--user', `${process.getuid()}:${process.getgid()}`,
+            '-v', `${install}:/install:rw`, '-v', `${dataParent}:/data-parent:rw`,
             '--entrypoint', 'node', 'node:22-alpine', '-e', script
         ], { encoding: 'utf8' })
         assert.strictEqual(result.status, 0, result.stderr)

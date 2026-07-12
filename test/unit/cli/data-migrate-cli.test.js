@@ -41,9 +41,9 @@ describe('data migration CLI', () => {
         }
     })
 
-    it('holds the runtime owner transaction across asynchronous apply and rollback', async () => {
+    it('holds the bootstrap owner transaction across asynchronous apply and rollback', async () => {
         const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-data-cli-owner-'))
-        const lockPath = path.join(dataDir, 'runtime/config-owner.lock')
+        const lockPath = path.join(dataDir, 'application-migration/bootstrap-owner.lock')
         let applyObserved = false
         let rollbackObserved = false
         const migrator = {
