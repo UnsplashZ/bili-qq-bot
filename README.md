@@ -126,7 +126,7 @@
 
 ## 一键快速部署
 
-运行下方命令。脚本负责安装问答、旧进程 fencing、Compose、volume、网络、health gate 与部署回滚；最终 `config/config.yaml`、legacy 配置迁移和业务数据 migration 由目标主程序在任何运行时副作用启动前完成。
+运行下方命令。脚本负责交互问答、生成 `config/config.yaml`、准备 Compose 并启动 NapCat 与 Bot；legacy 配置、schema 和业务数据 migration 由 Bot 主程序在任何运行时副作用启动前完成。
 *[点我跳转到视频教程](https://www.bilibili.com/video/BV1YsrEBVEs6/ "bilibili")*
 
 ```bash
@@ -137,17 +137,7 @@ wget -O setup.sh https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/he
 wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/setup.sh && chmod +x setup.sh && sudo ./setup.sh
 ```
 
-常用模式：
-
-```bash
-sudo ./setup.sh                         # 首装或自动识别旧版升级
-sudo ./setup.sh --dry-run               # 只输出计划，不写配置、不操作容器
-sudo ./setup.sh --upgrade               # 显式升级
-sudo ./setup.sh --apply                 # 应用端口、volume、网络等部署级变更
-sudo ./setup.sh --non-interactive ...   # 自动化环境；缺少必要参数时 fail-closed
-```
-
-升级会先备份并验证配置/数据，再由目标进程 bootstrap 完成配置和数据升级。probe health 通过后写入同一 `releaseEpoch` 的 release marker，再启动正式 Provider。marker 前失败恢复旧镜像、旧配置、原数据、Compose、网络和 managed writer；marker 后只允许 same-epoch recovery。legacy 文件只在 normal readiness 成功且 archive proof 复核通过后移入 `data/setup-state/<attempt>/retained-vault/`。
+`setup.sh` 是面向 NapCat 的交互式快捷部署脚本，不区分 install、upgrade 或 apply 模式。它负责生成新版 `config/config.yaml`、准备 Compose 并启动容器；旧配置、schema 和业务数据迁移由 Bot 启动时的 `ApplicationMigrationBootstrap` 自动完成。
 
 
 ## WebUI 管理面板
@@ -245,7 +235,7 @@ node src/cli/config.js deployment-plan --config config/config.yaml --output data
 
 YAML 使用 versioned schema（当前 `version: 1`），主要分区包括 `qq`、`dashboard`、`deployment`、`paths`、`pythonService`、`cache`、`subscription`、`rendering`、`videoDownload`、`logging`、`groupConfigs` 和 `agent`。Secret（NapCat token、Official client secret、Dashboard password/JWT、Agent API key）均写入 YAML，文件/目录权限为 `0600/0700`；Dashboard 和 API 只返回 configured marker。
 
-手工编辑合法 YAML 后，ConfigService 会按 diff 自动即时应用或重建对应子系统：日志/缓存/订阅 timer、Python、Dashboard listener、浏览器、下载路径以及 NapCat/Official Provider 都无需手工重启整个 Bot。非法 YAML、重复 key、危险对象路径或未知字段会被拒绝，运行实例继续使用 last-good snapshot。仅宿主机端口、volume 和 Docker 网络属于 deployment apply，需执行 `setup.sh --apply`。
+手工编辑合法 YAML 后，ConfigService 会按 diff 自动即时应用或重建对应子系统：日志/缓存/订阅 timer、Python、Dashboard listener、浏览器、下载路径以及 NapCat/Official Provider 都无需手工重启整个 Bot。非法 YAML、重复 key、危险对象路径或未知字段会被拒绝，运行实例继续使用 last-good snapshot。宿主机端口、volume 和 Docker 网络属于 Compose 配置，需要手工调整安装目录中的 `.env` 或 `docker-compose.yml` 后重建容器。
 
 Dashboard/API 更新必须携带 `expectedGeneration`。响应会区分 `applied`、`reloaded`、`deploymentApplyRequired` 和 `warnings`；Secret 留空表示保持不变，清除必须使用显式 secret action。
 

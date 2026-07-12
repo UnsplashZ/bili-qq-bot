@@ -1,8 +1,10 @@
 # setup.sh 已知限制与后续收缩记录
 
 **日期：** 2026-07-12  
-**状态：** ACTIVE ACCEPTED-RISK — 正常 migration owner 已收缩，22 个极端边界继续保留  
+**状态：** SUPERSEDED — `setup.sh` 已恢复为 v3.24.6 范围的轻量交互部署脚本
 **相关归档：** [统一配置、热重载与自动迁移完成记录](../done/2026-07-10-unified-config-hot-reload-and-auto-migration-plan.md)  
+
+> 2026-07-12 后续决策：删除 install/upgrade/apply、部署事务、fencing、publication journal、Compose ownership 和 crash-resume 状态机。本文后续内容仅保留为旧实现背景，不再描述当前 `setup.sh` 的产品合同。
 **后续计划：** [主程序接管配置升级实施计划](./2026-07-12-main-program-owned-config-migration-plan.md)
 
 ## 1. 记录目的

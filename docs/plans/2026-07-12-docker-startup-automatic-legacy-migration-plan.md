@@ -4,6 +4,8 @@
 **状态：** IMPLEMENTED — 定向验证完成
 **目标：** 用户仅替换或拉取新版 Docker 镜像并重新创建容器时，主程序自动完成 legacy 配置合并、配置 schema 升级和业务数据 migration，无需额外设置 `BILI_LEGACY_WRITER_FENCED=1`。
 
+> **后续合同变更（2026-07-12）：** 本计划中主程序自动 migration 的结论仍有效；第 6 节关于 `setup.sh` 部署事务、fencing、health gate 和回滚的描述已被后续决策取代。当前 `setup.sh` 仅是 v3.24.6 范围的 NapCat 交互式快捷部署脚本。
+
 ## 1. 用户预期
 
 标准升级入口应支持：

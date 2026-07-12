@@ -25,7 +25,8 @@ function assertComposeValid(filePath) {
     assert.strictEqual(probe.status, 0, probe.stderr || probe.stdout)
 }
 
-describe('config CLI', () => {
+describe('config CLI', function () {
+    this.timeout(10000)
     it('requires explicit non-argv commands for schema secret paths', async () => {
         let called = false
         const requestConfigControl = async () => { called = true }

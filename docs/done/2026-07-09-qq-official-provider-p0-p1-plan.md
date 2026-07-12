@@ -5,7 +5,7 @@
 状态：已完成并归档（2026-07-12）
 
 > [!IMPORTANT]
-> 本文是 QQ Official Provider 接入的历史设计记录。配置、Secret、热重载、部署和回滚合同已经由 [2026-07-10 单一 config.yaml 方案](./2026-07-10-unified-config-hot-reload-and-auto-migration-plan.md) 取代。当前实现只以 `config/config.yaml` 为应用配置真源；不再把 `.env` 或独立 Secret 文件作为运行时配置源，Provider 变更通过 ConfigService 受控重连，只有 host port、volume 和网络变更需要 `setup.sh --apply`。本文后续出现的旧配置示例仅用于解释当时背景，不代表当前行为。
+> 本文是 QQ Official Provider 接入的历史设计记录。当前实现只以 `config/config.yaml` 为应用配置真源，不再把 `.env` 或独立 Secret 文件作为运行时配置源，Provider 变更通过 ConfigService 受控重连。`setup.sh` 已恢复为仅支持 NapCat 的交互式快捷部署，不提供 Official 部署或 apply 模式；host port、volume 和网络需直接维护 Compose/安装目录 `.env`。本文后续出现的旧配置示例仅用于解释当时背景，不代表当前行为。
 
 ## 背景
 

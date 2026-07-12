@@ -1,7 +1,6 @@
-# Canonical setup-managed template. setup.sh renders a digest-pinned candidate
-# from config/config.yaml before installation or upgrade. User-owned labels,
-# resource limits, logging drivers, and additional networks are preserved by
-# the Compose ownership model rather than edited in this file with sed/awk.
+# Default NapCat deployment template used by the interactive setup helper.
+# Application settings live in config/config.yaml. Host ports and image
+# references can be overridden through the installation root .env file.
 services:
   napcat:
     image: ${BILI_NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}

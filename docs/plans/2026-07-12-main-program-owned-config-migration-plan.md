@@ -5,6 +5,8 @@
 **目标：** 将配置 schema 升级、四类 legacy 配置迁移和业务数据 migration 的正常 owner 从 `setup.sh` 迁入主程序启动链；`setup.sh` 收缩为首次安装和部署事务协调器。  
 **基线提交：** `ba2121e`、`68ff17e`、`d4ae91c`、`202a1b5`、`f82f962`
 
+> **后续合同变更（2026-07-12）：** 主程序接管 migration 的实现仍有效；`setup.sh` 已进一步移除部署事务协调、upgrade/apply、health gate 和回滚，只保留 NapCat 交互式快捷部署。
+
 ## 1. 背景与问题定义
 
 当前仓库已经具备：

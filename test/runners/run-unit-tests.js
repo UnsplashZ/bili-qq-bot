@@ -110,9 +110,7 @@ function runOne(filePath) {
         : process.env
 
     process.stdout.write(`\n[unit] ${relativePath}\n`)
-    const timeout = relativePath === 'test/unit/deployment/setup-state-machine.test.js'
-        ? 7200000
-        : (pythonTest ? 120000 : 300000)
+    const timeout = pythonTest ? 120000 : 300000
     const beforeInventory = inventoryTree(protectedRuntimeRoots)
     const result = spawnSync(command, args, {
         cwd: projectRoot,

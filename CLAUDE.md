@@ -305,7 +305,7 @@ Normal runtime never consumes legacy files after bootstrap. `ApplicationMigratio
 
 Replacing the Docker image and recreating the single Bot container automatically runs legacy/schema/data migration. `BILI_LEGACY_WRITER_FENCED` is not required and is not persisted into YAML. The supported deployment model is one Bot container per mounted config/data directory; concurrently running old and new containers against the same directory is an unsupported operator error.
 
-Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Only host ports, volumes, and Docker networks return `deploymentApplyRequired` and require `setup.sh --apply`.
+Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Host ports, volumes, and Docker networks remain Compose concerns and must be changed in the installation `.env` or `docker-compose.yml` before recreating containers.
 
 Useful offline CLI entry points:
 
@@ -618,12 +618,7 @@ Examples:
 
 ### Multi-Container Setup
 
-`setup.sh` and the config CLI render the managed portion of Compose from `config/config.yaml`:
-
-- **NapCat mode:** `napcat` plus `bili-qq-bot`
-- **QQ Official mode:** `bili-qq-bot` only
-
-The renderer tracks owned pointers and refuses to silently overwrite unknown user-managed Compose content. Host ports, mount sources, and Docker networks are deployment-level settings; apply them with `setup.sh --apply`.
+`setup.sh` is a lightweight interactive NapCat deployment helper. It generates `config/config.yaml` through the Config CLI, prepares the repository Compose template, pulls images, and starts `napcat` plus `bili-qq-bot`. It does not manage QQ Official deployments, upgrades, deployment transactions, or Compose ownership.
 
 ### Volume Mounts
 
@@ -636,18 +631,15 @@ volumes:
   - ./napcat/qq:/app/.config/QQ # NapCat data (QQ account)
 ```
 
-**Critical:** in NapCat mode, `paths.napcatTemp` and `paths.napcatRead` plus their rendered mounts must refer to the same shared content. Mount relocation requires a validated relocation artifact; setup preserves data, NapCat state, fonts, cookies, Agent state, Official ID state, subscription anchors, and the delivery ledger.
+**Critical:** in NapCat mode, `paths.napcatTemp` and `paths.napcatRead` plus their Compose mounts must refer to the same shared content. The lightweight setup helper does not relocate mounts or rewrite existing application data.
 
-For install and upgrades, use `setup.sh` rather than hand-editing generated Compose:
+For an interactive NapCat deployment, run:
 
 ```bash
 sudo ./setup.sh
-sudo ./setup.sh --upgrade
-sudo ./setup.sh --apply
-sudo ./setup.sh --dry-run
 ```
 
-The upgrade state machine does not archive legacy config until normal readiness succeeds. Before `runtime_released`, failure restores the old image, config, data, Compose, networks, and managed-writer state. After that marker it recovers the same `releaseEpoch` instead of starting a second runtime epoch.
+The script intentionally has no install/upgrade/apply modes or rollback state machine. Existing application data is preserved by the mounted directories, and legacy/schema/data migration is owned by `ApplicationMigrationBootstrap` during application startup.
 
 ### Building Custom Images
 
