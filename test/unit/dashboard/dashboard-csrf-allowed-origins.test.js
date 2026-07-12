@@ -108,4 +108,12 @@ describe('Dashboard CSRF allowed origins', () => {
         const rejected = await request(server).get('/api/live').set('Origin', 'https://other.example.com')
         assert.strictEqual(rejected.headers['access-control-allow-origin'], undefined)
     })
+
+    it('uses compatibility config origins on initial application construction', async () => {
+        compat.dashboardAllowedOrigins = ['https://initial.example.com']
+        const server = buildApplication()
+
+        const configured = await request(server).get('/api/live').set('Origin', 'https://initial.example.com')
+        assert.strictEqual(configured.headers['access-control-allow-origin'], 'https://initial.example.com')
+    })
 })

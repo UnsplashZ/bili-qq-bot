@@ -169,7 +169,9 @@ function buildApplication(options = {}) {
         `http://127.0.0.1:${DASHBOARD_INGRESS_PORT}`,
         `http://localhost:${listenPort}`,
         `http://127.0.0.1:${listenPort}`,
-        ...validateDashboardAllowedOrigins(configSnapshot?.dashboard?.allowedOrigins || [])
+        ...validateDashboardAllowedOrigins(
+            configSnapshot?.dashboard?.allowedOrigins || sysConfig.dashboardAllowedOrigins || []
+        )
     ])
     app.use(cors({
         origin(origin, callback) {

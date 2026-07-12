@@ -99,7 +99,7 @@ describe('ApplicationMigrationBootstrap', () => {
 
     it('fails before writes when a runtime owner is active', async () => {
         const paths = fixture(); roots.push(paths.root)
-        const lockPath = path.join(paths.dataDir, 'config-state/config-owner.lock')
+        const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
         const owner = new RuntimeOwnerLock({ lockPath })
         await owner.acquire()
         try {

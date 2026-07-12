@@ -46,7 +46,7 @@ class ApplicationMigrationBootstrap {
             lockPath: path.join(this.stateDir, 'bootstrap-owner.lock'),
             identityProvider: options.identityProvider
         })
-        this.runtimeOwnerPath = options.runtimeOwnerPath || path.join(this.dataDir, 'config-state', 'config-owner.lock')
+        this.runtimeOwnerPath = options.runtimeOwnerPath || path.join(this.dataDir, 'runtime', 'config-owner.lock')
         this.schemaRegistry = options.schemaRegistry || new ConfigSchemaMigrationRegistry(options.schemaOptions)
         this.dataRegistry = options.dataRegistry || new DataMigrationRegistry({ dataDir: this.dataDir, migrators: options.migrators, faultInjector: options.dataFaultInjector })
         this.faultInjector = options.faultInjector

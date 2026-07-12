@@ -1326,9 +1326,6 @@ async function performGracefulShutdown(exitCode = 0, options = {}) {
     clearGroupRefreshTimer();
 
     await attempt('config-control-stop', stopConfigControlServer);
-    if (typeof config.stop === 'function') {
-        await attempt('config-stop', () => config.stop());
-    }
 
     try {
         pauseProviderOperations();
@@ -1394,6 +1391,9 @@ async function performGracefulShutdown(exitCode = 0, options = {}) {
             throw error;
         }
     });
+    if (typeof config.stop === 'function') {
+        await attempt('config-stop', () => config.stop());
+    }
 
     clearTimeout(deadlineTimer);
     if (!deadlineAbortTriggered && Date.now() >= shutdownDeadlineAt) abortAtDeadline();

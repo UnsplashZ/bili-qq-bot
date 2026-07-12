@@ -25,12 +25,14 @@ async function run() {
     let dashboardHangs = false
     let forceCleanupRequests = 0
     let blockConfigStopMs = 0
+    const shutdownEvents = []
     const originalExit = process.exit
     process.exit = (code) => { exitCode = code }
 
     try {
         mocked.push(mockModule('../../../src/config', {
             stop: async () => {
+                shutdownEvents.push('config-stop')
                 if (blockConfigStopMs > 0) {
                     const until = Date.now() + blockConfigStopMs
                     while (Date.now() < until) { /* simulate a synchronous tail race */ }
@@ -61,7 +63,10 @@ async function run() {
         mocked.push(mockModule('../../../src/services/ServiceManager', {
             abortOperations() { abortRequests += 1 },
             forceTerminateAll() { forceCleanupRequests += 1 },
-            cleanup: async () => ({ residualPids: [4321] })
+            cleanup: async () => {
+                shutdownEvents.push('python-cleanup')
+                return { residualPids: [4321] }
+            }
         }))
         mocked.push(mockModule('../../../src/services/imageGenerator', {
             cleanup: async () => {},
@@ -90,6 +95,10 @@ async function run() {
         assert.strictEqual(abortRequests, 3, 'all owned runtime registries must receive abort')
         assert.strictEqual(result, 1, 'any drain or residual-process failure must force non-zero exit')
         assert.strictEqual(exitCode, 1)
+        assert.ok(
+            shutdownEvents.indexOf('config-stop') > shutdownEvents.indexOf('python-cleanup'),
+            'the config owner lock must remain held until runtime side effects are cleaned up'
+        )
 
         bot.__testHooks.resetRuntimeState()
         dashboardHangs = true
