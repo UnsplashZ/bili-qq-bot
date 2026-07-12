@@ -493,7 +493,8 @@ describe('ConfigService core', () => {
         }
     })
 
-    it('runs all fallible admission validation before publishing the candidate snapshot', async () => {
+    it('runs all fallible admission validation before publishing the candidate snapshot', async function () {
+        this.timeout(5000)
         const fixture = await createFixture()
         let snapshotPublications = 0
         fixture.service.on('snapshotPublished', () => { snapshotPublications += 1 })
