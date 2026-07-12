@@ -29,11 +29,11 @@ function restore() {
     updateChecker.shouldAtAll = originals.shouldAtAll
     notificationService.processMessageChain = originals.processMessageChain
     notificationService.callAction = originals.callAction
-    config.groupConfigs = config.groupConfigs || {}
+    config.__getMutableCompatStateForTests().groupConfigs = config.groupConfigs || {}
     if (originals.groupConfig3000 === undefined) {
-        delete config.groupConfigs['3000']
+        delete config.__getMutableCompatStateForTests().groupConfigs['3000']
     } else {
-        config.groupConfigs['3000'] = originals.groupConfig3000
+        config.__getMutableCompatStateForTests().groupConfigs['3000'] = originals.groupConfig3000
     }
     updateChecker.ws = originals.ws
     updateChecker.groupAtAllCapabilityCache.clear()
@@ -74,8 +74,8 @@ async function run() {
             }
             return { status: 'ok', retcode: 0 }
         }
-        config.groupConfigs = config.groupConfigs || {}
-        config.groupConfigs['3000'] = {
+        config.__getMutableCompatStateForTests().groupConfigs = config.groupConfigs || {}
+        config.__getMutableCompatStateForTests().groupConfigs['3000'] = {
             ...(config.groupConfigs['3000'] || {}),
             subscriptionAtAll: true,
             subscriptionAtAllRules: config.normalizeSubscriptionAtAllRules(null)

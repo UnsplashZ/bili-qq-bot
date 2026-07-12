@@ -8,7 +8,7 @@ Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to 
 
 The legacy AI/MCP stack has been removed and replaced by a purpose-built Agent architecture under `/src/agent/` (with explicit command-vs-agent routing, its own runtime/memory/profile/social/specialist modules, and Dashboard surfaces under `AgentDecisions`/`AgentMemory`/`AgentSettings`). Do not reintroduce AI chat, vector memory, user profile, or MCP tool wiring through the old removed files or config keys — all such functionality now lives in and must be extended through the new Agent architecture (`/src/agent/`, `/src/services/agent*Service.js`, `/src/commands/agentMemory.js`, `data/agent/`, `data/contexts/`, `data/profiles/`, `data/vectors/`).
 
-**Tech Stack:** Node.js 18+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
+**Tech Stack:** Node.js 22.12+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
 
 ## Project Structure
 
@@ -167,13 +167,15 @@ Follow existing code style:
 
 ### Bot Runtime Lifecycle
 
-`/src/bot.js` is the runtime entry point and owns the socket lifecycle around NapCat/OneBot. It keeps the cross-module runtime handle in one place and gates bot-scoped services on connection state.
+`/src/bot.js` is the runtime entry point and owns the application lifecycle around the selected QQ Provider. `ApplicationMigrationBootstrap` runs first, before ConfigService and every runtime side effect, then atomically hands ownership to ConfigService.
 
-- Establish and maintain the WebSocket connection
-- Keep `global.bot` aligned with login and group state
-- Start bot-scoped services only after the socket is ready
-- Route transport events into the internal service boundaries
-- Stop timers and loops cleanly on disconnect
+- Discover/migrate config and business data under the bootstrap owner lock
+- Acquire the ConfigService owner before releasing the bootstrap owner, then start its watcher
+- Establish and maintain the selected NapCat or QQ Official Provider
+- Publish a new Provider generation only after candidate readiness and release checks
+- Fence stale sockets and keep in-flight work on the Provider generation whose lease it acquired
+- Reconfigure Python, Dashboard, browser, download, subscription, logging, and cache effects from config diffs
+- Drain reloads, operations, timers, listeners, child processes, pages, and sockets during shutdown
 
 ### Message Pipeline
 
@@ -255,42 +257,65 @@ The Python implementation under `/src/services/bili_server_core/` is the Bilibil
 
 ### Adding New Config Keys
 
-1. Add the schema entry in `/src/config/schema.js`:
+1. Add the nested field to the versioned schema in `/src/config/schemaV1.js`, including validation bounds, `secret: true` where applicable, and one or more runtime `effects` when a subsystem must reconfigure:
 ```javascript
-META = {
-  myNewKey: { env: 'MY_NEW_KEY', def: 'default', type: 'string' }
-}
+mySection: objectNode({
+    myNewKey: stringNode('default', { effects: ['my-runtime'] })
+})
 ```
 
-2. The exported config object from `/src/config/index.js` automatically gets getters via `store.defineGetters(...)`:
+2. If old callers still need a flat property, add an explicit compatibility mapping in `FLAT_KEY_TO_PATH`. New production code should read a snapshot/path from `ConfigService`, not add a new environment-variable or `config.json` source.
+
+3. Register or extend the affected runtime handler through the reload registry. A handler must implement prepare/apply/rollback semantics so a failed candidate cannot publish a half-applied effective generation.
+
+4. Persist mutations with a generation-checked transaction:
 ```javascript
-sysConfig.myNewKey = 'new value'  // Sets in config.json
-let val = sysConfig.myNewKey      // Reads: config.json > env > default
+const expectedGeneration = sysConfig.getStatus().documentGeneration
+await sysConfig.patch([
+    { op: 'set', path: ['mySection', 'myNewKey'], value: 'new value' }
+], { actor: 'my-feature', expectedGeneration })
 ```
 
-3. For group-level overrides, use the existing helpers instead of open-coding merge logic:
+5. For group-level values, use the same transaction API and the schema allowlist; do not mutate `groupConfigs` with an unbounded `Object.assign`:
 ```javascript
-sysConfig.ensureGroupConfig(groupId)
-let groupConfig = sysConfig.groupConfigs[groupId]
-groupConfig.myNewKey = 'group-specific value'
-await sysConfig.saveConfigDebounced()
+await sysConfig.update((draft) => {
+    draft.groupConfigs[String(groupId)] ||= {}
+    draft.groupConfigs[String(groupId)].linkCacheTimeout = 30
+}, { actor: 'group-settings', expectedGeneration })
 ```
 
-4. If the key also needs Dashboard exposure, update the Dashboard snapshot builder and API allowlists together.
+6. If the key is exposed in Dashboard/API, update the public projection, backend allowlist, frontend form, generation handling, and tests together. Secret fields must use configured markers and explicit set/clear actions.
 
 ### Config Persistence
 
-`src/config.js` remains the compatibility import path, but persistence now lives in the modular config layer under `/src/config/`.
+`config/config.yaml` is the only application configuration source after installation or successful migration. `src/config.js` remains a compatibility import path, while persistence and reload behavior live under `/src/config/`.
 
-- schema and defaults: `/src/config/schema.js`
-- override loading and save flow: `/src/config/store.js`
+- versioned schema and defaults: `/src/config/schemaV1.js`
+- validation and YAML document limits: `/src/config/validator.js`, `/src/config/yamlDocument.js`
+- atomic `0600` persistence and fsync: `/src/config/configWriter.js`
+- runtime owner lock and generation-checked transactions: `/src/config/configLock.js`, `/src/config/configService.js`
+- diff/effect planning and rollback registry: `/src/config/configDiff.js`, `/src/config/reloadRegistry.js`
+- public Secret-safe projection: `/src/config/publicConfig.js`
+- legacy compatibility facade: `/src/config/index.js`, `/src/config/store.js`
 - group-level helpers: `/src/config/groupConfig.js`
-- dashboard snapshots: `/src/config/dashboardConfig.js`
 - auth and admin helpers: `/src/config/authConfig.js`
-- JWT secret ownership/compatibility: `/src/config/jwtSecretOwner.js`
 - shape normalization helpers: `/src/config/normalizers.js`
 
-All `config.json` writes are still debounced (500ms) via `saveConfigDebounced()` to prevent I/O storms.
+Normal runtime never consumes legacy files after bootstrap. `ApplicationMigrationBootstrap` reads them only when `config.yaml` is absent; existing valid YAML always wins. The same service backs direct Node/Compose startup and offline CLI migration.
+
+Replacing the Docker image and recreating the single Bot container automatically runs legacy/schema/data migration. `BILI_LEGACY_WRITER_FENCED` is not required and is not persisted into YAML. The supported deployment model is one Bot container per mounted config/data directory; concurrently running old and new containers against the same directory is an unsupported operator error.
+
+Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Only host ports, volumes, and Docker networks return `deploymentApplyRequired` and require `setup.sh --apply`.
+
+Useful offline CLI entry points:
+
+```bash
+node src/cli/config.js init --output config/config.yaml
+node src/cli/config.js validate --config config/config.yaml
+node src/cli/config.js migrate-legacy --legacy-root config --output config/config.yaml
+node src/cli/data-migrate.js apply --root .
+node src/cli/config.js deployment-plan --config config/config.yaml --output data/config-state/deployment-plan.json
+```
 
 
 ### Cookie Management
@@ -385,7 +410,7 @@ Prefer extending the current command flow over introducing parallel entry points
 Three levels checked in order:
 1. **User:** Anyone (read-only operations)
 2. **Group Admin:** Set via `/设置 管理员` (per-group config)
-3. **Root Admin:** `ADMIN_QQ` from `.env` (global control)
+3. **Root Admin:** `admin.rootQQ` or `qq.official.rootOpenids` from `config/config.yaml`
 
 Check in command:
 ```javascript
@@ -593,11 +618,12 @@ Examples:
 
 ### Multi-Container Setup
 
-`docker-compose.yml` defines two services:
-- **napcat:** QQ client container (port 3001 WebSocket, port 6099 WebUI)
-- **bili-qq-bot:** Main application (port 3000 Dashboard)
+`setup.sh` and the config CLI render the managed portion of Compose from `config/config.yaml`:
 
-Network: `bot_network` (bridge mode) allows inter-container communication.
+- **NapCat mode:** `napcat` plus `bili-qq-bot`
+- **QQ Official mode:** `bili-qq-bot` only
+
+The renderer tracks owned pointers and refuses to silently overwrite unknown user-managed Compose content. Host ports, mount sources, and Docker networks are deployment-level settings; apply them with `setup.sh --apply`.
 
 ### Volume Mounts
 
@@ -610,7 +636,18 @@ volumes:
   - ./napcat/qq:/app/.config/QQ # NapCat data (QQ account)
 ```
 
-**Critical:** `NAPCAT_TEMP_PATH` and `NAPCAT_READ_PATH` must map to the same physical location for image sharing between bot and NapCat.
+**Critical:** in NapCat mode, `paths.napcatTemp` and `paths.napcatRead` plus their rendered mounts must refer to the same shared content. Mount relocation requires a validated relocation artifact; setup preserves data, NapCat state, fonts, cookies, Agent state, Official ID state, subscription anchors, and the delivery ledger.
+
+For install and upgrades, use `setup.sh` rather than hand-editing generated Compose:
+
+```bash
+sudo ./setup.sh
+sudo ./setup.sh --upgrade
+sudo ./setup.sh --apply
+sudo ./setup.sh --dry-run
+```
+
+The upgrade state machine does not archive legacy config until normal readiness succeeds. Before `runtime_released`, failure restores the old image, config, data, Compose, networks, and managed-writer state. After that marker it recovers the same `releaseEpoch` instead of starting a second runtime epoch.
 
 ### Building Custom Images
 
@@ -722,9 +759,12 @@ Only after logs, health checks, preview tools, and tests/builds are not enough:
 
 ### Credential Management
 
-- **Never commit** `.env` or `config.json` files
+- **Never commit** `config/config.yaml` or any legacy `.env`, `config.json`, `.jwtSecret`, or `.qqOfficialClientSecret`
+- Keep `config/` at `0700` and `config/config.yaml` at `0600`; migration backups and manifests are protected under `data/`
+- Secrets live in YAML but public API/Dashboard projections expose only configured markers, never plaintext or low-entropy hashes
+- Do not log raw config documents, migration exceptions, Provider payloads, runtime environments, or secret-bearing paths
 - Bilibili cookies stored in `/data/cookies*.json` (not version controlled)
-- JWT secret auto-generated if not in `.env` (warning logged)
+- Dashboard JWT is generated during initialization/migration when absent and is then owned by YAML
 
 ### Input Validation
 
@@ -748,12 +788,12 @@ if (!isRoot) {
 
 ### Private Chat Restriction
 
-Private-chat entry is limited to the root administrator (`ADMIN_QQ`).
+Private-chat entry is limited to the root administrator configured by `admin.rootQQ` (NapCat) or `qq.official.rootOpenids` (QQ Official).
 
 1. Private messages from non-root users are rejected immediately with the message indicating that the feature is admin-only.
 2. Root private chat can use link parsing and download features.
 3. Root private chat cannot use group-management features such as `/设置`, `/管理`, or subscription management commands (`/订阅*`, `/取消订阅*`, `/查询订阅`); those flows must be handled in the target group or through the Web UI.
-4. The Web UI group-management scope only accepts numeric group IDs. Requests using `private_*` return `400 WebUI 不支持私聊会话管理`.
+4. The Web UI group-management scope accepts numeric NapCat group IDs and schema-safe QQ Official opaque group IDs. Requests using `private_*` return `400 WebUI 不支持私聊会话管理`.
 
 Group admins who are not root cannot use private-chat entry.
 
@@ -766,7 +806,7 @@ Group admins who are not root cannot use private-chat entry.
 
 ### Memory Management
 
-- **Debounced Saves:** Config writes batched (500ms delay)
+- **Serialized Config Transactions:** ConfigService generation-checks, atomically persists, fsyncs, applies runtime effects, and rolls back failed candidates
 
 ### Image Generation
 
@@ -829,16 +869,16 @@ await notificationService.sendGroupMessage(groupId, {
 ```javascript
 const sysConfig = require('./config')
 
-// Ensure config exists
-sysConfig.ensureGroupConfig(groupId)
+const id = String(groupId)
+const timeout = sysConfig.getGroupConfig(id, 'linkCacheTimeout')
 
-// Read group setting (with fallback to global)
-let groupConfig = sysConfig.groupConfigs[groupId]
-let timeout = groupConfig.linkCacheTimeout ?? sysConfig.linkCacheTimeout
-
-// Write group setting
-groupConfig.linkCacheTimeout = 300
-await sysConfig.saveConfigDebounced()
+await sysConfig.update((draft) => {
+    draft.groupConfigs[id] ||= {}
+    draft.groupConfigs[id].linkCacheTimeout = 300
+}, {
+    actor: 'example',
+    expectedGeneration: sysConfig.getStatus().documentGeneration
+})
 ```
 
 ### Making Bilibili API Calls

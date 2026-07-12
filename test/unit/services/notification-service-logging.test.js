@@ -19,13 +19,17 @@ async function run() {
         })
 
         delete require.cache[notificationServicePath]
-        require(notificationServicePath)
+        const notificationService = require(notificationServicePath)
+
+        assert.ok(!logs.some(line => line.includes('temp-image-cleanup-scheduler-started')))
+        notificationService.startTempImageCleanupScheduler()
 
         await new Promise(resolve => setImmediate(resolve))
 
         assert.ok(logs.some(line => line.includes('INF SEND') && line.includes('[svc:notification]') && line.includes('temp-image-cleanup-scheduler-started')))
         assert.ok(!logs.some(line => line.includes('[NotificationService]')))
-        console.log('✓ notificationService 初始化会输出 SEND 摘要日志')
+        await notificationService.stop()
+        console.log('✓ notificationService 显式启动 cleanup scheduler 时输出 SEND 摘要日志')
     } finally {
         off()
         global.setInterval = originalSetInterval

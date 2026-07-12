@@ -62,7 +62,7 @@ describe('PreviewLayoutEditor source contracts', function () {
         assert.ok(actionBarIndex > -1, 'action bar should exist')
         assert.ok(gradientIndex < sourceIndex, 'source controls should be below gradient section')
         assert.ok(sourceIndex < actionBarIndex, 'action bar should stay below source controls')
-        assert.match(source, /usePreviewGradientSettings\(show\)/)
+        assert.match(source, /usePreviewGradientSettings\(show, configGenerationRef\)/)
     })
 
     it('only auto-refreshes preview when the current canvas is stale', function () {

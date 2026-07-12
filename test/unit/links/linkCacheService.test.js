@@ -8,12 +8,12 @@ const linkCacheService = require('../../../src/services/link/linkCacheService')
 describe('linkCacheService', function () {
     beforeEach(function () {
         linkCacheService.__resetForTests()
-        delete config.groupConfigs['test-group']
-        delete config.groupConfigs['expire-group']
+        delete config.__getMutableCompatStateForTests().groupConfigs['test-group']
+        delete config.__getMutableCompatStateForTests().groupConfigs['expire-group']
     })
 
     it('marks cache keys and reports hits before expiry', function () {
-        config.groupConfigs['test-group'] = { linkCacheTimeout: 60 }
+        config.__getMutableCompatStateForTests().groupConfigs['test-group'] = { linkCacheTimeout: 60 }
 
         const cacheKey = 'video|BV1xx411c7mD|test-group'
         const markedKey = linkCacheService.markProcessed(cacheKey)
@@ -23,7 +23,7 @@ describe('linkCacheService', function () {
     })
 
     it('builds cache keys from descriptors', function () {
-        config.groupConfigs['test-group'] = { linkCacheTimeout: 60 }
+        config.__getMutableCompatStateForTests().groupConfigs['test-group'] = { linkCacheTimeout: 60 }
 
         const cacheKey = linkCacheService.markProcessedDescriptor({
             type: 'favorite_list',
@@ -37,12 +37,12 @@ describe('linkCacheService', function () {
     })
 
     it('keeps existing entries when the group timeout is extended before cleanup', function () {
-        config.groupConfigs['expire-group'] = { linkCacheTimeout: 1 }
+        config.__getMutableCompatStateForTests().groupConfigs['expire-group'] = { linkCacheTimeout: 1 }
 
         const cacheKey = 'dynamic|123456|expire-group'
         linkCacheService.markProcessed(cacheKey)
         linkCacheService.__setCacheTimeForTests(cacheKey, Date.now() - 1500)
-        config.groupConfigs['expire-group'].linkCacheTimeout = 60
+        config.__getMutableCompatStateForTests().groupConfigs['expire-group'].linkCacheTimeout = 60
 
         linkCacheService.cleanupExpired()
 
@@ -50,12 +50,12 @@ describe('linkCacheService', function () {
     })
 
     it('expires existing cache entries immediately when the group timeout is shortened', function () {
-        config.groupConfigs['test-group'] = { linkCacheTimeout: 60 }
+        config.__getMutableCompatStateForTests().groupConfigs['test-group'] = { linkCacheTimeout: 60 }
 
         const cacheKey = 'video|BV1xx411c7mD|test-group'
         linkCacheService.markProcessed(cacheKey)
         linkCacheService.__setCacheTimeForTests(cacheKey, Date.now() - 30000)
-        config.groupConfigs['test-group'].linkCacheTimeout = 10
+        config.__getMutableCompatStateForTests().groupConfigs['test-group'].linkCacheTimeout = 10
 
         assert.strictEqual(linkCacheService.isCached(cacheKey), false)
     })

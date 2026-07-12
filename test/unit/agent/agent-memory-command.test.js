@@ -8,10 +8,12 @@ const path = require('path')
 
 const commandManager = require(path.join(__dirname, '../../../src/commands'))
 const longTermStore = require(path.join(__dirname, '../../../src/agent/memory/longTermStore'))
+const config = require(path.join(__dirname, '../../../src/config'))
 
 const tempMemoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-qq-agent-memory-command-'))
 const tempMemoryFile = path.join(tempMemoryDir, 'memories.json')
 const originalAdminQQ = process.env.ADMIN_QQ
+const originalIsRootAdmin = config.isRootAdmin
 
 function createWs() {
     const sent = []
@@ -54,6 +56,7 @@ async function seedMemory() {
 
 async function run() {
     process.env.ADMIN_QQ = '42'
+    config.isRootAdmin = userId => String(userId) === '42'
     longTermStore.resetForTest(tempMemoryFile)
 
     try {
@@ -114,6 +117,7 @@ async function run() {
             process.env.ADMIN_QQ = originalAdminQQ
         }
         longTermStore.resetForTest()
+        config.isRootAdmin = originalIsRootAdmin
         fs.rmSync(tempMemoryDir, { recursive: true, force: true })
     }
 }

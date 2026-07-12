@@ -1,0 +1,23 @@
+version: 1
+qq:
+  provider: napcat
+  napcat:
+    wsUrl: ws://napcat:3001
+    wsToken: fixture-token
+dashboard:
+  listenPort: 3000
+  password: fixture-password
+  jwtSecret: fixture-jwt-not-a-real-secret
+deployment:
+  ports:
+    dashboardHost: 3000
+  mounts:
+    config: ./config
+    data: ./relocated-data
+    logs: ./logs
+    fonts: ./fonts/custom
+    napcatConfig: ./napcat/config
+    napcatQq: ./napcat/qq
+  network:
+    name: bot_network
+    external: false

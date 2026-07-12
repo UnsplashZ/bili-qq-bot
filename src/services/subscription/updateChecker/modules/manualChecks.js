@@ -1,4 +1,4 @@
-const { subscriptionManager, biliApi, logger } = require('../adapters/deps')
+const { subscriptionManager, subscriptionDeliveryStore, biliApi, logger } = require('../adapters/deps')
 const { classifyArchiveDynamic } = require('../helpers/archiveDynamic')
 const { decideAdvance } = require('../helpers/stateAdvance')
 const { resolveLiveState, normalizeRoomId } = require('../helpers/liveState')
@@ -483,6 +483,13 @@ module.exports = {
     },
 
     async checkBangumi(sub, targetGroups = null) {
+        if (this.operationRegistry && !this.operationRegistry.getContext()) {
+            return this.operationRegistry.run(
+                'checkBangumi',
+                () => this.checkBangumi(sub, targetGroups),
+                { seasonId: String(sub?.seasonId || '') }
+            )
+        }
         // Use provided targetGroups or fall back to sub.groupIds
         const groupsToNotify = targetGroups || sub.groupIds
         const targetGroupSourceMap = this.createGroupSourceMap(groupsToNotify, ['manual'])
@@ -505,37 +512,82 @@ module.exports = {
                 const url = `https://www.bilibili.com/bangumi/play/ep${newEp.id}`
                 const notificationText = `${sub.title} 更新了：${newEp.index_show}`
                 let canAdvanceBangumi = false
+                const allTargetGroups = this.getGroupIdsFromSourceMap(targetGroupSourceMap)
+                let pendingTargetMap = targetGroupSourceMap
 
+                if (subscriptionDeliveryStore?.getDeliveryCoverage) {
+                    const coverage = await subscriptionDeliveryStore.getDeliveryCoverage(
+                        allTargetGroups,
+                        'bangumi',
+                        String(newEp.id)
+                    )
+                    if (coverage.hasAnyRecord) {
+                        pendingTargetMap = this.filterGroupSourceMapByGroups(
+                            targetGroupSourceMap,
+                            coverage.undeliveredGroups
+                        )
+                    }
+                    if (coverage.hasAnyRecord && coverage.undeliveredGroups.length === 0) {
+                        canAdvanceBangumi = true
+                    }
+                }
+
+                if (canAdvanceBangumi) {
+                    await subscriptionManager.updateBangumiSub(sub.seasonId, { lastEpId: newEp.id })
+                    return
+                }
+
+                let notifyResult
                 try {
-                    const notifyResult = await this.notifyGroupsWithImageAndCache(
-                        targetGroupSourceMap,
+                    notifyResult = await this.notifyGroupsWithImageAndCache(
+                        pendingTargetMap,
                         res,
                         'bangumi',
                         url,
                         notificationText,
                         { actorUid: null, fallbackSources: ['manual'] }
                     )
-                    const decision = decideAdvance(notifyResult)
-                    canAdvanceBangumi = decision.action === 'advance'
-                    if (!canAdvanceBangumi) {
-                        subLog('warn', 'bangumi-state-advance-skipped', {
-                            seasonId: sub.seasonId,
-                            title: sub.title,
-                            decision: decision.action,
-                            reason: decision.reason
-                        }, bangumiScope)
-                    }
                 } catch (e) {
                     subLog('error', 'bangumi-render-failed', {
                         seasonId: sub.seasonId,
                         error: logger.getErrorMessage(e)
                     }, bangumiScope)
-                    this.notifyGroups(
-                        targetGroupSourceMap,
+                    notifyResult = await this.notifyGroups(
+                        pendingTargetMap,
                         `${notificationText}\n${url}`,
                         newEp.id,
                         { actorUid: null, category: 'bangumi', fallbackSources: ['manual'] }
                     )
+                    notifyResult.fallbackUsed = true
+                    notifyResult.fallbackUsedGroups = [
+                        ...(Array.isArray(notifyResult.fallbackUsedGroups) ? notifyResult.fallbackUsedGroups : []),
+                        ...(Array.isArray(notifyResult.successGroups) ? notifyResult.successGroups : [])
+                    ]
+                }
+
+                await this.recordNotifyDeliveredGroups('bangumi', newEp.id, notifyResult)
+                let decision = decideAdvance(notifyResult)
+                if (subscriptionDeliveryStore?.getDeliveryCoverage) {
+                    const coverage = await subscriptionDeliveryStore.getDeliveryCoverage(
+                        allTargetGroups,
+                        'bangumi',
+                        String(newEp.id)
+                    )
+                    canAdvanceBangumi = coverage.undeliveredGroups.length === 0
+                    decision = canAdvanceBangumi
+                        ? { action: 'advance', reason: 'delivery_ledger_complete' }
+                        : { action: 'retry', reason: 'delivery_ledger_incomplete' }
+                } else {
+                    canAdvanceBangumi = decision.action === 'advance' &&
+                        (!Array.isArray(notifyResult?.failedGroups) || notifyResult.failedGroups.length === 0)
+                }
+                if (!canAdvanceBangumi) {
+                    subLog('warn', 'bangumi-state-advance-skipped', {
+                        seasonId: sub.seasonId,
+                        title: sub.title,
+                        decision: decision.action,
+                        reason: decision.reason
+                    }, bangumiScope)
                 }
 
                 if (canAdvanceBangumi) {

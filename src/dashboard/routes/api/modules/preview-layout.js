@@ -2,6 +2,7 @@
 
 const express = require('express')
 const logger = require('../../../../utils/logger')
+const sysConfig = require('../../../../config')
 const { resolvePreviewInput } = require('../../../../services/previewLab/inputResolver')
 const { resolvePreviewTarget } = require('../../../../services/previewLab/targetResolver')
 const { buildMockPreviewTarget } = require('../../../../services/previewLab/mockData')
@@ -35,10 +36,27 @@ const {
     resetPreviewTemplate
 } = require('../../../../services/previewTemplate/merge')
 const { dashLog } = require('../shared/logging')
+const {
+    assertExpectedGeneration,
+    configErrorResponse,
+    configErrorStatus
+} = require('../shared/config-mutation')
+const { isOfficialProviderMode } = require('../shared/group-guard')
+const { isNumericGroupId, isOfficialOpaqueGroupId } = require('../shared/normalize')
 
 const router = express.Router()
 
 function sendError(req, res, error, fallbackMessage = 'Preview layout request failed') {
+    if (String(error?.code || '').startsWith('CONFIG_')) {
+        const payload = configErrorResponse(sysConfig, error)
+        const statusCode = configErrorStatus(error)
+        dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'preview-layout-request-failed', {
+            code: payload.code,
+            statusCode
+        })
+        res.status(statusCode).json(payload)
+        return
+    }
     const statusCode = error instanceof PreviewLayoutValidationError || error instanceof PreviewTemplateValidationError
         ? error.statusCode
         : 500
@@ -73,10 +91,11 @@ function normalizeType(value) {
 function normalizeGroupId(value) {
     const groupId = String(value || '').trim()
     if (!groupId) return ''
-    if (!/^\d{5,20}$/.test(groupId)) {
-        throw new PreviewLayoutValidationError('groupId must be a numeric QQ group id')
+    if (isNumericGroupId(groupId)) return groupId
+    if (isOfficialProviderMode(sysConfig, global.bot) && isOfficialOpaqueGroupId(groupId)) {
+        return groupId
     }
-    return groupId
+    throw new PreviewLayoutValidationError('groupId must be a numeric QQ group id or Official group_openid')
 }
 
 function normalizeScope(value) {
@@ -169,16 +188,18 @@ router.get('/preview-layout/config', (req, res) => {
         const groupId = normalizeGroupId(req.query.groupId)
         assertEditableType(type)
         const result = getPreviewTemplateConfigForScope(type, groupId)
+        res.set('X-Config-Generation', String(sysConfig.getStatus().documentGeneration))
         res.json(result)
     } catch (error) {
         sendError(req, res, error, 'Failed to read preview layout config')
     }
 })
 
-router.post('/preview-layout/config', (req, res) => {
+router.post('/preview-layout/config', async (req, res) => {
     try {
         assertBodySize(req.body)
-        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'patch', 'template'], 'preview layout config request')
+        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'patch', 'template', 'expectedGeneration'], 'preview layout config request')
+        const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
         assertEditableType(type)
@@ -197,35 +218,41 @@ router.post('/preview-layout/config', (req, res) => {
             })
         }
 
-        let saved
+        const storedConfig = sysConfig.getSnapshot().rendering?.previewLayout
+        let mutation
         if (req.body?.template) {
-            saved = savePreviewTemplate(scope, type, req.body.template, groupId)
+            mutation = savePreviewTemplate(scope, type, req.body.template, groupId, storedConfig)
         } else {
             const patch = normalizePreviewLayoutPatch(type, req.body.patch || {}, {
                 requireEditable: true,
                 checkSize: true
             })
-            saved = saveLegacyPatchAsTemplate(scope, type, patch, groupId)
+            mutation = saveLegacyPatchAsTemplate(scope, type, patch, groupId, storedConfig)
         }
+        const result = await sysConfig.patch([
+            { op: 'set', path: ['rendering', 'previewLayout'], value: mutation.nextConfig }
+        ], { actor: 'dashboard', expectedGeneration })
         dashLog(req, 'info', 'preview-layout-config-saved', {
             scope,
             type,
             groupId
         })
         res.json({
+            ...result,
             status: 'success',
-            saved,
-            config: getPreviewTemplateConfigForScope(type, groupId)
+            saved: mutation.saved,
+            config: getPreviewTemplateConfigForScope(type, groupId, mutation.nextConfig)
         })
     } catch (error) {
         sendError(req, res, error, 'Failed to save preview layout config')
     }
 })
 
-router.post('/preview-layout/reset', (req, res) => {
+router.post('/preview-layout/reset', async (req, res) => {
     try {
         assertBodySize(req.body)
-        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'element', 'nodeId', 'resetScope'], 'preview layout reset request')
+        assertAllowedKeys(req.body, ['scope', 'groupId', 'type', 'element', 'nodeId', 'resetScope', 'expectedGeneration'], 'preview layout reset request')
+        const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
         const scope = normalizeScope(req.body?.scope)
         const type = normalizeType(req.body?.type)
         assertEditableType(type)
@@ -241,7 +268,16 @@ router.post('/preview-layout/reset', (req, res) => {
             throw new PreviewLayoutValidationError(`unknown preview layout element: ${element}`)
         }
 
-        const resetResult = resetPreviewTemplate(scope, type, groupId, nodeId || element || null)
+        const mutation = resetPreviewTemplate(
+            scope,
+            type,
+            groupId,
+            nodeId || element || null,
+            sysConfig.getSnapshot().rendering?.previewLayout
+        )
+        const result = await sysConfig.patch([
+            { op: 'set', path: ['rendering', 'previewLayout'], value: mutation.nextConfig }
+        ], { actor: 'dashboard', expectedGeneration })
         dashLog(req, 'info', 'preview-layout-config-reset', {
             scope,
             type,
@@ -249,8 +285,9 @@ router.post('/preview-layout/reset', (req, res) => {
             element
         })
         res.json({
+            ...result,
             status: 'success',
-            config: resetResult
+            config: mutation.result
         })
     } catch (error) {
         sendError(req, res, error, 'Failed to reset preview layout config')

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "users": {
+    "42": {
+      "uid": "42",
+      "dynamic": {
+        "lastDynamicId": "100",
+        "meta": {
+          "source": "updateChecker"
+        }
+      },
+      "video": {
+        "videoId": "BV1FIXTURE",
+        "lastCreated": 1000,
+        "meta": {}
+      },
+      "article": {
+        "articleId": "cv100",
+        "lastPublishTime": 1000,
+        "meta": {}
+      },
+      "live": {
+        "lastStatus": 0,
+        "roomId": "200",
+        "meta": {}
+      },
+      "targets": {}
+    }
+  }
+}

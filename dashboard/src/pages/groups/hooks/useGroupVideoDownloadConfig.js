@@ -42,7 +42,13 @@ function normalizeGroupVideoDownloadConfig(groupConfig, globalConfig) {
   };
 }
 
-const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show }) => {
+const useGroupVideoDownloadConfig = ({
+  selectedGroupId,
+  runLockedAction,
+  show,
+  requireExpectedGeneration,
+  syncConfigGeneration
+}) => {
   const [videoDownloadConfig, setVideoDownloadConfig] = useState(createDefaultVideoDownloadConfig());
   const [globalVideoDownloadConfig, setGlobalVideoDownloadConfig] = useState(DEFAULT_GLOBAL_VIDEO_DOWNLOAD_CONFIG);
   const [videoDownloadDirty, setVideoDownloadDirty] = useState(false);
@@ -91,9 +97,16 @@ const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show })
     return runLockedAction('videoConfig', async () => {
       try {
         if (videoDownloadResetPending) {
-          await api.delete(`/api/groups/${selectedGroupId}/video-download-config`);
+          const response = await api.delete(`/api/groups/${selectedGroupId}/video-download-config`, {
+            data: { expectedGeneration: requireExpectedGeneration() }
+          });
+          syncConfigGeneration(response.data);
         } else {
-          await api.put(`/api/groups/${selectedGroupId}/video-download-config`, videoDownloadConfig);
+          const response = await api.put(`/api/groups/${selectedGroupId}/video-download-config`, {
+            ...videoDownloadConfig,
+            expectedGeneration: requireExpectedGeneration()
+          });
+          syncConfigGeneration(response.data);
         }
         setVideoDownloadDirty(false);
         setVideoDownloadResetPending(false);
@@ -105,7 +118,7 @@ const useGroupVideoDownloadConfig = ({ selectedGroupId, runLockedAction, show })
         return false;
       }
     });
-  }, [runLockedAction, selectedGroupId, videoDownloadConfig, videoDownloadDirty, videoDownloadResetPending, show]);
+  }, [runLockedAction, selectedGroupId, videoDownloadConfig, videoDownloadDirty, videoDownloadResetPending, show, requireExpectedGeneration, syncConfigGeneration]);
 
   const resetVideoDownloadConfig = useCallback(() => {
     setVideoDownloadConfig(createDefaultVideoDownloadConfig());

@@ -4,11 +4,13 @@ import { Button } from '../components/ui';
 import { login } from '../utils/auth';
 import { useToast } from '../hooks/useToast';
 import { Lock, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { show } = useToast();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,9 +21,9 @@ const Login = () => {
 
     setLoading(true);
     try {
-      await login(password);
+      const result = await login(password);
       show('登录成功', 'success');
-      window.location.href = '/';
+      navigate(result?.recoveryRequired === true || result?.redirectPath === '/settings' ? '/settings' : '/', { replace: true });
     } catch (error) {
       console.error('Login failed:', error);
       const msg = error.response?.data?.message || '登录失败，请检查密码';

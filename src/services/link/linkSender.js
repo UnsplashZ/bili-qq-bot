@@ -17,27 +17,27 @@ async function sendPrepared(ws, groupId, prepared, userId = null, options = {}) 
     }], userId)
 }
 
-function defaultSendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null) {
+async function defaultSendGroupMessageWithFallback(ws, groupId, base64Image, url, userId = null) {
     return defaultSendGroupMessage(ws, groupId, [
         { type: 'image', data: { file: `base64://${base64Image}` } },
         { type: 'text', data: { text: `${url}` } }
     ], userId)
 }
 
-function defaultSendGroupMessage(ws, groupId, messageChain, userId = null) {
+async function defaultSendGroupMessage(ws, groupId, messageChain, userId = null) {
     if (typeof groupId === 'string' && groupId.startsWith('private_')) {
         const realUserId = groupId.replace('private_', '')
-        notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
+        await notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
         return
     }
 
     if (groupId) {
-        notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
+        await notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
         return
     }
 
     if (userId) {
-        notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
+        await notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
     }
 }
 

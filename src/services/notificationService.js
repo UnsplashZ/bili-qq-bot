@@ -1,8 +1,11 @@
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const logger = require('../utils/logger');
 const config = require('../config');
+const qqProviderRuntime = require('../providers/qq/runtime');
+const { botOperationRegistry } = require('./runtime/botOperationRegistry');
 
 const TEMP_IMAGE_CLEANUP_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 const TEMP_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1h
@@ -16,11 +19,48 @@ function sendLog(level, message, fields = {}, scope = NOTIFICATION_SCOPE) {
     logger.logEvent(level, 'SEND', scope, message, fields);
 }
 
+function trackRuntimePromise(promise) {
+    const context = botOperationRegistry.getContext()
+    return context?.trackPromise ? context.trackPromise(promise) : promise
+}
+
+function getOfficialProvider(handle = null) {
+    if (handle) {
+        return String(handle.id || '').toLowerCase() === 'official' ? handle : null;
+    }
+    const provider = qqProviderRuntime.getCurrentProvider();
+    if (String(provider?.id || '').toLowerCase() === 'official') {
+        return provider;
+    }
+    return null;
+}
+
+function shouldUseOfficialTransport(handle = null) {
+    return Boolean(getOfficialProvider(handle));
+}
+
 /**
  * NotificationService - 统一的消息发送服务
  * 提供共享的消息发送逻辑，支持文本、图片等多种消息类型
  */
 class NotificationService {
+    static runWithSendContext(context, fn) {
+        if (typeof fn !== 'function') return undefined;
+        return this._sendContext.run(context || {}, fn);
+    }
+
+    static getSendContext() {
+        return this._sendContext.getStore() || {};
+    }
+
+    static getOfficialSendMetadata(extra = {}) {
+        const context = this.getSendContext();
+        return {
+            ...(context.official || {}),
+            ...extra
+        };
+    }
+
     /**
      * 调用 OneBot Action，并等待带同一 echo 的响应
      * @param {WebSocket} ws - WebSocket连接实例
@@ -31,7 +71,16 @@ class NotificationService {
      * @returns {Promise<Object>} - 原始 OneBot 响应 payload
      */
     static callAction(ws, action, params = {}, logPrefix = 'NotificationService', timeoutMs = 5000) {
-        return new Promise((resolve, reject) => {
+        const officialProvider = getOfficialProvider(ws);
+        if (officialProvider) {
+            return trackRuntimePromise(officialProvider.callAction(action, params, {
+                ...this.getOfficialSendMetadata(params),
+                source: normalizeSource(logPrefix),
+                timeoutMs
+            }));
+        }
+
+        return trackRuntimePromise(new Promise((resolve, reject) => {
             if (!ws) {
                 reject(new Error('WebSocket is not available'));
                 return;
@@ -94,7 +143,7 @@ class NotificationService {
                 clearTimeout(pending.timeoutId);
                 pending.reject(e);
             }
-        });
+        }));
     }
 
     static _ensureActionDispatcher(ws) {
@@ -183,15 +232,25 @@ class NotificationService {
      * 启动图片临时文件清理任务（每小时执行一次，清理超过 24 小时的 .png）
      */
     static startTempImageCleanupScheduler() {
-        if (this._tempImageCleanupTimer) return;
+        if (this._tempImageCleanupTimer) return this._tempImageCleanupPromise;
 
         const runCleanup = async () => {
+            const cleanupPromise = (async () => {
+                try {
+                    await this.cleanupExpiredTempImages();
+                } catch (e) {
+                    sendLog('error', 'temp-image-cleanup-failed', {
+                        error: logger.getErrorMessage(e)
+                    });
+                }
+            })();
+            this._tempImageCleanupPromise = cleanupPromise;
             try {
-                await this.cleanupExpiredTempImages();
-            } catch (e) {
-                sendLog('error', 'temp-image-cleanup-failed', {
-                    error: logger.getErrorMessage(e)
-                });
+                await cleanupPromise;
+            } finally {
+                if (this._tempImageCleanupPromise === cleanupPromise) {
+                    this._tempImageCleanupPromise = null;
+                }
             }
         };
 
@@ -204,15 +263,23 @@ class NotificationService {
             this._tempImageCleanupTimer.unref();
         }
         sendLog('info', 'temp-image-cleanup-scheduler-started');
+        return this._tempImageCleanupPromise;
     }
 
     /**
      * 停止图片临时文件清理任务（主要用于测试）
      */
-    static stopTempImageCleanupScheduler() {
-        if (!this._tempImageCleanupTimer) return;
-        clearInterval(this._tempImageCleanupTimer);
-        this._tempImageCleanupTimer = null;
+    static async stopTempImageCleanupScheduler() {
+        if (this._tempImageCleanupTimer) {
+            clearInterval(this._tempImageCleanupTimer);
+            this._tempImageCleanupTimer = null;
+        }
+        const pendingCleanup = this._tempImageCleanupPromise;
+        if (pendingCleanup) await pendingCleanup;
+    }
+
+    static async stop() {
+        await this.stopTempImageCleanupScheduler();
     }
 
     /**
@@ -364,13 +431,14 @@ class NotificationService {
      * @param {string} logPrefix - 日志前缀
      * @returns {Array} - 处理后的消息链
      */
-    static processMessageChain(message, logPrefix) {
+    static processMessageChain(message, logPrefix, options = {}) {
         let messageChain;
+        const officialTransport = options.officialTransport || shouldUseOfficialTransport(options.transport || null);
         // Check if message is an array (for mixed content like text + image)
         if (Array.isArray(message)) {
             // 处理图片消息，将base64图片转换为文件路径
             messageChain = message.map(item => {
-                if (item.type === 'image' && item.data.file && item.data.file.startsWith('base64://')) {
+                if (!officialTransport && item.type === 'image' && item.data.file && item.data.file.startsWith('base64://')) {
                     // 如果配置了直接发送 Base64，则不做转换
                     if (config.useBase64Send) {
                         return item;
@@ -412,6 +480,53 @@ class NotificationService {
      * @param {boolean} enableFallback - 是否启用失败回退（发送错误通知），默认为true
      */
     static sendGroupMessage(ws, groupId, message, logPrefix = 'NotificationService', enableFallback = true) {
+        const officialProvider = getOfficialProvider(ws);
+        if (officialProvider) {
+            const messageChain = this.processMessageChain(message, logPrefix, {
+                officialTransport: true,
+                transport: officialProvider
+            });
+            sendLog('info', 'group-send-start', {
+                source: normalizeSource(logPrefix),
+                provider: 'official',
+                groupId,
+                chainLength: messageChain.length
+            });
+            return trackRuntimePromise(officialProvider.sendGroupMessage(groupId, messageChain, {
+                ...this.getOfficialSendMetadata(),
+                source: normalizeSource(logPrefix)
+            }).then((result) => {
+                sendLog('info', 'group-send-ok', {
+                    source: normalizeSource(logPrefix),
+                    provider: 'official',
+                    groupId
+                });
+                return result;
+            }).catch((e) => {
+                sendLog('error', 'group-send-failed', {
+                    source: normalizeSource(logPrefix),
+                    provider: 'official',
+                    groupId,
+                    error: logger.getErrorMessage(e)
+                });
+                if (enableFallback) {
+                    return officialProvider.sendGroupMessage(groupId, [{ type: 'text', data: { text: '消息发送失败，请查看日志' } }], {
+                        ...this.getOfficialSendMetadata(),
+                        source: normalizeSource(logPrefix)
+                    }).catch((fallbackError) => {
+                        sendLog('error', 'group-send-fallback-failed', {
+                            source: normalizeSource(logPrefix),
+                            provider: 'official',
+                            groupId,
+                            error: logger.getErrorMessage(fallbackError)
+                        });
+                        throw fallbackError;
+                    });
+                }
+                throw e;
+            }));
+        }
+
         if (!ws) {
             sendLog('warn', 'group-send-skipped', {
                 source: normalizeSource(logPrefix),
@@ -422,7 +537,7 @@ class NotificationService {
         }
 
         try {
-            const messageChain = this.processMessageChain(message, logPrefix);
+            const messageChain = this.processMessageChain(message, logPrefix, { transport: ws });
 
             const payload = {
                 action: 'send_group_msg',
@@ -486,6 +601,53 @@ class NotificationService {
      * @param {boolean} enableFallback - 是否启用失败回退
      */
     static sendPrivateMessage(ws, userId, message, logPrefix = 'NotificationService', enableFallback = true) {
+        const officialProvider = getOfficialProvider(ws);
+        if (officialProvider) {
+            const messageChain = this.processMessageChain(message, logPrefix, {
+                officialTransport: true,
+                transport: officialProvider
+            });
+            sendLog('info', 'private-send-start', {
+                source: normalizeSource(logPrefix),
+                provider: 'official',
+                userId,
+                chainLength: messageChain.length
+            });
+            return trackRuntimePromise(officialProvider.sendPrivateMessage(userId, messageChain, {
+                ...this.getOfficialSendMetadata(),
+                source: normalizeSource(logPrefix)
+            }).then((result) => {
+                sendLog('info', 'private-send-ok', {
+                    source: normalizeSource(logPrefix),
+                    provider: 'official',
+                    userId
+                });
+                return result;
+            }).catch((e) => {
+                sendLog('error', 'private-send-failed', {
+                    source: normalizeSource(logPrefix),
+                    provider: 'official',
+                    userId,
+                    error: logger.getErrorMessage(e)
+                });
+                if (enableFallback) {
+                    return officialProvider.sendPrivateMessage(userId, [{ type: 'text', data: { text: '消息发送失败，请查看日志' } }], {
+                        ...this.getOfficialSendMetadata(),
+                        source: normalizeSource(logPrefix)
+                    }).catch((fallbackError) => {
+                        sendLog('error', 'private-send-fallback-failed', {
+                            source: normalizeSource(logPrefix),
+                            provider: 'official',
+                            userId,
+                            error: logger.getErrorMessage(fallbackError)
+                        });
+                        throw fallbackError;
+                    });
+                }
+                throw e;
+            }));
+        }
+
         if (!ws) {
             sendLog('warn', 'private-send-skipped', {
                 source: normalizeSource(logPrefix),
@@ -496,7 +658,7 @@ class NotificationService {
         }
 
         try {
-            const messageChain = this.processMessageChain(message, logPrefix);
+            const messageChain = this.processMessageChain(message, logPrefix, { transport: ws });
 
             const payload = {
                 action: 'send_private_msg',
@@ -557,6 +719,22 @@ class NotificationService {
      * @param {string} logPrefix - 日志前缀，用于标识调用来源
      */
     static notifyGroups(ws, groupIds, message, logPrefix = 'NotificationService') {
+        const officialProvider = getOfficialProvider(ws);
+        if (officialProvider) {
+            if (!Array.isArray(groupIds) || groupIds.length === 0) {
+                sendLog('warn', 'notify-groups-skipped', {
+                    source: normalizeSource(logPrefix),
+                    provider: 'official',
+                    reason: 'no_groups'
+                });
+                return;
+            }
+            groupIds.forEach(gid => {
+                this.sendGroupMessage(officialProvider, gid, message, logPrefix, false);
+            });
+            return;
+        }
+
         if (!ws) {
             sendLog('warn', 'notify-groups-skipped', {
                 source: normalizeSource(logPrefix),
@@ -582,8 +760,8 @@ class NotificationService {
 
 NotificationService._tempImageCleanupTimer = null;
 NotificationService._tempImageCleanupRunning = false;
+NotificationService._tempImageCleanupPromise = null;
 NotificationService._actionPendingByWs = new WeakMap();
 NotificationService._actionDispatcherByWs = new WeakMap();
-NotificationService.startTempImageCleanupScheduler();
-
+NotificationService._sendContext = new AsyncLocalStorage();
 module.exports = NotificationService;

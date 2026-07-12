@@ -1,0 +1,16 @@
+{
+  "12345": {
+    "users": {
+      "42": {
+        "lastDynamicId": "dyn-100",
+        "lastLiveStatus": 1,
+        "lastVideoId": "BV1TEST",
+        "lastVideoCreated": 123456,
+        "lastArticleId": "cv100",
+        "lastArticlePublishTime": 123450,
+        "lastEpId": "ep100",
+        "roomId": "7788"
+      }
+    }
+  }
+}

@@ -99,6 +99,10 @@ class ImageGenerator {
         await browserManager.cleanup();
     }
 
+    forceCleanup() {
+        return browserManager.forceCleanup();
+    }
+
     /**
      * 获取页面池统计信息
      * @returns {Object} 统计信息

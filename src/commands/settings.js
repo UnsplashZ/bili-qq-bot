@@ -10,6 +10,48 @@ function commandLog(level, message, fields = {}) {
     logger.logEvent(level, 'BOT', 'cmd:settings', message, fields);
 }
 
+function expectedGeneration() {
+    return config.getStatus().documentGeneration;
+}
+
+async function setConfigPath(path, value) {
+    return config.patch([{ op: 'set', path, value }], {
+        actor: 'qq-command:settings',
+        expectedGeneration: expectedGeneration()
+    });
+}
+
+async function setGroupConfigPath(groupId, key, value) {
+    return setConfigPath(['groupConfigs', String(groupId), key], value);
+}
+
+async function setGroupEnabled(groupId, enabled) {
+    const target = String(groupId);
+    const scope = config.getProviderScope();
+    const current = [...config.getEnabledGroupsForProvider(scope)].map(String);
+    if (enabled) {
+        if (current.length === 0 || current.includes(target)) return true;
+        const next = [...new Set([...current, target])];
+        const path = scope === 'napcat' ? ['enabledGroups'] : ['providerScopedEnabledGroups', scope];
+        await setConfigPath(path, next);
+        return true;
+    }
+
+    let next = current.filter(id => id !== target);
+    if (current.length === 0) {
+        const known = new Set([
+            ...Object.keys(config.groupConfigs || {}),
+            ...Array.from(global.bot?.groupList?.keys?.() || []).map(String)
+        ]);
+        known.delete(target);
+        next = [...known];
+        if (next.length === 0) return false;
+    }
+    const path = scope === 'napcat' ? ['enabledGroups'] : ['providerScopedEnabledGroups', scope];
+    await setConfigPath(path, next);
+    return true;
+}
+
 class SettingsCommand {
     constructor() {
         // Login pending map: key -> true
@@ -114,13 +156,13 @@ class SettingsCommand {
                 if (action === '移除') action = 'remove';
 
                 if (action === 'add' && targetQQ) {
-                    if (config.addGroupAdmin(groupId, targetQQ)) {
+                    if (await config.addGroupAdmin(groupId, targetQQ)) {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 添加为本群管理员。` } }]);
                     } else {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `添加失败。可能已存在。` } }]);
                     }
                 } else if (action === 'remove' && targetQQ) {
-                    if (config.removeGroupAdmin(groupId, targetQQ)) {
+                    if (await config.removeGroupAdmin(groupId, targetQQ)) {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已移除 ${targetQQ} 的本群管理员权限。` } }]);
                     } else {
                          this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `移除失败。可能不存在。` } }]);
@@ -210,11 +252,16 @@ class SettingsCommand {
                 }
 
                 if (action === '开') {
-                    config.enableGroup(targetGroupId);
+                    await setGroupEnabled(targetGroupId, true);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已开启群 ${targetGroupId} 的Bot权限。` } }]);
                 } else if (action === '关') {
-                    config.disableGroup(targetGroupId);
-                    this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已关闭群 ${targetGroupId} 的Bot权限。` } }]);
+                    const changed = await setGroupEnabled(targetGroupId, false);
+                    this.sendGroupMessage(ws, groupId, [{
+                        type: 'text',
+                        data: { text: changed
+                            ? `已关闭群 ${targetGroupId} 的Bot权限。`
+                            : '当前没有其他已知群，无法用白名单表达“仅关闭本群”；请在 WebUI 中配置群白名单。' }
+                    }]);
                 } else {
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '指令格式错误。请使用：/设置 功能 <开|关> [群号]' } }]);
                 }
@@ -237,8 +284,7 @@ class SettingsCommand {
                 if (action === 'add' && targetQQ) {
                     if (isRoot) {
                         if (!config.blacklistedQQs.includes(targetQQ)) {
-                            config.blacklistedQQs.push(targetQQ);
-                            config.save();
+                            await setConfigPath(['blacklistedQQs'], [...config.blacklistedQQs, targetQQ]);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 添加到全局黑名单。` } }]);
                         } else {
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `${targetQQ} 已经在全局黑名单中。` } }]);
@@ -246,12 +292,9 @@ class SettingsCommand {
                     } else {
                         // Group Admin
                         if (groupId) {
-                            if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {};
-                            if (!config.groupConfigs[groupId].blacklistedQQs) config.groupConfigs[groupId].blacklistedQQs = [];
-                            
-                            if (!config.groupConfigs[groupId].blacklistedQQs.includes(targetQQ)) {
-                                config.groupConfigs[groupId].blacklistedQQs.push(targetQQ);
-                                config.save();
+                            const groupBlacklist = config.groupConfigs[groupId]?.blacklistedQQs || [];
+                            if (!groupBlacklist.includes(targetQQ)) {
+                                await setGroupConfigPath(groupId, 'blacklistedQQs', [...groupBlacklist, targetQQ]);
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 添加到本群黑名单。` } }]);
                             } else {
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `${targetQQ} 已经在本群黑名单中。` } }]);
@@ -262,8 +305,7 @@ class SettingsCommand {
                     if (isRoot) {
                         const index = config.blacklistedQQs.indexOf(targetQQ);
                         if (index > -1) {
-                            config.blacklistedQQs.splice(index, 1);
-                            config.save();
+                            await setConfigPath(['blacklistedQQs'], config.blacklistedQQs.filter(item => item !== targetQQ));
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 移出全局黑名单。` } }]);
                         } else {
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `${targetQQ} 不在全局黑名单中。` } }]);
@@ -273,8 +315,11 @@ class SettingsCommand {
                         if (groupId && config.groupConfigs[groupId] && config.groupConfigs[groupId].blacklistedQQs) {
                              const index = config.groupConfigs[groupId].blacklistedQQs.indexOf(targetQQ);
                              if (index > -1) {
-                                config.groupConfigs[groupId].blacklistedQQs.splice(index, 1);
-                                config.save();
+                                await setGroupConfigPath(
+                                    groupId,
+                                    'blacklistedQQs',
+                                    config.groupConfigs[groupId].blacklistedQQs.filter(item => item !== targetQQ)
+                                );
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已将 ${targetQQ} 移出本群黑名单。` } }]);
                              } else {
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `${targetQQ} 不在本群黑名单中。` } }]);
@@ -311,13 +356,12 @@ class SettingsCommand {
                  const value = parseInt(parts[2]);
                  if (!isNaN(value)) {
                     if (groupId) {
-                        config.setGroupConfig(groupId, 'linkCacheTimeout', value);
+                        await setGroupConfigPath(groupId, 'linkCacheTimeout', value);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群相同链接解析冷却时间已设置为 ${value} 秒。` } }]);
                     } else {
                         // Only Root can set Global
                         if (config.isRootAdmin(userId)) {
-                            config.linkCacheTimeout = value;
-                            config.save();
+                            await setConfigPath(['cache', 'linkTtlSeconds'], value);
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局相同链接解析冷却时间已设置为 ${value} 秒。` } }]);
                         } else {
                              this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `权限不足：全局配置仅限全局管理员 (Root) 使用。` } }]);
@@ -337,7 +381,7 @@ class SettingsCommand {
                 }
                 const value = parseInt(parts[2]);
                 if (!isNaN(value) && value > 0) {
-                    subscriptionService.updateCheckInterval(value);
+                    await setConfigPath(['subscription', 'checkIntervalSeconds'], value);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局订阅轮询间隔已设置为 ${value} 秒。` } }]);
                 } else {
                      this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请输入有效的正整数秒数。' } }]);
@@ -351,7 +395,7 @@ class SettingsCommand {
                 const groupName = parts[3]; 
 
                 if (action === '开') {
-                    config.setGroupConfig(groupId, 'enableCookieSync', true);
+                    await setGroupConfigPath(groupId, 'enableCookieSync', true);
                     let currentGroups = config.getGroupConfig(groupId, 'cookieSyncGroupNames');
                     if (typeof currentGroups === 'string') {
                         currentGroups = currentGroups.split(',').map(item => String(item).trim()).filter(Boolean);
@@ -370,7 +414,7 @@ class SettingsCommand {
                     subscriptionService.refreshCookieFollowings();
 
                 } else if (action === '关') {
-                    config.setGroupConfig(groupId, 'enableCookieSync', false);
+                    await setGroupConfigPath(groupId, 'enableCookieSync', false);
                     this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '已关闭关注同步功能。' } }]);
 
                 } else if (action === '添加') {
@@ -378,8 +422,10 @@ class SettingsCommand {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请指定要添加的分组名。' } }]);
                         return true;
                     }
-                    const added = config.appendGroupConfigArray(groupId, 'cookieSyncGroupNames', groupName);
+                    const currentNames = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
+                    const added = !currentNames.includes(groupName);
                     if (added) {
+                        await setGroupConfigPath(groupId, 'cookieSyncGroupNames', [...currentNames, groupName]);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已添加同步分组：${groupName}。` } }]);
                         // Refresh if enabled
                         if (config.getGroupConfig(groupId, 'enableCookieSync')) {
@@ -394,8 +440,10 @@ class SettingsCommand {
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '请指定要删除的分组名。' } }]);
                         return true;
                     }
-                    const removed = config.removeGroupConfigArray(groupId, 'cookieSyncGroupNames', groupName);
+                    const currentNames = config.getGroupConfig(groupId, 'cookieSyncGroupNames') || [];
+                    const removed = currentNames.includes(groupName);
                     if (removed) {
+                        await setGroupConfigPath(groupId, 'cookieSyncGroupNames', currentNames.filter(item => item !== groupName));
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `已移除同步分组：${groupName}。` } }]);
                          // Refresh if enabled
                         if (config.getGroupConfig(groupId, 'enableCookieSync')) {
@@ -422,7 +470,7 @@ class SettingsCommand {
 
                 if (switchState === '开' || switchState === '关') {
                     const isEnabled = switchState === '开';
-                    config.setGroupConfig(groupId, 'subscriptionAtAll', isEnabled);
+                    await setGroupConfigPath(groupId, 'subscriptionAtAll', isEnabled);
                     this.sendGroupMessage(ws, groupId, [{
                         type: 'text',
                         data: {
@@ -459,12 +507,10 @@ class SettingsCommand {
                      const isEnabled = (switchState === '开');
                      if (groupId) {
                         const currentLabel = config.getGroupConfig(groupId, 'labelConfig') || { ...config.labelConfig };
-                        config.setGroupConfig(groupId, 'labelConfig', { ...currentLabel, [key]: isEnabled });
+                        await setGroupConfigPath(groupId, 'labelConfig', { ...currentLabel, [key]: isEnabled });
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 ${category} 标签显示已${switchState}。` } }]);
                      } else {
-                        if (!config.labelConfig) config.labelConfig = {};
-                        config.labelConfig[key] = isEnabled;
-                        config.save();
+                        await setConfigPath(['rendering', 'labels'], { ...(config.labelConfig || {}), [key]: isEnabled });
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局 ${category} 标签显示已${switchState}。` } }]);
                      }
                  } else {
@@ -480,21 +526,19 @@ class SettingsCommand {
                      if (mode === '开') {
                         if (groupId) {
                             const existing = config.getGroupConfig(groupId, 'nightMode') || { ...config.nightMode };
-                            config.setGroupConfig(groupId, 'nightMode', { ...existing, mode: 'on' });
+                            await setGroupConfigPath(groupId, 'nightMode', { ...existing, mode: 'on' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群深色模式已强制开启。' } }]);
                         } else {
-                            config.nightMode.mode = 'on';
-                            config.save();
+                            await setConfigPath(['rendering', 'nightMode'], { ...config.nightMode, mode: 'on' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '全局深色模式已强制开启。' } }]);
                         }
                     } else if (mode === '关') {
                         if (groupId) {
                             const existing = config.getGroupConfig(groupId, 'nightMode') || { ...config.nightMode };
-                            config.setGroupConfig(groupId, 'nightMode', { ...existing, mode: 'off' });
+                            await setGroupConfigPath(groupId, 'nightMode', { ...existing, mode: 'off' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '本群深色模式已强制关闭。' } }]);
                         } else {
-                            config.nightMode.mode = 'off';
-                            config.save();
+                            await setConfigPath(['rendering', 'nightMode'], { ...config.nightMode, mode: 'off' });
                             this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: '全局深色模式已强制关闭。' } }]);
                         }
                     } else if (mode === '定时') {
@@ -502,13 +546,10 @@ class SettingsCommand {
                         if (timeRange && /^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(timeRange)) {
                             const [start, end] = timeRange.split('-');
                             if (groupId) {
-                                config.setGroupConfig(groupId, 'nightMode', { mode: 'timed', startTime: start, endTime: end });
+                                await setGroupConfigPath(groupId, 'nightMode', { mode: 'timed', startTime: start, endTime: end });
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群深色模式已设置为定时开启：${start} 至 ${end}。` } }]);
                             } else {
-                                config.nightMode.mode = 'timed';
-                                config.nightMode.startTime = start;
-                                config.nightMode.endTime = end;
-                                config.save();
+                                await setConfigPath(['rendering', 'nightMode'], { mode: 'timed', startTime: start, endTime: end });
                                 this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局深色模式已设置为定时开启：${start} 至 ${end}。` } }]);
                             }
                         } else {
@@ -531,11 +572,10 @@ class SettingsCommand {
                  if (switchState === '开' || switchState === '关') {
                      const isEnabled = (switchState === '开');
                      if (groupId) {
-                        config.setGroupConfig(groupId, 'showId', isEnabled);
+                        await setGroupConfigPath(groupId, 'showId', isEnabled);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `本群 UID 显示已${switchState}。` } }]);
                      } else {
-                        config.showId = isEnabled;
-                        config.save();
+                        await setConfigPath(['rendering', 'showId'], isEnabled);
                         this.sendGroupMessage(ws, groupId, [{ type: 'text', data: { text: `全局 UID 显示已${switchState}。` } }]);
                      }
                  } else {

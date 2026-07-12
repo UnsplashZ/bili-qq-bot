@@ -4,6 +4,9 @@ const assert = require('assert')
 
 const notifyModule = require('../../../src/services/subscription/updateChecker/modules/notify')
 const deps = require('../../../src/services/subscription/updateChecker/adapters/deps')
+const OfficialMessageSender = require('../../../src/providers/qq/official/messageSender')
+const OfficialMediaUploader = require('../../../src/providers/qq/official/mediaUploader')
+const MessageIdStore = require('../../../src/providers/qq/official/messageIdStore')
 
 const linkDomainPath = require.resolve('../../../src/services/link')
 
@@ -36,10 +39,10 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = originalNotificationAdd
         deps.config.isGroupEnabled = originalIsGroupEnabled
         deps.config.getGroupConfig = originalGetGroupConfig
-        deps.config.groupConfigs = originalGroupConfigs
-        deps.config.enabledGroups = originalEnabledGroups
+        deps.config.__getMutableCompatStateForTests().groupConfigs = originalGroupConfigs
+        deps.config.__getMutableCompatStateForTests().enabledGroups = originalEnabledGroups
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = originalPreviewLayoutConfig
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = originalPreviewLayoutConfig
         deps.config.save = originalConfigSave
         deps.imageGenerator.isNightMode = originalIsNightMode
         deps.imageGenerator.generatePreviewCard = originalGeneratePreviewCard
@@ -122,12 +125,12 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': {
                 isInGroup: true
             }
         }
-        deps.config.enabledGroups = ['2000']
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['2000']
         deps.config.isGroupEnabled = gid => deps.config.enabledGroups.includes(String(gid))
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -179,11 +182,11 @@ describe('updateChecker notify result', function () {
 
     it('notifyGroupsWithImage 在 ws 不可用时仍消费关闭群并让开启群失败重试', async function () {
         deps.notificationHistory.has = () => false
-        deps.config.groupConfigs = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs = {
             '1000': { isInGroup: true },
             '2000': { isInGroup: true }
         }
-        deps.config.enabledGroups = ['2000']
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['2000']
         deps.config.isGroupEnabled = gid => deps.config.enabledGroups.includes(String(gid))
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -230,7 +233,7 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = { '1000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return false
@@ -288,7 +291,7 @@ describe('updateChecker notify result', function () {
         deps.notificationHistory.add = () => {
             addCalled += 1
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return false
@@ -343,12 +346,107 @@ describe('updateChecker notify result', function () {
         assert.strictEqual(addCalled, 1)
     })
 
+    it('Official provider 订阅图片推送会经过 media uploader 和 qpm 调度', async function () {
+        let addCalled = 0
+        const uploadCalls = []
+        const sendCalls = []
+        const scheduleGroupIds = []
+        deps.notificationHistory.has = () => false
+        deps.notificationHistory.add = () => {
+            addCalled += 1
+        }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { 'group-openid': {} }
+        deps.config.__getMutableCompatStateForTests().enabledGroups = ['group-openid']
+        deps.config.isGroupEnabled = () => true
+        deps.config.getGroupConfig = (_gid, key) => {
+            if (key === 'showId') return false
+            if (key === 'linkCacheTimeout') return 5
+            if (key === 'labelConfig') return {}
+            return undefined
+        }
+        deps.imageGenerator.isNightMode = () => false
+        deps.imageGenerator.generatePreviewCard = async () => 'FAKE_BASE64'
+
+        const client = {
+            async uploadGroupMedia(groupOpenId, body) {
+                uploadCalls.push({ groupOpenId, body })
+                return { file_info: 'official-file-info' }
+            },
+            async sendGroupMessage(groupOpenId, body) {
+                sendCalls.push({ groupOpenId, body })
+                return { id: `official-msg-${sendCalls.length}` }
+            }
+        }
+        const sender = new OfficialMessageSender({
+            client,
+            mediaUploader: new OfficialMediaUploader({ client, mode: 'hybrid' }),
+            rateLimiter: {
+                async schedule(fn, options = {}) {
+                    scheduleGroupIds.push(String(options.groupId || ''))
+                    return fn()
+                }
+            },
+            messageIdStore: new MessageIdStore()
+        })
+
+        const fakeContext = {
+            ws: { id: 'official' },
+            normalizeGroupSourceMap(groupTargets) {
+                if (groupTargets instanceof Map) return groupTargets
+                return createSourceMap(groupTargets)
+            },
+            getGroupIdsFromSourceMap(groupSourceMap) {
+                return Array.from(groupSourceMap.keys())
+            },
+            resolveContentSubtype(type) {
+                return type
+            },
+            resolveAtAllCategory(type) {
+                return type
+            },
+            buildAtAllMetaForGroup() {
+                return {}
+            },
+            async sendSubscriptionMessage(groupId, messageChain, metadata) {
+                const response = await sender.sendGroupMessage(groupId, messageChain, metadata)
+                return {
+                    ok: response.status === 'ok',
+                    reason: 'ok',
+                    retcode: response.retcode,
+                    fallbackUsed: Boolean(response.fallbackUsed)
+                }
+            }
+        }
+
+        const result = await notifyModule.notifyGroupsWithImage.call(
+            fakeContext,
+            ['group-openid'],
+            { data: { bvid: 'BV_OFFICIAL' } },
+            'video',
+            'https://www.bilibili.com/video/BV_OFFICIAL',
+            'test'
+        )
+
+        assert.deepStrictEqual(result.successGroups, ['group-openid'])
+        assert.deepStrictEqual(result.failedGroups, [])
+        assert.equal(addCalled, 1)
+        assert.equal(uploadCalls.length, 1)
+        assert.equal(uploadCalls[0].groupOpenId, 'group-openid')
+        assert.equal(uploadCalls[0].body.file_type, 1)
+        assert.equal(uploadCalls[0].body.file_data, 'FAKE_BASE64')
+        assert.equal(sendCalls.length, 1)
+        assert.equal(sendCalls[0].body.msg_type, 7)
+        assert.deepStrictEqual(sendCalls[0].body.media, { file_info: 'official-file-info' })
+        assert.equal(sendCalls[0].body.content, '\ntest\nhttps://www.bilibili.com/video/BV_OFFICIAL')
+        assert.deepStrictEqual(scheduleGroupIds, ['group-openid', 'group-openid'])
+    })
+
     it('notifyGroupsWithImage 去重缓存命中时返回 dedupSkippedGroups 供持久台账写 tombstone', async function () {
         deps.notificationHistory.has = () => true
         deps.notificationHistory.add = () => {
             throw new Error('dedup skip should not add history again')
         }
-        deps.config.groupConfigs = { '1000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'linkCacheTimeout') return 5
@@ -386,7 +484,7 @@ describe('updateChecker notify result', function () {
         const sentGroups = []
 
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = {
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 1,
             groups: {
                 '2000': {
@@ -402,7 +500,7 @@ describe('updateChecker notify result', function () {
                 }
             }
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return true
@@ -460,7 +558,7 @@ describe('updateChecker notify result', function () {
         const sentGroups = []
 
         deps.config.save = () => {}
-        deps.config.previewLayoutConfig = {
+        deps.config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 1,
             global: {
                 video: {
@@ -474,7 +572,7 @@ describe('updateChecker notify result', function () {
                 }
             }
         }
-        deps.config.groupConfigs = { '1000': {}, '2000': {} }
+        deps.config.__getMutableCompatStateForTests().groupConfigs = { '1000': {}, '2000': {} }
         deps.config.isGroupEnabled = () => true
         deps.config.getGroupConfig = (_gid, key) => {
             if (key === 'showId') return true

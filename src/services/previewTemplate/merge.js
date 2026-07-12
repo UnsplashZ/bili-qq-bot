@@ -37,8 +37,8 @@ function shortHash(value) {
     return crypto.createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, 16)
 }
 
-function getStoredPreviewTemplateConfig() {
-    const raw = config.previewLayoutConfig
+function getStoredPreviewTemplateConfig(input = config.previewLayoutConfig) {
+    const raw = input
     if (!isPlainObject(raw)) return { version: 2, legacyV1Backup: {}, global: {}, groups: {}, lastKnownGood: {} }
     if (raw.version === 2) {
         return migrateSavedV2Config({
@@ -310,9 +310,9 @@ function getGlobalTemplate(rawConfig, type) {
     return normalizeMaybeTemplate(type, globalEntry.template, null)
 }
 
-function getEffectiveTemplate(type, groupId = null, draftTemplate = null) {
+function getEffectiveTemplate(type, groupId = null, draftTemplate = null, storedConfig = undefined) {
     if (!isEditableType(type)) return null
-    const rawConfig = getStoredPreviewTemplateConfig()
+    const rawConfig = getStoredPreviewTemplateConfig(storedConfig)
     const builtIn = getDefaultTemplate(type)
     const globalTemplate = getGlobalTemplate(rawConfig, type)
     const groupKey = groupId ? String(groupId) : ''
@@ -324,13 +324,13 @@ function getEffectiveTemplate(type, groupId = null, draftTemplate = null) {
     return draftTemplate ? normalizeTemplate(draftTemplate, { type }) : normalizeTemplate(withGroup, { type })
 }
 
-function getPreviewTemplateConfigForScope(type, groupId = null) {
-    const rawConfig = getStoredPreviewTemplateConfig()
+function getPreviewTemplateConfigForScope(type, groupId = null, storedConfig = undefined) {
+    const rawConfig = getStoredPreviewTemplateConfig(storedConfig)
     const builtIn = getDefaultTemplate(type)
     const globalTemplate = getGlobalTemplate(rawConfig, type)
     const groupKey = groupId ? String(groupId) : ''
     const groupEntry = groupKey ? rawConfig.groups?.[groupKey]?.[type] : null
-    const effective = getEffectiveTemplate(type, groupId)
+    const effective = getEffectiveTemplate(type, groupId, null, rawConfig)
     return {
         type,
         groupId: groupKey,
@@ -351,8 +351,8 @@ function getPreviewTemplateConfigForScope(type, groupId = null) {
     }
 }
 
-function savePreviewTemplate(scope, type, template, groupId = null) {
-    const rawConfig = getStoredPreviewTemplateConfig()
+function savePreviewTemplate(scope, type, template, groupId = null, storedConfig = undefined) {
+    const rawConfig = getStoredPreviewTemplateConfig(storedConfig)
     const normalized = normalizeTemplate(template, { type, checkSize: true })
     if (!rawConfig.global) rawConfig.global = {}
     if (!rawConfig.groups) rawConfig.groups = {}
@@ -373,17 +373,16 @@ function savePreviewTemplate(scope, type, template, groupId = null) {
             updatedAt: new Date().toISOString()
         }
     }
-    config.previewLayoutConfig = rawConfig
-    return normalized
+    return { nextConfig: rawConfig, saved: normalized }
 }
 
-function saveLegacyPatchAsTemplate(scope, type, patch, groupId = null) {
+function saveLegacyPatchAsTemplate(scope, type, patch, groupId = null, storedConfig = undefined) {
     const migrated = migrateV1PatchToTemplate(type, patch || {})
-    return savePreviewTemplate(scope, type, migrated, groupId)
+    return savePreviewTemplate(scope, type, migrated, groupId, storedConfig)
 }
 
-function resetPreviewTemplate(scope, type, groupId = null, nodeId = null) {
-    const rawConfig = getStoredPreviewTemplateConfig()
+function resetPreviewTemplate(scope, type, groupId = null, nodeId = null, storedConfig = undefined) {
+    const rawConfig = getStoredPreviewTemplateConfig(storedConfig)
     if (scope === 'global') {
         if (nodeId && rawConfig.global?.[type]?.template?.nodesById?.[nodeId]) {
             const template = normalizeTemplate(rawConfig.global[type].template, { type })
@@ -405,8 +404,10 @@ function resetPreviewTemplate(scope, type, groupId = null, nodeId = null) {
             }
         }
     }
-    config.previewLayoutConfig = rawConfig
-    return getPreviewTemplateConfigForScope(type, groupId)
+    return {
+        nextConfig: rawConfig,
+        result: getPreviewTemplateConfigForScope(type, groupId, rawConfig)
+    }
 }
 
 function getPreviewTemplateSignature(type, groupId = null) {

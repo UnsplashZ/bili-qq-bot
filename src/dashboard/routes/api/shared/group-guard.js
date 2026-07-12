@@ -1,16 +1,23 @@
 const {
     normalizeGroupId,
     isPrivateVirtualGroupId,
-    isNumericGroupId
+    isNumericGroupId,
+    isOfficialOpaqueGroupId
 } = require('./normalize')
 
-function getNumericGroupIdsInBotGroupList(bot) {
+function isOfficialProviderMode(sysConfig, bot = global.bot) {
+    return String(sysConfig?.qqProvider || '').toLowerCase() === 'official' ||
+        String(bot?.provider?.id || '').toLowerCase() === 'official'
+}
+
+function getGroupIdsInBotGroupList(bot, options = {}) {
     const ids = new Set()
     if (!bot || !bot.groupList) return ids
 
+    const allowOpaque = options.allowOpaque === true
     bot.groupList.forEach((_info, groupId) => {
         const id = String(groupId)
-        if (isNumericGroupId(id)) {
+        if (isNumericGroupId(id) || (allowOpaque && isOfficialOpaqueGroupId(id))) {
             ids.add(id)
         }
     })
@@ -18,33 +25,49 @@ function getNumericGroupIdsInBotGroupList(bot) {
     return ids
 }
 
-function isInBotGroupList(bot, groupId) {
-    if (!bot || !bot.groupList || !isNumericGroupId(groupId)) return false
-
-    const numericId = Number(groupId)
-    return bot.groupList.has(groupId) || bot.groupList.has(numericId)
+function getNumericGroupIdsInBotGroupList(bot) {
+    return getGroupIdsInBotGroupList(bot, { allowOpaque: false })
 }
 
-function getKnownManageableNumericGroupIds(sysConfig, bot) {
-    const ids = getNumericGroupIdsInBotGroupList(bot)
+function isInBotGroupList(bot, groupId, options = {}) {
+    if (!bot || !bot.groupList) return false
+    const id = String(groupId || '')
+    if (!isNumericGroupId(id) && !(options.allowOpaque === true && isOfficialOpaqueGroupId(id))) return false
+
+    const numericId = Number(id)
+    return bot.groupList.has(id) || (isNumericGroupId(id) && bot.groupList.has(numericId))
+}
+
+function getKnownManageableGroupIds(sysConfig, bot, options = {}) {
+    const allowOpaque = options.allowOpaque === true || isOfficialProviderMode(sysConfig, bot)
+    const ids = getGroupIdsInBotGroupList(bot, { allowOpaque })
 
     const groupConfigs = sysConfig.groupConfigs || {}
     Object.keys(groupConfigs).forEach(groupId => {
-        if (isNumericGroupId(groupId)) {
+        if (isNumericGroupId(groupId) || (allowOpaque && isOfficialOpaqueGroupId(groupId))) {
             ids.add(groupId)
         }
     })
 
-    const enabledGroups = Array.isArray(sysConfig.enabledGroups)
-        ? sysConfig.enabledGroups
-        : []
+    const providerScope = allowOpaque ? 'official' : 'napcat'
+    const enabledGroups = typeof sysConfig.getEnabledGroupsForProvider === 'function'
+        ? sysConfig.getEnabledGroupsForProvider(providerScope)
+        : (Array.isArray(sysConfig.enabledGroups) ? sysConfig.enabledGroups : [])
     enabledGroups.forEach(groupId => {
         const id = String(groupId)
-        if (isNumericGroupId(id)) {
+        if (isNumericGroupId(id) || (allowOpaque && isOfficialOpaqueGroupId(id))) {
             ids.add(id)
         }
     })
 
+    return ids
+}
+
+function getKnownManageableNumericGroupIds(sysConfig, bot) {
+    const ids = new Set()
+    for (const groupId of getKnownManageableGroupIds(sysConfig, bot, { allowOpaque: false })) {
+        if (isNumericGroupId(groupId)) ids.add(groupId)
+    }
     return ids
 }
 
@@ -65,14 +88,15 @@ function assertWebuiManageableGroup(req, res, sysConfig, options = {}) {
         return null
     }
 
-    if (!isNumericGroupId(groupId)) {
+    const allowOpaque = isOfficialProviderMode(sysConfig, global.bot)
+    if (!isNumericGroupId(groupId) && !(allowOpaque && isOfficialOpaqueGroupId(groupId))) {
         res.status(400).json({ error: 'Invalid groupId' })
         return null
     }
 
     const bot = global.bot
-    const inBotGroupList = isInBotGroupList(bot, groupId)
-    const knownGroupIds = getKnownManageableNumericGroupIds(sysConfig, bot)
+    const inBotGroupList = isInBotGroupList(bot, groupId, { allowOpaque })
+    const knownGroupIds = getKnownManageableGroupIds(sysConfig, bot, { allowOpaque })
 
     if (!knownGroupIds.has(groupId)) {
         res.status(404).json({ error: 'Group not found' })
@@ -91,7 +115,7 @@ function assertWebuiManageableGroup(req, res, sysConfig, options = {}) {
 
     return {
         groupId,
-        groupIdNum: Number(groupId),
+        groupIdNum: isNumericGroupId(groupId) ? Number(groupId) : null,
         groupConfig: groupConfig || {},
         isInGroup,
         inBotGroupList
@@ -100,8 +124,10 @@ function assertWebuiManageableGroup(req, res, sysConfig, options = {}) {
 
 module.exports = {
     assertWebuiManageableGroup,
+    getKnownManageableGroupIds,
+    getGroupIdsInBotGroupList,
     getKnownManageableNumericGroupIds,
     getNumericGroupIdsInBotGroupList,
-    isInBotGroupList
+    isInBotGroupList,
+    isOfficialProviderMode
 }
-

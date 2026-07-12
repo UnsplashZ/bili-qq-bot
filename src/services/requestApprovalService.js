@@ -2,6 +2,7 @@ const crypto = require('crypto')
 const config = require('../config')
 const logger = require('../utils/logger')
 const notificationService = require('./notificationService')
+const qqProviderRuntime = require('../providers/qq/runtime')
 
 const DEFAULT_EXPIRE_MS = 24 * 60 * 60 * 1000
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
@@ -20,7 +21,13 @@ class RequestApprovalService {
         this.keyByShortId = new Map()
         this.inflightKeys = new Set()
         this.recentlyHandled = new Map()
+        this._stopPromise = null
+        this.cleanupTimer = null
+    }
 
+    start() {
+        if (this.cleanupTimer) return this.cleanupTimer
+        this._stopPromise = null
         this.cleanupTimer = setInterval(() => {
             try {
                 this.cleanupExpired()
@@ -34,6 +41,12 @@ class RequestApprovalService {
         if (typeof this.cleanupTimer.unref === 'function') {
             this.cleanupTimer.unref()
         }
+        return this.cleanupTimer
+    }
+
+    async restart() {
+        await this.stop()
+        return this.start()
     }
 
     _buildKey(requestType, subType, flag) {
@@ -298,7 +311,7 @@ class RequestApprovalService {
 
     async _sendAdminText(ws, adminId, text) {
         if (!adminId) return
-        notificationService.sendPrivateMessage(ws, adminId, [{ type: 'text', data: { text } }], 'RequestApproval', true)
+        return notificationService.sendPrivateMessage(ws, adminId, [{ type: 'text', data: { text } }], 'RequestApproval', true)
     }
 
     async _sendPendingNotify(ws, adminId, item) {
@@ -328,8 +341,7 @@ class RequestApprovalService {
                     shortId: item.shortId,
                     error: wording
                 })
-                this._sendAdminText(ws, adminId, text)
-                return
+                return this._sendAdminText(ws, adminId, text)
             }
 
             if (messageId !== undefined && messageId !== null) {
@@ -348,14 +360,14 @@ class RequestApprovalService {
                 key: item.key,
                 shortId: item.shortId
             })
-            this._sendAdminText(ws, adminId, text)
+            return this._sendAdminText(ws, adminId, text)
         } catch (e) {
             storeLog('error', 'notify-failed', {
                 key: item.key,
                 shortId: item.shortId,
                 error: logger.getErrorMessage(e)
             })
-            this._sendAdminText(ws, adminId, text)
+            return this._sendAdminText(ws, adminId, text)
         }
     }
 
@@ -645,6 +657,14 @@ class RequestApprovalService {
     }
 
     async _applyDecision(ws, item, decision) {
+        if (qqProviderRuntime.isOfficialProvider(ws)) {
+            return {
+                ok: false,
+                retcode: null,
+                wording: 'unsupported_official_action:request_approval'
+            }
+        }
+
         const approve = decision === 'approve'
         let action = ''
         let params = {}
@@ -882,6 +902,17 @@ class RequestApprovalService {
                 expiredCount
             })
         }
+    }
+
+    async stop() {
+        if (this._stopPromise) return this._stopPromise
+        this._stopPromise = Promise.resolve().then(() => {
+            if (this.cleanupTimer) {
+                clearInterval(this.cleanupTimer)
+                this.cleanupTimer = null
+            }
+        })
+        return this._stopPromise
     }
 }
 

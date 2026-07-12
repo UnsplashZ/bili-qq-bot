@@ -9,6 +9,28 @@ const agentScreenshotService = require('../../services/agentScreenshotService')
 const requestApprovalService = require('../../services/requestApprovalService')
 const { normalizeAgentConfig, getEffectiveAgentConfigForGroup } = require('../config/agentConfig')
 const longTermStore = require('../memory/longTermStore')
+const qqProviderRuntime = require('../../providers/qq/runtime')
+
+const OFFICIAL_ALLOWED_QQ_TOOLS = new Set([
+    'qq.delete_message'
+])
+
+const OFFICIAL_HIDDEN_TOOLS = new Set([
+    'browser.screenshot_url'
+])
+
+function isOfficialProviderActive(context = {}) {
+    const provider = context.provider || context.ws || qqProviderRuntime.getCurrentProvider()
+    return String(provider?.id || '').toLowerCase() === 'official'
+}
+
+function isToolSupportedByProvider(name, context = {}) {
+    if (!isOfficialProviderActive(context)) return true
+    const toolName = String(name || '')
+    if (OFFICIAL_HIDDEN_TOOLS.has(toolName)) return false
+    if (toolName.startsWith('qq.')) return OFFICIAL_ALLOWED_QQ_TOOLS.has(toolName)
+    return true
+}
 
 function normalizeBoolean(value) {
     if (typeof value === 'boolean') return value
@@ -29,29 +51,12 @@ function normalizeGroupId(value, sessionContext) {
     return normalized
 }
 
-function ensureAgentGroupConfig(groupId) {
-    const agentConfig = config.agent
-    if (!agentConfig.groups || typeof agentConfig.groups !== 'object' || Array.isArray(agentConfig.groups)) {
-        agentConfig.groups = {}
-    }
-    if (!agentConfig.groups[groupId] || typeof agentConfig.groups[groupId] !== 'object' || Array.isArray(agentConfig.groups[groupId])) {
-        agentConfig.groups[groupId] = {}
-    }
-    return agentConfig.groups[groupId]
-}
-
-function setAgentGroupFlag(groupId, key, value) {
-    const groupConfig = ensureAgentGroupConfig(groupId)
-    groupConfig[key] = value
-    config.save()
-}
-
-function ensureGroupBlacklist(groupId) {
-    if (!config.groupConfigs[groupId]) config.groupConfigs[groupId] = {}
-    if (!Array.isArray(config.groupConfigs[groupId].blacklistedQQs)) {
-        config.groupConfigs[groupId].blacklistedQQs = []
-    }
-    return config.groupConfigs[groupId].blacklistedQQs
+async function setAgentGroupFlag(groupId, key, value) {
+    await config.mutate((draft) => {
+        draft.agent.groups ||= {}
+        draft.agent.groups[groupId] ||= {}
+        draft.agent.groups[groupId][key] = value
+    }, { actor: 'agent-tool-group-flag' })
 }
 
 function normalizeAgentGroupFlagArgs(args, sessionContext) {
@@ -1311,7 +1316,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 入口`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'enabled', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'enabled', args.enabled)
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 入口。` }
         }
     },
@@ -1323,7 +1328,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 发言`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'sendEnabled', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'sendEnabled', args.enabled)
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Agent 发言。` }
         }
     },
@@ -1335,7 +1340,7 @@ const toolDefinitions = {
         normalizeArgs: normalizeAgentGroupFlagArgs,
         summarize: (args) => `${args.enabled ? '设置' : '取消'}群 ${args.groupId} 的 Agent 仅观察模式`,
         execute: async (args) => {
-            setAgentGroupFlag(args.groupId, 'observeOnly', args.enabled)
+            await setAgentGroupFlag(args.groupId, 'observeOnly', args.enabled)
             return { message: `已${args.enabled ? '设置' : '取消'}群 ${args.groupId} 的 Agent 仅观察模式。` }
         }
     },
@@ -1348,9 +1353,9 @@ const toolDefinitions = {
         summarize: (args) => `${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Bot 功能`,
         execute: async (args) => {
             if (args.enabled) {
-                config.enableGroup(args.groupId)
+                await config.enableGroup(args.groupId)
             } else {
-                config.disableGroup(args.groupId)
+                await config.disableGroup(args.groupId)
             }
             return { message: `已${args.enabled ? '开启' : '关闭'}群 ${args.groupId} 的 Bot 功能。` }
         }
@@ -1363,11 +1368,12 @@ const toolDefinitions = {
         normalizeArgs: normalizeBlacklistArgs,
         summarize: (args) => `将 ${args.targetUserId} 加入${args.scope === 'global' ? '全局' : `群 ${args.groupId}`}黑名单`,
         execute: async (args) => {
-            const list = args.scope === 'global' ? config.blacklistedQQs : ensureGroupBlacklist(args.groupId)
-            if (!list.includes(args.targetUserId)) {
-                list.push(args.targetUserId)
-                config.save()
-            }
+            await config.mutate((draft) => {
+                const list = args.scope === 'global'
+                    ? (draft.blacklistedQQs ||= [])
+                    : ((draft.groupConfigs[args.groupId] ||= {}).blacklistedQQs ||= [])
+                if (!list.includes(args.targetUserId)) list.push(args.targetUserId)
+            }, { actor: 'agent-tool-blacklist-add' })
             return { message: `已将 ${args.targetUserId} 加入${args.scope === 'global' ? '全局' : '本群'}黑名单。` }
         }
     },
@@ -1379,12 +1385,13 @@ const toolDefinitions = {
         normalizeArgs: normalizeBlacklistArgs,
         summarize: (args) => `将 ${args.targetUserId} 移出${args.scope === 'global' ? '全局' : `群 ${args.groupId}`}黑名单`,
         execute: async (args) => {
-            const list = args.scope === 'global' ? config.blacklistedQQs : ensureGroupBlacklist(args.groupId)
-            const index = list.indexOf(args.targetUserId)
-            if (index >= 0) {
-                list.splice(index, 1)
-                config.save()
-            }
+            await config.mutate((draft) => {
+                const list = args.scope === 'global'
+                    ? (draft.blacklistedQQs ||= [])
+                    : ((draft.groupConfigs[args.groupId] ||= {}).blacklistedQQs ||= [])
+                const index = list.indexOf(args.targetUserId)
+                if (index >= 0) list.splice(index, 1)
+            }, { actor: 'agent-tool-blacklist-remove' })
             return { message: `已将 ${args.targetUserId} 移出${args.scope === 'global' ? '全局' : '本群'}黑名单。` }
         }
     },
@@ -1525,8 +1532,8 @@ function getToolDefinition(name) {
     return toolDefinitions[String(name || '').trim()] || null
 }
 
-function listToolDefinitions() {
-    return Object.values(toolDefinitions).map((tool) => ({
+function listToolDefinitions(context = {}) {
+    return Object.values(toolDefinitions).filter((tool) => isToolSupportedByProvider(tool.name, context)).map((tool) => ({
         name: tool.name,
         description: tool.description,
         risk: tool.risk,
@@ -1546,6 +1553,9 @@ function normalizeToolIntent(toolIntent, sessionContext) {
     const name = String(toolIntent.name || toolIntent.tool || toolIntent.toolName || '').trim()
     const definition = getToolDefinition(name)
     if (!definition) throw new Error(`unknown_tool:${name || 'empty'}`)
+    if (!isToolSupportedByProvider(definition.name, sessionContext)) {
+        throw new Error(`unsupported_provider_tool:${definition.name}`)
+    }
 
     const rawArgs = toolIntent.arguments || toolIntent.args || toolIntent.params || {}
     if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
@@ -1589,6 +1599,9 @@ function shouldEnforceTimeout(definition) {
 async function executeToolPlan(plan, context = {}) {
     const definition = getToolDefinition(plan?.name)
     if (!definition) throw new Error(`unknown_tool:${plan?.name || 'empty'}`)
+    if (!isToolSupportedByProvider(definition.name, context)) {
+        throw new Error(`unsupported_provider_tool:${definition.name}`)
+    }
     if (!shouldEnforceTimeout(definition)) {
         return definition.execute(plan.args || {}, context)
     }
@@ -1602,6 +1615,7 @@ async function executeToolPlan(plan, context = {}) {
 module.exports = {
     getToolDefinition,
     listToolDefinitions,
+    isToolSupportedByProvider,
     normalizeToolIntent,
     executeToolPlan
 }

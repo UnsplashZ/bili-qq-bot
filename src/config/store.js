@@ -1,113 +1,49 @@
-const fs = require('fs')
-const path = require('path')
-const logger = require('../utils/logger')
-const { asyncWriteWithBackup } = require('../utils/storageUtils')
+'use strict'
+
+// Deprecated in-memory compatibility adapter. Production runtime persistence is
+// owned exclusively by ConfigService/config.yaml. This module intentionally
+// performs no filesystem or environment reads and never writes legacy files.
+
 const { parseValue } = require('./schema')
 
-const CONFIG_DIR = path.join(__dirname, '../../config')
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
-
-function configLog(level, message, fields = {}) {
-    logger.logEvent(level, 'STORE', 'svc:config', message, fields)
-}
-
-let _overrides = {}
-if (fs.existsSync(CONFIG_PATH)) {
-    try {
-        _overrides = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
-    } catch (e) {
-        configLog('error', 'config-load-failed', {
-            path: CONFIG_PATH,
-            error: logger.getErrorMessage(e)
-        })
-    }
-}
+const legacyState = {}
 
 function hasOwnOverride(key) {
-    return Object.prototype.hasOwnProperty.call(_overrides, key)
+    return Object.prototype.hasOwnProperty.call(legacyState, key)
 }
 
 function cloneConfigValue(value) {
     if (Array.isArray(value) || (value && typeof value === 'object')) {
-        return JSON.parse(JSON.stringify(value))
+        return structuredClone(value)
     }
     return value
 }
 
-function save(config) {
-    if (config._saveTimer) {
-        clearTimeout(config._saveTimer)
-    }
-
-    logger.logEvent('info', 'STORE', 'svc:config', 'config-save-queued')
-
-    config._saveTimer = setTimeout(() => {
-        Promise.resolve(config._performSave()).catch((err) => {
-            configLog('error', 'config-save-failed', {
-                error: logger.getErrorMessage(err)
-            })
-
-            config._saveErrorCount = (config._saveErrorCount || 0) + 1
-            if (config._saveErrorCount >= 5) {
-                configLog('error', 'config-save-failure-threshold', {
-                    consecutiveFailures: config._saveErrorCount
-                })
-                config._saveErrorCount = 0
-            }
-        })
-    }, 100)
+function legacyWriteDisabled() {
+    const error = new Error('Legacy config store writes are disabled; use ConfigService.patch()')
+    error.code = 'LEGACY_CONFIG_WRITE_DISABLED'
+    return error
 }
 
-async function performSave(config) {
-    const startTime = Date.now()
-    const saveCount = (config._saveCount || 0) + 1
-
-    try {
-        await asyncWriteWithBackup(CONFIG_PATH, _overrides, false)
-        config._saveCount = saveCount
-        const duration = Date.now() - startTime
-        logger.logEvent('info', 'STORE', 'svc:config', 'config-saved', {
-            durationMs: duration,
-            total: config._saveCount
-        })
-        if (duration > 100) {
-            configLog('warn', 'config-save-slow', {
-                durationMs: duration
-            })
-        }
-    } catch (e) {
-        configLog('error', 'config-save-failed', {
-            error: logger.getErrorMessage(e)
-        })
-    }
+function save() {
+    throw legacyWriteDisabled()
 }
 
-function defineGetters(config, META) {
-    Object.keys(META).forEach((key) => {
-        const meta = META[key]
+async function performSave() {
+    throw legacyWriteDisabled()
+}
 
+function defineGetters(config, metaMap) {
+    Object.keys(metaMap).forEach((key) => {
+        const meta = metaMap[key]
         Object.defineProperty(config, key, {
-            get: function() {
-                if (meta.get) {
-                    return meta.get.call(meta, _overrides)
-                }
-
-                if (key in _overrides) {
-                    return _overrides[key]
-                }
-
-                if (meta.lazyInit) {
-                    _overrides[key] = JSON.parse(JSON.stringify(meta.def))
-                    return _overrides[key]
-                }
-
-                const envVal = meta.env ? process.env[meta.env] : undefined
-                const rawVal = envVal !== undefined ? envVal : meta.def
-                return parseValue(rawVal, meta.type)
+            get() {
+                if (meta.get) return meta.get.call(meta, legacyState)
+                if (hasOwnOverride(key)) return legacyState[key]
+                return cloneConfigValue(parseValue(meta.def, meta.type))
             },
-            set: function(val) {
-                _overrides[key] = val
-                this.save()
+            set() {
+                throw legacyWriteDisabled()
             },
             enumerable: true,
             configurable: true
@@ -115,25 +51,16 @@ function defineGetters(config, META) {
     })
 }
 
-function getEffectiveConfigValueWithoutMutation(key, META) {
-    const meta = META[key]
+function getEffectiveConfigValueWithoutMutation(key, metaMap) {
+    const meta = metaMap[key]
     if (!meta) return undefined
-
-    if (hasOwnOverride(key)) {
-        return cloneConfigValue(_overrides[key])
-    }
-
-    if (typeof meta.get === 'function') {
-        return cloneConfigValue(meta.get.call(meta, _overrides))
-    }
-
-    const envVal = meta.env ? process.env[meta.env] : undefined
-    const rawVal = envVal !== undefined ? envVal : meta.def
-    return cloneConfigValue(parseValue(rawVal, meta.type))
+    if (hasOwnOverride(key)) return cloneConfigValue(legacyState[key])
+    if (typeof meta.get === 'function') return cloneConfigValue(meta.get.call(meta, legacyState))
+    return cloneConfigValue(parseValue(meta.def, meta.type))
 }
 
 module.exports = {
-    _overrides,
+    legacyState,
     save,
     performSave,
     defineGetters,

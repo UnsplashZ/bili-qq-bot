@@ -2,7 +2,9 @@ const express = require('express')
 const si = require('systeminformation')
 const logger = require('../../../../utils/logger')
 const runtimeMetricsService = require('../../../../services/runtimeMetricsService')
+const qqProviderRuntime = require('../../../../providers/qq/runtime')
 const { dashLog } = require('../shared/logging')
+const { getCurrentMigrationStatus } = require('../../../migrationStatus')
 
 const router = express.Router()
 
@@ -69,6 +71,34 @@ router.get('/monitor', async (req, res) => {
             error: logger.getErrorMessage(error)
         })
         res.status(500).json({ error: 'Failed to fetch system stats' })
+    }
+})
+
+router.get('/qq-provider/status', (req, res) => {
+    try {
+        const provider = qqProviderRuntime.getProviderStatus()
+        dashLog(req, 'info', 'qq-provider-status-fetched', {
+            provider: provider?.id || 'none'
+        })
+        res.json({
+            provider
+        })
+    } catch (error) {
+        dashLog(req, 'error', 'qq-provider-status-failed', {
+            error: logger.getErrorMessage(error)
+        })
+        res.status(500).json({ error: 'Failed to fetch QQ provider status' })
+    }
+})
+
+router.get('/ready.migration', async (req, res) => {
+    try {
+        res.json({ migration: await getCurrentMigrationStatus() })
+    } catch (error) {
+        dashLog(req, 'warn', 'migration-readiness-status-failed', {
+            code: error?.code || 'MIGRATION_ERROR'
+        })
+        res.status(503).json({ error: 'MIGRATION_STATUS_UNAVAILABLE' })
     }
 })
 

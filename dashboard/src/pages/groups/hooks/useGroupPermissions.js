@@ -9,7 +9,9 @@ const useGroupPermissions = ({
   formData,
   setFormData,
   runLockedAction,
-  show
+  show,
+  requireExpectedGeneration,
+  syncConfigGeneration
 }) => {
   const [blacklistInput, setBlacklistInput] = useState('');
   const [adminInput, setAdminInput] = useState('');
@@ -18,7 +20,11 @@ const useGroupPermissions = ({
     return runLockedAction('blacklist', async () => {
       try {
         setFormData((prev) => ({ ...prev, blacklistedQQs: newBlacklist }));
-        await api.post(`/api/groups/${selectedGroupId}/config`, { blacklistedQQs: newBlacklist });
+        const response = await api.post(`/api/groups/${selectedGroupId}/config`, {
+          blacklistedQQs: newBlacklist,
+          expectedGeneration: requireExpectedGeneration()
+        });
+        syncConfigGeneration(response.data);
 
         setGroups((prev) => prev.map((group) => (
           group.id === selectedGroupId
@@ -34,7 +40,7 @@ const useGroupPermissions = ({
         return false;
       }
     });
-  }, [runLockedAction, selectedGroupId, setFormData, setGroups, show]);
+  }, [runLockedAction, selectedGroupId, setFormData, setGroups, show, requireExpectedGeneration, syncConfigGeneration]);
 
   const handleAddBlacklist = useCallback(async () => {
     if (!blacklistInput) return;
@@ -59,7 +65,11 @@ const useGroupPermissions = ({
     return runLockedAction('admins', async () => {
       try {
         setFormData((prev) => ({ ...prev, admins: newAdmins }));
-        await api.post(`/api/groups/${selectedGroupId}/config`, { admins: newAdmins });
+        const response = await api.post(`/api/groups/${selectedGroupId}/config`, {
+          admins: newAdmins,
+          expectedGeneration: requireExpectedGeneration()
+        });
+        syncConfigGeneration(response.data);
 
         setGroups((prev) => prev.map((group) => (
           group.id === selectedGroupId
@@ -79,7 +89,7 @@ const useGroupPermissions = ({
         return false;
       }
     });
-  }, [runLockedAction, selectedGroupId, setFormData, setGroups, show, groups]);
+  }, [runLockedAction, selectedGroupId, setFormData, setGroups, show, groups, requireExpectedGeneration, syncConfigGeneration]);
 
   const handleAddAdmin = useCallback(async () => {
     if (!adminInput) return;

@@ -22,10 +22,10 @@ const originals = {
 }
 
 function restore() {
-    config.groupConfigs = originals.groupConfigs
-    config.videoDownloadEnabled = originals.videoDownloadEnabled
-    config.videoDownloadResolution = originals.videoDownloadResolution
-    config.videoDownloadMaxDuration = originals.videoDownloadMaxDuration
+    config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
+    config.__getMutableCompatStateForTests().videoDownloadEnabled = originals.videoDownloadEnabled
+    config.__getMutableCompatStateForTests().videoDownloadResolution = originals.videoDownloadResolution
+    config.__getMutableCompatStateForTests().videoDownloadMaxDuration = originals.videoDownloadMaxDuration
     biliApi.downloadVideo = originals.downloadVideo
     videoDownloadService._hasDiskSpace = originals.hasDiskSpace
     videoDownloadService._sendForwardMessage = originals.sendForwardMessage
@@ -42,10 +42,10 @@ async function run() {
     const off = logger.onLog((entry) => logs.push(entry))
 
     try {
-        config.groupConfigs = { '1000': { videoDownloadEnabled: true } }
-        config.videoDownloadEnabled = true
-        config.videoDownloadResolution = '720p'
-        config.videoDownloadMaxDuration = 600
+        config.__getMutableCompatStateForTests().groupConfigs = { '1000': { videoDownloadEnabled: true } }
+        config.__getMutableCompatStateForTests().videoDownloadEnabled = true
+        config.__getMutableCompatStateForTests().videoDownloadResolution = '720p'
+        config.__getMutableCompatStateForTests().videoDownloadMaxDuration = 600
         videoDownloadService._hasDiskSpace = async () => true
         videoDownloadService._sendForwardMessage = async () => true
         videoDownloadService._scheduleCleanup = () => {}

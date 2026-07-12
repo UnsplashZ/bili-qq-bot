@@ -28,9 +28,9 @@ const tempMemoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-qq-agent-tool-
 const tempMemoryFile = path.join(tempMemoryDir, 'memories.json')
 
 const originals = {
-    agentConfig: config._overrides.agent,
+    agentConfig: config.__getMutableCompatStateForTests().agent,
     groupConfigs: config.groupConfigs,
-    save: config.save,
+    mutate: config.mutate,
     isRootAdmin: config.isRootAdmin,
     isGroupAdmin: config.isGroupAdmin,
     createChatCompletion: llmClient.createChatCompletion,
@@ -44,12 +44,12 @@ const originals = {
 
 function restore() {
     if (originals.agentConfig === undefined) {
-        delete config._overrides.agent
+        delete config.__getMutableCompatStateForTests().agent
     } else {
-        config._overrides.agent = originals.agentConfig
+        config.__getMutableCompatStateForTests().agent = originals.agentConfig
     }
-    config.groupConfigs = originals.groupConfigs
-    config.save = originals.save
+    config.__getMutableCompatStateForTests().groupConfigs = originals.groupConfigs
+    config.mutate = originals.mutate
     config.isRootAdmin = originals.isRootAdmin
     config.isGroupAdmin = originals.isGroupAdmin
     llmClient.createChatCompletion = originals.createChatCompletion
@@ -100,7 +100,7 @@ function makeMessage(rawMessage, extra = {}) {
 }
 
 function enableAgent() {
-    config._overrides.agent = {
+    config.__getMutableCompatStateForTests().agent = {
         enabled: true,
         observeOnly: false,
         logTrajectory: false,
@@ -150,8 +150,20 @@ async function run() {
     replyGuard.resetReplyGuard()
     confirmationStore.resetConfirmations()
     process.env.AGENT_API_KEY = 'test-key'
-    config.save = () => {}
-    config.groupConfigs = { 1000: { admins: [] } }
+    config.__getMutableCompatStateForTests().groupConfigs = { 1000: { admins: [] } }
+    config.mutate = async (mutator) => {
+        const state = config.__getMutableCompatStateForTests()
+        const draft = structuredClone({
+            agent: state.agent,
+            groupConfigs: state.groupConfigs || {},
+            blacklistedQQs: state.blacklistedQQs || [],
+            enabledGroups: state.enabledGroups || [],
+            providerScopedEnabledGroups: state.providerScopedEnabledGroups || {}
+        })
+        const result = mutator(draft)
+        Object.assign(state, draft)
+        return result
+    }
     config.isRootAdmin = () => false
     config.isGroupAdmin = () => false
     enableAgent()
@@ -489,7 +501,7 @@ async function run() {
     })
 
     assert.strictEqual(planResult.toolPlanResult.status, 'confirmation_required')
-    assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, true)
+    assert.strictEqual(config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled, true)
     assert.strictEqual(ws.sent.length, 1)
     assert.ok(ws.sent[0].params.message[0].data.text.includes('需要你确认'))
 
@@ -524,7 +536,7 @@ async function run() {
         traceContext: { scope: 'test:tool-naked-confirm' }
     })
     assert.strictEqual(nakedConfirmResult.toolConfirmation, undefined)
-    assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, true)
+    assert.strictEqual(config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled, true)
     assert.strictEqual(ws.sent.length, 1)
     assert.deepStrictEqual(
         confirmationStore.parseDecisionText(`[CQ:at,qq=999] 取消${shortId}`, shortId),
@@ -575,7 +587,7 @@ async function run() {
     })
 
     assert.strictEqual(confirmResult.toolConfirmation.status, 'executed')
-    assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, false)
+    assert.strictEqual(config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled, false)
     assert.strictEqual(confirmResult.toolConfirmation.toolReplyDecision.status, 'ok')
     assert.strictEqual(llmCalls, 2)
     assert.strictEqual(ws.sent.length, 2)
@@ -584,7 +596,7 @@ async function run() {
     assert.strictEqual(pendingConfirmations.length, 0)
 
     confirmationStore.resetConfirmations()
-    config._overrides.agent.groups['1000'].sendEnabled = true
+    config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled = true
     llmClient.createChatCompletion = async () => ({
         model: 'test-model',
         usage: { total_tokens: 20 },
@@ -622,7 +634,7 @@ async function run() {
     assert.ok(deniedWs.sent[0].params.message[0].data.text.includes('跨群操作需要 Root 权限'))
 
     confirmationStore.resetConfirmations()
-    config._overrides.agent.groups['1000'].sendEnabled = false
+    config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled = false
     llmClient.createChatCompletion = async () => ({
         model: 'test-model',
         usage: { total_tokens: 20 },
@@ -665,7 +677,7 @@ async function run() {
         traceContext: { scope: 'test:tool-enable-send-confirm' }
     })
     assert.strictEqual(enableConfirmResult.toolConfirmation.status, 'executed')
-    assert.strictEqual(config._overrides.agent.groups['1000'].sendEnabled, true)
+    assert.strictEqual(config.__getMutableCompatStateForTests().agent.groups['1000'].sendEnabled, true)
 
     llmClient.createChatCompletion = async () => {
         throw new Error('agent_llm_empty_message_content')

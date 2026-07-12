@@ -28,7 +28,7 @@ const originals = {
 const originalGroupConfigs = JSON.parse(JSON.stringify(config.groupConfigs || {}))
 
 function overwriteGroupConfigs(next) {
-    const groupConfigs = config.groupConfigs || {}
+    const groupConfigs = config.__getMutableCompatStateForTests().groupConfigs || {}
     for (const key of Object.keys(groupConfigs)) {
         delete groupConfigs[key]
     }

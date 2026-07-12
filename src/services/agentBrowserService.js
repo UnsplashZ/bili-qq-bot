@@ -1,5 +1,6 @@
 const dns = require('dns').promises
 const puppeteer = require('puppeteer')
+const config = require('../config')
 
 const MAX_FETCH_BYTES = 512 * 1024
 const DEFAULT_TIMEOUT_MS = 8000
@@ -105,7 +106,7 @@ function buildBrowserLikeHeaders(url) {
 }
 
 function chromiumExecutable() {
-    const configured = String(process.env.CHROMIUM_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '').trim()
+    const configured = String(config.chromiumPath || config.puppeteerExecutablePath || '').trim()
     if (configured) return configured
     return '/usr/bin/chromium'
 }
@@ -256,10 +257,10 @@ async function waitForReadableText(page, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 1200))
 }
 
-async function readUrlWithChromium(initialUrl, { timeoutMs = DEFAULT_CHROMIUM_TIMEOUT_MS } = {}) {
+async function readUrlWithChromium(initialUrl, { timeoutMs = DEFAULT_CHROMIUM_TIMEOUT_MS, executablePath = chromiumExecutable() } = {}) {
     await assertResolvedHostSafe(initialUrl.hostname)
     const browser = await puppeteer.launch({
-        executablePath: chromiumExecutable(),
+        executablePath,
         headless: 'new',
         args: [
             '--no-sandbox',
@@ -368,6 +369,7 @@ function formatReadResult(result, maxChars) {
 
 class AgentBrowserService {
     async readUrl({ url, maxChars = 3000 }, options = {}) {
+        const executablePath = chromiumExecutable()
         const safeUrl = assertSafeUrl(url)
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEFAULT_TIMEOUT_MS)
@@ -383,7 +385,10 @@ class AgentBrowserService {
                 DEFAULT_CHROMIUM_TIMEOUT_MS,
                 Math.trunc(Number(options.chromiumTimeoutMs || options.timeoutMs) || DEFAULT_CHROMIUM_TIMEOUT_MS)
             )
-            const chromiumResult = await readUrlWithChromium(fetchResult.url, { timeoutMs: chromiumTimeoutMs })
+            const chromiumResult = await readUrlWithChromium(fetchResult.url, {
+                timeoutMs: chromiumTimeoutMs,
+                executablePath
+            })
             if (!chromiumResult.quality.usable) {
                 throw new Error(chromiumResult.quality.reason)
             }

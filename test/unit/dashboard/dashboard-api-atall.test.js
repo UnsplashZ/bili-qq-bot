@@ -23,13 +23,18 @@ const originals = {
     getSubscriptionsByGroup: subscriptionService.getSubscriptionsByGroup,
     getFollowingsForGroup: subscriptionService.getFollowingsForGroup,
     save: config.save,
+    patch: config.patch,
+    getSnapshot: config.getSnapshot,
+    getStatus: config.getStatus,
+    jwtSecret: config.jwtSecret,
     bot: global.bot,
 }
 
 const originalGroupConfigs = JSON.parse(JSON.stringify(config.groupConfigs || {}))
+let configGeneration = 1
 
 function overwriteGroupConfigs(next) {
-    const groupConfigs = config.groupConfigs || {}
+    const groupConfigs = config.__getMutableCompatStateForTests().groupConfigs || {}
     for (const key of Object.keys(groupConfigs)) {
         delete groupConfigs[key]
     }
@@ -39,7 +44,12 @@ function overwriteGroupConfigs(next) {
 function restoreAll() {
     subscriptionService.getSubscriptionsByGroup = originals.getSubscriptionsByGroup
     subscriptionService.getFollowingsForGroup = originals.getFollowingsForGroup
+    config.save = () => {}
+    config.__getMutableCompatStateForTests().jwtSecret = originals.jwtSecret
     config.save = originals.save
+    config.patch = originals.patch
+    config.getSnapshot = originals.getSnapshot
+    config.getStatus = originals.getStatus
 
     overwriteGroupConfigs(originalGroupConfigs)
 
@@ -70,8 +80,38 @@ describe('Dashboard API @all routes', function () {
 
     beforeEach(function () {
         restoreAll()
-        token = buildToken()
         config.save = () => {}
+        config.__getMutableCompatStateForTests().jwtSecret = 'dashboard-atall-test-secret'
+        configGeneration = 1
+        config.getSnapshot = () => ({
+            groupConfigs: JSON.parse(JSON.stringify(config.groupConfigs || {})),
+            enabledGroups: [...(config.enabledGroups || [])],
+            providerScopedEnabledGroups: JSON.parse(JSON.stringify(config.providerScopedEnabledGroups || {}))
+        })
+        config.getStatus = () => ({
+            documentGeneration: configGeneration,
+            effectiveGeneration: configGeneration,
+            fingerprint: `public-${configGeneration}`
+        })
+        config.patch = async (operations) => {
+            for (const operation of operations) {
+                if (operation.path[0] === 'groupConfigs') {
+                    if (operation.op === 'remove') delete config.__getMutableCompatStateForTests().groupConfigs[operation.path[1]]
+                    else config.__getMutableCompatStateForTests().groupConfigs[operation.path[1]] = JSON.parse(JSON.stringify(operation.value))
+                }
+            }
+            configGeneration += 1
+            return {
+                documentGeneration: configGeneration,
+                effectiveGeneration: configGeneration,
+                generation: configGeneration,
+                applied: operations.map((operation) => operation.path.join('.')),
+                reloaded: ['groups'],
+                deploymentApplyRequired: [],
+                warnings: []
+            }
+        }
+        token = buildToken()
         global.bot = {
             groupList: new Map([
                 ['1000', { group_name: 'Test Group' }]
@@ -131,6 +171,7 @@ describe('Dashboard API @all routes', function () {
             .post('/api/groups/1000/config')
             .set('Authorization', `Bearer ${token}`)
             .send({
+                expectedGeneration: 1,
                 subscriptionAtAllRules: {
                     sources: { manual: false },
                     categories: { video: false, unknown: false },
@@ -148,5 +189,16 @@ describe('Dashboard API @all routes', function () {
         assert.strictEqual(rules.categories.live, true)
         assert.deepStrictEqual(rules.manualDisabledIds, ['123', '456'])
         assert.deepStrictEqual(rules.cookieSyncDisabledIds, ['789'])
+    })
+
+    it('POST /api/groups/:id/config requires expectedGeneration', async function () {
+        overwriteGroupConfigs({ '1000': {} })
+        const res = await request(app)
+            .post('/api/groups/1000/config')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ showId: false })
+
+        assert.strictEqual(res.status, 400)
+        assert.strictEqual(res.body.code, 'CONFIG_EXPECTED_GENERATION_REQUIRED')
     })
 })

@@ -23,6 +23,13 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function hydrateAgent(responseAgent) {
+  const next = clone(responseAgent);
+  const apiKeyConfigured = Boolean(next?.llm?.apiKey?.configured);
+  if (next?.llm) next.llm.apiKey = '';
+  return { agent: next, apiKeyConfigured };
+}
+
 function formatBool(value) {
   return value ? '开启' : '关闭';
 }
@@ -174,14 +181,16 @@ function NumberInput({ label, value, onChange, min, max, step = 1, suffix = '', 
   );
 }
 
-function TextInput({ label, value, onChange, placeholder = '', disabled = false }) {
+function TextInput({ label, value, onChange, placeholder = '', disabled = false, type = 'text', autoComplete }) {
   return (
     <label className="space-y-1.5">
       <span className="text-sm text-gray-300">{label}</span>
       <input
+        type={type}
         value={value ?? ''}
         disabled={disabled}
         placeholder={placeholder}
+        autoComplete={autoComplete}
         onChange={(event) => onChange(event.target.value)}
         className="field-control w-full px-3 py-2.5 placeholder:text-gray-500 disabled:opacity-60"
       />
@@ -356,9 +365,12 @@ function SocialConfigFields({ value, onChange, disabled = false }) {
 const AgentSettings = () => {
   const { show } = useToast();
   const [agent, setAgent] = useState(null);
-  const [llmEnv, setLlmEnv] = useState({});
+  const [generation, setGeneration] = useState(null);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [clearApiKey, setClearApiKey] = useState(false);
   const [aliasesText, setAliasesText] = useState('');
   const [groupId, setGroupId] = useState('');
+  const [qqProvider, setQqProvider] = useState('napcat');
   const [groupDraft, setGroupDraft] = useState({
     enabled: 'inherit',
     observeOnly: 'inherit',
@@ -383,10 +395,13 @@ const AgentSettings = () => {
     setLoading(true);
     try {
       const response = await api.get('/api/agent/config');
-      const nextAgent = response.data.agent;
-      setAgent(nextAgent);
-      setLlmEnv(response.data.llmEnv || {});
-      setAliasesText(Array.isArray(nextAgent.aliases) ? nextAgent.aliases.join('\n') : '');
+      const hydrated = hydrateAgent(response.data.agent);
+      setAgent(hydrated.agent);
+      setApiKeyConfigured(hydrated.apiKeyConfigured);
+      setClearApiKey(false);
+      setGeneration(response.data.documentGeneration ?? response.data.generation);
+      setQqProvider(response.data.qqProvider === 'official' ? 'official' : 'napcat');
+      setAliasesText(Array.isArray(hydrated.agent.aliases) ? hydrated.agent.aliases.join('\n') : '');
     } catch (error) {
       console.error('Failed to load agent config:', error);
       show('加载 Agent 配置失败', 'error');
@@ -410,23 +425,39 @@ const AgentSettings = () => {
 
   const saveAll = async () => {
     if (!agent) return;
+    if (!Number.isSafeInteger(generation)) {
+      show('配置 generation 尚未就绪，请刷新后重试', 'error');
+      return;
+    }
     const normalizedGroupId = groupId.trim();
-    if (normalizedGroupId && !/^\d+$/.test(normalizedGroupId)) {
-      show('请输入有效群号，或清空群号后只保存全局配置', 'error');
+    const validGroupId = qqProvider === 'official'
+      ? /^[A-Za-z0-9_-]{4,128}$/.test(normalizedGroupId)
+      : /^\d+$/.test(normalizedGroupId);
+    if (normalizedGroupId && !validGroupId) {
+      show(qqProvider === 'official'
+        ? '请输入有效的 Official group_openid，或清空后只保存全局配置'
+        : '请输入有效群号，或清空群号后只保存全局配置', 'error');
       return;
     }
     setSaving(true);
     try {
+      const payloadAgent = clone(agent);
+      if (!payloadAgent.llm?.apiKey) delete payloadAgent.llm.apiKey;
       const payload = {
-        ...agent,
+        ...payloadAgent,
         aliases: aliasesText,
+        expectedGeneration: generation,
+        ...(clearApiKey ? { secretActions: { apiKey: 'clear' } } : {}),
       };
       const response = await api.put('/api/agent/config', payload);
-      let nextAgent = response.data.agent;
-      setLlmEnv(response.data.llmEnv || {});
+      let nextGeneration = response.data.documentGeneration ?? response.data.generation;
+      let hydrated = hydrateAgent(response.data.agent);
+      let nextAgent = hydrated.agent;
+      let nextApiKeyConfigured = hydrated.apiKeyConfigured;
       setAliasesText(Array.isArray(nextAgent.aliases) ? nextAgent.aliases.join('\n') : '');
       if (normalizedGroupId) {
         const groupPayload = {
+          expectedGeneration: nextGeneration,
           enabled: fromOverrideValue(groupDraft.enabled),
           observeOnly: fromOverrideValue(groupDraft.observeOnly),
           sendEnabled: fromOverrideValue(groupDraft.sendEnabled),
@@ -438,9 +469,15 @@ const AgentSettings = () => {
           expression: groupDraft.humanlikeMode === 'custom' ? groupDraft.expression : null,
         };
         const groupResponse = await api.put(`/api/agent/groups/${encodeURIComponent(normalizedGroupId)}`, groupPayload);
-        nextAgent = groupResponse.data.agent;
+        nextGeneration = groupResponse.data.documentGeneration ?? groupResponse.data.generation;
+        hydrated = hydrateAgent(groupResponse.data.agent);
+        nextAgent = hydrated.agent;
+        nextApiKeyConfigured = hydrated.apiKeyConfigured;
       }
       setAgent(nextAgent);
+      setApiKeyConfigured(nextApiKeyConfigured);
+      setClearApiKey(false);
+      setGeneration(nextGeneration);
       show(normalizedGroupId ? `Agent 全局和群 ${normalizedGroupId} 覆盖配置已保存` : 'Agent 配置已保存', 'success');
     } catch (error) {
       console.error('Failed to save agent config:', error);
@@ -452,10 +489,19 @@ const AgentSettings = () => {
 
   const deleteGroup = async (targetGroupId) => {
     if (!window.confirm(`确认删除群 ${targetGroupId} 的 Agent 覆盖配置？`)) return;
+    if (!Number.isSafeInteger(generation)) {
+      show('配置 generation 尚未就绪，请刷新后重试', 'error');
+      return;
+    }
     setSaving(true);
     try {
-      const response = await api.delete(`/api/agent/groups/${encodeURIComponent(targetGroupId)}`);
-      setAgent(response.data.agent);
+      const response = await api.delete(`/api/agent/groups/${encodeURIComponent(targetGroupId)}`, {
+        data: { expectedGeneration: generation },
+      });
+      const hydrated = hydrateAgent(response.data.agent);
+      setAgent(hydrated.agent);
+      setApiKeyConfigured(hydrated.apiKeyConfigured);
+      setGeneration(response.data.documentGeneration ?? response.data.generation);
       show('群级覆盖配置已删除', 'success');
     } catch (error) {
       console.error('Failed to delete agent group config:', error);
@@ -511,7 +557,7 @@ const AgentSettings = () => {
     );
   }
 
-  const groups = Object.entries(agent.groups || {}).sort(([a], [b]) => Number(a) - Number(b));
+  const groups = Object.entries(agent.groups || {}).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
 
   return (
     <div className="space-y-6">
@@ -679,8 +725,8 @@ const AgentSettings = () => {
             />
             <TextInput
               label="Base URL"
-              value={agent.llm?.baseURL}
-              onChange={(value) => updateAgent((next) => { next.llm.baseURL = value; })}
+              value={agent.llm?.baseUrl}
+              onChange={(value) => updateAgent((next) => { next.llm.baseUrl = value; })}
             />
             <TextInput
               label="模型"
@@ -688,9 +734,15 @@ const AgentSettings = () => {
               onChange={(value) => updateAgent((next) => { next.llm.model = value; })}
             />
             <TextInput
-              label="API Key 环境变量名"
-              value={agent.llm?.apiKeyEnv}
-              onChange={(value) => updateAgent((next) => { next.llm.apiKeyEnv = value; })}
+              label="API Key"
+              type="password"
+              autoComplete="new-password"
+              placeholder={apiKeyConfigured ? '已配置；留空保持不变' : '输入 API Key'}
+              value={agent.llm?.apiKey}
+              onChange={(value) => {
+                setClearApiKey(false);
+                updateAgent((next) => { next.llm.apiKey = value; });
+              }}
             />
             <NumberInput
               label="超时"
@@ -723,11 +775,20 @@ const AgentSettings = () => {
               onChange={(value) => updateAgent((next) => { next.budget.maxLlmCallsPerUserPerMinute = value; })}
             />
           </div>
-          <PlainStatus tone={llmEnv.apiKeyConfigured ? 'slate' : 'amber'}>
-            <div>API Key：{llmEnv.apiKeyConfigured ? '已配置' : '未配置'}</div>
-            {(llmEnv.providerOverridden || llmEnv.baseURLOverridden || llmEnv.modelOverridden || llmEnv.apiKeyEnvOverridden) && (
-              <div className="text-amber-300">部分 LLM 字段由 `.env` 覆盖，保存后运行时仍以环境变量为准。</div>
-            )}
+          <PlainStatus tone={apiKeyConfigured && !clearApiKey ? 'slate' : 'amber'}>
+            <div>API Key：{clearApiKey ? '保存后清除' : (apiKeyConfigured ? '已配置' : '未配置')}</div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={clearApiKey}
+                disabled={!apiKeyConfigured && !agent.llm?.apiKey}
+                onChange={(event) => {
+                  setClearApiKey(event.target.checked);
+                  if (event.target.checked) updateAgent((next) => { next.llm.apiKey = ''; });
+                }}
+              />
+              显式清除已保存的 API Key
+            </label>
           </PlainStatus>
         </GlassCard>
 
@@ -844,7 +905,12 @@ const AgentSettings = () => {
       <GlassCard>
         <h2 className="text-xl font-semibold mb-4">群级覆盖</h2>
         <div className="grid gap-4 md:grid-cols-4">
-          <TextInput label="群号" value={groupId} onChange={setGroupId} placeholder="例如 123456789" />
+          <TextInput
+            label={qqProvider === 'official' ? 'Official group_openid' : '群号'}
+            value={groupId}
+            onChange={setGroupId}
+            placeholder={qqProvider === 'official' ? '例如 group_openid_abc123' : '例如 123456789'}
+          />
           <OverrideSelect
             label="入口"
             value={groupDraft.enabled}

@@ -1,83 +1,30 @@
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const logger = require('../utils/logger')
+'use strict'
 
-const CONFIG_DIR = path.join(__dirname, '../../config')
-const secretPath = path.join(CONFIG_DIR, '.jwtSecret')
+// Deprecated compatibility shim. JWT Secret ownership moved to
+// dashboard.jwtSecret in ConfigService/config.yaml. No legacy file or env reads
+// are allowed here.
 
-let jwtSecretLoadedLogged = false
-let jwtSecretGeneratedLogged = false
-
-function authConfigLog(level, message, fields = {}) {
-    logger.logEvent(level, 'AUTH', 'svc:config', message, fields)
-}
-
-function getJwtSecret() {
-    const store = require('./store')
-
-    if ('jwtSecret' in store._overrides) return store._overrides.jwtSecret
-
-    const envVal = process.env.JWT_SECRET
-    if (envVal) return envVal
-
-    try {
-        if (fs.existsSync(secretPath)) {
-            const saved = fs.readFileSync(secretPath, 'utf8').trim()
-            if (saved && saved.length === 64) {
-                if (!jwtSecretLoadedLogged) {
-                    authConfigLog('info', 'jwt-secret-loaded', {
-                        path: secretPath
-                    })
-                    jwtSecretLoadedLogged = true
-                }
-                return saved
-            }
-        }
-    } catch (err) {
-        authConfigLog('warn', 'jwt-secret-read-failed', {
-            path: secretPath,
-            error: logger.getErrorMessage(err)
-        })
-    }
-
-    const secret = crypto.randomBytes(32).toString('hex')
-    try {
-        const dir = path.dirname(secretPath)
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true })
-        }
-        fs.writeFileSync(secretPath, secret, { mode: 0o600 })
-        if (!jwtSecretGeneratedLogged) {
-            authConfigLog('warn', 'jwt-secret-generated', {
-                path: secretPath,
-                recommendedAction: 'move_to_env'
-            })
-            jwtSecretGeneratedLogged = true
-        }
-    } catch (err) {
-        authConfigLog('error', 'jwt-secret-save-failed', {
-            path: secretPath,
-            error: logger.getErrorMessage(err)
-        })
-    }
-
-    return secret
+function getJwtSecret(config = null) {
+    const value = config?.jwtSecret ?? config?.dashboard?.jwtSecret
+    return typeof value === 'string' ? value : ''
 }
 
 function attachToConfig(config) {
+    if (!config || typeof config !== 'object') return config
     Object.defineProperty(config, 'jwtSecret', {
-        get: function() {
-            return getJwtSecret()
+        get() {
+            const serviceValue = config.service?.get?.('dashboard.jwtSecret')
+            return typeof serviceValue === 'string' ? serviceValue : getJwtSecret(config.dashboard || null)
         },
-        set: function(val) {
-            const store = require('./store')
-            store._overrides.jwtSecret = val
-            this.save()
+        set() {
+            const error = new Error('Direct JWT Secret assignment is disabled; use ConfigService.patch()')
+            error.code = 'LEGACY_CONFIG_WRITE_DISABLED'
+            throw error
         },
         enumerable: true,
         configurable: true
     })
+    return config
 }
 
 module.exports = {

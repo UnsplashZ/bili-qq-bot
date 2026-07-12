@@ -14,7 +14,9 @@ const useGroupForm = ({
   groups,
   setGroups,
   show,
-  atAllTargets
+  atAllTargets,
+  requireExpectedGeneration,
+  syncConfigGeneration
 }) => {
   const [formData, setFormData] = useState(createDefaultGroupFormData());
   const [saving, setSaving] = useState(false);
@@ -67,9 +69,14 @@ const useGroupForm = ({
         cookieSyncGroupNames: formData.cookieSyncGroupNames
       };
 
-      await api.post(`/api/groups/${selectedGroupId}/config`, payload);
+      const response = await api.post(`/api/groups/${selectedGroupId}/config`, {
+        ...payload,
+        expectedGeneration: requireExpectedGeneration()
+      });
+      syncConfigGeneration(response.data);
 
       const res = await api.get('/api/groups');
+      syncConfigGeneration(res.headers?.['x-config-generation']);
       if (Array.isArray(res.data)) {
         setGroups(res.data);
       }
@@ -83,7 +90,7 @@ const useGroupForm = ({
     } finally {
       setSaving(false);
     }
-  }, [selectedGroupId, formData, setGroups, show]);
+  }, [selectedGroupId, formData, setGroups, show, requireExpectedGeneration, syncConfigGeneration]);
 
   const toggleSyncGroup = useCallback((groupName) => {
     setFormData((prev) => {

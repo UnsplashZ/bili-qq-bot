@@ -17,7 +17,7 @@ describe('preview template merge', function () {
     const originalPreviewLayoutConfig = config.previewLayoutConfig
 
     afterEach(function () {
-        config.previewLayoutConfig = originalPreviewLayoutConfig
+        config.__getMutableCompatStateForTests().previewLayoutConfig = originalPreviewLayoutConfig
     })
 
     it('applies builtIn -> global template -> group patch -> draft template order', function () {
@@ -134,7 +134,7 @@ describe('preview template merge', function () {
     it('rejects corrupt stored v2 template instead of falling back to lastKnownGood', function () {
         const lkg = getDefaultTemplate('video')
         lkg.nodesById.title.style.fontSize = 36
-        config.previewLayoutConfig = {
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 2,
             global: {
                 video: {
@@ -183,48 +183,63 @@ describe('preview template merge', function () {
         const base = getDefaultTemplate('video')
         const target = JSON.parse(JSON.stringify(base))
         target.nodesById.title.style.fontSize = 34
-        config.previewLayoutConfig = {
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 2,
             global: { video: { template: base } },
             groups: {},
             lastKnownGood: {}
         }
 
-        savePreviewTemplate('group', 'video', target, '1000')
-        const groupEntry = config.previewLayoutConfig.groups['1000'].video
+        const mutation = savePreviewTemplate('group', 'video', target, '1000')
+        const groupEntry = mutation.nextConfig.groups['1000'].video
         assert.ok(groupEntry.baseSignature)
         assert.ok(groupEntry.baseNodeSignatures.nodes.title)
 
-        const conflictingConfig = JSON.parse(JSON.stringify(config.previewLayoutConfig))
+        const conflictingConfig = JSON.parse(JSON.stringify(mutation.nextConfig))
         conflictingConfig.global.video.template.nodesById.title = {
             ...conflictingConfig.global.video.template.nodesById.title,
             style: { maxLines: 1 }
         }
-        config.previewLayoutConfig = conflictingConfig
+        config.__getMutableCompatStateForTests().previewLayoutConfig = conflictingConfig
         assert.throws(
             () => getEffectiveTemplate('video', '1000'),
             (error) => error.details?.code === 'PREVIEW_TEMPLATE_REBASE_CONFLICT'
         )
     })
 
+    it('builds save mutations without writing the compatibility config facade', function () {
+        const stored = {
+            version: 2,
+            global: {},
+            groups: {},
+            lastKnownGood: {}
+        }
+        config.__getMutableCompatStateForTests().previewLayoutConfig = { sentinel: true }
+        const mutation = savePreviewTemplate('global', 'video', getDefaultTemplate('video'), null, stored)
+
+        assert.deepStrictEqual(config.previewLayoutConfig, { sentinel: true })
+        assert.ok(mutation.nextConfig.global.video.template)
+        assert.strictEqual(mutation.saved.type, 'video')
+    })
+
     it('rebases group patches when unrelated base nodes change', function () {
         const base = getDefaultTemplate('video')
         const target = JSON.parse(JSON.stringify(base))
         target.nodesById.title.style.fontSize = 34
-        config.previewLayoutConfig = {
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 2,
             global: { video: { template: base } },
             groups: {},
             lastKnownGood: {}
         }
 
-        savePreviewTemplate('group', 'video', target, '1000')
-        const changedConfig = JSON.parse(JSON.stringify(config.previewLayoutConfig))
+        const mutation = savePreviewTemplate('group', 'video', target, '1000')
+        const changedConfig = JSON.parse(JSON.stringify(mutation.nextConfig))
         changedConfig.global.video.template.nodesById.text = {
             ...changedConfig.global.video.template.nodesById.text,
             style: { maxLines: 2 }
         }
-        config.previewLayoutConfig = changedConfig
+        config.__getMutableCompatStateForTests().previewLayoutConfig = changedConfig
         const effective = getEffectiveTemplate('video', '1000')
 
         assert.strictEqual(effective.nodesById.title.style.fontSize, 34)
@@ -237,22 +252,22 @@ describe('preview template merge', function () {
         target.nodesById.root.label = '群专属视频模板'
         target.nodesById.root.style.opacity = 0.92
         target.nodesById.root.layout.padding = 24
-        config.previewLayoutConfig = {
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 2,
             global: { video: { template: base } },
             groups: {},
             lastKnownGood: {}
         }
 
-        savePreviewTemplate('group', 'video', target, '1000')
+        const mutation = savePreviewTemplate('group', 'video', target, '1000')
 
-        const groupEntry = config.previewLayoutConfig.groups['1000'].video
+        const groupEntry = mutation.nextConfig.groups['1000'].video
         assert.strictEqual(groupEntry.templatePatch.nodes.root.value.label, '群专属视频模板')
         assert.strictEqual(groupEntry.templatePatch.nodes.root.value.style.opacity, 0.92)
         assert.strictEqual(groupEntry.templatePatch.nodes.root.value.layout.padding, 24)
         assert.ok(groupEntry.baseNodeSignatures.nodes.root)
 
-        const effective = getEffectiveTemplate('video', '1000')
+        const effective = getEffectiveTemplate('video', '1000', null, mutation.nextConfig)
         assert.strictEqual(effective.nodesById.root.label, '群专属视频模板')
         assert.strictEqual(effective.nodesById.root.style.opacity, 0.92)
         assert.strictEqual(effective.nodesById.root.layout.padding, 24)

@@ -1,10 +1,12 @@
 const express = require('express')
 const sysConfig = require('../../../../config')
-const { DEFAULT_AGENT_CONFIG } = require('../../../../config/schema')
+const { DEFAULT_AGENT_CONFIG } = require('../../../../config/schemaV1')
+const { diffConfig } = require('../../../../config/configDiff')
 const { normalizeAgentConfig } = require('../../../../agent/config/agentConfig')
 const { dashLog } = require('../shared/logging')
+const { isNumericGroupId, isOfficialOpaqueGroupId } = require('../shared/normalize')
+const { emptyMutationResult, publicRecoveryStatus } = require('../shared/config-mutation')
 
-const router = express.Router()
 const DECISION_MODES = ['rule_only', 'llm_shadow', 'llm_live']
 const RISK_LEVELS = ['low', 'medium', 'high']
 const SOCIAL_MODES = ['quiet', 'normal', 'active', 'debug']
@@ -17,8 +19,77 @@ function isPlainObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getRawAgentConfig() {
-    return isPlainObject(sysConfig.agent) ? clone(sysConfig.agent) : clone(DEFAULT_AGENT_CONFIG)
+function getRawAgentConfig(config = sysConfig) {
+    const snapshot = typeof config.getSnapshot === 'function' ? config.getSnapshot() : null
+    const agent = snapshot?.agent ?? config.agent
+    return isPlainObject(agent) ? clone(agent) : clone(DEFAULT_AGENT_CONFIG)
+}
+
+function getQqProvider(config = sysConfig) {
+    const snapshot = typeof config.getSnapshot === 'function' ? config.getSnapshot() : null
+    return snapshot?.qq?.provider === 'official' ? 'official' : 'napcat'
+}
+
+function validateAgentGroupId(config, rawGroupId) {
+    const groupId = parseString(rawGroupId, 'groupId', 128)
+    const provider = getQqProvider(config)
+    const valid = provider === 'official' ? isOfficialOpaqueGroupId(groupId) : isNumericGroupId(groupId)
+    if (!valid) {
+        const error = new Error(provider === 'official'
+            ? 'groupId must be a valid Official group_openid'
+            : 'groupId must be a numeric QQ group id')
+        error.code = 'CONFIG_GROUP_ID_INVALID'
+        throw error
+    }
+    return { groupId, provider }
+}
+
+function assertExpectedGeneration(value) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+        const error = new Error('expectedGeneration is required')
+        error.code = 'CONFIG_EXPECTED_GENERATION_REQUIRED'
+        throw error
+    }
+    return value
+}
+
+function publicAgentConfig(rawConfig) {
+    const agent = normalizeAgentConfig(rawConfig)
+    delete agent.llm.baseURL
+    agent.llm.apiKey = { configured: Boolean(rawConfig?.llm?.apiKey) }
+    return agent
+}
+
+function publicDefaults() {
+    const defaults = clone(DEFAULT_AGENT_CONFIG)
+    defaults.llm.apiKey = { configured: false }
+    return defaults
+}
+
+function configErrorResponse(config, error) {
+    const publicError = typeof config.service?.toPublicError === 'function'
+        ? config.service.toPublicError(error)
+        : {
+            code: typeof error?.code === 'string' ? error.code : 'CONFIG_ERROR',
+            path: typeof error?.path === 'string' ? error.path : '',
+            line: Number.isInteger(error?.line) ? error.line : null,
+            column: Number.isInteger(error?.column) ? error.column : null
+        }
+    const status = config.getStatus()
+    return {
+        error: publicError.code,
+        ...publicError,
+        generation: status.documentGeneration,
+        fingerprint: status.fingerprint,
+        ...publicRecoveryStatus(status),
+        ...(Array.isArray(error?.conflictPaths) ? { conflictPaths: [...error.conflictPaths] } : {})
+    }
+}
+
+function configErrorStatus(error) {
+    if (error?.code === 'CONFIG_GENERATION_CONFLICT') return 409
+    if (String(error?.code || '').startsWith('CONFIG_')) return 400
+    return 500
 }
 
 function parseBoolean(value, field) {
@@ -211,12 +282,19 @@ function sanitizeGlobalPatch(body = {}) {
     }
 
     if (isPlainObject(body.llm)) {
+        if (Object.prototype.hasOwnProperty.call(body.llm, 'baseURL') || Object.prototype.hasOwnProperty.call(body.llm, 'apiKeyEnv')) {
+            const error = new Error('Legacy LLM configuration fields are not supported')
+            error.code = 'CONFIG_FIELD_UNKNOWN'
+            throw error
+        }
         patch.llm = {}
         assignBoolean(patch.llm, body.llm, 'enabled')
         if (body.llm.provider !== undefined) patch.llm.provider = parseString(body.llm.provider, 'llm.provider', 80)
-        if (body.llm.baseURL !== undefined) patch.llm.baseURL = parseString(body.llm.baseURL, 'llm.baseURL', 300)
+        if (body.llm.baseUrl !== undefined) patch.llm.baseUrl = parseString(body.llm.baseUrl, 'llm.baseUrl', 300)
         if (body.llm.model !== undefined) patch.llm.model = parseString(body.llm.model, 'llm.model', 120)
-        if (body.llm.apiKeyEnv !== undefined) patch.llm.apiKeyEnv = parseString(body.llm.apiKeyEnv, 'llm.apiKeyEnv', 80)
+        if (typeof body.llm.apiKey === 'string' && body.llm.apiKey !== '') {
+            patch.llm.apiKey = parseString(body.llm.apiKey, 'llm.apiKey', 1000)
+        }
         assignInteger(patch.llm, body.llm, 'timeoutMs', 1000, 120000)
         assignFloat(patch.llm, body.llm, 'temperature', 0, 2)
         assignInteger(patch.llm, body.llm, 'maxTokens', 100, 8000)
@@ -316,90 +394,136 @@ function mergePatch(target, patch) {
     return next
 }
 
-function saveAgentConfig(nextConfig) {
-    sysConfig.agent = nextConfig
+function buildAgentOperations(currentSnapshot, nextAgent, options = {}) {
+    const nextSnapshot = clone(currentSnapshot)
+    nextSnapshot.agent = nextAgent
+    return diffConfig(currentSnapshot, nextSnapshot).map((entry) => {
+        if (entry.path.join('.') === 'agent.llm.apiKey' && options.clearApiKey) {
+            return { op: 'clear-secret', path: entry.path }
+        }
+        if (entry.after === undefined) return { op: 'remove', path: entry.path }
+        return { op: 'set', path: entry.path, value: entry.after }
+    })
 }
 
-function llmEnvStatus(agentConfig) {
-    return {
-        providerOverridden: Boolean(process.env.AGENT_LLM_PROVIDER),
-        baseURLOverridden: Boolean(process.env.AGENT_LLM_BASE_URL),
-        modelOverridden: Boolean(process.env.AGENT_LLM_MODEL),
-        apiKeyEnvOverridden: Boolean(process.env.AGENT_LLM_API_KEY_ENV),
-        apiKeyConfigured: Boolean(process.env[agentConfig.llm.apiKeyEnv])
+function assertSecretActions(value) {
+    if (value === undefined) return { clearApiKey: false }
+    if (!isPlainObject(value) || Object.keys(value).some((key) => key !== 'apiKey') || value.apiKey !== 'clear') {
+        const error = new Error('Unsupported secret action')
+        error.code = 'CONFIG_SECRET_ACTION_INVALID'
+        throw error
     }
+    return { clearApiKey: true }
 }
 
-router.get('/agent/config', async (req, res) => {
-    try {
-        const rawAgent = getRawAgentConfig()
-        const agent = normalizeAgentConfig(rawAgent)
-        res.json({
-            agent,
-            defaults: clone(DEFAULT_AGENT_CONFIG),
-            llmEnv: llmEnvStatus(agent)
-        })
-    } catch (error) {
-        dashLog(req, 'error', 'agent-config-fetch-failed', { error: error.message })
-        res.status(500).json({ error: 'Failed to read agent config' })
-    }
-})
+function createAgentConfigRouter(options = {}) {
+    const config = options.config || sysConfig
+    const router = express.Router()
 
-router.put('/agent/config', async (req, res) => {
-    try {
-        const patch = sanitizeGlobalPatch(req.body)
-        const current = getRawAgentConfig()
-        const next = mergePatch(current, patch)
-        saveAgentConfig(next)
-        const agent = normalizeAgentConfig(next)
-        dashLog(req, 'info', 'agent-config-updated', {
-            keys: Object.keys(patch).join(',')
-        })
-        res.json({ message: 'Agent config updated', agent, llmEnv: llmEnvStatus(agent) })
-    } catch (error) {
-        dashLog(req, 'warn', 'agent-config-update-failed', { error: error.message })
-        res.status(400).json({ error: error.message || 'Failed to update agent config' })
-    }
-})
+    router.get('/agent/config', async (req, res) => {
+        try {
+            const rawAgent = getRawAgentConfig(config)
+            const status = config.getStatus()
+            res.json({
+                agent: publicAgentConfig(rawAgent),
+                defaults: publicDefaults(),
+                qqProvider: getQqProvider(config),
+                documentGeneration: status.documentGeneration,
+                effectiveGeneration: status.effectiveGeneration,
+                generation: status.documentGeneration
+            })
+        } catch (error) {
+            dashLog(req, 'error', 'agent-config-fetch-failed', { code: error?.code || 'CONFIG_ERROR' })
+            res.status(500).json(configErrorResponse(config, error))
+        }
+    })
 
-router.put('/agent/groups/:groupId', async (req, res) => {
-    try {
-        const groupId = parseString(req.params.groupId, 'groupId', 30)
-        if (!/^\d+$/.test(groupId)) return res.status(400).json({ error: 'groupId must be numeric' })
-        const patch = sanitizeGroupPatch(req.body)
-        const current = getRawAgentConfig()
-        const groups = isPlainObject(current.groups) ? clone(current.groups) : {}
-        groups[groupId] = mergePatch(isPlainObject(groups[groupId]) ? groups[groupId] : {}, patch)
-        const next = { ...current, groups }
-        saveAgentConfig(next)
-        const agent = normalizeAgentConfig(next)
-        dashLog(req, 'info', 'agent-group-config-updated', {
-            groupId,
-            keys: Object.keys(patch).join(',')
-        })
-        res.json({ message: 'Agent group config updated', groupId, config: agent.groups[groupId], agent })
-    } catch (error) {
-        dashLog(req, 'warn', 'agent-group-config-update-failed', { error: error.message })
-        res.status(400).json({ error: error.message || 'Failed to update agent group config' })
-    }
-})
+    router.put('/agent/config', async (req, res) => {
+        try {
+            const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
+            const { clearApiKey } = assertSecretActions(req.body?.secretActions)
+            const patch = sanitizeGlobalPatch(req.body)
+            const currentSnapshot = config.getSnapshot()
+            const current = getRawAgentConfig(config)
+            const next = mergePatch(current, patch)
+            if (clearApiKey) next.llm.apiKey = ''
+            const operations = buildAgentOperations(currentSnapshot, next, { clearApiKey })
+            const status = config.getStatus()
+            if (status.documentGeneration !== expectedGeneration) {
+                const error = new Error('Configuration generation changed')
+                error.code = 'CONFIG_GENERATION_CONFLICT'
+                error.conflictPaths = []
+                throw error
+            }
+            const result = operations.length > 0
+                ? await config.patch(operations, { actor: 'dashboard', expectedGeneration })
+                : emptyMutationResult(config)
+            const saved = getRawAgentConfig(config)
+            dashLog(req, 'info', 'agent-config-updated', {
+                appliedCount: result.applied.length,
+                reloadedCount: result.reloaded.length
+            })
+            res.json({ ...result, message: 'Agent config updated', agent: publicAgentConfig(saved) })
+        } catch (error) {
+            const payload = configErrorResponse(config, error)
+            const statusCode = configErrorStatus(error)
+            dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'agent-config-update-failed', { code: payload.code })
+            res.status(statusCode).json(payload)
+        }
+    })
 
-router.delete('/agent/groups/:groupId', async (req, res) => {
-    try {
-        const groupId = parseString(req.params.groupId, 'groupId', 30)
-        if (!/^\d+$/.test(groupId)) return res.status(400).json({ error: 'groupId must be numeric' })
-        const current = getRawAgentConfig()
-        const groups = isPlainObject(current.groups) ? clone(current.groups) : {}
-        delete groups[groupId]
-        const next = { ...current, groups }
-        saveAgentConfig(next)
-        const agent = normalizeAgentConfig(next)
-        dashLog(req, 'info', 'agent-group-config-deleted', { groupId })
-        res.json({ message: 'Agent group config deleted', agent })
-    } catch (error) {
-        dashLog(req, 'warn', 'agent-group-config-delete-failed', { error: error.message })
-        res.status(400).json({ error: error.message || 'Failed to delete agent group config' })
-    }
-})
+    router.put('/agent/groups/:groupId', async (req, res) => {
+        try {
+            const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
+            const { groupId, provider } = validateAgentGroupId(config, req.params.groupId)
+            const patch = sanitizeGroupPatch(req.body)
+            const current = getRawAgentConfig(config)
+            const groups = isPlainObject(current.groups) ? clone(current.groups) : {}
+            const groupConfig = mergePatch(isPlainObject(groups[groupId]) ? groups[groupId] : {}, patch)
+            const result = await config.patch([
+                { op: 'set', path: ['agent', 'groups', groupId], value: groupConfig }
+            ], { actor: 'dashboard', expectedGeneration })
+            const saved = getRawAgentConfig(config)
+            const agent = publicAgentConfig(saved)
+            dashLog(req, 'info', 'agent-group-config-updated', {
+                groupId,
+                provider,
+                appliedCount: result.applied.length
+            })
+            res.json({ ...result, message: 'Agent group config updated', groupId, config: agent.groups[groupId], agent })
+        } catch (error) {
+            const payload = configErrorResponse(config, error)
+            const statusCode = configErrorStatus(error)
+            dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'agent-group-config-update-failed', { code: payload.code })
+            res.status(statusCode).json(payload)
+        }
+    })
+
+    router.delete('/agent/groups/:groupId', async (req, res) => {
+        try {
+            const expectedGeneration = assertExpectedGeneration(req.body?.expectedGeneration)
+            const { groupId, provider } = validateAgentGroupId(config, req.params.groupId)
+            const result = await config.patch([
+                { op: 'remove', path: ['agent', 'groups', groupId] }
+            ], { actor: 'dashboard', expectedGeneration })
+            const agent = publicAgentConfig(getRawAgentConfig(config))
+            dashLog(req, 'info', 'agent-group-config-deleted', { groupId, provider, appliedCount: result.applied.length })
+            res.json({ ...result, message: 'Agent group config deleted', agent })
+        } catch (error) {
+            const payload = configErrorResponse(config, error)
+            const statusCode = configErrorStatus(error)
+            dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'agent-group-config-delete-failed', { code: payload.code })
+            res.status(statusCode).json(payload)
+        }
+    })
+
+    return router
+}
+
+const router = createAgentConfigRouter()
 
 module.exports = router
+module.exports.createAgentConfigRouter = createAgentConfigRouter
+module.exports.publicAgentConfig = publicAgentConfig
+module.exports.buildAgentOperations = buildAgentOperations
+module.exports.validateAgentGroupId = validateAgentGroupId

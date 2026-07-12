@@ -2,6 +2,7 @@ const logger = require('../../utils/logger')
 const notificationService = require('../../services/notificationService')
 const { recordReply } = require('./replyGuard')
 const shortTermStore = require('../memory/shortTermStore')
+const { isQqTransportReady, resolveOutboundTransport } = require('../../providers/qq/readiness')
 
 function buildTextMessage(text) {
     const safeText = String(text || '').trim()
@@ -16,21 +17,21 @@ function normalizeMessageChain(chain, fallbackText) {
     return buildTextMessage(fallbackText)
 }
 
-function sendMessage({ ws, groupId, userId, messageChain }) {
+async function sendMessage({ ws, groupId, userId, messageChain }) {
     if (typeof groupId === 'string' && groupId.startsWith('private_')) {
         const realUserId = groupId.replace('private_', '')
         if (!realUserId) return false
-        notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'AgentReplyExecutor', false)
+        await notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'AgentReplyExecutor', false)
         return true
     }
 
     if (groupId) {
-        notificationService.sendGroupMessage(ws, groupId, messageChain, 'AgentReplyExecutor', false)
+        await notificationService.sendGroupMessage(ws, groupId, messageChain, 'AgentReplyExecutor', false)
         return true
     }
 
     if (userId) {
-        notificationService.sendPrivateMessage(ws, userId, messageChain, 'AgentReplyExecutor', false)
+        await notificationService.sendPrivateMessage(ws, userId, messageChain, 'AgentReplyExecutor', false)
         return true
     }
 
@@ -52,17 +53,18 @@ async function executeReply({ ws, groupId, userId, selfId = '', sourceMessageId 
         return { executed: false, reason: 'empty_reply_draft' }
     }
 
-    if (!ws || ws.readyState !== 1) {
+    const activeTransport = resolveOutboundTransport(ws)
+    if (!isQqTransportReady(activeTransport)) {
         logger.logEvent('warn', 'AGENT', scope, 'reply-skipped', {
             groupId,
             userId,
-            reason: 'ws_not_open'
+            reason: 'transport_not_ready'
         })
-        return { executed: false, reason: 'ws_not_open' }
+        return { executed: false, reason: 'transport_not_ready' }
     }
 
     try {
-        const sent = sendMessage({ ws, groupId, userId, messageChain })
+        const sent = await sendMessage({ ws: activeTransport, groupId, userId, messageChain })
         if (!sent) {
             logger.logEvent('warn', 'AGENT', scope, 'reply-skipped', {
                 groupId,

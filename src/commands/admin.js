@@ -79,8 +79,11 @@ class AdminCommand {
                 // 1. Remove Config
                 let configRemoved = false;
                 if (config.groupConfigs && config.groupConfigs[targetGid]) {
-                    delete config.groupConfigs[targetGid];
-                    config.save();
+                    await config.mutate((draft) => {
+                        if (!draft.groupConfigs[targetGid]) return false;
+                        delete draft.groupConfigs[targetGid];
+                        return true;
+                    }, { actor: 'admin-clean-group' });
                     configRemoved = true;
                 }
 

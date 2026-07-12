@@ -256,7 +256,7 @@ describe('link service infrastructure contracts', function () {
         assert.deepStrictEqual(calls, [[ws, '10001', 'BV1download', info]])
     })
 
-    it('does not wait for video download completion and logs async dispatch failures', async function () {
+    it('waits for tracked video download completion and logs dispatch failures', async function () {
         const calls = []
         const logs = []
         let rejectDownload
@@ -278,11 +278,14 @@ describe('link service infrastructure contracts', function () {
                 scope: 'msg:10001:20002:30003'
             }
 
-            await videoHandler.afterSend(context)
+            let settled = false
+            const afterSend = videoHandler.afterSend(context).finally(() => { settled = true })
+            await new Promise((resolve) => setImmediate(resolve))
+            assert.strictEqual(settled, false)
             assert.deepStrictEqual(calls, [[context.ws, '10001', 'BV1async', context.info]])
 
             rejectDownload(new Error('download failed'))
-            await new Promise((resolve) => setImmediate(resolve))
+            await afterSend
 
             assert.ok(logs.some(line =>
                 line.includes('ERR LINK')

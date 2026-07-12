@@ -19,8 +19,8 @@ async function run() {
     config.save = () => {}
     config._performSave = async () => {}
 
-    config.previewGradientColor1 = '#102030'
-    config.previewGradientColor2 = '#A0B0C0'
+    config.__getMutableCompatStateForTests().previewGradientColor1 = '#102030'
+    config.__getMutableCompatStateForTests().previewGradientColor2 = '#A0B0C0'
 
     const neutralOnly = theme.calculateColors('user', { data: {} }, { color: '#445566' }, false)
     assert.ok(neutralOnly.gradientAtmosphere.includes('linear-gradient(135deg, #FFF7FB 0%, #F4F6FF 50%, #F0F9FF 100%)'))
@@ -105,8 +105,8 @@ run()
     .finally(() => {
         config.save = () => {}
         config._performSave = async () => {}
-        config.previewGradientColor1 = originals.previewGradientColor1
-        config.previewGradientColor2 = originals.previewGradientColor2
+        config.__getMutableCompatStateForTests().previewGradientColor1 = originals.previewGradientColor1
+        config.__getMutableCompatStateForTests().previewGradientColor2 = originals.previewGradientColor2
         config.save = originals.save
         config._performSave = originals.performSave
     })

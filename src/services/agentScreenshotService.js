@@ -20,7 +20,7 @@ function compactText(value, limit = 500) {
 }
 
 function chromiumExecutable() {
-    const configured = String(process.env.CHROMIUM_PATH || '').trim()
+    const configured = String(config.chromiumPath || config.puppeteerExecutablePath || '').trim()
     if (configured) return configured
     if (fs.existsSync('/usr/bin/chromium')) return '/usr/bin/chromium'
     if (fs.existsSync('/usr/bin/chromium-browser')) return '/usr/bin/chromium-browser'
@@ -134,10 +134,10 @@ async function resolveSafeFinalUrl(rawUrl, timeoutMs = DEFAULT_TIMEOUT_MS) {
     }
 }
 
-function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs }) {
+function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs, executablePath }) {
     return (async () => {
         const browser = await puppeteer.launch({
-            executablePath: chromiumExecutable(),
+            executablePath,
             headless: 'new',
             args: [
                 '--no-sandbox',
@@ -213,6 +213,11 @@ function runChromiumScreenshot({ url, outputPath, width, height, timeoutMs }) {
 
 class AgentScreenshotService {
     async screenshotUrl({ url, viewportWidth = 1280, viewportHeight = 900 }, options = {}) {
+        const runtimePaths = {
+            executablePath: chromiumExecutable(),
+            writeBase: path.resolve(config.napcatTempPath),
+            readBase: path.resolve(config.napcatReadPath)
+        }
         const timeoutMs = Math.max(5000, Math.min(30000, Math.trunc(Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS)))
         const finalUrl = await resolveSafeFinalUrl(url, Math.min(timeoutMs, 10000))
         await agentBrowserService._private.assertResolvedHostSafe(finalUrl.hostname)
@@ -220,16 +225,17 @@ class AgentScreenshotService {
         const width = normalizeViewport(viewportWidth, MIN_VIEWPORT_WIDTH, MAX_VIEWPORT_WIDTH, 1280)
         const height = normalizeViewport(viewportHeight, MIN_VIEWPORT_HEIGHT, MAX_VIEWPORT_HEIGHT, 900)
         const fileName = `agent_screenshot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`
-        const writePath = path.join(config.napcatTempPath, fileName)
-        const readPath = path.join(config.napcatReadPath, fileName)
-        await fs.promises.mkdir(config.napcatTempPath, { recursive: true })
+        const writePath = path.join(runtimePaths.writeBase, fileName)
+        const readPath = path.join(runtimePaths.readBase, fileName)
+        await fs.promises.mkdir(runtimePaths.writeBase, { recursive: true })
 
         const screenshotResult = await runChromiumScreenshot({
             url: finalUrl.toString(),
             outputPath: writePath,
             width,
             height,
-            timeoutMs
+            timeoutMs,
+            executablePath: runtimePaths.executablePath
         })
 
         const stat = await fs.promises.stat(writePath)

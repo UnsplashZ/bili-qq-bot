@@ -10,6 +10,14 @@ function subLog(level, message, fields = {}, scope = 'svc:lifecycle') {
     logger.logEvent(level, 'SUB', scope, message, fields)
 }
 
+function isProviderConnected(provider) {
+    if (!provider) return false
+    if (provider.readyState === 1) return true
+    if (String(provider.state || '').toLowerCase() === 'ready') return true
+    const status = typeof provider.getStatus === 'function' ? provider.getStatus() : null
+    return ['ready', 'open'].includes(String(status?.connectionState || status?.state || '').toLowerCase())
+}
+
 module.exports = {
     setWs(ws) {
         this.ws = ws
@@ -23,9 +31,10 @@ module.exports = {
      * 启动订阅检查器
      * @param {boolean} skipInitialDelay - 是否跳过初始延迟
      */
-    start(skipInitialDelay = false) {
+    start(skipInitialDelay = false, options = {}) {
         // 🆕 先停止现有定时器，防止泄漏
-        this.stop()
+        const stopPromise = this.stop()
+        if (options.resumeOperations !== false) this.operationRegistry?.resume()
         const startToken = Symbol('subscription-checker-start')
         this._startToken = startToken
         this._subscriptionRuntimeStartState = 'initializing'
@@ -41,6 +50,8 @@ module.exports = {
         })
 
         const startPromise = (async () => {
+            await stopPromise
+            if (this._startToken !== startToken) return
             let result = await this.initializeSubscriptionRuntime({ startToken })
             if (result && result.cancelled && this._startToken === startToken) {
                 result = await this.initializeSubscriptionRuntime({ startToken })
@@ -58,10 +69,15 @@ module.exports = {
                 })
                 return
             }
-            this.scheduleRuntimeTimers(skipInitialDelay)
-            this._subscriptionRuntimeStartState = 'ready'
-            this._subscriptionRuntimeReadyAt = Date.now()
-            subLog('info', 'checker-ready')
+            const maintenanceDeferred = this.scheduleRuntimeTimers(skipInitialDelay, { startToken })
+            if (maintenanceDeferred) {
+                this._subscriptionRuntimeStartState = 'admission-deferred'
+                subLog('info', 'checker-admission-deferred')
+            } else {
+                this._subscriptionRuntimeStartState = 'ready'
+                this._subscriptionRuntimeReadyAt = Date.now()
+                subLog('info', 'checker-ready')
+            }
         })().catch(error => {
             if (this._startToken !== startToken) {
                 subLog('debug', 'checker-start-error-ignored', {
@@ -76,62 +92,85 @@ module.exports = {
             subLog('error', 'checker-start-failed', {
                 error: logger.getErrorMessage(error)
             })
+            if (options.throwOnError) throw error
         })
         this._subscriptionRuntimeStartPromise = startPromise
         return startPromise
     },
 
-    scheduleRuntimeTimers(skipInitialDelay = false) {
+    scheduleRuntimeTimers(skipInitialDelay = false, options = {}) {
         // Initial check after 10 seconds (Feed & Subs) - or immediately if skipInitialDelay
         const initialDelay = skipInitialDelay ? 0 : 10000
         this.initTimer = setTimeout(() => {
-            this.checkAll()
+            this.checkAll().catch(e => subLog('debug', 'initial-check-skipped', { error: logger.getErrorMessage(e) }))
             this.initTimer = null
         }, initialDelay)
 
         this.timer = setInterval(() => {
-            this.checkAll()
+            this.checkAll().catch(e => subLog('debug', 'scheduled-check-skipped', { error: logger.getErrorMessage(e) }))
         }, this.checkInterval)
 
         // Initial check after 5 seconds (List Sync)
         const syncDelay = skipInitialDelay ? 0 : 5000
         this.initSyncTimer = setTimeout(() => {
-            this.refreshCookieFollowings()
+            this.refreshCookieFollowings().catch(e => subLog('debug', 'initial-sync-skipped', { error: logger.getErrorMessage(e) }))
             this.initSyncTimer = null
         }, syncDelay)
 
         this.syncTimer = setInterval(() => {
-            this.refreshCookieFollowings()
+            this.refreshCookieFollowings().catch(e => subLog('debug', 'scheduled-sync-skipped', { error: logger.getErrorMessage(e) }))
         }, this.syncInterval)
 
-        // 5. Cookie 自动刷新：Bot 启动时立即检查，之后每24小时一次
-        this.checkAndRefreshCredential().catch(e => {
-            subLog('error', 'credential-refresh-failed', {
-                error: logger.getErrorMessage(e)
-            })
-        })
-        this.credentialRefreshTimer = setInterval(
-            () => {
-                this.checkAndRefreshCredential().catch(e => {
-                    subLog('error', 'credential-refresh-failed', {
-                        error: logger.getErrorMessage(e)
-                    })
+        const startToken = options.startToken || this._startToken
+        const activateAdmissionMaintenance = () => {
+            if (!startToken || this._startToken !== startToken) return false
+            this._cancelAdmissionMaintenance = null
+            this.checkAndRefreshCredential().catch(e => {
+                subLog('error', 'credential-refresh-failed', {
+                    error: logger.getErrorMessage(e)
                 })
-            },
-            this.CREDENTIAL_REFRESH_INTERVAL
-        )
-
-        this.warmupGroupAtAllCapabilities(true).catch(e => {
-            subLog('error', 'at-all-warmup-failed', {
-                error: logger.getErrorMessage(e)
             })
-        })
+            if (!this.credentialRefreshTimer) {
+                this.credentialRefreshTimer = setInterval(
+                    () => {
+                        this.checkAndRefreshCredential().catch(e => {
+                            subLog('error', 'credential-refresh-failed', {
+                                error: logger.getErrorMessage(e)
+                            })
+                        })
+                    },
+                    this.CREDENTIAL_REFRESH_INTERVAL
+                )
+            }
+            this.warmupGroupAtAllCapabilities(true).catch(e => {
+                subLog('error', 'at-all-warmup-failed', {
+                    error: logger.getErrorMessage(e)
+                })
+            })
+            if (this._subscriptionRuntimeStartState === 'admission-deferred') {
+                this._subscriptionRuntimeStartState = 'ready'
+                this._subscriptionRuntimeReadyAt = Date.now()
+                subLog('info', 'checker-ready')
+            }
+            return true
+        }
+        this._cancelAdmissionMaintenance?.()
+        this._cancelAdmissionMaintenance = null
+        if (this.applicationAdmissionGate?.snapshot?.().closed) {
+            this._cancelAdmissionMaintenance = this.applicationAdmissionGate.runWhenOpen(
+                activateAdmissionMaintenance
+            )
+            return true
+        }
+        activateAdmissionMaintenance()
+        return false
     },
 
     /**
      * 停止订阅检查器
      */
     stop() {
+        this.operationRegistry?.pause('subscription-stopped')
         let clearedCount = 0
         const hadStartToken = Boolean(this._startToken)
         const pendingStartPromise = this._subscriptionRuntimeStartPromise
@@ -166,8 +205,14 @@ module.exports = {
             clearedCount++
         }
 
+        if (this._cancelAdmissionMaintenance) {
+            this._cancelAdmissionMaintenance()
+            this._cancelAdmissionMaintenance = null
+            clearedCount++
+        }
+
         this._startToken = null
-        if (this._subscriptionRuntimeStartState === 'initializing' || this._subscriptionRuntimeStartState === 'ready') {
+        if (['initializing', 'admission-deferred', 'ready'].includes(this._subscriptionRuntimeStartState)) {
             this._subscriptionRuntimeStartState = 'stopped'
         }
         this._subscriptionRuntimeReadyAt = null
@@ -188,10 +233,10 @@ module.exports = {
     /**
      * 🆕 重启订阅检查器（先停止再启动）
      */
-    restart() {
+    async restart(options = {}) {
         subLog('info', 'checker-restarting')
-        this.stop()
-        this.start(true) // Skip initial delay on restart
+        await this.stop()
+        return this.start(true, options) // Skip initial delay on restart
     },
 
     async initializeSubscriptionRuntime(options = {}) {
@@ -257,12 +302,13 @@ module.exports = {
             this._startToken &&
             (
                 this._subscriptionRuntimeStartState === 'initializing' ||
+                this._subscriptionRuntimeStartState === 'admission-deferred' ||
                 this._subscriptionRuntimeInitializing
             )
         )
         const ready = this._subscriptionRuntimeStartState === 'ready' && Boolean(this._subscriptionRuntimeInitialized)
         return {
-            running: !!(this.timer || this.syncTimer),
+            running: this._subscriptionRuntimeStartState === 'ready' && !!(this.timer || this.syncTimer),
             runtime: {
                 startState: this._subscriptionRuntimeStartState || 'stopped',
                 startupPending,
@@ -279,7 +325,8 @@ module.exports = {
                 mainTimer: !!this.timer,
                 initSyncTimer: !!this.initSyncTimer,
                 syncTimer: !!this.syncTimer,
-                credentialRefreshTimer: !!this.credentialRefreshTimer
+                credentialRefreshTimer: !!this.credentialRefreshTimer,
+                admissionMaintenancePending: Boolean(this._cancelAdmissionMaintenance)
             },
             intervals: {
                 check: `${this.checkInterval / 1000}s`,
@@ -291,8 +338,48 @@ module.exports = {
 
     updateCheckInterval(seconds) {
         this.checkInterval = seconds * 1000
-        this.stop()
-        this.start()
+        if (this.initTimer) {
+            clearTimeout(this.initTimer)
+            this.initTimer = null
+        }
+        if (this.timer) {
+            clearInterval(this.timer)
+            this.timer = null
+        }
+        const runtimeRunning = this._subscriptionRuntimeStartState === 'ready' &&
+            Boolean(this._startToken) &&
+            isProviderConnected(this.ws)
+        if (runtimeRunning) {
+            this.timer = setInterval(() => {
+                this.checkAll().catch(e => {
+                    subLog('error', 'scheduled-check-failed', { error: logger.getErrorMessage(e) })
+                })
+            }, this.checkInterval)
+            this.timer.unref?.()
+        }
+        subLog('info', 'check-interval-updated', {
+            checkInterval: `${this.checkInterval / 1000}s`,
+            timerScheduled: runtimeRunning
+        })
+    },
+
+    pauseOperations(reason = 'reload') {
+        this.operationRegistry?.pause(reason)
+    },
+
+    resumeOperations() {
+        this.operationRegistry?.resume()
+    },
+
+    drainOperations(timeoutMs = 30000) {
+        return this.operationRegistry?.drain({ timeoutMs }) || Promise.resolve(true)
+    },
+
+    abortOperations(reason = 'forced-cleanup') {
+        this.operationRegistry?.pause(reason)
+        const operations = this.operationRegistry?.snapshot?.() || []
+        this.operationRegistry?.abortAll(reason)
+        return { requested: operations.length, operations }
     },
 
     async checkAll() {

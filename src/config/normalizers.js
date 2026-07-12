@@ -1,8 +1,8 @@
 const {
-    SUBSCRIPTION_AT_ALL_SOURCE_KEYS,
-    SUBSCRIPTION_AT_ALL_CATEGORY_KEYS,
+    AT_ALL_SOURCE_KEYS: SUBSCRIPTION_AT_ALL_SOURCE_KEYS,
+    AT_ALL_CATEGORY_KEYS: SUBSCRIPTION_AT_ALL_CATEGORY_KEYS,
     DEFAULT_LABEL_CONFIG
-} = require('./schema')
+} = require('./schemaV1')
 
 function normalizeIdList(values) {
     if (!Array.isArray(values)) return []

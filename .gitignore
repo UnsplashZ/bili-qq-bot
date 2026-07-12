@@ -21,7 +21,10 @@ __pycache__/
 .env
 config/.env
 config/config.json
+config/config.yaml
+config/config.yaml.*
 config/.jwtSecret
+config/.qqOfficialClientSecret
 
 # Data (Runtime)
 data/*

@@ -92,7 +92,7 @@ function buildDecisionMessages({ agentConfig, agentMessage, memoryObservation, l
     const contextSelection = selectContext(memoryObservation, agentConfig, agentMessage)
     const specialistContext = buildSpecialistContext({
         agentMessage,
-        toolDefinitions: listToolDefinitions()
+        toolDefinitions: listToolDefinitions(sessionContext)
     })
     const traits = scoreResult.traits || scoreResult.components || {}
     const addressed = Boolean(

@@ -29,6 +29,7 @@ describe('subscription empty sync groups semantics', function () {
         settings: {
             isGroupAdmin: config.isGroupAdmin,
             isRootAdmin: config.isRootAdmin,
+            patch: config.patch,
             setGroupConfig: config.setGroupConfig,
             getGroupConfig: config.getGroupConfig,
             refreshCookieFollowings: subscriptionService.refreshCookieFollowings,
@@ -53,6 +54,7 @@ describe('subscription empty sync groups semantics', function () {
     afterEach(function () {
         config.isGroupAdmin = originals.settings.isGroupAdmin
         config.isRootAdmin = originals.settings.isRootAdmin
+        config.patch = originals.settings.patch
         config.setGroupConfig = originals.settings.setGroupConfig
         config.getGroupConfig = originals.settings.getGroupConfig
         subscriptionService.refreshCookieFollowings = originals.settings.refreshCookieFollowings
@@ -92,6 +94,7 @@ describe('subscription empty sync groups semantics', function () {
         config.isGroupAdmin = () => true
         config.isRootAdmin = () => true
         config.setGroupConfig = () => {}
+        config.patch = async () => ({ applied: ['groupConfigs.1000.enableCookieSync'] })
         config.getGroupConfig = (_gid, key) => {
             if (key === 'cookieSyncGroupNames') return []
             return null

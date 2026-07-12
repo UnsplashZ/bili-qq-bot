@@ -7,9 +7,7 @@ function buildChatCompletionsUrl(baseURL) {
     return `${raw}/chat/completions`
 }
 
-function getApiKey(llmConfig, env = process.env) {
-    const envName = String(llmConfig?.apiKeyEnv || '').trim()
-    if (envName && env[envName]) return env[envName]
+function getApiKey(llmConfig) {
     if (llmConfig?.apiKey) return String(llmConfig.apiKey)
     return ''
 }
@@ -62,12 +60,12 @@ async function requestChatCompletion({ url, apiKey, llmConfig, messages, signal,
 }
 
 async function createChatCompletion({ llmConfig, messages, traceScope, purpose = '' }) {
-    const url = buildChatCompletionsUrl(llmConfig.baseURL)
+    const url = buildChatCompletionsUrl(llmConfig.baseUrl || llmConfig.baseURL)
     const apiKey = getApiKey(llmConfig)
 
     if (!url) throw new Error('missing_agent_llm_base_url')
     if (!llmConfig.model) throw new Error('missing_agent_llm_model')
-    if (!apiKey) throw new Error(`missing_agent_llm_api_key:${llmConfig.apiKeyEnv}`)
+    if (!apiKey) throw new Error('missing_agent_llm_api_key')
 
     const maxAttempts = Math.max(1, Math.min(3, Math.trunc(Number(llmConfig.emptyContentRetries) || 2)))
     let lastError = null

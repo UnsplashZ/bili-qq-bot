@@ -1,17 +1,33 @@
-function getRootAdminQQ() {
-    const raw = process.env.ADMIN_QQ
+function getRootAdminQQ(config = null) {
+    const raw = config?.rootAdminQQ ?? config?.admin?.rootQQ
     if (raw === undefined || raw === null) return ''
     return String(raw).trim()
 }
 
-function isRootAdmin(userId) {
-    const rootAdminQQ = getRootAdminQQ()
+function getOfficialRootOpenids(config = null) {
+    const fromConfig = Array.isArray(config?.qqOfficialRootOpenids)
+        ? config.qqOfficialRootOpenids
+        : []
+    return [...fromConfig]
+}
+
+function isOfficialRootAdmin(userId, config = null) {
+    const normalized = String(userId || '').trim()
+    if (!normalized) return false
+    return getOfficialRootOpenids(config).some((item) => String(item).trim() === normalized)
+}
+
+function isRootAdmin(userId, config = null) {
+    if (String(config?.qqProvider || '').toLowerCase() === 'official' && isOfficialRootAdmin(userId, config)) {
+        return true
+    }
+    const rootAdminQQ = getRootAdminQQ(config)
     if (!rootAdminQQ || userId === undefined || userId === null) return false
     return String(userId) === rootAdminQQ
 }
 
-function isGroupAdmin(groupId, userId, groupConfigs) {
-    if (isRootAdmin(userId)) return true
+function isGroupAdmin(groupId, userId, groupConfigs, config = null) {
+    if (isRootAdmin(userId, config)) return true
     if (!groupId) return false
 
     const groupConfig = groupConfigs[groupId]
@@ -51,6 +67,8 @@ function removeGroupAdmin(groupId, userId, groupConfigs, saveFn) {
 
 module.exports = {
     getRootAdminQQ,
+    getOfficialRootOpenids,
+    isOfficialRootAdmin,
     isRootAdmin,
     isGroupAdmin,
     addGroupAdmin,

@@ -62,4 +62,33 @@ assert.strictEqual(allLogs[2].rendered, 'INF PY       [svc:lifecycle] four step=
 const filteredLogs = buffer.list({ level: 'error', channels: ['HTTP', 'PY'], keyword: 'three', limit: 2 })
 assert.deepStrictEqual(filteredLogs.map((entry) => entry.action), ['three'], 'buffer should support level, channel and keyword filtering')
 
+buffer.resize(2)
+assert.strictEqual(buffer.capacity(), 2, 'resize should update the configured capacity')
+assert.deepStrictEqual(
+    buffer.list({}).map((entry) => entry.action),
+    ['three', 'four'],
+    'shrinking should retain only the newest records'
+)
+
+buffer.push({
+    timestampText: '2026/03/13 10:00:04',
+    level: 'info',
+    severity: 30,
+    channel: 'BOT',
+    scope: 'svc:lifecycle',
+    action: 'five',
+    fields: { step: 5 },
+    rendered: 'INF BOT      [svc:lifecycle] five step=5',
+    message: 'INF BOT      [svc:lifecycle] five step=5'
+})
+assert.deepStrictEqual(
+    buffer.list({}).map((entry) => entry.action),
+    ['four', 'five'],
+    'push after resize should continue enforcing the new capacity'
+)
+
+for (const invalidSize of [0, -1, 1.5, Number.NaN, '2', null]) {
+    assert.throws(() => buffer.resize(invalidSize), /positive integer/, `resize should reject ${String(invalidSize)}`)
+}
+
 console.log('PASS dashboard-log-buffer')

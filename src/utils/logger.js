@@ -1,4 +1,5 @@
 const log4js = require('log4js');
+const { redactSensitive, redactString } = require('./redactSensitive');
 
 const listeners = new Set();
 const LEVEL_LABELS = {
@@ -68,7 +69,7 @@ function parseCsvSet(value) {
     return entries.length > 0 ? new Set(entries) : null
 }
 
-function parseLoggerEnv(env = process.env) {
+function parseLoggerEnv(env = {}) {
     const minLevel = normalizeLevel(env.LOG_LEVEL || 'info')
     return {
         minLevel,
@@ -82,6 +83,30 @@ function parseLoggerEnv(env = process.env) {
         bufferSize: Number.parseInt(env.LOG_BUFFER_SIZE || '2000', 10) || 2000
     }
 }
+
+function normalizeLoggerConfig(config = {}) {
+    const minLevel = normalizeLevel(config.level || config.minLevel || 'info')
+    const toChannelSet = (value) => {
+        if (!value) return null
+        const items = Array.isArray(value) ? value : String(value).split(',')
+        const normalized = items.map((item) => String(item).trim().toUpperCase()).filter(Boolean)
+        return normalized.length > 0 ? new Set(normalized) : null
+    }
+    const stacks = String(config.stacks || 'error').trim().toLowerCase()
+    return {
+        minLevel,
+        minSeverity: SEVERITY_BY_LEVEL[minLevel],
+        includeChannels: toChannelSet(config.channels || config.includeChannels),
+        excludeChannels: toChannelSet(config.excludeChannels),
+        color: parseBoolean(config.color, false),
+        timestamp: parseBoolean(config.timestamp, false),
+        pretty: parseBoolean(config.pretty, true),
+        stacks: stacks === 'always' ? 'all' : (stacks === 'never' ? 'never' : stacks),
+        bufferSize: Math.max(1, Number.parseInt(config.bufferSize || '2000', 10) || 2000)
+    }
+}
+
+let activeFormatOptions = normalizeLoggerConfig()
 
 function colorize(value, level, enabled) {
     if (!enabled) return value
@@ -99,7 +124,8 @@ function stringifyFieldValue(value) {
 }
 
 function formatFields(fields = {}) {
-    return Object.entries(fields)
+    const safeFields = redactSensitive(fields)
+    return Object.entries(safeFields)
         .filter(([, value]) => value !== undefined && value !== null && value !== '')
         .map(([key, value]) => `${key}=${stringifyFieldValue(value)}`)
         .join(' ')
@@ -140,17 +166,17 @@ function createMessageScope(groupId, userId, messageId) {
 
 function getErrorMessage(error) {
     if (!error) return ''
-    if (typeof error === 'string') return error
-    if (error instanceof Error) return error.message
-    if (typeof error.message === 'string') return error.message
+    if (typeof error === 'string') return redactString(error)
+    if (error instanceof Error) return redactString(error.message)
+    if (typeof error.message === 'string') return redactString(error.message)
     try {
-        return JSON.stringify(error)
+        return redactString(JSON.stringify(redactSensitive(error)))
     } catch (_) {
-        return String(error)
+        return redactString(String(error))
     }
 }
 
-function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = '', fields = {}, timestamp = new Date() }, options = parseLoggerEnv()) {
+function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = '', fields = {}, timestamp = new Date() }, options = activeFormatOptions) {
     const normalizedLevel = normalizeLevel(level)
     const levelLabel = LEVEL_LABELS[normalizedLevel] || String(normalizedLevel).toUpperCase().slice(0, 3)
     const channelText = String(channel || 'BOT').toUpperCase()
@@ -175,7 +201,7 @@ function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = ''
             channel: channelText,
             scope,
             action: message,
-            fields
+            fields: redactSensitive(fields)
         })
     }
 
@@ -200,7 +226,7 @@ function formatEvent({ level = 'info', channel = 'BOT', scope = '', message = ''
 function buildEvent(level, channel, scope, message, fields = {}) {
     const normalizedLevel = normalizeLevel(level)
     const eventTimestamp = new Date()
-    const formatOptions = parseLoggerEnv()
+    const formatOptions = activeFormatOptions
     const cleanFormatOptions = { ...formatOptions, color: false }
     const event = {
         timestamp: eventTimestamp,
@@ -210,7 +236,7 @@ function buildEvent(level, channel, scope, message, fields = {}) {
         channel: String(channel || 'BOT').toUpperCase(),
         scope: scope || '',
         action: message || '',
-        fields: fields || {}
+        fields: redactSensitive(fields || {})
     }
     event.rendered = formatEvent({
         level: event.level,
@@ -224,7 +250,7 @@ function buildEvent(level, channel, scope, message, fields = {}) {
     return event
 }
 
-function shouldEmitToStdout(event, env = parseLoggerEnv()) {
+function shouldEmitToStdout(event, env = activeFormatOptions) {
     if (event.severity < env.minSeverity) {
         return false
     }
@@ -260,11 +286,19 @@ log4js.configure({
 const logger = log4js.getLogger();
 
 logger.parseLoggerEnv = parseLoggerEnv
+logger.normalizeLoggerConfig = normalizeLoggerConfig
+logger.reconfigure = (config = {}) => {
+    activeFormatOptions = normalizeLoggerConfig(config)
+    return { ...activeFormatOptions }
+}
+logger.getRuntimeOptions = () => ({ ...activeFormatOptions })
 logger.formatTimestamp = formatTimestamp
 logger.formatEvent = formatEvent
 logger.createScope = createScope
 logger.createMessageScope = createMessageScope
 logger.getErrorMessage = getErrorMessage
+logger.redactSensitive = redactSensitive
+logger.redactString = redactString
 logger.shouldEmitToStdout = shouldEmitToStdout
 logger.logEvent = (level, channel, scope, message, fields = {}) => {
     const event = buildEvent(level, channel, scope, message, fields)

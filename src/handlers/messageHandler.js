@@ -6,6 +6,9 @@ const commandManager = require('../commands');
 const { agentIngress } = require('../agent');
 const imageGenerator = require('../services/imageGenerator'); // Used in handleGroupIncrease
 const requestApprovalService = require('../services/requestApprovalService');
+const { CAPABILITIES, hasCapability } = require('../providers/qq/capabilities');
+const { isQqTransportReady } = require('../providers/qq/readiness');
+const { botOperationRegistry } = require('../services/runtime/botOperationRegistry');
 
 // 表情 ID 常量（NapCat set_msg_emoji_like）
 // NapCat 规则：emoji_id.length > 3 自动使用 emoji_type=2（Unicode 表情），否则为 QQ 系统表情
@@ -22,19 +25,22 @@ function parsePositiveInteger(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-const MESSAGE_DEDUP_TTL_MS = parsePositiveInteger(
-    process.env.MESSAGE_DEDUP_TTL_MS || process.env.AI_MESSAGE_DEDUP_TTL_MS,
-    120000
-)
-const MESSAGE_DEDUP_MAX_SIZE = parsePositiveInteger(
-    process.env.MESSAGE_DEDUP_MAX_ENTRIES || process.env.AI_MESSAGE_DEDUP_MAX_ENTRIES,
-    50000
-)
 const processedMessageIds = new Map()
 
+function getMessageDedupConfig() {
+    const current = config.get?.('messageDedup') || {}
+    return {
+        enabled: current.enabled !== false,
+        ttlMs: parsePositiveInteger(current.ttlMs, 120000),
+        maxEntries: parsePositiveInteger(current.maxEntries, 50000)
+    }
+}
+
 function markMessageIfNew(dedupKey, now = Date.now()) {
+    const dedup = getMessageDedupConfig()
+    if (!dedup.enabled) return true
     for (const [key, timestamp] of processedMessageIds) {
-        if (now - timestamp <= MESSAGE_DEDUP_TTL_MS) break
+        if (now - timestamp <= dedup.ttlMs) break
         processedMessageIds.delete(key)
     }
 
@@ -43,13 +49,78 @@ function markMessageIfNew(dedupKey, now = Date.now()) {
     }
 
     processedMessageIds.set(dedupKey, now)
-    if (processedMessageIds.size > MESSAGE_DEDUP_MAX_SIZE) {
+    if (processedMessageIds.size > dedup.maxEntries) {
         const oldestKey = processedMessageIds.keys().next().value
         if (oldestKey !== undefined) {
             processedMessageIds.delete(oldestKey)
         }
     }
     return true
+}
+
+function buildMessageDedupKey(messageData, groupId, userId, messageId) {
+    const official = messageData?.official || null
+    if (official) {
+        const eventId = String(official.eventId || '').trim()
+        if (eventId) return `official:event:${eventId}`
+        const msgId = String(official.msgId || messageId || '').trim()
+        const msgSeq = official.msgSeq !== undefined && official.msgSeq !== null ? String(official.msgSeq) : ''
+        const targetId = String(official.groupOpenId || official.userOpenId || groupId || '').trim()
+        if (msgId || msgSeq) return `official:message:${targetId}:${msgId}:${msgSeq}:${userId || 'unknown'}`
+    }
+    const scopeId = groupId || `private_${userId || 'unknown'}`
+    return `${scopeId}:${userId || 'unknown'}:${messageId}`
+}
+
+function buildSendContextFromMessage(messageData = {}) {
+    const official = messageData.official || null
+    if (!official) return {}
+    return {
+        official: {
+            msg_id: official.msgId || messageData.message_id || '',
+            event_id: official.eventId || '',
+            msg_seq: official.msgSeq ?? null
+        }
+    }
+}
+
+function uniqueActorIds(ids = []) {
+    const result = []
+    for (const id of ids) {
+        const value = String(id || '').trim()
+        if (value && !result.includes(value)) result.push(value)
+    }
+    return result
+}
+
+function getActorAuthIds(messageData = {}, fallbackUserId = '') {
+    const official = messageData.official || {}
+    return uniqueActorIds([
+        fallbackUserId,
+        official.memberOpenId,
+        official.userOpenId,
+        messageData.sender?.user_id,
+        messageData.sender?.userId
+    ])
+}
+
+function isAnyRootAdmin(actorIds) {
+    return actorIds.some((id) => config.isRootAdmin(id))
+}
+
+function isAnyGroupAdmin(groupId, actorIds) {
+    return actorIds.some((id) => config.isGroupAdmin(groupId, id))
+}
+
+function isAnyListed(list, actorIds) {
+    const normalized = Array.isArray(list) ? list.map((item) => String(item)) : []
+    return actorIds.some((id) => normalized.includes(String(id)))
+}
+
+function pickPermissionUserId(groupId, actorIds, fallbackUserId) {
+    return actorIds.find((id) => config.isRootAdmin(id)) ||
+        actorIds.find((id) => groupId && config.isGroupAdmin(groupId, id)) ||
+        fallbackUserId
 }
 
 class MessageHandler {
@@ -60,29 +131,31 @@ class MessageHandler {
      * @param {string} message - Message text
      */
     sendPrivateMessage(ws, userId, message) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (!isQqTransportReady(ws)) {
             logger.logEvent('warn', 'BOT', '', 'send-private-skipped', {
                 userId,
-                reason: 'ws_not_open'
+                reason: 'transport_not_ready'
             });
             return;
         }
 
-        ws.send(JSON.stringify({
-            action: 'send_private_msg',
-            params: {
-                user_id: userId,
-                message: [{ type: 'text', data: { text: message } }]
-            }
-        }));
+        notificationService.sendPrivateMessage(ws, userId, [{ type: 'text', data: { text: message } }], 'MessageHandler', true);
     }
 
     sendEmojiReaction(ws, messageId, emojiId, set = true) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (ws && !hasCapability(ws, CAPABILITIES.emojiReaction) && String(ws.id || '').toLowerCase() === 'official') {
+            logger.logEvent('debug', 'BOT', '', 'emoji-reaction-skipped', {
+                messageId,
+                emojiId,
+                reason: 'unsupported_provider'
+            })
+            return
+        }
+        if (!isQqTransportReady(ws)) {
             logger.logEvent('warn', 'BOT', '', 'emoji-reaction-skipped', {
                 messageId,
                 emojiId,
-                reason: 'ws_not_open'
+                reason: 'transport_not_ready'
             })
             return
         }
@@ -112,10 +185,20 @@ class MessageHandler {
     }
 
     async handleMessage(ws, messageData) {
+        const run = () => notificationService.runWithSendContext(
+            buildSendContextFromMessage(messageData),
+            () => this._handleMessage(ws, messageData)
+        )
+        if (botOperationRegistry.getContext()) return run()
+        return botOperationRegistry.runBotOperation('message', run, { transport: ws })
+    }
+
+    async _handleMessage(ws, messageData) {
         const message = messageData.message;
         const messageSegments = Array.isArray(message) ? message : [];
-        let rawMessage = messageData.raw_message;
+        let rawMessage = String(messageData.raw_message || '');
         const userId = messageData.user_id ? String(messageData.user_id) : null;
+        const actorAuthIds = getActorAuthIds(messageData, userId);
         let groupId = messageData.group_id ? String(messageData.group_id) : null;
         const messageId = messageData.message_id != null ? String(messageData.message_id) : '';
 
@@ -126,7 +209,7 @@ class MessageHandler {
 
         // Private chat permission check
         if (messageData.message_type === 'private') {
-            const isRootAdmin = config.isRootAdmin(userId);
+            const isRootAdmin = isAnyRootAdmin(actorAuthIds);
 
             if (!isRootAdmin) {
                 // Non-root admin: reject with message
@@ -157,9 +240,8 @@ class MessageHandler {
             receivedLogged: Boolean(messageData.traceContext?.receivedLogged)
         };
 
-        if (messageId) {
-            const scopeId = groupId || `private_${userId || 'unknown'}`
-            const dedupKey = `${scopeId}:${userId || 'unknown'}:${messageId}`
+        if (messageId || messageData.official) {
+            const dedupKey = buildMessageDedupKey(messageData, groupId, userId, messageId)
             if (!markMessageIfNew(dedupKey)) {
                 logger.logEvent('info', 'BOT', traceContext.scope, 'duplicate-ignored', {
                     dedupKey
@@ -173,6 +255,7 @@ class MessageHandler {
                 groupId,
                 userId,
                 messageType: messageData.message_type,
+                eventType: messageData.official?.eventType || '',
                 preview: rawMessage.substring(0, 100)
             });
         }
@@ -180,14 +263,14 @@ class MessageHandler {
         // Auto-create group configuration if not exists (skip for private messages)
         const isPrivateMsg = typeof groupId === 'string' && groupId.startsWith('private_');
         if (groupId && !isPrivateMsg) {
-            config.ensureGroupConfig(groupId);
+            await config.ensureGroupConfig(groupId);
         }
 
         // 检查用户是否在黑名单中 (Global + Group Isolation)
         // 1. Check Global Blacklist (System Ban)
         const userIdStr = String(userId);
         const globalBlacklist = Array.isArray(config.blacklistedQQs) ? config.blacklistedQQs : [];
-        if (globalBlacklist.some(qq => String(qq) === userIdStr)) {
+        if (isAnyListed(globalBlacklist, actorAuthIds.length > 0 ? actorAuthIds : [userIdStr])) {
             logger.logEvent('info', 'BOT', traceContext.scope, 'ignored', {
                 userId,
                 reason: 'global_blacklist'
@@ -198,7 +281,7 @@ class MessageHandler {
         if (groupId) {
              const groupConfig = config.groupConfigs[groupId];
              const groupBlacklist = Array.isArray(groupConfig?.blacklistedQQs) ? groupConfig.blacklistedQQs : [];
-             if (groupBlacklist.some(qq => String(qq) === userIdStr)) {
+             if (isAnyListed(groupBlacklist, actorAuthIds.length > 0 ? actorAuthIds : [userIdStr])) {
                  logger.logEvent('info', 'BOT', traceContext.scope, 'ignored', {
                     groupId,
                     userId,
@@ -215,7 +298,7 @@ class MessageHandler {
             // 特例：允许管理员重新开启功能
             const isEnableCmd = rawMessage.trim().replace(/\s+/g, ' ').startsWith('/设置 功能 开');
             
-            if (isEnableCmd && (config.isGroupAdmin(groupId, userId) || config.isRootAdmin(userId))) {
+            if (isEnableCmd && (isAnyGroupAdmin(groupId, actorAuthIds) || isAnyRootAdmin(actorAuthIds))) {
                 logger.logEvent('info', 'BOT', traceContext.scope, 'enable-request', {
                     groupId,
                     userId
@@ -240,10 +323,11 @@ class MessageHandler {
         rawMessage = preparedLinks.rawMessage
 
         // ========== Command Dispatch ==========
+        const permissionUserId = pickPermissionUserId(groupId, actorAuthIds, userId)
         const commandContext = {
             ws,
             groupId,
-            userId,
+            userId: permissionUserId,
             rawMessage,
             messageData,
             traceContext
@@ -330,7 +414,7 @@ class MessageHandler {
     }
 
     async sendGroupMessageWithResponse(ws, groupId, messageChain, userId = null) {
-        const safeMessageChain = notificationService.processMessageChain(messageChain, 'MessageHandler');
+        const safeMessageChain = notificationService.processMessageChain(messageChain, 'MessageHandler', { transport: ws });
 
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
             const realUserId = groupId.replace('private_', '');
@@ -361,6 +445,13 @@ class MessageHandler {
     }
 
     async handleGroupIncrease(ws, payload) {
+        if (!botOperationRegistry.getContext()) {
+            return botOperationRegistry.runBotOperation(
+                'group-increase',
+                () => this.handleGroupIncrease(ws, payload),
+                { transport: ws }
+            )
+        }
         const { group_id, user_id, self_id } = payload;
         
         // Only respond if the bot itself joined
@@ -392,3 +483,4 @@ class MessageHandler {
 module.exports = new MessageHandler();
 module.exports._markMessageIfNew = markMessageIfNew
 module.exports._processedMessageIds = processedMessageIds
+module.exports._buildMessageDedupKey = buildMessageDedupKey

@@ -8,8 +8,8 @@ const linkDomain = require('../../../src/services/link')
 describe('link domain cache convenience API', function () {
     beforeEach(function () {
         linkDomain.__resetCacheForTests()
-        delete config.groupConfigs['10001']
-        config.groupConfigs['10001'] = { linkCacheTimeout: 60 }
+        delete config.__getMutableCompatStateForTests().groupConfigs['10001']
+        config.__getMutableCompatStateForTests().groupConfigs['10001'] = { linkCacheTimeout: 60 }
     })
 
     it('extracts links from text and caches all resolved keys', function () {

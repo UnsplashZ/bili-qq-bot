@@ -55,7 +55,7 @@ describe('updateChecker dynamic fallback delivery ledger', function () {
         deps.biliApi.getDynamicInfo = originals.getDynamicInfo
         deps.subscriptionManager.cookieFollowings = originals.cookieFollowings
         deps.subscriptionManager.groupToAccountMap = originals.groupToAccountMap
-        const groupConfigs = deps.config.groupConfigs || {}
+        const groupConfigs = deps.config.__getMutableCompatStateForTests().groupConfigs || {}
         for (const key of Object.keys(groupConfigs)) {
             delete groupConfigs[key]
         }
@@ -67,7 +67,7 @@ describe('updateChecker dynamic fallback delivery ledger', function () {
     })
 
     it('feed 失败时不产生 dynamic 覆盖，manual fallback 可继续检查', async function () {
-        deps.config.groupConfigs.A = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs.A = {
             isInGroup: true,
             enableCookieSync: true
         }
@@ -303,11 +303,11 @@ describe('updateChecker dynamic fallback delivery ledger', function () {
         const notifiedTargets = []
         const recorded = []
 
-        deps.config.groupConfigs.A = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs.A = {
             isInGroup: true,
             enableCookieSync: true
         }
-        deps.config.groupConfigs.B = {
+        deps.config.__getMutableCompatStateForTests().groupConfigs.B = {
             isInGroup: true,
             enableCookieSync: true
         }

@@ -1,0 +1,21 @@
+{
+  "wsUrl": "ws://config-json.example:3001",
+  "qqProvider": "napcat",
+  "qqOfficialClientSecret": "config-json-official-secret",
+  "qqOfficialRootOpenids": ["config-root-1", "config-root-2"],
+  "jwtSecret": "config-json-jwt-secret",
+  "pythonPath": "/config-json/python",
+  "dashboardPort": 3222,
+  "agent": {
+    "llm": {
+      "provider": "config-json-provider",
+      "apiKeyEnv": "CONFIG_AGENT_KEY"
+    }
+  },
+  "groupConfigs": {
+    "12345": {
+      "admins": ["90001"],
+      "futureLegacyFlag": "preserve-me"
+    }
+  }
+}

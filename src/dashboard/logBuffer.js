@@ -56,7 +56,9 @@ function matchesFilters(event, { level, channels, keyword } = {}) {
 }
 
 function createLogBuffer({ maxSize } = {}) {
-    const capacity = Number.isInteger(maxSize) && maxSize > 0 ? maxSize : logger.parseLoggerEnv().bufferSize
+    let capacity = Number.isInteger(maxSize) && maxSize > 0
+        ? maxSize
+        : logger.getRuntimeOptions().bufferSize
     const entries = []
 
     return {
@@ -80,6 +82,19 @@ function createLogBuffer({ maxSize } = {}) {
         },
         clear() {
             entries.length = 0
+        },
+        resize(nextSize) {
+            if (!Number.isInteger(nextSize) || nextSize <= 0) {
+                throw new TypeError('log buffer size must be a positive integer')
+            }
+            capacity = nextSize
+            if (entries.length > capacity) {
+                entries.splice(0, entries.length - capacity)
+            }
+            return capacity
+        },
+        capacity() {
+            return capacity
         },
         size() {
             return entries.length

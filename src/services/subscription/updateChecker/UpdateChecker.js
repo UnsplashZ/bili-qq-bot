@@ -1,4 +1,6 @@
 const config = require('../../../config')
+const { OperationRegistry } = require('../../runtime/operationRegistry')
+const { applicationAdmissionGate } = require('../../runtime/applicationAdmissionGate')
 const {
     AT_ALL_CAPABILITY_CACHE_TTL_MS,
     AT_ALL_SEND_FAILURE_CACHE_TTL_MS,
@@ -25,6 +27,9 @@ class UpdateChecker {
         this.groupBotRoleInFlight = new Map() // groupId -> Promise<roleState>
         this.cookieSyncFailureState = new Map() // groupId -> retryable/auth failure counters
         this._checkAllInFlight = false
+        this.operationRegistry = new OperationRegistry({ name: 'subscription' })
+        this.applicationAdmissionGate = applicationAdmissionGate
+        this._cancelAdmissionMaintenance = null
     }
 }
 

@@ -20,14 +20,15 @@ module.exports = {
             return
         }
 
-        videoDownloadService.downloadAndSend(context.ws, context.groupId, context.descriptor.id, context.info)
-            .catch((error) => {
-                logger.logEvent('error', 'LINK', context.scope || '', 'download-dispatch-failed', {
-                    groupId: context.groupId,
-                    linkType: 'video',
-                    linkId: context.descriptor.id,
-                    error: logger.getErrorMessage(error)
-                })
+        try {
+            await videoDownloadService.downloadAndSend(context.ws, context.groupId, context.descriptor.id, context.info)
+        } catch (error) {
+            logger.logEvent('error', 'LINK', context.scope || '', 'download-dispatch-failed', {
+                groupId: context.groupId,
+                linkType: 'video',
+                linkId: context.descriptor.id,
+                error: logger.getErrorMessage(error)
             })
+        }
     }
 }

@@ -35,6 +35,8 @@ from .handlers import (
     handle_user_videos,
     handle_video,
     handle_video_download,
+    handle_video_download_cancel,
+    handle_video_download_status,
     health_check,
 )
 
@@ -75,5 +77,7 @@ def get_routes():
         web.post("/credential_info", handle_credential_info),
         web.post("/refresh_credential", handle_refresh_credential),
         web.post("/video_download", handle_video_download),
+        web.post("/video_download/status", handle_video_download_status),
+        web.post("/video_download/cancel", handle_video_download_cancel),
         web.get("/health", health_check),
     ]

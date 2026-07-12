@@ -25,7 +25,15 @@ function waitForMessage(ws, timeoutMs = 3000) {
 
 async function run() {
     const port = 38000 + Math.floor(Math.random() * 1000)
-    const token = jwt.sign({ role: 'admin', timestamp: Date.now() }, sysConfig.jwtSecret, { expiresIn: '24h' })
+    const jwtDescriptor = Object.getOwnPropertyDescriptor(sysConfig, 'jwtSecret')
+    const fixtureSecret = 'dashboard-logs-api-test-secret'
+    Object.defineProperty(sysConfig, 'jwtSecret', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: fixtureSecret
+    })
+    const token = jwt.sign({ role: 'admin', timestamp: Date.now() }, fixtureSecret, { expiresIn: '24h' })
 
     await dashboardServer.start(port)
     logBuffer.clear()
@@ -66,7 +74,8 @@ async function run() {
         console.log('PASS dashboard-logs-api')
     } finally {
         logBuffer.clear()
-        dashboardServer.stop()
+        await dashboardServer.stop()
+        Object.defineProperty(sysConfig, 'jwtSecret', jwtDescriptor)
     }
 }
 

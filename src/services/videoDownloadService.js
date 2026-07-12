@@ -1,4 +1,5 @@
 const path = require('path')
+const crypto = require('crypto')
 const fs = require('fs')
 const fsPromises = require('fs').promises
 const biliApi = require('./biliApi')
@@ -6,6 +7,10 @@ const notificationService = require('./notificationService')
 const logger = require('../utils/logger')
 const config = require('../config')
 const runtimeMetricsService = require('./runtimeMetricsService')
+const subscriptionDeliveryStore = require('./subscription/subscriptionDeliveryStore')
+const { OperationRegistry } = require('./runtime/operationRegistry')
+const { botOperationRegistry } = require('./runtime/botOperationRegistry')
+const qqRuntime = require('../providers/qq/runtime')
 const {
     isVideoDownloadEnabledForGroup,
     getVideoDownloadResolutionForGroup,
@@ -14,18 +19,17 @@ const {
 const {
     canReceiveSubscriptionVideoDownload
 } = require('./subscription/updateChecker/helpers/groupReachability')
+const {
+    isOfficialTransport,
+    isQqTransportReady
+} = require('../providers/qq/readiness')
 
-// 下载目录必须与 NapCat 共享目录对齐，否则 NapCat 无法读取本地视频文件
-const DOWNLOADS_DIR = path.join(config.napcatTempPath, 'downloads')
-const NAPCAT_READ_BASE = path.resolve(config.napcatReadPath)
-const BOT_WRITE_BASE = path.resolve(config.napcatTempPath)
-
-function toNapcatReadablePath(filePath) {
+function toNapcatReadablePath(filePath, paths) {
     if (!filePath) return filePath
     const absFilePath = path.resolve(filePath)
-    if (absFilePath === BOT_WRITE_BASE || absFilePath.startsWith(BOT_WRITE_BASE + path.sep)) {
-        const relative = path.relative(BOT_WRITE_BASE, absFilePath)
-        return path.join(NAPCAT_READ_BASE, relative)
+    if (absFilePath === paths.writeBase || absFilePath.startsWith(paths.writeBase + path.sep)) {
+        const relative = path.relative(paths.writeBase, absFilePath)
+        return path.join(paths.readBase, relative)
     }
     sendLog('warn', 'path-outside-shared-base', {
         filePath
@@ -62,6 +66,86 @@ class VideoDownloadService {
     constructor() {
         this._cleanupTimer = null
         this._activeDownloads = 0
+        this._cleanupTimeouts = new Set()
+        this._unconfirmedTasks = new Map()
+        this.operationRegistry = new OperationRegistry({ name: 'download' })
+        this.pathGeneration = 1
+        this.currentPaths = this.resolvePaths()
+    }
+
+    resolvePaths(snapshot = config) {
+        const writeBase = path.resolve(String(snapshot.napcatTempPath || snapshot.paths?.napcatTemp || '/app/.config/QQ/tmp/'))
+        const readBase = path.resolve(String(snapshot.napcatReadPath || snapshot.paths?.napcatRead || writeBase))
+        return Object.freeze({
+            writeBase,
+            readBase,
+            downloadsDir: path.join(writeBase, 'downloads')
+        })
+    }
+
+    createTaskContext(ws) {
+        const parent = botOperationRegistry.getContext()
+        let providerLease = parent?.providerSlotLease || null
+        let ownsProviderLease = false
+        if (!providerLease) {
+            try {
+                providerLease = qqRuntime.acquireProviderLease()
+                ownsProviderLease = true
+            } catch {
+                providerLease = null
+            }
+        }
+        return {
+            taskId: crypto.randomUUID(),
+            generation: this.pathGeneration,
+            paths: this.currentPaths,
+            transport: providerLease?.provider || ws,
+            providerSlotLease: providerLease,
+            providerGeneration: providerLease?.generation ?? parent?.providerGeneration ?? null,
+            abortSignal: parent?.abortSignal || null,
+            pythonRuntime: biliApi.getRuntimeStatus?.() || null,
+            ownsProviderLease
+        }
+    }
+
+    runDownloadTask(kind, ws, fn) {
+        const task = this.createTaskContext(ws)
+        const promise = this.operationRegistry.run(kind, () => fn(task), task)
+            .finally(() => {
+                if (task.ownsProviderLease) task.providerSlotLease?.release?.()
+            })
+        botOperationRegistry.getContext()?.trackPromise?.(promise)
+        return promise
+    }
+
+    rememberUnconfirmedTask(taskContext) {
+        this._unconfirmedTasks.set(taskContext.taskId, {
+            instanceId: taskContext.pythonRuntime?.instanceId || null,
+            generation: taskContext.generation,
+            createdAt: Date.now()
+        })
+    }
+
+    async reconcileUnconfirmedTasks() {
+        for (const [taskId, task] of this._unconfirmedTasks) {
+            const runtime = biliApi.getRuntimeStatus?.() || {}
+            if (!runtime.running || (task.instanceId && runtime.instanceId !== task.instanceId)) {
+                this._unconfirmedTasks.delete(taskId)
+                continue
+            }
+            try {
+                const status = await biliApi.getDownloadTaskStatus(taskId)
+                if (status?.terminal) {
+                    this._unconfirmedTasks.delete(taskId)
+                    continue
+                }
+            } catch {
+                // Keep the task unresolved while the same Python instance is alive.
+            }
+            const error = new Error(`Download task terminal state is unconfirmed: ${taskId}`)
+            error.code = 'DOWNLOAD_TASK_TERMINAL_UNCONFIRMED'
+            throw error
+        }
     }
 
     _taskScope(groupId, bvid, pageIndex = 0) {
@@ -76,12 +160,11 @@ class VideoDownloadService {
                     groupId,
                     reason: 'invalid_private_group'
                 })
-                return
+                return Promise.resolve(false)
             }
-            notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'VideoDownload', enableFallback)
-            return
+            return notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'VideoDownload', enableFallback)
         }
-        notificationService.sendGroupMessage(ws, groupId, messageChain, 'VideoDownload', enableFallback)
+        return notificationService.sendGroupMessage(ws, groupId, messageChain, 'VideoDownload', enableFallback)
     }
 
     /**
@@ -103,8 +186,9 @@ class VideoDownloadService {
      * 清理超过 videoDownloadCleanTimeout 小时的下载文件
      */
     async _cleanupOldFiles() {
+        const downloadsDir = this.currentPaths.downloadsDir
         try {
-            await fsPromises.access(DOWNLOADS_DIR)
+            await fsPromises.access(downloadsDir)
         } catch {
             return // 目录不存在，无需清理
         }
@@ -113,10 +197,10 @@ class VideoDownloadService {
             const cleanTimeout = Math.max(config.videoDownloadCleanTimeout || 24, 1)
             const maxAgeMs = cleanTimeout * 60 * 60 * 1000
             const now = Date.now()
-            const files = await fsPromises.readdir(DOWNLOADS_DIR)
+            const files = await fsPromises.readdir(downloadsDir)
             for (const file of files) {
                 if (!file.endsWith('.mp4') && !file.endsWith('.tmp')) continue
-                const filePath = path.join(DOWNLOADS_DIR, file)
+                const filePath = path.join(downloadsDir, file)
                 try {
                     const stat = await fsPromises.stat(filePath)
                     if (now - stat.mtimeMs > maxAgeMs) {
@@ -163,8 +247,18 @@ class VideoDownloadService {
      * 根据文件大小和群数量动态延迟清理：基础 60s + 每 100MB 额外 60s，上限 10 分钟
      * groupCount 为扇出群数量，延迟按群数量系数放大（上限 30 分钟）
      */
-    _scheduleCleanup(filePath, groupCount = 1) {
+    _scheduleCleanup(filePath, groupCount = 1, generation = this.pathGeneration) {
         if (!config.videoDownloadAutoClean || !filePath) return
+        const absoluteFilePath = path.resolve(filePath)
+        const schedule = (delay) => {
+            const timer = setTimeout(() => {
+                this._cleanupTimeouts.delete(timer)
+                this.cleanupFile(absoluteFilePath)
+            }, delay)
+            timer.unref?.()
+            this._cleanupTimeouts.add(timer)
+            return timer
+        }
         let delayMs = 60 * 1000
         // 异步读取文件大小，不阻塞当前调用
         fsPromises.stat(filePath).then(stat => {
@@ -172,12 +266,12 @@ class VideoDownloadService {
             delayMs = Math.min(delayMs + extraDelay, 10 * 60 * 1000)
             const groupFactor = Math.max(1, Math.ceil(groupCount / 2))
             const adjustedDelay = Math.min(delayMs * groupFactor, 30 * 60 * 1000)
-            setTimeout(() => this.cleanupFile(filePath), adjustedDelay)
+            schedule(adjustedDelay)
         }).catch(() => {
             // 无法获取大小时使用默认值（含群数量系数）
             const groupFactor = Math.max(1, Math.ceil(groupCount / 2))
             const adjustedDelay = Math.min(delayMs * groupFactor, 30 * 60 * 1000)
-            setTimeout(() => this.cleanupFile(filePath), adjustedDelay)
+            schedule(adjustedDelay)
         })
     }
 
@@ -211,7 +305,15 @@ class VideoDownloadService {
      * @param {object} videoInfo - 已有的视频信息（来自 getVideoInfo，含 data.duration 等）
      * @param {number} pageIndex - 分P索引（0-based），默认 0
      */
-    async downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
+    downloadAndSend(ws, groupId, bvid, videoInfo, pageIndex = 0) {
+        return this.runDownloadTask(
+            `single:${groupId}:${bvid}:${pageIndex}`,
+            ws,
+            (taskContext) => this._downloadAndSend(taskContext, groupId, bvid, videoInfo, pageIndex)
+        )
+    }
+
+    async _downloadAndSend(taskContext, groupId, bvid, videoInfo, pageIndex = 0) {
         const metricStartedAt = Date.now()
         const finishMetric = (result) => {
             runtimeMetricsService.record('videoDownload', {
@@ -246,7 +348,7 @@ class VideoDownloadService {
                 reason: 'max_concurrent',
                 maxConcurrent: MAX_CONCURRENT_DOWNLOADS
             }, taskScope)
-            this._notifyTarget(ws, groupId, [
+            await this._notifyTarget(taskContext.transport, groupId, [
                 { type: 'text', data: { text: `⏳ 当前下载任务已满（最多 ${MAX_CONCURRENT_DOWNLOADS} 个），${bvid} 跳过下载` } }
             ], false)
             return finishMetric({ ok: false, reason: 'max_concurrent', silent: true })
@@ -259,21 +361,21 @@ class VideoDownloadService {
         if (maxDuration > 0 && duration > maxDuration) {
             const durationMin = Math.round(duration / 60)
             const limitMin = Math.round(maxDuration / 60)
-            this._notifyTarget(ws, groupId, [
+            await this._notifyTarget(taskContext.transport, groupId, [
                 { type: 'text', data: { text: `⚠️ 视频时长 ${durationMin} 分钟，超出当前限制（${limitMin} 分钟），已跳过下载` } }
             ], false)
             return finishMetric({ ok: false, reason: 'duration_exceeded', silent: true })
         }
 
         // 磁盘空间预检（目录超过 5GB 时跳过）
-        if (!await this._hasDiskSpace()) {
+        if (!await this._hasDiskSpace(taskContext.paths)) {
             sendLog('warn', 'download-skipped', {
                 groupId,
                 bvid,
                 pageIndex,
                 reason: 'disk_space_full'
             }, taskScope)
-            this._notifyTarget(ws, groupId, [
+            await this._notifyTarget(taskContext.transport, groupId, [
                 { type: 'text', data: { text: '⚠️ 下载目录空间不足（超过 5GB），已跳过下载。可使用 /清理下载 释放空间' } }
             ], false)
             return finishMetric({ ok: false, reason: 'disk_space_full', silent: true })
@@ -310,13 +412,11 @@ class VideoDownloadService {
         _inProgressDownloads.add(downloadKey)
         let result
         try {
-            // 兜底超时：防止 Python/axios 超时失效导致配额永久占用
-            result = await Promise.race([
-                biliApi.downloadVideo(bvid, pageIndex, resolution, groupId, meta),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('download_overall_timeout')), DOWNLOAD_TIMEOUT_MS)
-                )
-            ])
+            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, groupId, meta, {
+                taskId: taskContext.taskId,
+                signal: taskContext.abortSignal,
+                timeoutMs: DOWNLOAD_TIMEOUT_MS
+            })
         } catch (e) {
             sendLog('error', 'download-fail', {
                 groupId,
@@ -331,6 +431,7 @@ class VideoDownloadService {
         }
 
         if (result.status !== 'success') {
+            if (result.terminalConfirmed === false) this.rememberUnconfirmedTask(taskContext)
             sendLog('warn', 'download-fail', {
                 groupId,
                 bvid,
@@ -346,15 +447,15 @@ class VideoDownloadService {
             return finishMetric({ ok: false, reason: result.message })
         }
 
-        const sent = await this._sendForwardMessage(ws, groupId, result, taskScope)
+        const sent = await this._sendForwardMessage(taskContext.transport, groupId, result, taskScope, taskContext.paths)
 
         // ws.send() 只是将 JSON 指令推入 WebSocket 缓冲区，NapCat 收到后才异步读取文件上传。
         // 必须延迟删除，给 NapCat 足够时间读取本地文件，而不是立即删除。
-        this._scheduleCleanup(result.file_path)
+        this._scheduleCleanup(result.file_path, 1, taskContext.generation)
 
         // 多P提示（仅首P触发时发送）
         if (sent && result.total_pages > 1 && pageIndex === 0) {
-            this._notifyTarget(ws, groupId, [
+            await this._notifyTarget(taskContext.transport, groupId, [
                 { type: 'text', data: { text: `📺 当前视频共 ${result.total_pages}P，已下载第 1P\n回复 /下载 P2 可继续下载其他分集` } }
             ], false)
         }
@@ -373,19 +474,22 @@ class VideoDownloadService {
      * 发送视频消息（群聊/私聊均使用普通消息）
      * @returns {boolean} 是否发送成功
      */
-    async _sendForwardMessage(ws, groupId, result, scope = DOWNLOAD_SCOPE) {
-        // 优先使用全局当前活跃连接，fallback 到传入参数（防止 stale ws）
-        const activeWs = global.bot?.ws || ws
-        if (!activeWs || activeWs.readyState !== 1 /* WebSocket.OPEN */) {
+    async _sendForwardMessage(ws, groupId, result, scope = DOWNLOAD_SCOPE, paths = this.currentPaths) {
+        const activeWs = ws
+        const isOfficialProvider = isOfficialTransport(activeWs)
+        if (!isQqTransportReady(activeWs)) {
             sendLog('warn', 'video-send-skipped', {
                 groupId,
                 title: result.title,
-                reason: 'ws_not_open'
+                reason: 'transport_not_ready'
             }, scope)
             return false
         }
 
-        const videoFile = `file://${toFileUrlPath(toNapcatReadablePath(result.file_path))}`
+        const videoFilePath = isOfficialProvider
+            ? result.file_path
+            : toNapcatReadablePath(result.file_path, paths)
+        const videoFile = `file://${toFileUrlPath(videoFilePath)}`
 
         // 私聊虚拟群场景
         if (typeof groupId === 'string' && groupId.startsWith('private_')) {
@@ -397,21 +501,23 @@ class VideoDownloadService {
                 }, scope)
                 return false
             }
-            const payload = {
-                action: 'send_private_msg',
-                params: {
-                    user_id: realUserId,
-                    message: [
-                        { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
-                        { type: 'video', data: { file: videoFile } }
-                    ]
-                }
-            }
-            try {
-                activeWs.send(JSON.stringify(payload))
-                sendLog('info', 'video-sent', {
+        try {
+            const response = await notificationService.sendPrivateMessage(activeWs, realUserId, [
+                { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                { type: 'video', data: { file: videoFile } }
+            ], 'VideoDownload', false)
+            if (response?.fallbackUsed) {
+                sendLog('warn', 'video-send-fallback-used', {
                     userId: realUserId,
                     title: result.title,
+                    targetType: 'private',
+                    reason: response.fallbackReason || 'media_fallback'
+                }, scope)
+                return false
+            }
+            sendLog('info', 'video-sent', {
+                userId: realUserId,
+                title: result.title,
                     targetType: 'private'
                 }, scope)
                 return true
@@ -427,7 +533,7 @@ class VideoDownloadService {
         }
 
         const numericGroupId = Number(groupId)
-        if (!Number.isFinite(numericGroupId)) {
+        if (!isOfficialProvider && !Number.isFinite(numericGroupId)) {
             sendLog('warn', 'video-send-skipped', {
                 groupId,
                 reason: 'invalid_group'
@@ -435,19 +541,20 @@ class VideoDownloadService {
             return false
         }
 
-        const payload = {
-            action: 'send_group_msg',
-            params: {
-                group_id: numericGroupId,
-                message: [
-                    { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
-                    { type: 'video', data: { file: videoFile } }
-                ]
-            }
-        }
-
         try {
-            activeWs.send(JSON.stringify(payload))
+            const response = await notificationService.sendGroupMessage(activeWs, isOfficialProvider ? String(groupId) : numericGroupId, [
+                { type: 'text', data: { text: `「${result.title}」- ${result.owner}` } },
+                { type: 'video', data: { file: videoFile } }
+            ], 'VideoDownload', false)
+            if (response?.fallbackUsed) {
+                sendLog('warn', 'video-send-fallback-used', {
+                    groupId,
+                    title: result.title,
+                    targetType: 'group',
+                    reason: response.fallbackReason || 'media_fallback'
+                }, scope)
+                return false
+            }
             sendLog('info', 'video-sent', {
                 groupId,
                 title: result.title,
@@ -468,19 +575,20 @@ class VideoDownloadService {
     /**
      * 检查下载目录大小是否超过 5GB 上限
      */
-    async _hasDiskSpace() {
+    async _hasDiskSpace(paths = this.currentPaths) {
+        const downloadsDir = paths.downloadsDir
         try {
-            await fsPromises.access(DOWNLOADS_DIR)
+            await fsPromises.access(downloadsDir)
         } catch {
             return true // 目录不存在，视为有空间
         }
         try {
             let totalSize = 0
-            const files = await fsPromises.readdir(DOWNLOADS_DIR)
+            const files = await fsPromises.readdir(downloadsDir)
             for (const f of files) {
                 if (!f.endsWith('.mp4') && !f.endsWith('.tmp')) continue
                 try {
-                    const stat = await fsPromises.stat(path.join(DOWNLOADS_DIR, f))
+                    const stat = await fsPromises.stat(path.join(downloadsDir, f))
                     totalSize += stat.size
                 } catch { /* skip */ }
             }
@@ -501,18 +609,19 @@ class VideoDownloadService {
      * 获取下载目录状态（供 /下载状态 命令使用）
      */
     async getDownloadStats() {
+        const downloadsDir = this.currentPaths.downloadsDir
         try {
-            await fsPromises.access(DOWNLOADS_DIR)
+            await fsPromises.access(downloadsDir)
         } catch {
             return { count: 0, totalSizeMB: 0 }
         }
         try {
-            const allFiles = await fsPromises.readdir(DOWNLOADS_DIR)
+            const allFiles = await fsPromises.readdir(downloadsDir)
             const files = allFiles.filter(f => f.endsWith('.mp4'))
             let totalSize = 0
             for (const f of files) {
                 try {
-                    const stat = await fsPromises.stat(path.join(DOWNLOADS_DIR, f))
+                    const stat = await fsPromises.stat(path.join(downloadsDir, f))
                     totalSize += stat.size
                 } catch { /* skip */ }
             }
@@ -526,7 +635,15 @@ class VideoDownloadService {
      * 下载视频一次，发送到多个群（用于订阅扇出场景）
      * 按群独立过滤时长限制，取所有目标群中最高的分辨率下载
      */
-    async downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0) {
+    downloadAndSendToGroups(ws, groupIds, bvid, videoInfo, pageIndex = 0, options = {}) {
+        return this.runDownloadTask(
+            `subscription:${bvid}:${pageIndex}`,
+            ws,
+            (taskContext) => this._downloadAndSendToGroups(taskContext, groupIds, bvid, videoInfo, pageIndex, options)
+        )
+    }
+
+    async _downloadAndSendToGroups(taskContext, groupIds, bvid, videoInfo, pageIndex = 0, options = {}) {
         const metricStartedAt = Date.now()
         const finishMetric = (ok, latest) => {
             runtimeMetricsService.record('videoDownload', {
@@ -582,15 +699,16 @@ class VideoDownloadService {
             return
         }
 
-        if (!await this._hasDiskSpace()) {
+        if (!await this._hasDiskSpace(taskContext.paths)) {
             sendLog('warn', 'download-skipped', {
                 bvid,
                 pageIndex,
                 reason: 'disk_space_full'
             }, taskScope)
             const rootAdminQQ = config.getRootAdminQQ()
-            if (rootAdminQQ && ws && ws.readyState === 1) {
-                notificationService.sendPrivateMessage(ws, rootAdminQQ, [
+            const notifyTransport = taskContext.transport
+            if (rootAdminQQ && isQqTransportReady(notifyTransport)) {
+                await notificationService.sendPrivateMessage(notifyTransport, rootAdminQQ, [
                     { type: 'text', data: { text: `⚠️ 下载目录空间不足（超过 5GB），已跳过订阅视频 ${bvid} 的下载。可使用 /清理下载 释放空间` } }
                 ], 'VideoDownload', false)
             }
@@ -622,12 +740,11 @@ class VideoDownloadService {
         _inProgressDownloads.add(downloadKey)
         let result
         try {
-            result = await Promise.race([
-                biliApi.downloadVideo(bvid, pageIndex, resolution, filteredGroups[0], meta),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('download_overall_timeout')), DOWNLOAD_TIMEOUT_MS)
-                )
-            ])
+            result = await biliApi.downloadVideo(bvid, pageIndex, resolution, filteredGroups[0], meta, {
+                taskId: taskContext.taskId,
+                signal: taskContext.abortSignal,
+                timeoutMs: DOWNLOAD_TIMEOUT_MS
+            })
         } catch (e) {
             sendLog('error', 'download-fail', {
                 bvid,
@@ -642,6 +759,7 @@ class VideoDownloadService {
         }
 
         if (result.status !== 'success') {
+            if (result.terminalConfirmed === false) this.rememberUnconfirmedTask(taskContext)
             sendLog('warn', 'download-fail', {
                 bvid,
                 pageIndex,
@@ -659,10 +777,14 @@ class VideoDownloadService {
 
         // 向所有目标群发送同一文件
         let sentCount = 0
+        const sentGroups = []
         for (const gid of filteredGroups) {
             try {
-                const sent = await this._sendForwardMessage(ws, gid, result, taskScope)
-                if (sent) sentCount++
+                const sent = await this._sendForwardMessage(taskContext.transport, gid, result, taskScope, taskContext.paths)
+                if (sent) {
+                    sentCount++
+                    sentGroups.push(String(gid))
+                }
             } catch (e) {
                 sendLog('error', 'video-send-failed', {
                     groupId: gid,
@@ -680,8 +802,19 @@ class VideoDownloadService {
         }, taskScope)
         finishMetric(sentCount > 0, `${sentCount}/${filteredGroups.length}`)
 
+        if (options.recordDelivery && sentGroups.length > 0) {
+            await subscriptionDeliveryStore.recordDeliveredBatch(sentGroups.map(groupId => ({
+                groupId,
+                type: options.contentType || 'video',
+                contentId: String(options.contentId || bvid),
+                deliveryPart: options.deliveryPart || 'auto-download',
+                meta: { source: 'videoDownloadService' }
+            })))
+        }
+
         // 所有群都发完后再清理文件，延迟按群数量系数放大
-        this._scheduleCleanup(result.file_path, filteredGroups.length)
+        this._scheduleCleanup(result.file_path, filteredGroups.length, taskContext.generation)
+        return { ok: sentCount > 0, sentGroups, attemptedGroups: filteredGroups.map(String) }
     }
 
     /**
@@ -689,8 +822,9 @@ class VideoDownloadService {
      * @returns {Promise<number>} 删除的文件数量，-1 表示有活跃下载被拒绝
      */
     async cleanAll() {
+        const downloadsDir = this.currentPaths.downloadsDir
         try {
-            await fsPromises.access(DOWNLOADS_DIR)
+            await fsPromises.access(downloadsDir)
         } catch {
             return 0 // 目录不存在
         }
@@ -704,16 +838,118 @@ class VideoDownloadService {
                 return -1
             }
             // 同时清理 .mp4 和中途中断留下的 .tmp 临时文件
-            const allFiles = await fsPromises.readdir(DOWNLOADS_DIR)
+            const allFiles = await fsPromises.readdir(downloadsDir)
             const files = allFiles.filter(f => f.endsWith('.mp4') || f.endsWith('.tmp'))
             for (const f of files) {
-                try { await fsPromises.unlink(path.join(DOWNLOADS_DIR, f)) } catch { /* skip */ }
+                try { await fsPromises.unlink(path.join(downloadsDir, f)) } catch { /* skip */ }
             }
             return files.length
         } catch {
             return 0
         }
     }
+
+    pauseOperations(reason = 'download-reconfigure') {
+        this.operationRegistry.pause(reason)
+    }
+
+    resumeOperations() {
+        this.operationRegistry.resume()
+    }
+
+    async drainOperations(timeoutMs = 330000) {
+        await this.operationRegistry.drain({ timeoutMs })
+        await this.reconcileUnconfirmedTasks()
+        return true
+    }
+
+    abortOperations(reason = 'forced-cleanup') {
+        this.operationRegistry.pause(reason)
+        const operations = this.operationRegistry.snapshot()
+        this.operationRegistry.abortAll(reason)
+        return { requested: operations.length, operations }
+    }
+
+    async reconfigure(snapshot, options = {}) {
+        const nextPaths = this.resolvePaths(snapshot)
+        if (nextPaths.writeBase === this.currentPaths.writeBase && nextPaths.readBase === this.currentPaths.readBase) {
+            return { changed: false, generation: this.pathGeneration }
+        }
+        const previous = this.currentPaths
+        this.pauseOperations('download-path-reconfigure')
+        try {
+            await this.drainOperations(options.timeoutMs ?? 330000)
+            this.currentPaths = nextPaths
+            this.pathGeneration += 1
+            return { changed: true, generation: this.pathGeneration, previous }
+        } finally {
+            if (!options.keepPaused) this.resumeOperations()
+        }
+    }
+
+    createReloadHandler() {
+        let previous = null
+        let applied = false
+        return {
+            id: 'download-paths',
+            effects: ['paths'],
+            ownedPaths: ['paths.napcatTemp', 'paths.napcatRead'],
+            preflight: async (candidate) => this.resolvePaths(candidate),
+            pauseIngress: async () => this.pauseOperations('config-reload'),
+            preCommitDrain: async () => this.drainOperations(330000),
+            prepareExclusive: async (candidate) => {
+                previous = this.currentPaths
+                const result = await this.reconfigure(candidate, { keepPaused: true })
+                applied = result.changed
+            },
+            rollbackExclusive: async () => {
+                if (!applied || !previous) return
+                this.currentPaths = previous
+                this.pathGeneration += 1
+            },
+            restorePrevious: async () => this.resumeOperations(),
+            enableIngress: async () => this.resumeOperations()
+        }
+    }
+
+    getResourceCounts() {
+        return {
+            activeDownloads: this._activeDownloads,
+            cleanupTimer: this._cleanupTimer ? 1 : 0,
+            cleanupTimeouts: this._cleanupTimeouts.size,
+            unconfirmedTasks: this._unconfirmedTasks.size,
+            pathGeneration: this.pathGeneration,
+            ...this.operationRegistry.getResourceCounts()
+        }
+    }
+
+    async cleanup(options = {}) {
+        this.pauseOperations('shutdown')
+        const failures = []
+        try {
+            await this.drainOperations(options.drainTimeoutMs ?? 30000)
+        } catch (error) {
+            failures.push(error)
+            this.abortOperations('shutdown-drain-timeout')
+            try {
+                await this.drainOperations(options.abortDrainTimeoutMs ?? 2000)
+            } catch (abortDrainError) {
+                failures.push(abortDrainError)
+            }
+        }
+        if (this._cleanupTimer) clearInterval(this._cleanupTimer)
+        this._cleanupTimer = null
+        for (const timer of this._cleanupTimeouts) clearTimeout(timer)
+        this._cleanupTimeouts.clear()
+        if (failures.length > 0) {
+            const error = new AggregateError(failures, 'Video download cleanup incomplete')
+            error.code = 'VIDEO_DOWNLOAD_CLEANUP_FAILED'
+            error.cleanupErrors = failures
+            throw error
+        }
+        return this.getResourceCounts()
+    }
 }
 
 module.exports = new VideoDownloadService()
+module.exports.VideoDownloadService = VideoDownloadService

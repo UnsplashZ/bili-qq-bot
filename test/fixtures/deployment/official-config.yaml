@@ -1,0 +1,21 @@
+version: 1
+qq:
+  provider: official
+  official:
+    appId: fixture-app-id
+    clientSecret: fixture-not-a-real-secret
+dashboard:
+  listenPort: 3000
+  password: fixture-password
+  jwtSecret: fixture-jwt-not-a-real-secret
+deployment:
+  ports:
+    dashboardHost: 3000
+  mounts:
+    config: ./config
+    data: ./data
+    logs: ./logs
+    fonts: ./fonts/custom
+  network:
+    name: bot_network
+    external: false

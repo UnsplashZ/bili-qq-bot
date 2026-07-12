@@ -13,7 +13,7 @@ describe('preview template rendering', function () {
     const originalPreviewLayoutConfig = config.previewLayoutConfig
 
     after(async function () {
-        config.previewLayoutConfig = originalPreviewLayoutConfig
+        config.__getMutableCompatStateForTests().previewLayoutConfig = originalPreviewLayoutConfig
         await imageGenerator.cleanup()
     })
 
@@ -44,7 +44,7 @@ describe('preview template rendering', function () {
     })
 
     it('generates editable cards through the v2 template path even with legacy config', async function () {
-        config.previewLayoutConfig = {
+        config.__getMutableCompatStateForTests().previewLayoutConfig = {
             version: 1,
             global: {
                 video: {

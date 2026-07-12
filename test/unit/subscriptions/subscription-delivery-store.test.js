@@ -78,6 +78,29 @@ describe('subscription delivery store', function () {
         assert.strictEqual(Object.keys(reloaded.getSnapshot().records).length, 20)
     })
 
+    it('按 deliveryPart 独立记录主卡片、fallback 和自动下载', async function () {
+        const store = await createStore(this, { now: () => 3000 })
+        await store.recordDelivered({
+            groupId: 'A',
+            type: 'video',
+            contentId: 'BV1',
+            deliveryPart: 'main'
+        })
+        await store.recordDelivered({
+            groupId: 'A',
+            type: 'video',
+            contentId: 'BV1',
+            deliveryPart: 'auto-download'
+        })
+
+        assert.equal(await store.hasDelivered('A', 'video', 'BV1', 'main'), true)
+        assert.equal(await store.hasDelivered('A', 'video', 'BV1', 'auto-download'), true)
+        assert.equal(await store.hasDelivered('A', 'video', 'BV1', 'fallback-text'), false)
+        const snapshot = store.getSnapshot()
+        assert.equal(snapshot.records['A:video:BV1'].deliveryPart, 'main')
+        assert.equal(snapshot.records['A:video:BV1:auto-download'].deliveryPart, 'auto-download')
+    })
+
     it('cleanupExpired 默认保留 30 天内记录', async function () {
         const now = 1_000_000_000
         const store = await createStore(this, { now: () => now })

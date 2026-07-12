@@ -7,20 +7,20 @@ const { processLinkDescriptors } = require('./linkPipeline')
 const { normalizeIncomingMessage } = require('./messageLinkNormalizer')
 const { shortLinkRegex, expandShortUrl } = require('./shortLinkExpander')
 
-function defaultSendGroupMessage(ws, groupId, messageChain, userId = null) {
+async function defaultSendGroupMessage(ws, groupId, messageChain, userId = null) {
     if (typeof groupId === 'string' && groupId.startsWith('private_')) {
         const realUserId = groupId.replace('private_', '')
-        notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
+        await notificationService.sendPrivateMessage(ws, realUserId, messageChain, 'LinkHandler', true)
         return
     }
 
     if (groupId) {
-        notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
+        await notificationService.sendGroupMessage(ws, groupId, messageChain, 'LinkHandler', true)
         return
     }
 
     if (userId) {
-        notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
+        await notificationService.sendPrivateMessage(ws, userId, messageChain, 'LinkHandler', true)
     }
 }
 

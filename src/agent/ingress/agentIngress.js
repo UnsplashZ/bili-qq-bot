@@ -7,6 +7,7 @@ const sessionStore = require('../session/sessionStore')
 const shortTermStore = require('../memory/shortTermStore')
 const { AgentRunState } = require('../runtime/runState')
 const { runAgent, filterMemoryHintsForWrite } = require('../runtime/agentRunner')
+const { isQqTransportReady } = require('../../providers/qq/readiness')
 
 function senderIsSelf(messagePayload, selfId) {
     const normalizedSelfId = String(selfId || '')
@@ -44,7 +45,7 @@ async function resolveReplyContext({ ws, agentMessage, messageData, traceScope }
             replyTarget: embeddedTarget
         }
     }
-    if (!agentMessage.replyMessageId || !ws || ws.readyState !== 1) {
+    if (!agentMessage.replyMessageId || !isQqTransportReady(ws)) {
         return {
             replyToSelf: Boolean(embeddedTarget?.isBot),
             replyTarget: embeddedTarget

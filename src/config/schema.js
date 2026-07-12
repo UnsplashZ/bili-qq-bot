@@ -1,8 +1,8 @@
-const path = require('path')
-const dotenv = require('dotenv')
+'use strict'
 
-const CONFIG_DIR = path.join(__dirname, '../../config')
-dotenv.config({ path: path.join(CONFIG_DIR, '.env') })
+// Legacy flat-key metadata retained for migration fixtures and compatibility
+// lookups only. Runtime loading is owned by ConfigService/schemaV1 and this
+// module must remain free of filesystem, dotenv, Secret, and process.env reads.
 
 const SUBSCRIPTION_AT_ALL_SOURCE_KEYS = ['manual', 'cookieSync']
 const SUBSCRIPTION_AT_ALL_CATEGORY_KEYS = [
@@ -135,6 +135,16 @@ const DEFAULT_AGENT_CONFIG = {
     groups: {}
 }
 
+function parseCsvList(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item).trim()).filter(Boolean)
+    }
+    return String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
 const parsers = {
     string: (val) => String(val),
     int: (val) => {
@@ -177,7 +187,8 @@ const parsers = {
             }
         }
         return {}
-    }
+    },
+    csv: (val) => parseCsvList(val)
 }
 
 function parseValue(val, type) {
@@ -189,6 +200,59 @@ function parseValue(val, type) {
 const META = {
     wsUrl: { env: 'WS_URL', def: 'ws://localhost:3001', type: 'string' },
     wsToken: { env: 'WS_TOKEN', def: '', type: 'string' },
+    qqProvider: {
+        env: 'QQ_PROVIDER',
+        def: 'napcat',
+        type: 'string',
+        get: function(overrides) {
+            const raw = overrides.qqProvider !== undefined ? overrides.qqProvider : this.def
+            const normalized = String(raw || '').trim().toLowerCase()
+            return normalized === 'official' ? 'official' : 'napcat'
+        }
+    },
+    qqOfficialAppId: { env: 'QQ_OFFICIAL_APP_ID', def: '', type: 'string' },
+    qqOfficialClientSecret: {
+        env: 'QQ_OFFICIAL_CLIENT_SECRET',
+        def: '',
+        type: 'string',
+        get: function(overrides) {
+            return overrides.qqOfficialClientSecret !== undefined
+                ? String(overrides.qqOfficialClientSecret || '').trim()
+                : this.def
+        }
+    },
+    qqOfficialApiBase: { env: 'QQ_OFFICIAL_API_BASE', def: 'https://api.sgroup.qq.com', type: 'string' },
+    qqOfficialTokenUrl: { env: 'QQ_OFFICIAL_TOKEN_URL', def: 'https://bots.qq.com/app/getAppAccessToken', type: 'string' },
+    qqOfficialUseShardedGateway: { env: 'QQ_OFFICIAL_USE_SHARDED_GATEWAY', def: true, type: 'bool' },
+    qqOfficialIntents: { env: 'QQ_OFFICIAL_INTENTS', def: 33554432, type: 'int' },
+    qqOfficialMediaUploadMode: {
+        env: 'QQ_OFFICIAL_MEDIA_UPLOAD_MODE',
+        def: 'hybrid',
+        type: 'string',
+        get: function(overrides) {
+            const raw = overrides.qqOfficialMediaUploadMode !== undefined
+                ? overrides.qqOfficialMediaUploadMode
+                : this.def
+            const normalized = String(raw || '').trim().toLowerCase()
+            return ['hybrid', 'url_only', 'file_data'].includes(normalized) ? normalized : 'hybrid'
+        }
+    },
+    qqOfficialTempPublicBaseUrl: { env: 'QQ_OFFICIAL_TEMP_PUBLIC_BASE_URL', def: '', type: 'string' },
+    qqOfficialRootOpenids: {
+        env: 'QQ_OFFICIAL_ROOT_OPENIDS',
+        def: '',
+        type: 'csv',
+        get: function(overrides) {
+            const raw = overrides.qqOfficialRootOpenids !== undefined
+                ? overrides.qqOfficialRootOpenids
+                : this.def
+            return parseCsvList(raw)
+        }
+    },
+    qqOfficialAccountQpm: { env: 'QQ_OFFICIAL_ACCOUNT_QPM', def: 30, type: 'int' },
+    qqOfficialGroupQpm: { env: 'QQ_OFFICIAL_GROUP_QPM', def: 20, type: 'int' },
+    qqOfficialQueueMaxSize: { env: 'QQ_OFFICIAL_QUEUE_MAX_SIZE', def: 300, type: 'int' },
+    qqOfficialGatewayAckTimeoutMs: { env: 'QQ_OFFICIAL_GATEWAY_ACK_TIMEOUT_MS', def: 90000, type: 'int' },
 
     pythonPath: {
         env: 'PYTHON_PATH',
@@ -196,10 +260,6 @@ const META = {
         type: 'string',
         get: function(overrides) {
             if ('pythonPath' in overrides) return overrides.pythonPath
-            const envVal = process.env.PYTHON_PATH
-            if (envVal) return envVal
-            const venvPath = path.join(__dirname, '../../venv/bin/python')
-            if (require('fs').existsSync(venvPath)) return venvPath
             return this.def
         }
     },
@@ -238,6 +298,7 @@ const META = {
 
     blacklistedQQs: { env: null, def: [], type: 'array', lazyInit: true },
     enabledGroups: { env: null, def: [], type: 'array', lazyInit: true },
+    providerScopedEnabledGroups: { env: null, def: {}, type: 'object', lazyInit: true },
 
     nightMode: {
         env: null,

@@ -1,0 +1,7 @@
+version: 1
+qq:
+  provider: official
+dashboard:
+  listenPort: 3555
+pythonService:
+  port: 10001
