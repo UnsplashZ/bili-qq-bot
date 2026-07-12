@@ -4,20 +4,20 @@
 
 :root {
   color-scheme: light;
-  --bg: oklch(98.2% 0.004 255);
+  --bg: oklch(99.2% 0.002 255);
   --surface: oklch(99.6% 0.002 255);
-  --surface-muted: oklch(96.4% 0.006 255);
+  --surface-muted: oklch(96.8% 0.004 255);
   --surface-quiet: oklch(97.4% 0.004 255);
   --surface-raised: oklch(100% 0 0);
   --surface-hover: color-mix(in oklch, var(--accent) 5%, var(--surface-muted));
   --fg: oklch(20% 0.012 255);
   --muted: oklch(48% 0.012 255);
   --subtle: oklch(65% 0.01 255);
-  --border-subtle: oklch(93.5% 0.005 255);
-  --border: oklch(89.8% 0.007 255);
+  --border-subtle: oklch(93.8% 0.004 255);
+  --border: oklch(89.4% 0.006 255);
   --border-muted: oklch(91.5% 0.006 255);
   --border-strong: oklch(80.5% 0.01 255);
-  --accent: oklch(55% 0.125 252);
+  --accent: oklch(54% 0.15 252);
   --accent-muted: oklch(48% 0.11 252);
   --accent-soft: color-mix(in oklch, var(--accent) 9%, transparent);
   --accent-surface: color-mix(in oklch, var(--accent) 7%, var(--surface));
@@ -102,6 +102,139 @@ html, body {
 #root {
   min-height: 100vh;
   background: var(--bg);
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-metric {
+  min-width: 0;
+  padding: 1.5rem 1.5rem 1.65rem;
+  border-left: 1px solid var(--border);
+}
+
+.dashboard-metric:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.admin-page {
+  padding-bottom: 2rem;
+}
+
+.admin-page > header {
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-page > header [class*="uppercase"] {
+  display: none;
+}
+
+.admin-page > header h1 {
+  margin-top: 0;
+  font-size: 1.875rem;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.admin-page .admin-section {
+  border-color: var(--border) !important;
+  border-right-width: 0 !important;
+  border-left-width: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-page .admin-section > h2,
+.admin-page section > h2 {
+  font-size: 1rem !important;
+  line-height: 1.5rem !important;
+  letter-spacing: -0.01em;
+}
+
+.admin-page .admin-surface {
+  border-color: var(--border) !important;
+  border-right-width: 0 !important;
+  border-left-width: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.admin-page .field-control,
+.admin-page select,
+.admin-page input[type="text"],
+.admin-page input[type="password"],
+.admin-page input[type="number"],
+.admin-page textarea {
+  border-color: var(--border-muted);
+  background: var(--field-bg);
+}
+
+.preview-editor-toolbar > button:not(:first-child) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.preview-editor-toolbar > button:not(:first-child):hover {
+  background: var(--surface-hover);
+}
+
+.preview-editor-workspace .preview-editor-panel + .preview-editor-canvas,
+.preview-editor-workspace .preview-editor-canvas + .preview-editor-panel {
+  border-left-width: 1px;
+}
+
+.preview-editor-workspace [class*="max-h-[72vh]"] {
+  scrollbar-width: thin;
+}
+
+@media (max-width: 1023px) {
+  .dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-metric:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .dashboard-metric:nth-child(4) {
+    border-top: 1px solid var(--border);
+  }
+
+  .preview-editor-workspace {
+    overflow: visible;
+  }
+
+  .preview-editor-workspace .preview-editor-panel + .preview-editor-canvas,
+  .preview-editor-workspace .preview-editor-canvas + .preview-editor-panel {
+    border-left-width: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 639px) {
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metric,
+  .dashboard-metric:first-child,
+  .dashboard-metric:nth-child(3) {
+    padding: 1rem 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .dashboard-metric:first-child {
+    border-top: 0;
+  }
 }
 
 .login-page {

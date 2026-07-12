@@ -13,7 +13,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative overflow-x-auto border-b border-[var(--border-subtle)] px-3 sm:px-4">
+      <div className="relative overflow-x-auto border-b border-[var(--border)]">
         <div
           className="relative grid min-w-max"
           style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(7rem, 1fr))` }}
@@ -24,7 +24,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
               type="button"
               onClick={() => handleSelect(index)}
               className={clsx(
-                'relative z-10 flex shrink-0 items-center justify-center gap-2 px-3 py-3 text-sm font-medium transition-colors focus:outline-none sm:px-4',
+                'relative z-10 flex shrink-0 items-center justify-center gap-2 px-3 py-3 text-xs font-medium transition-colors focus:outline-none sm:px-4',
                 index === safeIndex ? 'text-[var(--accent-muted)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
               )}
             >
@@ -40,7 +40,7 @@ const ModernTabs = ({ tabs, selectedIndex, onChange, children }) => {
       </div>
       <div
         key={safeIndex}
-        className={`min-h-0 flex-1 overflow-y-auto p-4 sm:p-5 md:p-6 motion-reduce:animate-none ${
+        className={`min-h-0 flex-1 overflow-y-auto py-5 motion-reduce:animate-none ${
           direction === 'forward'
             ? 'animate-[tab-panel-forward_180ms_ease-out]'
             : 'animate-[tab-panel-backward_180ms_ease-out]'

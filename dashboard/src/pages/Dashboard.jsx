@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Clock, Cpu, HardDrive, Network } from 'lucide-react';
-import { Card, DataTable, PanelHeader, StatusPill } from '../components/ui';
+import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { DataTable } from '../components/ui';
 import { formatBytes, formatUptime, formatNetSpeed } from '../utils/format';
 import api from '../utils/auth';
 
@@ -31,7 +31,9 @@ function normalizeProcessMetric(metric) {
     total: metric.total ?? '-',
     success: metric.success ?? metric.ok ?? '-',
     failed: metric.failed ?? metric.error ?? '-',
-    latest: metric.latest || metric.status || '-'
+    latest: metric.latest || metric.status || '-',
+    lastAt: metric.lastAt || null,
+    avgMs: metric.avgMs ?? null
   };
 }
 
@@ -70,31 +72,14 @@ function toneTextClass(tone) {
   }
 }
 
-function metricCardClass(tone) {
-  switch (tone) {
-    case 'warn':
-      return 'border-[color-mix(in_oklch,var(--warn)_42%,var(--border))] bg-[color-mix(in_oklch,var(--warn)_5%,var(--surface))]';
-    case 'danger':
-      return 'border-[color-mix(in_oklch,var(--danger)_42%,var(--border))] bg-[color-mix(in_oklch,var(--danger)_5%,var(--surface))]';
-    default:
-      return '';
-  }
-}
-
-function metricIconClass(tone) {
-  switch (tone) {
-    case 'warn':
-      return 'border-[color-mix(in_oklch,var(--warn)_42%,var(--border))] text-[color-mix(in_oklch,var(--warn)_88%,var(--fg))]';
-    case 'danger':
-      return 'border-[color-mix(in_oklch,var(--danger)_42%,var(--border))] text-[color-mix(in_oklch,var(--danger)_88%,var(--fg))]';
-    default:
-      return 'border-[var(--border)] text-[var(--accent)]';
-  }
-}
-
 function formatPercent(value) {
   const next = numericValue(value);
   return next === null ? '-' : `${next.toFixed(1)}%`;
+}
+
+function formatUpdatedAt(value) {
+  if (!value) return '尚未更新';
+  return value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function normalizeHistoryEntry(entry) {
@@ -124,52 +109,112 @@ function persistHistory(history) {
   try {
     window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history.slice(-HISTORY_LIMIT)));
   } catch {
-    // Ignore storage failures; the live chart can still render from in-memory state.
+    // The live chart can continue with its in-memory history.
   }
+}
+
+function getProviderPresentation(provider) {
+  if (!provider) {
+    return {
+      label: 'QQ Provider',
+      detail: '当前没有活动连接',
+      state: '未连接',
+      tone: 'danger'
+    };
+  }
+
+  const state = String(provider.connectionState || provider.state || '').toLowerCase();
+  const ready = state === 'ready' || state === 'open';
+  const pending = ['connecting', 'authenticating', 'identifying', 'resuming', 'reconnecting'].includes(state);
+  return {
+    label: provider.name || provider.id || 'QQ Provider',
+    detail: provider.id === 'official' ? 'QQ 官方接口' : 'WebSocket 连接',
+    state: ready ? '在线' : (pending ? '连接中' : '离线'),
+    tone: ready ? 'success' : (pending ? 'warn' : 'danger')
+  };
 }
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
+  const [provider, setProvider] = useState(undefined);
   const [history, setHistory] = useState(() => readPersistedHistory());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const mountedRef = useRef(true);
+  const requestInFlightRef = useRef(false);
+
+  const fetchData = useCallback(async () => {
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
+    setRefreshing(true);
+    const [monitorResult, providerResult] = await Promise.allSettled([
+      api.get('/api/monitor'),
+      api.get('/api/qq-provider/status')
+    ]);
+
+    if (!mountedRef.current) {
+      requestInFlightRef.current = false;
+      return;
+    }
+
+    if (monitorResult.status === 'fulfilled') {
+      const data = monitorResult.value.data;
+      const now = Date.now();
+      setStats(data);
+      setLastUpdatedAt(new Date(now));
+      setFetchError('');
+      setHistory((previous) => {
+        const newEntry = {
+          time: new Date(now).toLocaleTimeString(),
+          timestamp: now,
+          cpu: data.cpu,
+          memory: data.memory.used,
+          memoryFormatted: formatBytes(data.memory.used)
+        };
+        const nextHistory = [...previous, newEntry].slice(-HISTORY_LIMIT);
+        persistHistory(nextHistory);
+        return nextHistory;
+      });
+    } else {
+      setFetchError('系统指标暂时无法更新');
+    }
+
+    if (providerResult.status === 'fulfilled') {
+      setProvider(providerResult.value.data?.provider || null);
+    } else {
+      setProvider(undefined);
+    }
+    requestInFlightRef.current = false;
+    setRefreshing(false);
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await api.get('/api/monitor');
-        const data = response.data;
-
-        setStats(data);
-        setHistory(prev => {
-          const now = Date.now();
-          const newEntry = {
-            time: new Date(now).toLocaleTimeString(),
-            timestamp: now,
-            cpu: data.cpu,
-            memory: data.memory.used,
-            memoryFormatted: formatBytes(data.memory.used) // For tooltip
-          };
-          const newHistory = [...prev, newEntry].slice(-HISTORY_LIMIT);
-          persistHistory(newHistory);
-          return newHistory;
-        });
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
-      }
-    };
-
-    // Initial fetch
-    fetchData();
-
-    // Polling interval
+    mountedRef.current = true;
+    const initialFetch = setTimeout(fetchData, 0);
     const interval = setInterval(fetchData, 2000);
-
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(initialFetch);
+      clearInterval(interval);
+    };
+  }, [fetchData]);
 
   if (!stats) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center text-[var(--muted)]">
-        <div className="text-lg animate-pulse">正在加载系统状态...</div>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-sm text-[var(--muted)]">
+        {fetchError ? (
+          <>
+            <AlertTriangle size={20} className="text-[var(--warn)]" />
+            <span>{fetchError}</span>
+            <button type="button" onClick={fetchData} className="font-semibold text-[var(--accent)]">重新尝试</button>
+          </>
+        ) : (
+          <>
+            <RefreshCw size={16} className="animate-spin" />
+            <span>正在加载系统状态</span>
+          </>
+        )}
       </div>
     );
   }
@@ -177,41 +222,62 @@ const Dashboard = () => {
   const memoryUsed = stats.memory?.used ?? 0;
   const memoryTotal = stats.memory?.total ?? 0;
   const memoryPercent = memoryTotal ? (memoryUsed / memoryTotal) * 100 : null;
+  const cpuTone = getMetricTone(stats.cpu, 70, 90);
+  const memoryTone = getMetricTone(memoryPercent, 75, 90);
+  const providerView = getProviderPresentation(provider);
   const processRows = PROCESS_ROWS.map((row) => {
     const metric = normalizeProcessMetric(stats.processReport?.[row.key]);
     return { ...row, metric, tone: getProcessTone(metric) };
   });
+  const attentionCount = [cpuTone, memoryTone, providerView.tone]
+    .filter((tone) => tone === 'warn' || tone === 'danger').length;
+  const healthy = attentionCount === 0 && !fetchError;
 
   const kpis = [
     {
       label: 'CPU 负载',
       value: formatPercent(stats.cpu),
-      meta: null,
-      icon: Cpu,
-      tone: getMetricTone(stats.cpu, 70, 90)
+      detail: cpuTone === 'success' ? '运行平稳' : '负载偏高',
+      tone: cpuTone
     },
     {
       label: '内存使用',
-      value: memoryTotal ? `${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}` : formatBytes(memoryUsed),
-      meta: null,
-      icon: HardDrive,
-      tone: getMetricTone(memoryPercent, 75, 90)
+      value: formatBytes(memoryUsed),
+      detail: memoryTotal ? `共 ${formatBytes(memoryTotal)}` : '总量未知',
+      tone: memoryTone
     },
     {
       label: '网络流量',
-      value: [
-        { label: '↑', value: formatNetSpeed(stats.network?.up ?? 0) },
-        { label: '↓', value: formatNetSpeed(stats.network?.down ?? 0) }
-      ],
-      meta: null,
-      icon: Network,
+      value: `↑ ${formatNetSpeed(stats.network?.up ?? 0)}`,
+      detail: `↓ ${formatNetSpeed(stats.network?.down ?? 0)}`,
       tone: 'accent'
     },
     {
       label: '运行时间',
       value: formatUptime(stats.uptime),
-      meta: null,
-      icon: Clock,
+      detail: '当前进程',
+      tone: 'success'
+    }
+  ];
+
+  const healthRows = [
+    providerView,
+    {
+      label: 'CPU 资源',
+      detail: formatPercent(stats.cpu),
+      state: cpuTone === 'success' ? '正常' : (cpuTone === 'warn' ? '偏高' : '过高'),
+      tone: cpuTone
+    },
+    {
+      label: '内存资源',
+      detail: memoryTotal ? `${formatPercent(memoryPercent)} 已使用` : formatBytes(memoryUsed),
+      state: memoryTone === 'success' ? '正常' : (memoryTone === 'warn' ? '偏高' : '过高'),
+      tone: memoryTone
+    },
+    {
+      label: '网络吞吐',
+      detail: `上行 ${formatNetSpeed(stats.network?.up ?? 0)}`,
+      state: '监控中',
       tone: 'success'
     }
   ];
@@ -225,7 +291,7 @@ const Dashboard = () => {
       key: 'latest',
       title: '最近状态',
       render: (row) => (
-        <span className={`text-sm font-medium ${toneTextClass(row.tone)}`}>
+        <span className={`text-xs font-semibold ${toneTextClass(row.tone)}`}>
           {row.metric.latest || '-'}
         </span>
       )
@@ -233,115 +299,139 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="space-y-4 pb-6 md:space-y-6">
-      <header className="flex flex-col gap-2">
-        <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Overview</div>
-        <h1 className="text-3xl font-semibold text-[var(--fg)] md:text-4xl">运行状态</h1>
+    <div className="pb-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[var(--fg)] md:text-[30px]">运行状态</h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">查看服务健康、资源使用和自动化流程。</p>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-[var(--subtle)]">
+          <span>最后更新：{formatUpdatedAt(lastUpdatedAt)}</span>
+          <button
+            type="button"
+            onClick={fetchData}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 font-semibold text-[var(--accent)] disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            刷新
+          </button>
+        </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <Card key={kpi.label} className={`min-h-32 ${metricCardClass(kpi.tone)}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-sm text-[var(--muted)]">{kpi.label}</div>
-                  {Array.isArray(kpi.value) ? (
-                    <div className="mt-5 space-y-1">
-                      {kpi.value.map((item) => (
-                        <div key={item.label} className="font-mono text-2xl font-semibold text-[var(--fg)]">
-                          <span className="mr-2 text-[var(--muted)]">{item.label}</span>
-                          {item.value}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-5 font-mono text-2xl font-semibold text-[var(--fg)]">{kpi.value}</div>
-                  )}
-                </div>
-                <div className={`grid h-9 w-9 place-items-center rounded-lg border ${metricIconClass(kpi.tone)}`}>
-                  <Icon size={18} />
-                </div>
-              </div>
-              {kpi.meta && (
-                <div className={`mt-4 text-sm font-semibold ${toneTextClass(kpi.tone)}`}>
-                  {kpi.meta}
-                </div>
-              )}
-            </Card>
-          );
-        })}
+      <section className="mt-6 flex flex-col gap-3 border-y border-[var(--border)] py-4 sm:flex-row sm:items-center">
+        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${healthy ? 'bg-[var(--success-soft)] text-[var(--success)]' : 'bg-[var(--warn-soft)] text-[var(--warn)]'}`}>
+          {healthy ? <Check size={15} /> : <AlertTriangle size={14} />}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <strong className="text-sm font-semibold text-[var(--fg)]">
+            {healthy ? '核心运行状态正常' : `${attentionCount || 1} 项状态需要关注`}
+          </strong>
+          <span className="text-xs text-[var(--muted)]">
+            {fetchError || `${providerView.label} ${providerView.state}，系统资源监控已连接`}
+          </span>
+        </div>
+        <span className="text-xs text-[var(--muted)]">已运行 {formatUptime(stats.uptime)}</span>
       </section>
 
-      <Card className="overflow-hidden p-0">
-        <PanelHeader
-          icon={Activity}
-          title="资源趋势"
-          meta={<StatusPill tone="success">实时连接</StatusPill>}
-        />
-        <div className="h-72 p-4 md:h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={history}>
-              <defs>
-                <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.28}/>
-                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.2}/>
-                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="time" stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} minTickGap={24} />
-              <YAxis yAxisId="cpu" domain={[0, 100]} stroke="var(--muted)" fontSize={12} tick={{ fill: 'var(--muted)' }} />
-              <YAxis yAxisId="memory" orientation="right" stroke="var(--muted)" fontSize={12} tickFormatter={(value) => formatBytes(value, 0)} tick={{ fill: 'var(--muted)' }} width={58} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'var(--surface)',
-                  borderColor: 'var(--border)',
-                  borderRadius: 8,
-                  color: 'var(--fg)'
-                }}
-                itemStyle={{ color: 'var(--fg)' }}
-                labelStyle={{ color: 'var(--muted)' }}
-                formatter={(value, name) => (
-                  name === 'Memory' ? [formatBytes(value), 'Memory'] : [`${Number(value).toFixed(1)}%`, 'CPU']
-                )}
-              />
-              <Area
-                yAxisId="cpu"
-                type="monotone"
-                dataKey="cpu"
-                stroke="var(--accent)"
-                fillOpacity={1}
-                fill="url(#colorCpu)"
-                name="CPU %"
-                isAnimationActive={false}
-              />
-              <Area
-                yAxisId="memory"
-                type="monotone"
-                dataKey="memory"
-                stroke="var(--success)"
-                fillOpacity={1}
-                fill="url(#colorMemory)"
-                name="Memory"
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+      <section className="dashboard-metrics border-b border-[var(--border)]">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="dashboard-metric">
+            <div className="text-xs text-[var(--muted)]">{kpi.label}</div>
+            <div className="mt-3 font-mono text-2xl font-semibold tracking-[-0.03em] text-[var(--fg)] md:text-[27px]">
+              {kpi.value}
+            </div>
+            <div className={`mt-1.5 text-[11px] ${toneTextClass(kpi.tone)}`}>{kpi.detail}</div>
+          </div>
+        ))}
+      </section>
 
-      <Card className="overflow-hidden p-0">
-        <PanelHeader
-          title="过程报表"
-          meta={<span className="font-mono">{processRows.length} flows</span>}
-        />
-        <DataTable columns={processColumns} rows={processRows} getRowKey={(row) => row.key} />
-      </Card>
+      <section className="grid border-b border-[var(--border)] py-7 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 xl:pr-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-[var(--fg)]">资源趋势</h2>
+              <p className="mt-1 text-[11px] text-[var(--muted)]">最近 60 个采样点，每 2 秒更新</p>
+            </div>
+            <div className="flex items-center gap-4 pt-0.5 text-[10px] text-[var(--muted)]">
+              <span className="font-semibold text-[var(--accent)]">实时</span>
+              <span>CPU</span>
+              <span>内存</span>
+            </div>
+          </div>
+          <div className="mt-4 h-64 md:h-72">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              minWidth={0}
+              minHeight={256}
+              initialDimension={{ width: 900, height: 288 }}
+            >
+              <AreaChart data={history} margin={{ top: 8, right: 6, left: -18, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} stroke="var(--border-subtle)" />
+                <XAxis dataKey="time" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: 'var(--subtle)' }} minTickGap={36} />
+                <YAxis yAxisId="cpu" domain={[0, 100]} axisLine={false} tickLine={false} fontSize={10} tick={{ fill: 'var(--subtle)' }} />
+                <YAxis yAxisId="memory" hide orientation="right" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'var(--surface-raised)',
+                    borderColor: 'var(--border)',
+                    borderRadius: 8,
+                    boxShadow: 'var(--shadow-floating)',
+                    color: 'var(--fg)',
+                    fontSize: 12
+                  }}
+                  itemStyle={{ color: 'var(--fg)' }}
+                  labelStyle={{ color: 'var(--muted)' }}
+                  formatter={(value, name) => (
+                    name === 'Memory' ? [formatBytes(value), '内存'] : [`${Number(value).toFixed(1)}%`, 'CPU']
+                  )}
+                />
+                <Area yAxisId="cpu" type="monotone" dataKey="cpu" stroke="var(--accent)" strokeWidth={2.5} fill="url(#colorCpu)" name="CPU %" isAnimationActive={false} />
+                <Area yAxisId="memory" type="monotone" dataKey="memory" stroke="var(--purple)" strokeWidth={2} fill="transparent" name="Memory" isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="border-t border-[var(--border)] pt-6 xl:border-l xl:border-t-0 xl:pl-8 xl:pt-0">
+          <h2 className="text-base font-semibold text-[var(--fg)]">运行健康</h2>
+          <p className="mt-1 text-[11px] text-[var(--muted)]">来自当前运行时的实时状态</p>
+          <div className="mt-4">
+            {healthRows.map((row) => (
+              <div key={row.label} className="flex min-h-14 items-center justify-between gap-4 border-b border-[var(--border-subtle)] last:border-b-0">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--fg)]">
+                    <span className={`h-1.5 w-1.5 rounded-full bg-current ${toneTextClass(row.tone)}`} />
+                    <span className="truncate">{row.label}</span>
+                  </div>
+                  <div className="mt-1 truncate pl-3.5 text-[10px] text-[var(--muted)]">{row.detail}</div>
+                </div>
+                <span className={`shrink-0 text-[10px] font-semibold ${toneTextClass(row.tone)}`}>{row.state}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="pt-7">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--fg)]">自动化流程</h2>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">处理数量、失败情况与最近状态</p>
+          </div>
+          <span className="font-mono text-[10px] text-[var(--subtle)]">{processRows.length} 个流程</span>
+        </div>
+        <div className="mt-4 border-y border-[var(--border)]">
+          <DataTable columns={processColumns} rows={processRows} getRowKey={(row) => row.key} />
+        </div>
+      </section>
     </div>
   );
 };

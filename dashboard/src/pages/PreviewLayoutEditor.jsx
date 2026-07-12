@@ -359,9 +359,9 @@ function SortableNodeButton({
       data-tree-node-label={nodeLabel(node)}
       {...attributes}
       {...listeners}
-      className={`group flex min-h-10 items-center gap-2 rounded-lg border px-2 text-sm ${
+      className={`group flex min-h-10 items-center gap-2 border-l-2 px-2 text-sm ${
         selected
-          ? 'border-[var(--accent)] bg-[var(--accent-surface)] text-[var(--fg)]'
+          ? 'border-l-[var(--accent)] border-y-transparent border-r-transparent bg-[var(--accent-surface)] text-[var(--fg)]'
           : 'border-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]'
       } ${isDragging ? 'opacity-50' : ''}`}
     >
@@ -970,11 +970,12 @@ export default function PreviewLayoutEditor() {
   const canvasStatus = previewing ? '预览更新中' : (previewOutdated ? '预览待更新' : '');
 
   return (
-    <div className="space-y-4 pb-6">
+    <div className="admin-page preview-editor space-y-5 pb-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Template Designer</div>
           <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">预览模板设计器</h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">编辑预览卡片结构、布局和视觉参数。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {dirty && <StatusPill tone="warn">草稿未保存</StatusPill>}
@@ -990,11 +991,11 @@ export default function PreviewLayoutEditor() {
         saving={savingPreviewGradient}
       />
 
-      <Card className="grid gap-3" padded>
+      <Card className="admin-section preview-editor-config grid gap-4 px-0 py-5" padded={false}>
         <div className="grid gap-3 xl:grid-cols-[0.8fr_1.2fr_0.8fr_0.7fr]">
           <div className="grid gap-1.5">
             <span className="text-xs font-semibold text-[var(--muted)]">来源</span>
-            <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
+            <div className="preview-editor-segmented grid grid-cols-2 border-b border-[var(--border)]">
               {[
                 ['structure', '结构示例'],
                 ['link', '真实链接']
@@ -1003,7 +1004,7 @@ export default function PreviewLayoutEditor() {
                   key={value}
                   type="button"
                   onClick={() => setMode(value)}
-                  className={`min-h-10 px-3 text-sm font-semibold ${mode === value ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
+                  className={`relative min-h-10 px-3 text-sm font-semibold transition-colors ${mode === value ? 'text-[var(--fg)] after:absolute after:inset-x-3 after:bottom-[-1px] after:h-0.5 after:bg-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'}`}
                 >
                   {label}
                 </button>
@@ -1053,7 +1054,7 @@ export default function PreviewLayoutEditor() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
+        <div className="preview-editor-toolbar flex flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] pt-4">
           <Button icon={Eye} variant="primary" disabled={loading || previewing} onClick={() => runPreview()}>
             {previewing ? '生成中' : '应用预览'}
           </Button>
@@ -1071,13 +1072,13 @@ export default function PreviewLayoutEditor() {
         </div>
       </Card>
 
-      <section className="grid gap-4 xl:grid-cols-[200px_minmax(0,1fr)_300px]">
-        <Card as="aside" className="overflow-hidden" padded={false}>
+      <section className="preview-editor-workspace grid overflow-hidden border-y border-[var(--border)] xl:grid-cols-[220px_minmax(0,1fr)_320px]">
+        <Card as="aside" className="preview-editor-panel overflow-hidden rounded-none border-0 bg-transparent" padded={false}>
           <PanelHeader
             title={panel === 'nodes' ? '节点树' : panel === 'components' ? '组件库' : '图层'}
             icon={panel === 'nodes' ? LayoutTemplate : panel === 'components' ? Plus : Layers}
             actions={(
-              <div className="flex overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+              <div className="flex border-b border-[var(--border-subtle)]">
                 {[
                   ['nodes', LayoutTemplate],
                   ['components', Plus],
@@ -1087,7 +1088,7 @@ export default function PreviewLayoutEditor() {
                     key={value}
                     type="button"
                     onClick={() => setPanel(value)}
-                    className={`grid h-8 w-9 place-items-center ${panel === value ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
+                    className={`relative grid h-8 w-9 place-items-center transition-colors ${panel === value ? 'text-[var(--accent)] after:absolute after:inset-x-2 after:bottom-[-1px] after:h-0.5 after:bg-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'}`}
                   >
                     {React.createElement(TabIcon, { size: 15 })}
                   </button>
@@ -1137,7 +1138,7 @@ export default function PreviewLayoutEditor() {
                       key={key}
                       type="button"
                       onClick={() => pushTemplate((current) => addComponent(current, key, componentRegistry, selectedId, schema, selectedType))}
-                      className="flex min-h-12 items-center gap-3 rounded-lg border border-[var(--border-subtle)] px-3 text-left text-sm text-[var(--fg)] hover:bg-[var(--surface-hover)]"
+                      className="flex min-h-11 items-center gap-3 border-b border-[var(--border-subtle)] px-2 text-left text-sm text-[var(--fg)] hover:bg-[var(--surface-hover)]"
                     >
                       <ComponentIcon size={16} className="text-[var(--accent)]" />
                       <span>{component.label}</span>
@@ -1153,7 +1154,7 @@ export default function PreviewLayoutEditor() {
                     key={node.id}
                     type="button"
                     onClick={() => selectNode(node.id)}
-                    className={`flex min-h-10 items-center justify-between rounded-lg px-3 text-left text-sm ${selectedIds.includes(node.id) ? 'bg-[var(--accent-surface)] text-[var(--fg)]' : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
+                    className={`flex min-h-10 items-center justify-between border-l-2 px-3 text-left text-sm ${selectedIds.includes(node.id) ? 'border-[var(--accent)] bg-[var(--accent-surface)] text-[var(--fg)]' : 'border-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
                   >
                     <span>{nodeLabel(node)}</span>
                     <span className="font-mono text-[11px]">{node.layout?.zIndex || 0}</span>
@@ -1164,7 +1165,7 @@ export default function PreviewLayoutEditor() {
           </div>
         </Card>
 
-        <Card as="main" className="overflow-hidden" padded={false}>
+        <Card as="main" className="preview-editor-canvas overflow-hidden rounded-none border-y-0 border-[var(--border)] bg-[var(--surface-quiet)]" padded={false}>
           <PanelHeader
             title="真实预览画布"
             icon={ImageIcon}
@@ -1195,7 +1196,7 @@ export default function PreviewLayoutEditor() {
           )}
           <div className="flex min-h-[520px] items-start justify-center p-3">
             {preview?.htmlArtifact ? (
-              <div className="w-full max-h-[72vh] overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
+              <div className="w-full max-h-[72vh] overflow-hidden border border-[var(--border-subtle)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
                 <LivePreviewCanvas
                   htmlArtifact={preview.htmlArtifact}
                   selectedId={selectedId}
@@ -1234,7 +1235,7 @@ export default function PreviewLayoutEditor() {
                 )}
               </div>
             ) : preview?.image?.base64 ? (
-              <div className="relative max-h-[72vh] max-w-full overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-quiet)]">
+              <div className="relative max-h-[72vh] max-w-full overflow-auto border border-[var(--border-subtle)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
                 <div className="relative inline-block max-w-full" ref={overlayRef}>
                   <img
                     src={`data:${preview.image.mime};base64,${preview.image.base64}`}
@@ -1315,7 +1316,7 @@ export default function PreviewLayoutEditor() {
           </div>
         </Card>
 
-        <Card as="aside" className="overflow-hidden" padded={false}>
+        <Card as="aside" className="preview-editor-panel overflow-hidden rounded-none border-0 bg-transparent" padded={false}>
           <PanelHeader title="属性面板" icon={Braces} />
           <div className="max-h-[72vh] overflow-y-auto">
             <PropertyPanel

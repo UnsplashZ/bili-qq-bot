@@ -367,14 +367,15 @@ const AgentDecisions = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="admin-page space-y-6">
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
           <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
             <Activity className="text-[var(--accent)]" />
             Agent 决策
           </h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">筛选决策轨迹、工具确认和运行原因。</p>
         </div>
         <Button
           onClick={loadItems}
@@ -384,7 +385,7 @@ const AgentDecisions = () => {
         >
           刷新
         </Button>
-      </div>
+      </header>
 
       <GlassCard>
         <div className="grid gap-3 md:grid-cols-6">
@@ -459,7 +460,7 @@ const AgentDecisions = () => {
 
       {summary && (
         <GlassCard className="overflow-hidden p-0">
-          <div className="grid divide-y divide-white/10 text-sm md:grid-cols-3 md:divide-x md:divide-y-0 xl:grid-cols-6">
+          <div className="grid divide-y divide-[var(--border)] text-sm md:grid-cols-3 md:divide-x md:divide-y-0 xl:grid-cols-6">
             {[
               ['轨迹总数', summary.total || 0],
               ['发送比例', `${summary.sent || 0} / ${formatPercent(summary.sent, summary.total)}`],

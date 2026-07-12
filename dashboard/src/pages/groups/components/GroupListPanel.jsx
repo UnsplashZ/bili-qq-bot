@@ -11,14 +11,14 @@ const GroupListPanel = ({
   onDeleteConfig
 }) => {
   return (
-    <GlassCard className="w-full lg:w-1/3 flex flex-col p-0 overflow-hidden max-h-[38vh] sm:max-h-[45vh] lg:max-h-none">
-      <div className="p-3 sm:p-4 border-b border-white/10">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--fg)]">
+    <GlassCard className="flex max-h-[38vh] w-full flex-col overflow-hidden p-0 sm:max-h-[45vh] lg:max-h-none lg:w-1/3 lg:border-r lg:pr-5">
+      <div className="border-b border-[var(--border)] py-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--fg)]">
           <MessageSquare size={18} />
           群组 ({groups.length})
         </h2>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-1.5 sm:p-2 space-y-1">
+      <div className="min-h-0 flex-1 space-y-0 overflow-y-auto py-2">
         {loading ? (
           <div className="text-center p-4 text-gray-400">加载中...</div>
         ) : groups.length === 0 ? (
@@ -29,10 +29,10 @@ const GroupListPanel = ({
               key={group.id}
               onClick={() => onSelectGroup(group.id)}
               className={clsx(
-                'relative flex items-center gap-2.5 rounded-lg p-2.5 transition-colors sm:gap-3 sm:p-3',
-                'hover:bg-white/5',
+                'relative flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-2 py-3 transition-colors last:border-b-0 sm:gap-3',
+                'hover:bg-[var(--surface-quiet)]',
                 selectedGroupId === group.id
-                  ? 'bg-cyan-300/10'
+                  ? 'bg-[var(--accent-soft)]'
                   : 'bg-transparent',
                 !group.isEnabled && 'opacity-50',
                 !group.isInGroup && 'opacity-60 grayscale'

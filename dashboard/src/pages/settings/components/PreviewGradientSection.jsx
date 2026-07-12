@@ -218,7 +218,7 @@ const PreviewGradientSection = ({
     return (
         <section
             ref={previewGradientSectionRef}
-            className={`relative rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] p-4 shadow-[var(--shadow-soft)] sm:p-5 ${className}`}
+            className={`admin-section relative border-y border-[var(--border)] py-5 ${className}`}
         >
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-2">
@@ -232,7 +232,7 @@ const PreviewGradientSection = ({
                     <Button
                         type="button"
                         onClick={handleResetPreviewGradient}
-                        variant="primary"
+                        variant="ghost"
                         icon={RotateCcw}
                         size="sm"
                     >
@@ -243,7 +243,7 @@ const PreviewGradientSection = ({
                             type="button"
                             onClick={onSavePreviewGradient}
                             disabled={saving || Object.values(gradientErrors).some(Boolean)}
-                            variant="primary"
+                            variant="secondary"
                             icon={Save}
                             size="sm"
                         >

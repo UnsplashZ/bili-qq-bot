@@ -19,7 +19,7 @@ const THEME_ICONS = {
 };
 
 const BrandIcon = () => (
-  <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg border border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] bg-[var(--surface-raised)]">
+  <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg bg-[var(--accent)] shadow-sm">
     <img
       src={botIcon}
       alt="bili-qq-bot"
@@ -35,23 +35,25 @@ const BrandIcon = () => (
   </div>
 );
 
-const MobileMenuItem = ({ icon, label, href, active, onClick, badge }) => {
+const MobileMenuItem = ({ icon, label, href, active, onClick }) => {
   return (
     <Link
       to={href}
       onClick={onClick}
-      className={`relative flex items-center justify-between gap-3 rounded-lg px-4 py-3 transition-colors sm:px-5 sm:py-4 ${
+      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors sm:px-5 ${
         active
-          ? 'bg-[var(--accent-soft)] text-[var(--fg)]'
-          : 'text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]'
+          ? 'font-semibold text-[var(--fg)]'
+          : 'text-[var(--muted)] hover:text-[var(--fg)]'
       }`}
     >
-      {active && <span className="absolute bottom-2 left-0 top-2 w-px rounded bg-[var(--accent)]" />}
+      {active && <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-r bg-[var(--accent)]" />}
       <span className="flex min-w-0 items-center gap-3">
-        {React.createElement(icon, { size: 21 })}
-        <span className="text-base font-medium sm:text-lg">{label}</span>
+        {React.createElement(icon, {
+          size: 19,
+          className: active ? 'text-[var(--accent)]' : 'text-[var(--subtle)]'
+        })}
+        <span className="text-sm font-medium sm:text-base">{label}</span>
       </span>
-      {badge && <span className="font-mono text-xs text-[var(--subtle)]">{badge}</span>}
     </Link>
   );
 };
@@ -73,14 +75,15 @@ const MobileMenu = ({ isOpen, onClose }) => {
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--surface)] sm:w-80 md:hidden">
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-4 sm:p-6">
+      <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface-muted)] sm:w-80 md:hidden">
+        <div className="flex items-center justify-between border-b border-[var(--border)] p-4 sm:p-5">
           <div className="flex min-w-0 items-center gap-3">
             <BrandIcon />
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold text-[var(--fg)] sm:text-2xl">
+              <h1 className="truncate text-lg font-semibold text-[var(--fg)]">
                 bili-qq-bot
               </h1>
+              <p className="mt-0.5 text-[10px] text-[var(--muted)]">管理控制台</p>
             </div>
           </div>
           <button
@@ -95,17 +98,16 @@ const MobileMenu = ({ isOpen, onClose }) => {
         <nav className="flex-1 space-y-5 p-3 sm:p-4">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="px-3 text-[11px] font-bold uppercase text-[var(--subtle)]">
+              <div className="px-3 text-[10px] font-semibold text-[var(--subtle)]">
                 {group.label}
               </div>
-              <div className="mt-2 grid gap-1">
+              <div className="mt-1 grid">
                 {group.items.map((item) => (
                   <MobileMenuItem
                     key={item.href}
                     icon={item.icon}
                     label={item.label}
                     href={item.href}
-                    badge={item.badge}
                     active={path === item.href}
                     onClick={onClose}
                   />
@@ -114,7 +116,7 @@ const MobileMenu = ({ isOpen, onClose }) => {
             </div>
           ))}
         </nav>
-        <div className="border-t border-[var(--border-subtle)] p-3">
+        <div className="border-t border-[var(--border)] p-3">
           <Button
             variant="ghost"
             className="w-full justify-start"

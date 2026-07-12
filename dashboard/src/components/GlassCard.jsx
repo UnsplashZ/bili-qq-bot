@@ -3,7 +3,7 @@ import { Card } from './ui';
 
 const GlassCard = ({ children, className }) => {
   return (
-    <Card className={className}>
+    <Card className={`admin-section ${className || ''}`}>
       {children}
     </Card>
   );

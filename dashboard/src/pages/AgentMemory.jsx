@@ -228,14 +228,15 @@ const AgentMemory = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="admin-page space-y-6">
+      <header>
         <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
         <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
           <Brain className="text-[var(--accent)]" />
           Agent 记忆
         </h1>
-      </div>
+        <p className="mt-1.5 text-xs text-[var(--muted)]">查看长期记忆、用户画像、表达偏好和群体效应。</p>
+      </header>
 
       <GlassCard>
         <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
@@ -277,7 +278,7 @@ const AgentMemory = () => {
         </div>
       </GlassCard>
 
-      <div className="flex overflow-x-auto border-b border-white/10">
+      <div className="flex overflow-x-auto border-b border-[var(--border)]">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.key;
@@ -287,8 +288,8 @@ const AgentMemory = () => {
               onClick={() => setActiveTab(tab.key)}
               className={`flex shrink-0 items-center justify-center gap-2 border-b px-4 py-3 text-sm transition-colors ${
                 active
-                  ? 'border-purple-300 text-purple-100'
-                  : 'border-transparent text-gray-300 hover:text-white'
+                  ? 'border-[var(--accent)] text-[var(--accent)]'
+                  : 'border-transparent text-[var(--muted)] hover:text-[var(--fg)]'
               }`}
             >
               <Icon size={18} />

@@ -21,7 +21,7 @@ const THEME_ICONS = {
 
 const BrandIcon = ({ className = '' }) => (
   <div
-    className={`grid place-items-center overflow-hidden rounded-lg border border-[color-mix(in_oklch,var(--accent)_34%,var(--border))] bg-[var(--surface-raised)] ${className}`}
+    className={`grid place-items-center overflow-hidden rounded-lg bg-[var(--accent)] shadow-sm ${className}`}
   >
     <img
       src={botIcon}
@@ -38,22 +38,24 @@ const BrandIcon = ({ className = '' }) => (
   </div>
 );
 
-const SidebarItem = ({ icon, label, href, active, badge }) => {
+const SidebarItem = ({ icon, label, href, active }) => {
   return (
     <Link
       to={href}
-      className={`relative flex min-h-9 items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+      className={`group relative flex min-h-9 items-center gap-3 px-3 py-2 text-[13px] transition-colors ${
         active
-          ? 'bg-[var(--accent-soft)] text-[var(--fg)]'
-          : 'text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--fg)]'
+          ? 'font-semibold text-[var(--fg)]'
+          : 'text-[var(--muted)] hover:text-[var(--fg)]'
       }`}
     >
-      {active && <span className="absolute bottom-2 left-0 top-2 w-px rounded bg-[var(--accent)]" />}
+      {active && <span className="absolute bottom-1.5 -left-3 top-1.5 w-0.5 rounded-r bg-[var(--accent)]" />}
       <span className="flex min-w-0 items-center gap-3">
-        {React.createElement(icon, { size: 18 })}
+        {React.createElement(icon, {
+          size: 17,
+          className: active ? 'text-[var(--accent)]' : 'text-[var(--subtle)] group-hover:text-[var(--muted)]'
+        })}
         <span className="truncate font-medium">{label}</span>
       </span>
-      {badge && <span className="font-mono text-[11px] text-[var(--subtle)]">{badge}</span>}
     </Link>
   );
 };
@@ -68,7 +70,7 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      <header className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center border-b border-[var(--border-subtle)] bg-[var(--surface)] px-3 sm:h-16 sm:px-4 md:hidden">
+      <header className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--surface)_90%,transparent)] px-3 backdrop-blur-xl sm:h-16 sm:px-4 md:hidden">
         <button
           onClick={() => setMobileMenuOpen(true)}
           className="rounded-lg p-1.5 text-[var(--fg)] transition-colors hover:bg-[var(--surface-muted)] sm:p-2"
@@ -77,17 +79,18 @@ const Layout = ({ children }) => {
           <Menu size={22} className="sm:h-6 sm:w-6" />
         </button>
         <BrandIcon className="ml-2.5 h-8 w-8 sm:ml-3 sm:h-9 sm:w-9" />
-        <h1 className="ml-2.5 text-lg font-semibold text-[var(--fg)] sm:ml-3 sm:text-xl">
+        <h1 className="ml-2.5 text-base font-semibold text-[var(--fg)] sm:ml-3 sm:text-lg">
           bili-qq-bot
         </h1>
       </header>
 
-      <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 border-r border-[var(--border-subtle)] bg-[var(--surface)] md:flex md:flex-col">
-        <div className="p-5">
+      <aside className="fixed left-0 top-0 z-50 hidden h-full w-56 border-r border-[var(--border)] bg-[var(--surface-muted)] md:flex md:flex-col">
+        <div className="px-5 pb-6 pt-5">
           <div className="flex items-center gap-3">
-            <BrandIcon className="h-9 w-9" />
+            <BrandIcon className="h-8 w-8" />
             <div>
-              <h1 className="text-base font-semibold text-[var(--fg)]">bili-qq-bot</h1>
+              <h1 className="text-sm font-semibold text-[var(--fg)]">bili-qq-bot</h1>
+              <p className="mt-0.5 text-[10px] text-[var(--muted)]">管理控制台</p>
             </div>
           </div>
         </div>
@@ -95,17 +98,16 @@ const Layout = ({ children }) => {
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="px-3 text-[11px] font-bold uppercase text-[var(--subtle)]">
+              <div className="px-3 text-[10px] font-semibold text-[var(--subtle)]">
                 {group.label}
               </div>
-              <div className="mt-2 grid gap-1">
+              <div className="mt-1 grid">
                 {group.items.map((item) => (
                   <SidebarItem
                     key={item.href}
                     icon={item.icon}
                     label={item.label}
                     href={item.href}
-                    badge={item.badge}
                     active={path === item.href}
                   />
                 ))}
@@ -114,10 +116,10 @@ const Layout = ({ children }) => {
           ))}
         </nav>
 
-        <div className="border-t border-[var(--border-subtle)] p-3">
+        <div className="border-t border-[var(--border)] p-3">
           <Button
             variant="ghost"
-            className="w-full justify-start"
+            className="w-full justify-start text-xs"
             icon={ThemeIcon}
             onClick={cycleThemePreference}
           >
@@ -131,8 +133,8 @@ const Layout = ({ children }) => {
         onClose={() => setMobileMenuOpen(false)}
       />
 
-      <main className="p-3 pt-14 sm:p-4 sm:pt-16 md:ml-64 md:p-8 md:pt-8">
-        <div className="mx-auto max-w-7xl">
+      <main className="p-3 pt-14 sm:p-4 sm:pt-16 md:ml-56 md:px-9 md:py-8">
+        <div className="mx-auto max-w-[1280px]">
           {children}
         </div>
       </main>

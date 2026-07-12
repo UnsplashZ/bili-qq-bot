@@ -170,10 +170,11 @@ function Groups() {
   ]);
 
   return (
-    <div className="space-y-4 pb-5 md:space-y-6 md:pb-6">
+    <div className="admin-page space-y-4 md:space-y-6">
       <header>
         <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Configure</div>
         <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">群组管理</h1>
+        <p className="mt-1.5 text-xs text-[var(--muted)]">管理群组配置、订阅、权限与同步策略。</p>
       </header>
 
       <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 md:gap-6 lg:h-[calc(100vh-9rem)]">
@@ -188,10 +189,10 @@ function Groups() {
 
         <div className="w-full lg:w-2/3 flex flex-col">
           {selectedGroupId ? (
-            <GlassCard className="flex-1 flex flex-col p-0 overflow-hidden">
-              <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <GlassCard className="flex flex-1 flex-col overflow-hidden p-0">
+              <div className="flex flex-col gap-3 border-b border-[var(--border)] py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold text-white sm:text-xl">
+                  <h2 className="truncate text-base font-semibold text-[var(--fg)]">
                     {groups.find((group) => group.id === selectedGroupId)?.name || '群组设置'}
                   </h2>
                   <div className="mt-1 text-xs text-slate-500">ID: {selectedGroupId}</div>

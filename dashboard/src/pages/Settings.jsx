@@ -48,11 +48,12 @@ const Settings = () => {
   const recoveryRequired = settingsData.configStatus?.recoveryRequired?.required === true
 
   return (
-    <div className="space-y-5 pb-8 md:space-y-7 md:pb-12">
+    <div className="admin-page space-y-6 md:space-y-8">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Configure</div>
           <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">系统设置</h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">配置运行环境、连接方式和全局行为。</p>
         </div>
         <Button
           type="button"

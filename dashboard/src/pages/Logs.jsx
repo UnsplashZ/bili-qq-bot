@@ -201,11 +201,12 @@ const Logs = () => {
   });
 
   return (
-    <div className="logs-shell flex min-h-0 flex-col space-y-3 overflow-hidden pb-5 md:space-y-4 md:pb-6">
+    <div className="admin-page logs-shell flex min-h-0 flex-col space-y-3 overflow-hidden pb-5 md:space-y-4 md:pb-6">
       <header className="flex shrink-0 justify-between items-start sm:items-center flex-wrap gap-3">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Diagnostics</div>
           <h1 className="mt-1 text-3xl font-semibold text-[var(--fg)]">系统日志</h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">实时查看、筛选和导出运行日志。</p>
         </div>
         <div className="flex w-full sm:w-auto justify-end gap-2">
           <button
@@ -225,7 +226,7 @@ const Logs = () => {
         </div>
       </header>
 
-      <GlassCard className="logs-filter shrink-0 bg-[var(--surface)] p-3 sm:p-4">
+      <GlassCard className="logs-filter shrink-0 py-4">
         <div className="grid gap-3 sm:grid-cols-[140px_minmax(0,1fr)] lg:grid-cols-[160px_minmax(0,1fr)_120px_auto]">
           <label className="block space-y-2">
             <span className="block text-xs uppercase tracking-[0.28em] text-gray-500">等级</span>
@@ -290,7 +291,7 @@ const Logs = () => {
                   key={channel}
                   type="button"
                   onClick={() => toggleChannel(channel)}
-                  className={`shrink-0 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? 'border-[color-mix(in_oklch,var(--accent)_34%,var(--border-subtle))] bg-[var(--accent-soft)] text-[var(--accent-muted)]' : 'border-[var(--border-subtle)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'}`}
+                  className={`shrink-0 border-b-2 px-2 py-1.5 text-[11px] font-semibold transition-colors ${active ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--fg)]'}`}
                 >
                   {channel}
                 </button>
@@ -300,7 +301,7 @@ const Logs = () => {
         </div>
       </GlassCard>
 
-      <GlassCard className="logs-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--surface)] p-0">
+      <GlassCard className="logs-panel flex min-h-0 flex-1 flex-col overflow-hidden border-x border-[var(--border)] bg-[var(--surface)] p-0">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] px-3 py-2 font-mono text-xs text-[var(--muted)] sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <Terminal size={12} />

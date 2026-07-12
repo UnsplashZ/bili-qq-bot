@@ -560,14 +560,15 @@ const AgentSettings = () => {
   const groups = Object.entries(agent.groups || {}).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="admin-page space-y-6">
+      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="font-mono text-xs font-semibold uppercase text-[var(--accent)]">Automation</div>
           <h1 className="mt-1 flex items-center gap-3 text-3xl font-semibold text-[var(--fg)]">
             <Bot className="text-[var(--accent)]" />
             Agent 管理
           </h1>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">配置决策、回复、预算、人格和群级覆盖。</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -587,7 +588,7 @@ const AgentSettings = () => {
             保存设置
           </Button>
         </div>
-      </div>
+      </header>
 
       <GlassCard>
         <div>

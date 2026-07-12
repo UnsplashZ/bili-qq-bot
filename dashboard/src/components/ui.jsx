@@ -8,7 +8,7 @@ export const Card = ({ as = 'section', children, className, padded = true }) => 
     {
       className: twMerge(
         clsx(
-          'rounded-lg border border-[var(--border-muted)] bg-[var(--surface)] text-[var(--fg)] shadow-[var(--shadow-soft)]',
+          'rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--fg)]',
           padded && 'p-4 sm:p-5',
           className
         )
@@ -144,7 +144,7 @@ export const StatusPill = ({ children, tone = 'neutral', className }) => (
 export const DataTable = ({ columns, rows, getRowKey, empty = '暂无数据', className }) => (
   <div className={twMerge(clsx('overflow-x-auto', className))}>
     <table className="min-w-full border-collapse text-left text-sm">
-      <thead className="border-b border-[var(--border-subtle)] bg-[var(--surface-quiet)] text-xs font-semibold uppercase text-[var(--muted)]">
+      <thead className="border-b border-[var(--border)] text-xs font-medium text-[var(--muted)]">
         <tr>
           {columns.map((column) => (
             <th key={column.key} className={twMerge(clsx('px-4 py-3', column.headerClassName))}>
@@ -164,7 +164,7 @@ export const DataTable = ({ columns, rows, getRowKey, empty = '暂无数据', cl
           rows.map((row, rowIndex) => (
             <tr
               key={getRowKey ? getRowKey(row, rowIndex) : rowIndex}
-              className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface-hover)]"
+              className="border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface-quiet)]"
             >
               {columns.map((column) => (
                 <td
