@@ -239,6 +239,27 @@ function configErrorResponse(config, error) {
     }
 }
 
+function configErrorLogFields(error, payload = {}) {
+    let cause = error?.cause || null
+    const seen = new Set()
+    while (cause?.cause && !seen.has(cause)) {
+        seen.add(cause)
+        cause = cause.cause
+    }
+
+    const detail = cause || error
+    return {
+        code: payload.code || error?.code || 'CONFIG_ERROR',
+        phase: error?.phase || '',
+        handlerId: error?.handlerId || '',
+        causeCode: detail?.code || '',
+        causeMessage: logger.getErrorMessage(detail),
+        httpStatus: Number.isInteger(detail?.httpStatus) ? detail.httpStatus : null,
+        qqCode: typeof detail?.qqCode === 'string' || typeof detail?.qqCode === 'number' ? detail.qqCode : null,
+        causePath: typeof detail?.path === 'string' ? detail.path : ''
+    }
+}
+
 function createConfigRouter(options = {}) {
     const config = options.config || defaultConfig
     const migrationStatusProvider = options.getMigrationStatus || getCurrentMigrationStatus
@@ -278,7 +299,7 @@ function createConfigRouter(options = {}) {
             const statusCode = error?.code === 'CONFIG_GENERATION_CONFLICT'
                 ? 409
                 : (String(error?.code || '').startsWith('CONFIG_') ? 400 : 500)
-            dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'config-update-failed', { code: payload.code })
+            dashLog(req, statusCode >= 500 ? 'error' : 'warn', 'config-update-failed', configErrorLogFields(error, payload))
             res.status(statusCode).json(payload)
         }
     })
@@ -334,4 +355,5 @@ module.exports.createConfigRouter = createConfigRouter
 module.exports.buildPatchOperations = buildPatchOperations
 module.exports.normalizePatchPath = normalizePatchPath
 module.exports.configErrorResponse = configErrorResponse
+module.exports.configErrorLogFields = configErrorLogFields
 module.exports.ALLOWED_GLOBAL_CONFIG_KEYS = ALLOWED_GLOBAL_CONFIG_KEYS

@@ -5,6 +5,7 @@ const express = require('express')
 const request = require('supertest')
 const { createConfigRouter } = require('../../../src/dashboard/routes/api/modules/config')
 const { emptyMutationResult } = require('../../../src/dashboard/routes/api/shared/config-mutation')
+const logger = require('../../../src/utils/logger')
 
 function createStub() {
     const calls = []
@@ -166,6 +167,50 @@ describe('dashboard config v1 API', () => {
         assert.strictEqual(conflict.body.generation, 7)
         assert.deepStrictEqual(conflict.body.conflictPaths, ['qq.provider'])
         assert.strictEqual(conflict.body.message, undefined)
+    })
+
+    it('logs redacted reload failure details without exposing them in the response', async () => {
+        const stub = createStub()
+        const cause = Object.assign(new Error('gateway denied clientSecret=fixture-secret'), {
+            code: 'QQ_OPENAPI_ERROR',
+            httpStatus: 403,
+            qqCode: 11241,
+            path: '/gateway/bot'
+        })
+        stub.config.patch = async () => {
+            throw Object.assign(new Error('Reload handler failed during prepareParallel'), {
+                code: 'CONFIG_RELOAD_ERROR',
+                phase: 'prepareParallel',
+                handlerId: 'qq-provider-runtime',
+                cause
+            })
+        }
+
+        const events = []
+        const unsubscribe = logger.onLog((event) => events.push(event))
+        try {
+            const response = await request(createApp(stub))
+                .post('/api/config')
+                .send({ expectedGeneration: 7, qqProvider: 'official' })
+
+            assert.strictEqual(response.status, 400)
+            assert.strictEqual(response.body.code, 'CONFIG_RELOAD_ERROR')
+            assert.strictEqual(response.body.phase, undefined)
+            assert.strictEqual(response.body.causeMessage, undefined)
+
+            const event = events.find((entry) => entry.action === 'config-update-failed')
+            assert.ok(event)
+            assert.strictEqual(event.fields.phase, 'prepareParallel')
+            assert.strictEqual(event.fields.handlerId, 'qq-provider-runtime')
+            assert.strictEqual(event.fields.causeCode, 'QQ_OPENAPI_ERROR')
+            assert.strictEqual(event.fields.httpStatus, 403)
+            assert.strictEqual(event.fields.qqCode, 11241)
+            assert.strictEqual(event.fields.causePath, '/gateway/bot')
+            assert.strictEqual(event.fields.causeMessage, 'gateway denied clientSecret=[REDACTED]')
+            assert.ok(!JSON.stringify(event).includes('fixture-secret'))
+        } finally {
+            unsubscribe()
+        }
     })
 
     it('uses the same typed migration projection for the migrations endpoint', async () => {
