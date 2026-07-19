@@ -47,6 +47,10 @@ function restore() {
 async function run() {
     const logs = []
     const off = logger.onLog((entry) => logs.push(entry))
+    const fakeWs = {
+        readyState: 1,
+        send() {}
+    }
 
     try {
         config.isGroupAdmin = () => true
@@ -56,7 +60,7 @@ async function run() {
             throw new Error('help boom')
         }
         await helpCommand.handle({
-            ws: {},
+            ws: fakeWs,
             groupId: '1000',
             userId: '42',
             rawMessage: '/帮助'
@@ -70,7 +74,7 @@ async function run() {
             throw new Error('download dispatch boom')
         }
         await downloadCommand.handle({
-            ws: {},
+            ws: fakeWs,
             groupId: '1000',
             userId: '42',
             rawMessage: '/下载 P1'
@@ -93,18 +97,18 @@ async function run() {
             throw new Error('sub boom')
         }
         await subscriptionCommand.handle({
-            ws: {},
+            ws: fakeWs,
             groupId: '1000',
             userId: '42',
             rawMessage: '/订阅用户 12345'
         })
         await new Promise(resolve => setImmediate(resolve))
 
-        helpCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
-        settingsCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
-        subscriptionCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
-        adminCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }], null)
-        downloadCommand.sendGroupMessage({}, null, [{ type: 'text', data: { text: 'x' } }])
+        helpCommand.sendGroupMessage(fakeWs, null, [{ type: 'text', data: { text: 'x' } }], null)
+        settingsCommand.sendGroupMessage(fakeWs, null, [{ type: 'text', data: { text: 'x' } }], null)
+        subscriptionCommand.sendGroupMessage(fakeWs, null, [{ type: 'text', data: { text: 'x' } }], null)
+        adminCommand.sendGroupMessage(fakeWs, null, [{ type: 'text', data: { text: 'x' } }], null)
+        downloadCommand.sendGroupMessage(fakeWs, null, [{ type: 'text', data: { text: 'x' } }])
 
         assert.ok(logs.some(entry => entry.level === 'error' && entry.channel === 'BOT' && entry.scope === 'cmd:help' && entry.action === 'help-card-generate-failed'))
         assert.ok(logs.some(entry => entry.level === 'error' && entry.channel === 'BOT' && entry.scope === 'cmd:download' && entry.action === 'download-dispatch-failed'))

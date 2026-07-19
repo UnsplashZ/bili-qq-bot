@@ -4,7 +4,7 @@
 **状态：** IMPLEMENTED — 定向验证完成
 **目标：** 用户仅替换或拉取新版 Docker 镜像并重新创建容器时，主程序自动完成 legacy 配置合并、配置 schema 升级和业务数据 migration，无需额外设置 `BILI_LEGACY_WRITER_FENCED=1`。
 
-> **后续合同变更（2026-07-12）：** 本计划中主程序自动 migration 的结论仍有效；第 6 节关于 `setup.sh` 部署事务、fencing、health gate 和回滚的描述已被后续决策取代。当前 `setup.sh` 仅是 v3.24.6 范围的 NapCat 交互式快捷部署脚本。
+> **当前合同（2026-07-19）：** 本计划中主程序自动 migration 的结论仍有效。`setup.sh` 现只负责首次配置初始化和已有安装的容器更新；更新路径保留现有文件，执行 Compose 校验、pull、up，并等待 `/api/ready`。历史 fencing、snapshot、rollback 等内容不代表当前实现。
 
 ## 1. 用户预期
 
@@ -90,16 +90,13 @@ docker compose up -d
 
 ### 6.1 setup.sh
 
-setup 继续提供更强的部署保护：
+setup 不是自动 migration 的必要入口，也不再承担部署事务、snapshot 或 rollback。它只提供：
 
-- 旧进程 fencing；
-- 配置和数据部署 snapshot；
-- Compose、volume、网络和端口协调；
-- probe/normal health gate；
-- 普通失败部署回滚；
-- ready 后根据主程序 archive proof 归档 legacy 文件。
+- NapCat 首次安装配置初始化；
+- 已有安装的 Compose 校验、镜像拉取和容器重建；
+- 更新完成前的 `/api/ready` 检查。
 
-setup 不再是自动 migration 的必要入口；它是推荐的、带部署事务保护的入口。
+旧配置与业务数据迁移完全由新容器内的主程序 bootstrap 完成。
 
 ### 6.2 手写 Compose 或只替换镜像
 

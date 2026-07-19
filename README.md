@@ -126,7 +126,7 @@
 
 ## 一键快速部署
 
-运行下方命令。脚本负责交互问答、生成 `config/config.yaml`、准备 Compose 并启动 NapCat 与 Bot；legacy 配置、schema 和业务数据 migration 由 Bot 主程序在任何运行时副作用启动前完成。
+运行下方命令。`setup.sh` 只有两个职责：首次安装时初始化 NapCat 与 `config/config.yaml`；再次对同一安装目录运行时，仅拉取并重建容器，保留现有 Compose、`.env`、配置和业务数据。
 *[点我跳转到视频教程](https://www.bilibili.com/video/BV1YsrEBVEs6/ "bilibili")*
 
 ```bash
@@ -137,7 +137,19 @@ wget -O setup.sh https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/he
 wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/setup.sh && chmod +x setup.sh && sudo ./setup.sh
 ```
 
-`setup.sh` 是面向 NapCat 的交互式快捷部署脚本，不区分 install、upgrade 或 apply 模式。它负责生成新版 `config/config.yaml`、准备 Compose 并启动容器；旧配置、schema 和业务数据迁移由 Bot 启动时的 `ApplicationMigrationBootstrap` 自动完成。
+`setup.sh` 不使用 `install`、`upgrade` 或 `apply` 参数，而是根据安装目录自动选择路径：
+
+- **首次安装**：目录中没有可识别的 Compose + 配置组合时，脚本询问镜像、端口、Bot QQ、管理员、NapCat Token 和可选 Agent LLM；输入校验通过后生成 `docker-compose.yml`、`.env`、NapCat 配置与唯一的 `config/config.yaml`。
+- **已有安装更新**：当目录中存在标准 Compose 文件（`compose.yaml`、`compose.yml`、`docker-compose.yaml` 或 `docker-compose.yml`）以及 `config.yaml` 或 legacy 配置时，脚本不会重新询问或改写文件，只执行 Compose 校验、镜像拉取、容器重建和 Bot 健康检查。
+
+已有安装更新成功必须满足 `/api/ready` 返回 ready，确保配置迁移、Dashboard、Provider 和运行时子系统已经就绪；否则脚本返回失败并提示查看日志。首次安装只要求容器存活，然后继续等待 NapCat 登录提示，避免用户尚未扫码时误判安装失败。旧配置、schema 和业务数据 migration 仍由 Bot 启动时的 `ApplicationMigrationBootstrap` 自动完成，setup 不解释或修改 migration 状态。
+
+```bash
+# 首次安装和后续更新使用同一条命令，并选择同一个安装目录
+sudo ./setup.sh
+```
+
+> 更新路径不会自动覆盖现有 Compose。如果新版本明确要求新增 volume、端口或环境变量，需要先人工同步 Compose，再运行 setup。项目只支持同一套 `config/`、`data/` 在同一时间由一个 Bot 容器写入。
 
 
 ## WebUI 管理面板

@@ -2,6 +2,10 @@
 
 set -Eeuo pipefail
 
+# Product contract:
+# - Fresh directory: collect NapCat settings, generate config/config.yaml, and start containers.
+# - Existing installation: preserve all deployment/config/data files and only pull/recreate containers.
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -9,6 +13,7 @@ NC='\033[0m'
 
 BOT_IMAGE_DEFAULT='unsplash/bili-qq-bot:latest'
 NAPCAT_IMAGE_DEFAULT='mlikiowa/napcat-docker:latest'
+COMPOSE_FILE=''
 
 info() {
     echo -e "${GREEN}$*${NC}"
@@ -44,6 +49,34 @@ prompt_required() {
     done
 }
 
+validate_qq_number() {
+    local label="$1"
+    local value="$2"
+    [[ "$value" =~ ^[0-9]+$ ]] || die "$label 必须为纯数字。"
+}
+
+validate_port() {
+    local label="$1"
+    local value="$2"
+    [[ "$value" =~ ^[0-9]+$ ]] || die "$label 必须为 1-65535 的整数。"
+    [ "$value" -ge 1 ] && [ "$value" -le 65535 ] || die "$label 必须为 1-65535 的整数。"
+}
+
+validate_image_reference() {
+    local value="$1"
+    [[ "$value" =~ ^[A-Za-z0-9._/:@-]+$ ]] || die "Bot 镜像名称包含不支持的字符。"
+}
+
+validate_ws_token() {
+    local value="$1"
+    [[ "$value" =~ ^[A-Za-z0-9._~-]+$ ]] || die "NapCat WebSocket Token 仅支持字母、数字及 . _ ~ -。"
+}
+
+validate_ws_url() {
+    local value="$1"
+    [[ "$value" =~ ^wss?://[^[:space:]]+$ ]] || die "NapCat WebSocket 地址必须以 ws:// 或 wss:// 开头，且不能包含空白字符。"
+}
+
 random_token() {
     if command -v openssl >/dev/null 2>&1; then
         openssl rand -hex 16
@@ -68,10 +101,14 @@ download_with_fallback() {
 }
 
 compose() {
+    local compose_args=()
+    if [ -n "$COMPOSE_FILE" ]; then
+        compose_args=(-f "$COMPOSE_FILE")
+    fi
     if docker compose version >/dev/null 2>&1; then
-        docker compose "$@"
+        docker compose "${compose_args[@]}" "$@"
     elif command -v docker-compose >/dev/null 2>&1; then
-        docker-compose "$@"
+        docker-compose "${compose_args[@]}" "$@"
     else
         die "未找到 Docker Compose。"
     fi
@@ -79,6 +116,7 @@ compose() {
 
 install_docker() {
     warn "未检测到 Docker。"
+    command -v curl >/dev/null 2>&1 || die "自动安装 Docker 需要 curl。请先安装 curl 后重试。"
     echo "1) 国内镜像源"
     echo "2) Docker 官方源"
     local choice
@@ -110,10 +148,83 @@ prepare_compose_file() {
         return 0
     fi
 
-    download_with_fallback "$compose_file" \
+    local temp_file
+    temp_file=$(mktemp "${compose_file}.tmp.XXXXXX")
+    if ! download_with_fallback "$temp_file" \
         "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml" \
-        "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml" || \
-        die "下载 docker-compose.yml 失败。"
+        "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"; then
+        rm -f "$temp_file"
+        die "下载 docker-compose.yml 失败，请确认已安装 curl 或 wget 并检查网络。"
+    fi
+    mv -f "$temp_file" "$compose_file"
+}
+
+find_compose_file() {
+    local install_dir="$1"
+    local name
+    for name in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+        if [ -f "$install_dir/$name" ]; then
+            printf '%s' "$install_dir/$name"
+            return 0
+        fi
+    done
+    return 1
+}
+
+has_existing_config() {
+    local install_dir="$1"
+    [ -f "$install_dir/config/config.yaml" ] ||
+    [ -f "$install_dir/config/config.json" ] ||
+    [ -f "$install_dir/config/.env" ]
+}
+
+wait_for_bot_state() {
+    local require_ready="$1"
+    local timeout_seconds="${2:-180}"
+    local poll_seconds="${BILI_SETUP_POLL_INTERVAL:-3}"
+    local started container_id state
+    started=$(date +%s)
+    container_id=$(compose ps -q bili-qq-bot 2>/dev/null || true)
+    [ -n "$container_id" ] || return 1
+
+    while [ $(( $(date +%s) - started )) -lt "$timeout_seconds" ]; do
+        state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)
+        case "$state" in
+            healthy|running)
+                if [ "$require_ready" != '1' ]; then
+                    return 0
+                fi
+                if docker exec "$container_id" node -e \
+                    "fetch('http://127.0.0.1:3000/api/ready').then(r => { if (!r.ok) process.exit(1); return r.json() }).then(body => { if (body.ready !== true) process.exit(1) }).catch(() => process.exit(1))" \
+                    >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+            unhealthy|exited|dead|removing) return 1 ;;
+        esac
+        sleep "$poll_seconds"
+    done
+    return 1
+}
+
+update_existing_containers() {
+    info "检测到已有安装，仅更新现有容器。"
+    info "校验现有 Compose 配置"
+    compose config -q
+
+    echo "拉取部署镜像..."
+    compose pull
+
+    info "重建并启动容器"
+    compose up -d
+    if ! wait_for_bot_state 1 "${BILI_SETUP_READY_TIMEOUT:-180}"; then
+        compose ps || true
+        die "Bot 未在规定时间内进入 ready 状态，请检查 docker logs bili-qq-bot。"
+    fi
+    compose ps
+
+    echo
+    info "容器更新完成。现有配置和数据均已保留。"
 }
 
 write_compose_env() {
@@ -242,9 +353,6 @@ main() {
     if [ "${BILI_SETUP_TEST_MODE:-0}" != '1' ] && [ "$EUID" -ne 0 ]; then
         die "请使用 root 用户或 sudo 运行此脚本。"
     fi
-    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || \
-        die "需要 curl 或 wget。"
-
     info "[2/8] 检测 Docker"
     command -v docker >/dev/null 2>&1 || install_docker
     docker info >/dev/null 2>&1 || die "Docker 服务不可用。"
@@ -258,6 +366,16 @@ main() {
     script_dir=$(cd "$(dirname "$0")" && pwd)
     cd "$install_dir"
 
+    local existing_compose=''
+    if has_existing_config "$install_dir"; then
+        existing_compose=$(find_compose_file "$install_dir" || true)
+    fi
+    if [ -n "$existing_compose" ]; then
+        COMPOSE_FILE="$existing_compose"
+        update_existing_containers
+        return 0
+    fi
+
     info "[4/8] 创建目录"
     mkdir -p config data fonts/custom napcat/config napcat/qq logs
 
@@ -266,6 +384,10 @@ main() {
     bot_image=$(prompt_default "Bot 镜像" "$BOT_IMAGE_DEFAULT")
     dashboard_port=$(prompt_default "WebUI 宿主机端口" "3000")
     config_file="$install_dir/config/config.yaml"
+    COMPOSE_FILE="$install_dir/docker-compose.yml"
+
+    validate_image_reference "$bot_image"
+    validate_port "WebUI 宿主机端口" "$dashboard_port"
 
     prepare_compose_file "$script_dir" "$install_dir/docker-compose.yml"
     write_compose_env "$install_dir/.env" "$bot_image" "$dashboard_port"
@@ -283,10 +405,14 @@ main() {
         local bot_qq ws_token ws_url admin_qq allowed_origins
         local agent_enabled='false' agent_base_url='' agent_model='' agent_api_key=''
         bot_qq=$(prompt_required "请输入 Bot QQ 号")
+        validate_qq_number "Bot QQ 号" "$bot_qq"
         read -r -p "请输入 NapCat WebSocket Token (留空自动生成): " ws_token
         ws_token="${ws_token:-$(random_token)}"
+        validate_ws_token "$ws_token"
         ws_url=$(prompt_default "NapCat WebSocket 地址" "ws://napcat:3001")
+        validate_ws_url "$ws_url"
         admin_qq=$(prompt_required "请输入管理员 QQ 号")
+        validate_qq_number "管理员 QQ 号" "$admin_qq"
         dashboard_password=$(prompt_default "WebUI 面板密码" "admin")
         read -r -p "允许访问 WebUI 的公网 Origin (可留空): " allowed_origins
 
@@ -315,6 +441,10 @@ main() {
 
     info "[7/8] 启动服务"
     compose up -d
+    if ! wait_for_bot_state 0 "${BILI_SETUP_LIVE_TIMEOUT:-180}"; then
+        compose ps || true
+        die "Bot 容器未在规定时间内进入健康状态，请检查 docker logs bili-qq-bot。"
+    fi
     compose ps
 
     info "[8/8] 等待 NapCat 登录"

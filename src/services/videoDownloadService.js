@@ -451,7 +451,17 @@ class VideoDownloadService {
 
         // ws.send() 只是将 JSON 指令推入 WebSocket 缓冲区，NapCat 收到后才异步读取文件上传。
         // 必须延迟删除，给 NapCat 足够时间读取本地文件，而不是立即删除。
-        this._scheduleCleanup(result.file_path, 1, taskContext.generation)
+        if (sent) {
+            this._scheduleCleanup(result.file_path, 1, taskContext.generation)
+        } else {
+            sendLog('warn', 'cleanup-deferred', {
+                groupId,
+                bvid,
+                pageIndex,
+                reason: 'video_send_failed',
+                filePath: result.file_path
+            }, taskScope)
+        }
 
         // 多P提示（仅首P触发时发送）
         if (sent && result.total_pages > 1 && pageIndex === 0) {
@@ -812,8 +822,17 @@ class VideoDownloadService {
             })))
         }
 
-        // 所有群都发完后再清理文件，延迟按群数量系数放大
-        this._scheduleCleanup(result.file_path, filteredGroups.length, taskContext.generation)
+        // 至少一个群确认发送成功后再清理文件，延迟按成功群数量系数放大
+        if (sentCount > 0) {
+            this._scheduleCleanup(result.file_path, sentCount, taskContext.generation)
+        } else {
+            sendLog('warn', 'cleanup-deferred', {
+                bvid,
+                pageIndex,
+                reason: 'all_video_sends_failed',
+                filePath: result.file_path
+            }, taskScope)
+        }
         return { ok: sentCount > 0, sentGroups, attemptedGroups: filteredGroups.map(String) }
     }
 

@@ -2,6 +2,7 @@
 'use strict'
 
 const assert = require('assert')
+const { EventEmitter } = require('events')
 
 const { createQqProvider, normalizeProviderName } = require('../../../../src/providers/qq/providerFactory')
 const qqRuntime = require('../../../../src/providers/qq/runtime')
@@ -74,6 +75,109 @@ describe('QQ provider selection and notification facade', () => {
                 message: [{ type: 'text', data: { text: 'hi' } }]
             }
         })
+    })
+
+    it('routes NapCat provider handles through their WebSocket', () => {
+        const sent = []
+        const provider = {
+            id: 'napcat',
+            ws: {
+                readyState: 1,
+                send(payload) {
+                    sent.push(JSON.parse(payload))
+                }
+            }
+        }
+
+        const groupResult = notificationService.sendGroupMessage(provider, 123, 'group', 'test', false)
+        const privateResult = notificationService.sendPrivateMessage(provider, 456, 'private', 'test', false)
+
+        assert.equal(groupResult.ok, true)
+        assert.equal(privateResult.ok, true)
+        assert.equal(sent[0].action, 'send_group_msg')
+        assert.equal(sent[1].action, 'send_private_msg')
+    })
+
+    it('propagates NapCat send failures when fallback is disabled', () => {
+        const provider = {
+            id: 'napcat',
+            ws: {
+                readyState: 1,
+                send() {
+                    throw new Error('socket write failed')
+                }
+            }
+        }
+
+        assert.throws(
+            () => notificationService.sendGroupMessage(provider, 123, 'group', 'test', false),
+            /socket write failed/
+        )
+        assert.throws(
+            () => notificationService.sendPrivateMessage(provider, 456, 'private', 'test', false),
+            /socket write failed/
+        )
+    })
+
+    it('reports NapCat fallback use instead of false success', () => {
+        let sends = 0
+        const provider = {
+            id: 'napcat',
+            ws: {
+                readyState: 1,
+                send() {
+                    sends += 1
+                    if (sends === 1) throw new Error('primary failed')
+                }
+            }
+        }
+
+        const result = notificationService.sendGroupMessage(provider, 123, 'group', 'test', true)
+
+        assert.equal(sends, 2)
+        assert.equal(result.ok, false)
+        assert.equal(result.fallbackUsed, true)
+    })
+
+    it('settles broadcast failures for both providers', async () => {
+        const napcatResults = await notificationService.notifyGroups({
+            id: 'napcat',
+            ws: {
+                readyState: 1,
+                send() {
+                    throw new Error('napcat failed')
+                }
+            }
+        }, [123], 'group', 'test')
+        const officialResults = await notificationService.notifyGroups({
+            id: 'official',
+            async sendGroupMessage() {
+                throw new Error('official failed')
+            }
+        }, ['group-openid'], 'group', 'test')
+
+        assert.equal(napcatResults[0].status, 'rejected')
+        assert.equal(officialResults[0].status, 'rejected')
+    })
+
+    it('routes OneBot actions through a NapCat provider handle', async () => {
+        const ws = new EventEmitter()
+        ws.readyState = 1
+        ws.send = (raw, callback) => {
+            const payload = JSON.parse(raw)
+            callback?.(null)
+            process.nextTick(() => ws.emit('message', JSON.stringify({
+                status: 'ok',
+                retcode: 0,
+                echo: payload.echo,
+                data: { user_id: 123 }
+            })))
+        }
+
+        const response = await notificationService.callAction({ id: 'napcat', ws }, 'get_login_info')
+
+        assert.equal(response.status, 'ok')
+        assert.equal(response.data.user_id, 123)
     })
 
     it('returns structured unsupported action failures under Official provider', async () => {

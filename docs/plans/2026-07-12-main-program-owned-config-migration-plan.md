@@ -2,10 +2,10 @@
 
 **日期：** 2026-07-12  
 **状态：** IMPLEMENTED — 定向验证与独立评审完成于 2026-07-12
-**目标：** 将配置 schema 升级、四类 legacy 配置迁移和业务数据 migration 的正常 owner 从 `setup.sh` 迁入主程序启动链；`setup.sh` 收缩为首次安装和部署事务协调器。  
+**目标：** 将配置 schema 升级、四类 legacy 配置迁移和业务数据 migration 的正常 owner 从 `setup.sh` 迁入主程序启动链；当前 `setup.sh` 已收缩为首次配置初始化和已有安装的容器更新助手。
 **基线提交：** `ba2121e`、`68ff17e`、`d4ae91c`、`202a1b5`、`f82f962`
 
-> **后续合同变更（2026-07-12）：** 主程序接管 migration 的实现仍有效；`setup.sh` 已进一步移除部署事务协调、upgrade/apply、health gate 和回滚，只保留 NapCat 交互式快捷部署。
+> **当前合同（2026-07-19）：** 主程序接管 migration 的实现仍有效。`setup.sh` 只保留首次配置初始化和已有安装的容器更新；不承担 migration、publication 或 rollback，但容器启动后会等待 Bot health，避免误报更新成功。本文后续复杂部署协调内容仅作为历史方案保留。
 
 ## 1. 背景与问题定义
 
@@ -375,15 +375,12 @@ Secret、legacy 路径、文件 hash 和内部错误不得公开。
 setup 继续：
 
 - 检查 Docker 与安装目录；
-- 交互收集 fresh-install input；
-- 冻结旧部署和 writable processes；
-- 创建部署 snapshot；
-- 渲染 Compose；
-- 启动 probe/normal runtime；
-- 读取 typed readiness；
-- 恢复旧镜像/Compose/目录 snapshot；
-- ready 后归档 legacy 输入；
-- 报告 retained vault 和人工处理事项。
+- 首次安装时交互收集并校验 NapCat 配置；
+- 生成 Compose、`.env`、NapCat JSON 和 canonical YAML；
+- 已有安装时保留现有文件并执行 Compose config、pull 和 up；
+- 更新完成前读取 `/api/ready`，失败时返回非零并提示查看日志。
+
+setup 不再执行 writer fencing、部署 snapshot、自动 rollback、archive proof 归档或 migration checkpoint。
 
 ### 7.3 归档协议
 

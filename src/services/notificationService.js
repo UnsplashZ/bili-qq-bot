@@ -39,6 +39,13 @@ function shouldUseOfficialTransport(handle = null) {
     return Boolean(getOfficialProvider(handle));
 }
 
+function getNapcatWebSocket(handle = null) {
+    if (String(handle?.id || '').toLowerCase() === 'napcat' && handle.ws) {
+        return handle.ws;
+    }
+    return handle;
+}
+
 /**
  * NotificationService - 统一的消息发送服务
  * 提供共享的消息发送逻辑，支持文本、图片等多种消息类型
@@ -79,6 +86,8 @@ class NotificationService {
                 timeoutMs
             }));
         }
+
+        ws = getNapcatWebSocket(ws);
 
         return trackRuntimePromise(new Promise((resolve, reject) => {
             if (!ws) {
@@ -527,6 +536,8 @@ class NotificationService {
             }));
         }
 
+        ws = getNapcatWebSocket(ws);
+
         if (!ws) {
             sendLog('warn', 'group-send-skipped', {
                 source: normalizeSource(logPrefix),
@@ -562,6 +573,7 @@ class NotificationService {
                 source: normalizeSource(logPrefix),
                 groupId
             });
+            return { ok: true, status: 'ok', provider: 'napcat' };
         } catch (e) {
             sendLog('error', 'group-send-failed', {
                 source: normalizeSource(logPrefix),
@@ -587,8 +599,11 @@ class NotificationService {
                         groupId,
                         error: logger.getErrorMessage(fallbackError)
                     });
+                    throw fallbackError;
                 }
+                return { ok: false, status: 'failed', fallbackUsed: true, fallbackReason: 'send_failed' };
             }
+            throw e;
         }
     }
 
@@ -648,6 +663,8 @@ class NotificationService {
             }));
         }
 
+        ws = getNapcatWebSocket(ws);
+
         if (!ws) {
             sendLog('warn', 'private-send-skipped', {
                 source: normalizeSource(logPrefix),
@@ -683,13 +700,14 @@ class NotificationService {
                 source: normalizeSource(logPrefix),
                 userId
             });
+            return { ok: true, status: 'ok', provider: 'napcat' };
         } catch (e) {
             sendLog('error', 'private-send-failed', {
                 source: normalizeSource(logPrefix),
                 userId,
                 error: logger.getErrorMessage(e)
             });
-            
+
             if (enableFallback) {
                 try {
                     const fallbackPayload = {
@@ -706,8 +724,11 @@ class NotificationService {
                         userId,
                         error: logger.getErrorMessage(fallbackError)
                     });
+                    throw fallbackError;
                 }
+                return { ok: false, status: 'failed', fallbackUsed: true, fallbackReason: 'send_failed' };
             }
+            throw e;
         }
     }
 
@@ -727,12 +748,11 @@ class NotificationService {
                     provider: 'official',
                     reason: 'no_groups'
                 });
-                return;
+                return Promise.resolve([]);
             }
-            groupIds.forEach(gid => {
-                this.sendGroupMessage(officialProvider, gid, message, logPrefix, false);
-            });
-            return;
+            return Promise.allSettled(groupIds.map(gid => Promise.resolve().then(() => (
+                this.sendGroupMessage(officialProvider, gid, message, logPrefix, false)
+            ))));
         }
 
         if (!ws) {
@@ -740,7 +760,7 @@ class NotificationService {
                 source: normalizeSource(logPrefix),
                 reason: 'ws_missing'
             });
-            return;
+            return Promise.resolve([]);
         }
 
         if (!Array.isArray(groupIds) || groupIds.length === 0) {
@@ -748,13 +768,13 @@ class NotificationService {
                 source: normalizeSource(logPrefix),
                 reason: 'no_groups'
             });
-            return;
+            return Promise.resolve([]);
         }
 
-        groupIds.forEach(gid => {
+        return Promise.allSettled(groupIds.map(gid => Promise.resolve().then(() => {
             // 调用单个消息发送方法，禁用fallback以避免在批量通知时发送过多错误消息
-            this.sendGroupMessage(ws, gid, message, logPrefix, false);
-        });
+            return this.sendGroupMessage(ws, gid, message, logPrefix, false);
+        })));
     }
 }
 
