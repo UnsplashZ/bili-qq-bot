@@ -8,7 +8,7 @@ Bili QQ Bot is a Node.js + Python hybrid application that connects QQ groups to 
 
 The legacy AI/MCP stack has been removed and replaced by a purpose-built Agent architecture under `/src/agent/` (with explicit command-vs-agent routing, its own runtime/memory/profile/social/specialist modules, and Dashboard surfaces under `AgentDecisions`/`AgentMemory`/`AgentSettings`). Do not reintroduce AI chat, vector memory, user profile, or MCP tool wiring through the old removed files or config keys — all such functionality now lives in and must be extended through the new Agent architecture (`/src/agent/`, `/src/services/agent*Service.js`, `/src/commands/agentMemory.js`, `data/agent/`, `data/contexts/`, `data/profiles/`, `data/vectors/`).
 
-**Tech Stack:** Node.js 22.12+, Python 3.8+, Express 5, WebSocket, Puppeteer, bilibili-api-python
+**Tech Stack:** Node.js 22.12+, Python 3.10+, Express 5, WebSocket, Puppeteer, bilibili-api-python 17.4.2
 
 ## Project Structure
 
@@ -646,7 +646,7 @@ The script intentionally has no install/upgrade/apply modes or rollback state ma
 Dockerfile includes:
 - System fonts: Noto CJK, Symbola, Color Emoji
 - Chromium for Puppeteer
-- Python 3 + bilibili-api-python
+- Python 3.10+ with bilibili-api-python 17.4.2
 - Node.js dependencies
 
 To rebuild:
@@ -810,7 +810,7 @@ Group admins who are not root cannot use private-chat entry.
 
 - Keep `package.json` dependencies limited to runtime imports used by the bot, dashboard backend, rendering, logging, and WebSocket layers.
 - Keep `dashboard/package.json` dependencies limited to React UI/runtime packages and Vite/ESLint/Tailwind build tooling.
-- `requirements.txt` currently pins both direct Python service dependencies and transitive packages needed by `aiohttp` / `bilibili-api-python`; do not remove transitive pins without rebuilding the Docker image and running Python endpoint checks.
+- `requirements.txt` currently pins bilibili-api-python 17.4.2 and the transitive packages needed by `aiohttp` / `bilibili-api-python`; Python 3.10+ is required. Do not remove transitive pins without rebuilding the Docker image and running Python endpoint checks.
 - Removed legacy AI/MCP packages and SDKs should not be added back unless the new Agent design explicitly requires them.
 
 ## Common Pitfalls

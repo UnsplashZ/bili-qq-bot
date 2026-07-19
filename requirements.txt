@@ -4,7 +4,7 @@ aiosignal==1.4.0
 APScheduler==3.11.2
 attrs==25.4.0
 beautifulsoup4==4.14.3
-bilibili-api-python==17.4.1
+bilibili-api-python==17.4.2
 brotli==1.2.0
 colorama==0.4.6
 frozenlist==1.8.0

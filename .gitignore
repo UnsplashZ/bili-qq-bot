@@ -40,6 +40,7 @@ application.log
 .superpowers/
 .playwright-mcp/
 .playwright-cli/
+.codegraph/
 
 # Editor/IDE
 .vscode/
