@@ -11,7 +11,6 @@ const { createDefaultV1Config } = require('../../../src/migrations/config/legacy
 const { stringifyConfigYaml } = require('../../../src/migrations/config/configDocument')
 const { uniqueRelocations } = require('../../../src/migrations/config/compose')
 const { matchesKnownSetupTemplate } = require('../../../src/cli/compose')
-const { processStartIdentity } = require('../../../src/config/configLock')
 
 const FIXTURES = path.join(__dirname, '../../fixtures/config-migration')
 
@@ -468,8 +467,7 @@ describe('config CLI', function () {
             const existing = await run([
                 'migrate-legacy',
                 '--config-dir', configDir,
-                '--data-dir', dataDir,
-                '--owner-lock', path.join(root, 'runtime', 'config-owner.lock')
+                '--data-dir', dataDir
             ], { validator })
             assert.strictEqual(existing.result, 'skipped-existing-yaml')
             assert.strictEqual(existing.config.provider, 'official')
@@ -507,8 +505,8 @@ describe('config CLI', function () {
         }
     })
 
-    it('checks authoritative same-path YAML only while holding the offline owner boundary', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-cli-live-owner-'))
+    it('ignores legacy owner-lock artifacts when validating authoritative YAML', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-cli-legacy-owner-artifact-'))
         const configDir = path.join(root, 'config')
         const ownerLock = path.join(root, 'data', 'runtime', 'config-owner.lock')
         fs.cpSync(path.join(FIXTURES, 'existing-yaml'), configDir, { recursive: true })
@@ -517,17 +515,13 @@ describe('config CLI', function () {
         fs.writeFileSync(path.join(ownerLock, 'owner.json'), `${JSON.stringify({
             pid: process.pid,
             nonce: 'a'.repeat(32),
-            processStartIdentity: processStartIdentity(process.pid),
+            processStartIdentity: 'legacy-release-process',
             acquiredAt: new Date().toISOString()
         })}\n`, { mode: 0o600 })
         try {
-            await assert.rejects(
-                run([
-                    'migrate-legacy', '--config-dir', configDir,
-                    '--owner-lock', ownerLock
-                ], { validator }),
-                (error) => error.code === 'CONFIG_BOOTSTRAP_OWNER_CONFLICT'
-            )
+            const result = await run(['migrate-legacy', '--config-dir', configDir], { validator })
+            assert.strictEqual(result.result, 'skipped-existing-yaml')
+            assert.strictEqual(fs.existsSync(path.join(ownerLock, 'owner.json')), true)
         } finally {
             fs.rmSync(root, { recursive: true, force: true })
         }

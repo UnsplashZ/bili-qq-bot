@@ -97,7 +97,7 @@ async function run() {
         assert.strictEqual(exitCode, 1)
         assert.ok(
             shutdownEvents.indexOf('config-stop') > shutdownEvents.indexOf('python-cleanup'),
-            'the config owner lock must remain held until runtime side effects are cleaned up'
+            'ConfigService must stop after runtime side effects are cleaned up'
         )
 
         bot.__testHooks.resetRuntimeState()

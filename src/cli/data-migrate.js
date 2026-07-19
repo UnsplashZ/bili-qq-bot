@@ -12,7 +12,6 @@ const {
     toPublicMigrationStatus
 } = require('../migrations/config/manifest')
 const { MigrationError } = require('../migrations/common/errors')
-const { withOfflineRuntimeOwner } = require('../config/configLock')
 const { ApplicationMigrationBootstrap } = require('../bootstrap/applicationMigrationBootstrap')
 const {
     parseArgs,
@@ -56,13 +55,6 @@ function createRegistry(args, dependencies = {}) {
         migrationDir: args['migration-dir'] ? resolvePath(args['migration-dir']) : undefined,
         migrators: dependencies.migrators
     })
-}
-
-function runtimeOwnerPath(args) {
-    if (args['owner-lock']) return resolvePath(args['owner-lock'])
-    const root = args.root ? resolvePath(args.root) : null
-    const dataDir = root ? path.join(root, 'data') : resolvePath(requireOption(args, 'data-dir'))
-    return path.join(dataDir, 'runtime', 'config-owner.lock')
 }
 
 const FLAT_CHECKPOINT_KEYS = new Set([
@@ -199,7 +191,6 @@ async function commandApply(args, dependencies = {}) {
     const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
         configDir: root ? path.join(root, 'config') : path.join(path.dirname(dataDir), 'config'),
         dataDir,
-        runtimeOwnerPath: runtimeOwnerPath(args),
         dataRegistry: registry
     })
     const result = await service.runDataOnly()
@@ -220,11 +211,8 @@ async function commandRollback(args, dependencies = {}) {
     const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
         configDir: root ? path.join(root, 'config') : path.join(path.dirname(dataDir), 'config'),
         dataDir,
-        runtimeOwnerPath: runtimeOwnerPath(args),
         dataRegistry: registry
     })
-    await service.bootstrapLock.acquire()
-    service.held = true
     let result
     try {
         result = await registry.rollback()
@@ -306,6 +294,5 @@ module.exports = {
     commandStatus,
     summarizeInventory,
     normalizeCheckpointInput,
-    runtimeOwnerPath,
     HELP
 }

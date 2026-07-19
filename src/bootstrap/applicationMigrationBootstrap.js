@@ -3,7 +3,6 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { RuntimeOwnerLock, assertNoActiveRuntimeOwner } = require('../config/configLock')
 const { createDefaultV1Config, resolveLegacyConfig } = require('../migrations/config/legacyLoader')
 const { parseConfigYaml, stringifyConfigYaml } = require('../migrations/config/configDocument')
 const { ConfigSchemaMigrationRegistry } = require('../migrations/config/schemaRegistry')
@@ -42,15 +41,10 @@ class ApplicationMigrationBootstrap {
         this.manifestPath = path.join(this.stateDir, 'manifest.json')
         this.archiveProofPath = path.join(this.stateDir, 'archive-proof.tsv')
         this.schemaBackupPath = path.join(this.stateDir, 'config-schema-source.yaml')
-        this.bootstrapLock = options.bootstrapLock || new RuntimeOwnerLock({
-            lockPath: path.join(this.stateDir, 'bootstrap-owner.lock'),
-            identityProvider: options.identityProvider
-        })
-        this.runtimeOwnerPath = options.runtimeOwnerPath || path.join(this.dataDir, 'runtime', 'config-owner.lock')
         this.schemaRegistry = options.schemaRegistry || new ConfigSchemaMigrationRegistry(options.schemaOptions)
         this.dataRegistry = options.dataRegistry || new DataMigrationRegistry({ dataDir: this.dataDir, migrators: options.migrators, faultInjector: options.dataFaultInjector })
         this.faultInjector = options.faultInjector
-        this.held = false
+        this.handoffPending = false
     }
 
     readManifest() {
@@ -72,16 +66,9 @@ class ApplicationMigrationBootstrap {
     }
 
     async run(options = {}) {
-        if (!options.dryRun) {
-            await this.bootstrapLock.acquire()
-            this.held = true
-        }
+        this.handoffPending = !options.dryRun && Boolean(options.retainForHandoff)
         let schemaRestore = null
         try {
-            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, {
-                identityProvider: options.identityProvider,
-                reclaimStale: true
-            })
             const discovery = discoverConfigSource({ configDir: this.configDir, installInput: options.installInput, createIfMissing: options.createIfMissing })
             const previous = this.readManifest()
             const migrationId = previous?.migrationId || crypto.randomUUID()
@@ -217,7 +204,6 @@ class ApplicationMigrationBootstrap {
             }
             result.publicStatus = publicProjection(result)
             setApplicationBootstrapStatus(result.publicStatus)
-            if (!options.retainLockForHandoff) await this.release()
             return result
         } catch (error) {
             if (schemaRestore) {
@@ -239,14 +225,15 @@ class ApplicationMigrationBootstrap {
             await this.release().catch(() => {})
             throw normalized
         } finally {
-            if (options.dryRun) await this.release().catch(() => {})
+            if (options.dryRun) this.handoffPending = false
         }
     }
 
     async handoff(configService, options = {}) {
-        if (!this.held) throw new ApplicationBootstrapError('CONFIG_BOOTSTRAP_OWNER_CONFLICT')
+        if (!this.handoffPending) throw new ApplicationBootstrapError('CONFIG_BOOTSTRAP_HANDOFF_INVALID')
         try {
-            await configService.initialize({ ...options, createIfMissing: false, afterOwnerAcquired: () => this.release() })
+            await configService.initialize({ ...options, createIfMissing: false })
+            await this.release()
         } catch (error) {
             await this.release().catch(() => {})
             throw error
@@ -254,13 +241,7 @@ class ApplicationMigrationBootstrap {
     }
 
     async runDataOnly(options = {}) {
-        await this.bootstrapLock.acquire()
-        this.held = true
         try {
-            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, {
-                identityProvider: options.identityProvider,
-                reclaimStale: true
-            })
             const result = await this.dataRegistry.apply()
             return {
                 status: 'ready',
@@ -270,15 +251,11 @@ class ApplicationMigrationBootstrap {
             }
         } catch (error) {
             throw normalizeBootstrapError(error)
-        } finally {
-            await this.release().catch(() => {})
         }
     }
 
     async release() {
-        if (!this.held) return
-        this.held = false
-        await this.bootstrapLock.release()
+        this.handoffPending = false
     }
 }
 

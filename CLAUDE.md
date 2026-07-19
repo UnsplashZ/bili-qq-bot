@@ -167,10 +167,10 @@ Follow existing code style:
 
 ### Bot Runtime Lifecycle
 
-`/src/bot.js` is the runtime entry point and owns the application lifecycle around the selected QQ Provider. `ApplicationMigrationBootstrap` runs first, before ConfigService and every runtime side effect, then atomically hands ownership to ConfigService.
+`/src/bot.js` is the runtime entry point and owns the application lifecycle around the selected QQ Provider. `ApplicationMigrationBootstrap` runs first, before ConfigService and every runtime side effect, then initializes ConfigService after migration completes.
 
-- Discover/migrate config and business data under the bootstrap owner lock
-- Acquire the ConfigService owner before releasing the bootstrap owner, then start its watcher
+- Discover and migrate config and business data before runtime side effects
+- Initialize ConfigService and start its watcher after bootstrap succeeds
 - Establish and maintain the selected NapCat or QQ Official Provider
 - Publish a new Provider generation only after candidate readiness and release checks
 - Fence stale sockets and keep in-flight work on the Provider generation whose lease it acquired
@@ -293,7 +293,7 @@ await sysConfig.update((draft) => {
 - versioned schema and defaults: `/src/config/schemaV1.js`
 - validation and YAML document limits: `/src/config/validator.js`, `/src/config/yamlDocument.js`
 - atomic `0600` persistence and fsync: `/src/config/configWriter.js`
-- runtime owner lock and generation-checked transactions: `/src/config/configLock.js`, `/src/config/configService.js`
+- serialized process-local transactions and generation checks: `/src/config/configService.js`
 - diff/effect planning and rollback registry: `/src/config/configDiff.js`, `/src/config/reloadRegistry.js`
 - public Secret-safe projection: `/src/config/publicConfig.js`
 - legacy compatibility facade: `/src/config/index.js`, `/src/config/store.js`
@@ -304,6 +304,8 @@ await sysConfig.update((draft) => {
 Normal runtime never consumes legacy files after bootstrap. `ApplicationMigrationBootstrap` reads them only when `config.yaml` is absent; existing valid YAML always wins. The same service backs direct Node/Compose startup and offline CLI migration.
 
 Replacing the Docker image and recreating the single Bot container automatically runs legacy/schema/data migration. `BILI_LEGACY_WRITER_FENCED` is not required and is not persisted into YAML. The supported deployment model is one Bot container per mounted config/data directory; concurrently running old and new containers against the same directory is an unsupported operator error.
+
+The application intentionally does not create a filesystem configuration owner lock. Old `data/runtime/config-owner.lock` artifacts from previous releases are ignored. Atomic writes, document generations, compare-and-swap checks, migration journals, and rollback still protect the supported single-process transaction flow; they do not coordinate multiple containers sharing one config/data directory.
 
 Manual valid YAML edits are watched and either applied immediately or rebuild the affected subsystem. Invalid YAML leaves the active last-good snapshot unchanged. Host ports, volumes, and Docker networks remain Compose concerns and must be changed in the installation `.env` or `docker-compose.yml` before recreating containers.
 
@@ -618,7 +620,7 @@ Examples:
 
 ### Multi-Container Setup
 
-`setup.sh` is a lightweight interactive NapCat deployment helper. It generates `config/config.yaml` through the Config CLI, prepares the repository Compose template, pulls images, and starts `napcat` plus `bili-qq-bot`. It does not manage QQ Official deployments, upgrades, deployment transactions, or Compose ownership.
+`setup.sh` is a lightweight interactive NapCat deployment helper. It generates `config/config.yaml` through the Config CLI, prepares a release-matched embedded Compose template, pulls images, and starts `napcat` plus `bili-qq-bot`. It does not manage QQ Official deployments, upgrades, deployment transactions, or Compose ownership.
 
 ### Volume Mounts
 
@@ -640,6 +642,8 @@ sudo ./setup.sh
 ```
 
 The script intentionally has no install/upgrade/apply modes or rollback state machine. Existing application data is preserved by the mounted directories, and legacy/schema/data migration is owned by `ApplicationMigrationBootstrap` during application startup.
+
+Fresh installs and existing-install updates report success only after `/api/ready` returns `ready: true`. The Bot Compose service uses a 420-second stop grace period so the container runtime does not kill the process before the application's longest shutdown deadline completes.
 
 ### Building Custom Images
 

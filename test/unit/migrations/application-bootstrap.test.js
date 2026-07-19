@@ -6,7 +6,6 @@ const os = require('os')
 const path = require('path')
 const YAML = require('yaml')
 const { ApplicationMigrationBootstrap } = require('../../../src/bootstrap/applicationMigrationBootstrap')
-const { RuntimeOwnerLock } = require('../../../src/config/configLock')
 const { createDefaultV1Config } = require('../../../src/migrations/config/legacyLoader')
 const { stringifyConfigYaml } = require('../../../src/migrations/config/configDocument')
 
@@ -97,20 +96,7 @@ describe('ApplicationMigrationBootstrap', () => {
         }
     })
 
-    it('fails before writes when a runtime owner is active', async () => {
-        const paths = fixture(); roots.push(paths.root)
-        const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
-        const owner = new RuntimeOwnerLock({ lockPath })
-        await owner.acquire()
-        try {
-            await assert.rejects(bootstrap(paths).run({ createIfMissing: true }), (error) => error.code === 'CONFIG_BOOTSTRAP_OWNER_CONFLICT')
-            assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), false)
-        } finally {
-            await owner.release()
-        }
-    })
-
-    it('recovers a PID-reused stale runtime owner left by an interrupted container replacement', async () => {
+    it('ignores legacy owner-lock artifacts left by older releases', async () => {
         const paths = fixture(); roots.push(paths.root)
         const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
         fs.mkdirSync(lockPath, { recursive: true, mode: 0o700 })
@@ -121,34 +107,11 @@ describe('ApplicationMigrationBootstrap', () => {
             acquiredAt: '2026-07-12T06:48:27.179Z'
         })}\n`, { mode: 0o600 })
 
-        const result = await bootstrap(paths).run({
-            createIfMissing: true,
-            identityProvider: () => ({ status: 'alive', identity: 'linux:new-container:19:5678' })
-        })
+        const result = await bootstrap(paths).run({ createIfMissing: true })
 
         assert.strictEqual(result.status, 'ready')
-        assert.strictEqual(fs.existsSync(lockPath), false)
-        assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), true)
-    })
-
-    it('refuses stale recovery when runtime owner identity cannot be determined', async () => {
-        const paths = fixture(); roots.push(paths.root)
-        const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
-        fs.mkdirSync(lockPath, { recursive: true, mode: 0o700 })
-        fs.writeFileSync(path.join(lockPath, 'owner.json'), `${JSON.stringify({
-            pid: 19,
-            nonce: 'b'.repeat(32),
-            processStartIdentity: 'linux:unknown-container:19:1234',
-            acquiredAt: '2026-07-12T06:48:27.179Z'
-        })}\n`, { mode: 0o600 })
-
-        await assert.rejects(bootstrap(paths).run({
-            createIfMissing: true,
-            identityProvider: () => ({ status: 'unknown', identity: null })
-        }), (error) => error.code === 'CONFIG_BOOTSTRAP_OWNER_CONFLICT')
-
         assert.strictEqual(fs.existsSync(path.join(lockPath, 'owner.json')), true)
-        assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), false)
+        assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), true)
     })
 
     it('is idempotent and resumes after interruption following config durability', async () => {

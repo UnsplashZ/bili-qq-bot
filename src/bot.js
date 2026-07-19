@@ -1525,6 +1525,21 @@ function readBootstrapInstallInput(filePath) {
     return value;
 }
 
+function cleanupBootstrapInstallInput(filePath, options = {}) {
+    if (!filePath) return { removed: false, retained: false };
+    const fsModule = options.fsModule || fs;
+    try {
+        fsModule.unlinkSync(path.resolve(filePath));
+        return { removed: true, retained: false };
+    } catch (error) {
+        if (error?.code === 'ENOENT') return { removed: false, retained: false };
+        botLog('warn', 'bootstrap-input-retained', {
+            code: error?.code || 'BOOTSTRAP_INPUT_CLEANUP_FAILED'
+        });
+        return { removed: false, retained: true, code: error?.code || 'BOOTSTRAP_INPUT_CLEANUP_FAILED' };
+    }
+}
+
 async function startBot(options = {}) {
     registerProcessHandlers();
     const upgradeMode = String(process.env.BILI_UPGRADE_MODE || '').trim().toLowerCase();
@@ -1542,10 +1557,10 @@ async function startBot(options = {}) {
         allowLegacyMigration: true,
         deploymentAttemptId: process.env.BILI_DEPLOYMENT_ATTEMPT_ID || null,
         releaseEpoch: process.env.BILI_RELEASE_EPOCH || null,
-        retainLockForHandoff: true
+        retainForHandoff: true
     });
     await bootstrap.handoff(config, { watch: true });
-    if (installInputPath) fs.unlinkSync(path.resolve(installInputPath));
+    cleanupBootstrapInstallInput(installInputPath);
     try {
         await startConfigControlServer();
     } catch (error) {
@@ -1584,6 +1599,7 @@ module.exports = {
     __testHooks: {
         clearReconnectTimer,
         clearGroupRefreshTimer,
+        cleanupBootstrapInstallInput,
         createSnapshotFacade,
         createProviderDescriptor,
         attachNapcatPrecommitBuffer,

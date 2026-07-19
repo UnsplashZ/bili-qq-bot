@@ -100,6 +100,85 @@ download_with_fallback() {
     return 1
 }
 
+write_compose_template() {
+    local output_file="$1"
+    cat > "$output_file" <<'EOF'
+services:
+  napcat:
+    image: ${BILI_NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
+    container_name: napcat
+    restart: always
+    init: true
+    stop_grace_period: 30s
+    ports:
+      - "${BILI_NAPCAT_WEBUI_HOST_PORT:-6099}:6099"
+      - "${BILI_NAPCAT_WS_HOST_PORT:-3001}:3001"
+    environment:
+      TZ: Asia/Shanghai
+      WS_ENABLE: "true"
+      HTTP_ENABLE: "true"
+    volumes:
+      - type: bind
+        source: ./napcat/config
+        target: /app/napcat/config
+      - type: bind
+        source: ./napcat/qq
+        target: /app/.config/QQ
+    networks:
+      - bot_network
+
+  bili-qq-bot:
+    image: ${BILI_BOT_IMAGE:-unsplash/bili-qq-bot:latest}
+    pull_policy: if_not_present
+    container_name: bili-qq-bot
+    restart: always
+    init: true
+    stop_grace_period: 420s
+    depends_on:
+      napcat:
+        condition: service_started
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - type: bind
+        source: ./config
+        target: /app/config
+      - type: bind
+        source: ./data
+        target: /app/data
+      - type: bind
+        source: ./logs
+        target: /app/logs
+      - type: bind
+        source: ./fonts/custom
+        target: /app/fonts/custom
+      - type: bind
+        source: ./napcat/qq
+        target: /app/.config/QQ
+    ports:
+      - "${BILI_DASHBOARD_HOST_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/api/live')
+          .then(r=>{if(!r.ok)process.exit(1)})
+          .catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - bot_network
+
+networks:
+  bot_network:
+    driver: bridge
+EOF
+}
+
 compose() {
     local compose_args=()
     if [ -n "$COMPOSE_FILE" ]; then
@@ -150,12 +229,7 @@ prepare_compose_file() {
 
     local temp_file
     temp_file=$(mktemp "${compose_file}.tmp.XXXXXX")
-    if ! download_with_fallback "$temp_file" \
-        "https://gh-proxy.org/https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml" \
-        "https://raw.githubusercontent.com/UnsplashZ/bili-qq-bot/refs/heads/main/docker-compose.yml"; then
-        rm -f "$temp_file"
-        die "下载 docker-compose.yml 失败，请确认已安装 curl 或 wget 并检查网络。"
-    fi
+    write_compose_template "$temp_file"
     mv -f "$temp_file" "$compose_file"
 }
 
@@ -450,6 +524,12 @@ main() {
     info "[8/8] 等待 NapCat 登录"
     if ! wait_for_napcat_login 180; then
         warn "暂未检测到登录成功，请执行 docker logs -f napcat 查看二维码。"
+    fi
+
+    info "等待 Bot 完成最终 readiness 检查"
+    if ! wait_for_bot_state 1 "${BILI_SETUP_READY_TIMEOUT:-180}"; then
+        compose ps || true
+        die "NapCat 或 Bot 未在规定时间内进入 ready 状态，请完成登录并检查 docker logs bili-qq-bot。"
     fi
 
     echo

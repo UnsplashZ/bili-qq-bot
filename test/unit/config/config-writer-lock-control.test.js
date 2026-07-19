@@ -4,21 +4,15 @@ const assert = require('assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { spawnSync } = require('child_process')
 const crypto = require('crypto')
 const { atomicWriteFile } = require('../../../src/config/configWriter')
-const {
-    RuntimeOwnerLock,
-    assertNoActiveRuntimeOwner,
-    withOfflineRuntimeOwner
-} = require('../../../src/config/configLock')
 const { ConfigControlServer, requestConfigControl, secureControlSocket, removeStaleControlSocket, defaultConfigControlSocketPath } = require('../../../src/config/configControl')
 const { normalizePatchPath } = require('../../../src/config/schemaV1')
 const { run } = require('../../../src/cli/config')
 const { createDefaultConfig } = require('../../../src/config/schemaV1')
 const { writeDeploymentBaseline, readDeploymentBaseline } = require('../../../src/config/deploymentBaseline')
 
-describe('config writer, owner lease and control socket', () => {
+describe('config writer and control socket', () => {
     it('preserves an external revision installed after claim validation but before no-replace publication', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-writer-final-cas-'))
         const configDir = path.join(root, 'config')
@@ -197,51 +191,6 @@ describe('config writer, owner lease and control socket', () => {
         }
     })
 
-    it('recovers a PID-reused stale owner and fences a lost lease', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-owner-stale-'))
-        const lockPath = path.join(root, 'runtime/config-owner.lock')
-        const first = new RuntimeOwnerLock({ lockPath, identityProvider: () => 'identity-old', heartbeatMs: 60000 })
-        let second
-        try {
-            await first.acquire()
-            clearInterval(first.heartbeat)
-            first.heartbeat = null
-            second = new RuntimeOwnerLock({ lockPath, identityProvider: () => 'identity-new', heartbeatMs: 60000 })
-            await second.acquire()
-            assert.throws(() => assertNoActiveRuntimeOwner(lockPath, { identityProvider: () => 'identity-new' }), {
-                code: 'CONFIG_GENERATION_CONFLICT'
-            })
-            const ownerPath = path.join(lockPath, 'owner.json')
-            const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'))
-            fs.writeFileSync(ownerPath, `${JSON.stringify({ ...owner, nonce: '0'.repeat(32) })}\n`, { mode: 0o600 })
-            await assert.rejects(second.assertOwned(), (error) => error.code === 'CONFIG_GENERATION_CONFLICT')
-        } finally {
-            if (second) await second.release().catch(() => {})
-            fs.rmSync(root, { recursive: true, force: true })
-        }
-    })
-
-    it('fails closed when stale-owner process identity is unknown', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-owner-unknown-'))
-        const lockPath = path.join(root, 'runtime/config-owner.lock')
-        const first = new RuntimeOwnerLock({ lockPath, identityProvider: () => 'known-owner', heartbeatMs: 60000 })
-        try {
-            await first.acquire()
-            clearInterval(first.heartbeat)
-            first.heartbeat = null
-            const contender = new RuntimeOwnerLock({
-                lockPath,
-                identityProvider: () => ({ status: 'unknown', identity: null }),
-                heartbeatMs: 60000
-            })
-            await assert.rejects(contender.acquire(), (error) => error.code === 'CONFIG_GENERATION_CONFLICT')
-            assert.strictEqual(fs.existsSync(path.join(lockPath, 'owner.json')), true)
-        } finally {
-            await first.release().catch(() => {})
-            fs.rmSync(root, { recursive: true, force: true })
-        }
-    })
-
     it('serves public online get/set and never falls back when the socket is unavailable', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-control-'))
         const socketPath = path.join(root, 'runtime/config-control.sock')
@@ -332,44 +281,6 @@ describe('config writer, owner lease and control socket', () => {
             defaultConfigControlSocketPath({ containerized: true }),
             path.resolve('/tmp/bili-qq-bot/config-control.sock')
         )
-    })
-
-    it('holds an explicit offline owner lease across the write and leaves no owner behind', () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-offline-owner-'))
-        const ownerPath = path.join(root, 'current/data/runtime/config-owner.lock')
-        const configPath = path.join(root, 'staging/config/config.yaml')
-        try {
-            withOfflineRuntimeOwner(ownerPath, () => {
-                const probe = spawnSync(process.execPath, ['-e', `
-const { RuntimeOwnerLock } = require(${JSON.stringify(path.resolve(__dirname, '../../../src/config/configLock.js'))})
-new RuntimeOwnerLock({ lockPath: ${JSON.stringify(ownerPath)}, heartbeatMs: 1000 }).acquire()
-  .then(() => process.exit(9), error => process.exit(error.code === 'CONFIG_GENERATION_CONFLICT' ? 0 : 8))
-`], { encoding: 'utf8' })
-                assert.strictEqual(probe.status, 0, probe.stderr)
-            })
-            assert.strictEqual(fs.existsSync(ownerPath), false)
-            const result = run(['init', '--output', configPath, '--owner-lock', ownerPath, '--provider', 'napcat'])
-            assert.strictEqual(result.ok, true)
-            assert.strictEqual(fs.existsSync(ownerPath), false)
-            assert.strictEqual(fs.statSync(configPath).mode & 0o777, 0o600)
-        } finally {
-            fs.rmSync(root, { recursive: true, force: true })
-        }
-    })
-
-    it('holds the offline owner until an asynchronous transaction settles', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-config-offline-async-'))
-        const lockPath = path.join(root, 'data/runtime/config-owner.lock')
-        let release
-        try {
-            const pending = withOfflineRuntimeOwner(lockPath, () => new Promise((resolve) => { release = resolve }))
-            assert.strictEqual(fs.existsSync(path.join(lockPath, 'owner.json')), true)
-            release('done')
-            assert.strictEqual(await pending, 'done')
-            assert.strictEqual(fs.existsSync(lockPath), false)
-        } finally {
-            fs.rmSync(root, { recursive: true, force: true })
-        }
     })
 
     it('accepts only segment arrays or strict RFC 6901 patch pointers', () => {

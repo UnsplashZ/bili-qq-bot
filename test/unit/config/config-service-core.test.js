@@ -49,17 +49,17 @@ async function createFixture(options = {}) {
     }
 }
 
-function createTransientOwnerFault(service) {
-    const assertOwned = service.ownerLock.assertOwned.bind(service.ownerLock)
+function createTransientTransactionFault(service) {
+    const assertCurrent = service.transactionBoundary.assertCurrent.bind(service.transactionBoundary)
     let failures = 0
-    service.ownerLock.assertOwned = async (...args) => {
+    service.transactionBoundary.assertCurrent = async (...args) => {
         if (failures > 0) {
             failures -= 1
-            const error = new Error('injected runtime owner lease loss')
+            const error = new Error('injected transaction token change')
             error.code = 'CONFIG_GENERATION_CONFLICT'
             throw error
         }
-        return assertOwned(...args)
+        return assertCurrent(...args)
     }
     return {
         failNext() {
@@ -376,18 +376,17 @@ describe('ConfigService core', () => {
         }
     })
 
-    it('uses an exclusive runtime owner lock without deleting another owner', async () => {
+    it('loads without creating a cross-process configuration owner lock', async () => {
         const fixture = await createFixture()
         const second = new ConfigService({
             configDir: fixture.configDir,
             stateDir: fixture.stateDir
         })
         try {
-            await assert.rejects(
-                second.load({ startup: true }),
-                (error) => error.code === 'CONFIG_GENERATION_CONFLICT'
-            )
+            await second.load({ startup: true })
             assert.strictEqual(fixture.service.getStatus().valid, true)
+            assert.strictEqual(second.getStatus().valid, true)
+            assert.strictEqual(fs.existsSync(path.join(fixture.root, 'data/runtime/config-owner.lock')), false)
         } finally {
             await second.stop().catch(() => {})
             await fixture.cleanup()
@@ -554,20 +553,20 @@ describe('ConfigService core', () => {
         }
     })
 
-    it('rolls back the candidate snapshot and runtime when ownership is lost inside commitAdmission', async () => {
+    it('rolls back the candidate snapshot and runtime when the transaction boundary changes inside commitAdmission', async () => {
         const gate = new ApplicationAdmissionGate()
         const reloadRegistry = new ReloadRegistry({ admissionGate: gate })
         const fixture = await createFixture({ reloadRegistry })
-        const ownerFault = createTransientOwnerFault(fixture.service)
+        const transactionFault = createTransientTransactionFault(fixture.service)
         let candidateRuntimeActive = false
         try {
             fixture.service.registerReloadHandler({
-                id: 'owner-loss-during-admission-commit',
+                id: 'transaction-change-during-admission-commit',
                 effects: ['subscription'],
                 async commitAdmission(candidate, previous, context) {
                     candidateRuntimeActive = true
-                    ownerFault.failNext()
-                    await context.assertOwnerLease()
+                    transactionFault.failNext()
+                    await context.assertTransactionCurrent()
                 },
                 async rollbackAdmission() {
                     candidateRuntimeActive = false
@@ -588,20 +587,20 @@ describe('ConfigService core', () => {
         }
     })
 
-    it('keeps the final owner fence compensatable before admission opens', async () => {
+    it('keeps the final transaction fence compensatable before admission opens', async () => {
         const gate = new ApplicationAdmissionGate()
         const reloadRegistry = new ReloadRegistry({ admissionGate: gate })
         const fixture = await createFixture({ reloadRegistry })
-        const ownerFault = createTransientOwnerFault(fixture.service)
+        const transactionFault = createTransientTransactionFault(fixture.service)
         let candidateRuntimeActive = false
         let admissionRolledBack = false
         try {
             fixture.service.registerReloadHandler({
-                id: 'owner-loss-at-final-admission-fence',
+                id: 'transaction-change-at-final-admission-fence',
                 effects: ['subscription'],
                 async commitAdmission() {
                     candidateRuntimeActive = true
-                    ownerFault.failNext()
+                    transactionFault.failNext()
                 },
                 async rollbackAdmission() {
                     candidateRuntimeActive = false
@@ -612,7 +611,7 @@ describe('ConfigService core', () => {
             await assert.rejects(
                 fixture.service.patch([{ op: 'set', path: ['subscription', 'checkIntervalSeconds'], value: 97 }]),
                 (error) => error.code === 'CONFIG_RELOAD_ERROR' &&
-                    error.phase === 'finalAdmissionFence' && error.handlerId === 'config-owner'
+                    error.phase === 'finalAdmissionFence' && error.handlerId === 'config-transaction'
             )
             assert.strictEqual(admissionRolledBack, true)
             assert.strictEqual(candidateRuntimeActive, false)
@@ -625,23 +624,23 @@ describe('ConfigService core', () => {
         }
     })
 
-    it('performs no fallible owner check after the final synchronous fence opens admission', async () => {
+    it('performs no fallible transaction check after the final synchronous fence opens admission', async () => {
         const gate = new ApplicationAdmissionGate()
         const reloadRegistry = new ReloadRegistry({ admissionGate: gate })
         const fixture = await createFixture({ reloadRegistry })
-        const ownerFault = createTransientOwnerFault(fixture.service)
+        const transactionFault = createTransientTransactionFault(fixture.service)
         let finalizeCalls = 0
         let candidateRuntimeActive = false
         try {
             fixture.service.registerReloadHandler({
-                id: 'owner-loss-adjacent-to-admission-open',
+                id: 'transaction-change-adjacent-to-admission-open',
                 effects: ['subscription'],
                 async commitAdmission() {
                     candidateRuntimeActive = true
                 },
                 finalizeAdmission() {
                     finalizeCalls += 1
-                    if (finalizeCalls === 2) ownerFault.failNext()
+                    if (finalizeCalls === 2) transactionFault.failNext()
                 },
                 async rollbackAdmission() {
                     candidateRuntimeActive = false
@@ -651,7 +650,7 @@ describe('ConfigService core', () => {
                 { op: 'set', path: ['subscription', 'checkIntervalSeconds'], value: 98 }
             ])
             assert.strictEqual(finalizeCalls, 2)
-            assert.strictEqual(ownerFault.pending(), 1, 'no owner assertion may run after the final synchronous fence')
+            assert.strictEqual(transactionFault.pending(), 1, 'no transaction assertion may run after the final synchronous fence')
             assert.strictEqual(candidateRuntimeActive, true)
             assert.strictEqual(fixture.service.get('subscription.checkIntervalSeconds'), 98)
             assert.strictEqual(fixture.service.getStatus().documentGeneration, 2)

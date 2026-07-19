@@ -22,7 +22,6 @@ const {
 } = require('./yamlDocument')
 const { ConfigWriter, readAnchoredPrivateFile } = require('./configWriter')
 const { ReloadRegistry } = require('./reloadRegistry')
-const { RuntimeOwnerLock } = require('./configLock')
 const { diffConfig } = require('./configDiff')
 const { toPublicConfig, toPublicDiff, toPublicError } = require('./publicConfig')
 const {
@@ -83,6 +82,23 @@ function normalizeOrigin(value) {
     return /^[a-z0-9:_-]{1,64}$/.test(normalized) ? normalized : 'unknown'
 }
 
+class ProcessLocalTransactionBoundary {
+    constructor() {
+        this.token = Symbol('config-process-transaction')
+    }
+
+    async current() {
+        return this.token
+    }
+
+    async assertCurrent(expectedToken = null) {
+        if (expectedToken !== null && expectedToken !== this.token) {
+            throw new ConfigConflictError('Configuration transaction token changed')
+        }
+        return this.token
+    }
+}
+
 class ConfigService extends EventEmitter {
     constructor(options = {}) {
         super()
@@ -102,11 +118,7 @@ class ConfigService extends EventEmitter {
             fsPromises: this.fsPromises
         })
         this.reloadRegistry = options.reloadRegistry || new ReloadRegistry()
-        this.ownerLock = options.ownerLock || new RuntimeOwnerLock({
-            lockPath: options.lockPath || path.join(path.dirname(this.stateDir), 'runtime', 'config-owner.lock'),
-            fsPromises: this.fsPromises,
-            heartbeatMs: options.lockHeartbeatMs
-        })
+        this.transactionBoundary = options.transactionBoundary || new ProcessLocalTransactionBoundary()
 
         this.documentGeneration = 0
         this.effectiveGeneration = 0
@@ -135,10 +147,7 @@ class ConfigService extends EventEmitter {
 
     async initialize(options = {}) {
         try {
-            const leaseToken = await this.ownerLock.acquire()
-            if (typeof options.afterOwnerAcquired === 'function') {
-                await options.afterOwnerAcquired(leaseToken)
-            }
+            const transactionToken = await this.transactionBoundary.current()
             const createIfMissing = Boolean(options.createIfMissing)
             try {
                 await this.fsPromises.access(this.configPath, fs.constants.F_OK)
@@ -155,24 +164,23 @@ class ConfigService extends EventEmitter {
                 await this.writer.ensureDirectories()
                 await this.writer.writeConfig(source, {
                     validate: (candidate) => this._parseAndValidate(candidate),
-                    beforeRename: () => this.ownerLock.assertOwned(leaseToken)
+                    beforeRename: () => this.transactionBoundary.assertCurrent(transactionToken)
                 })
             }
             await this.load({ startup: true })
             return this
         } catch (error) {
-            await this.ownerLock.release().catch(() => {})
             throw error
         }
     }
 
     async load(options = {}) {
-        const leaseToken = await this.ownerLock.acquire()
-        return this._enqueueTransaction(async (transactionLeaseToken) => {
-            if (transactionLeaseToken !== leaseToken) throw new ConfigConflictError('Configuration owner lease changed before load')
+        const transactionToken = await this.transactionBoundary.current()
+        return this._enqueueTransaction(async (queuedTransactionToken) => {
+            if (queuedTransactionToken !== transactionToken) throw new ConfigConflictError('Configuration transaction token changed before load')
             const stable = await this._readStableSource()
             const candidate = this._parseAndValidate(stable.source)
-            await this._publishInitial(candidate, stable.source, stable.hash, transactionLeaseToken)
+            await this._publishInitial(candidate, stable.source, stable.hash, queuedTransactionToken)
             if (options.startWatcher) this.startWatcher()
             return this.getStatus()
         })
@@ -189,7 +197,6 @@ class ConfigService extends EventEmitter {
         this.stopped = true
         this.stopWatcher()
         await this.transactionChain.catch(() => {})
-        await this.ownerLock.release()
     }
 
     startWatcher() {
@@ -247,7 +254,7 @@ class ConfigService extends EventEmitter {
     }
 
     async reload(options = {}) {
-        return this._enqueueTransaction((leaseToken) => this._reloadFromDiskLocked(options, leaseToken))
+        return this._enqueueTransaction((transactionToken) => this._reloadFromDiskLocked(options, transactionToken))
     }
 
     async recover(options = {}) {
@@ -288,7 +295,7 @@ class ConfigService extends EventEmitter {
         })
     }
 
-    async _reloadFromDiskLocked(options = {}, leaseToken = null) {
+    async _reloadFromDiskLocked(options = {}, transactionToken = null) {
         this._assertLoaded()
         this._assertRecoverySafe()
         const stable = await this._readStableSource()
@@ -324,12 +331,12 @@ class ConfigService extends EventEmitter {
             origin: normalizeOrigin(options.source || 'reload'),
             persist: false,
             expectedDiskHash: stable.hash,
-            leaseToken
+            transactionToken
         })
     }
 
     async patch(patch, options = {}) {
-        return this._enqueueTransaction(async (leaseToken) => {
+        return this._enqueueTransaction(async (transactionToken) => {
             this._assertLoaded()
             this._assertRecoverySafe()
             await this._synchronizeDiskBeforeMutation(options.expectedGeneration)
@@ -376,7 +383,7 @@ class ConfigService extends EventEmitter {
                 persist: options.persist !== false,
                 expectedDiskHash: this.sourceHash,
                 operations,
-                leaseToken
+                transactionToken
             })
         })
     }
@@ -411,8 +418,8 @@ class ConfigService extends EventEmitter {
     }
 
     async _applyCandidate(options) {
-        const leaseToken = options.leaseToken || await this.ownerLock.assertOwned()
-        await this.ownerLock.assertOwned(leaseToken)
+        const transactionToken = options.transactionToken || await this.transactionBoundary.assertCurrent()
+        await this.transactionBoundary.assertCurrent(transactionToken)
         const previousSnapshot = this.activeSnapshot
         const previousDocument = this.activeDocument
         const previousSource = this.activeSource
@@ -438,8 +445,8 @@ class ConfigService extends EventEmitter {
             nextDocumentGeneration,
             nextEffectiveGeneration,
             desiredEffectHash,
-            ownerLeaseToken: leaseToken,
-            assertOwnerLease: () => this.ownerLock.assertOwned(leaseToken)
+            transactionToken,
+            assertTransactionCurrent: () => this.transactionBoundary.assertCurrent(transactionToken)
         }
         await this.writer.writeJournal({
             phase: 'preparing',
@@ -450,11 +457,11 @@ class ConfigService extends EventEmitter {
             nextDocumentGeneration,
             nextEffectiveGeneration
         })
-        await this.ownerLock.assertOwned(leaseToken)
+        await this.transactionBoundary.assertCurrent(transactionToken)
         let transaction
         try {
             transaction = await this.reloadRegistry.prepare(context)
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
         } catch (error) {
             if (Array.isArray(error.rollbackErrors) && error.rollbackErrors.length > 0) {
                 this._markRecoveryRequired('runtime-prepare-rollback-failed', error, {
@@ -481,17 +488,17 @@ class ConfigService extends EventEmitter {
                     expectedHash: options.expectedDiskHash,
                     validate: (source) => this._parseAndValidate(source),
                     beforeRename: async () => {
-                        await this.ownerLock.assertOwned(leaseToken)
+                        await this.transactionBoundary.assertCurrent(transactionToken)
                         const current = await this._readStableSource()
                         if (current.hash !== options.expectedDiskHash) {
                             throw new ConfigConflictError('Configuration changed before commit', {
                                 conflictPaths: diff.map((entry) => entry.path.join('.'))
                             })
                         }
-                        await this.ownerLock.assertOwned(leaseToken)
+                        await this.transactionBoundary.assertCurrent(transactionToken)
                     }
                 })
-                await this.ownerLock.assertOwned(leaseToken)
+                await this.transactionBoundary.assertCurrent(transactionToken)
                 wroteFile = true
                 await this.writer.writeJournal({
                     phase: 'file-committed',
@@ -512,14 +519,14 @@ class ConfigService extends EventEmitter {
             }
 
             await this._assertCommitDiskHash(options.sourceHash, diff, 'before-handle-commit')
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
             await transaction.commit()
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
             await this._assertCommitDiskHash(options.sourceHash, diff, 'after-handle-commit')
             await transaction.validateAdmission()
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
             await this._assertCommitDiskHash(options.sourceHash, diff, 'before-snapshot-publication')
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
             this._publish({
                 candidate: options.candidate,
                 source: options.source,
@@ -537,7 +544,7 @@ class ConfigService extends EventEmitter {
                     cause: error
                 })
             }
-            await this.ownerLock.assertOwned(leaseToken)
+            await this.transactionBoundary.assertCurrent(transactionToken)
             await transaction.enableIngress()
             if (wroteFile) this.pendingSelfWriteHash = options.sourceHash
             const persistenceWarnings = []
@@ -594,14 +601,14 @@ class ConfigService extends EventEmitter {
                             expectedHash: options.sourceHash,
                             validate: (source) => this._parseAndValidate(source),
                             beforeRename: async () => {
-                                await this.ownerLock.assertOwned(leaseToken)
+                                await this.transactionBoundary.assertCurrent(transactionToken)
                                 const latest = await this._readStableSource()
                                 if (latest.hash !== options.sourceHash) {
                                     throw new ConfigConflictError('Configuration changed during rollback', {
                                         conflictPaths: diff.map((entry) => entry.path.join('.'))
                                     })
                                 }
-                                await this.ownerLock.assertOwned(leaseToken)
+                                await this.transactionBoundary.assertCurrent(transactionToken)
                             }
                         })
                         this.pendingSelfWriteHash = previousSourceHash
@@ -697,8 +704,8 @@ class ConfigService extends EventEmitter {
         return { document: parsed.document, value }
     }
 
-    async _publishInitial(candidate, source, sourceHash, leaseToken) {
-        await this.ownerLock.assertOwned(leaseToken)
+    async _publishInitial(candidate, source, sourceHash, transactionToken) {
+        await this.transactionBoundary.assertCurrent(transactionToken)
         const effectiveHash = hashValue(candidate.value)
         this.activeDocument = candidate.document
         this.activeSource = source
@@ -710,7 +717,7 @@ class ConfigService extends EventEmitter {
         this.effectiveGeneration = 1
         this.reloadRegistry.observeDocument(this.documentGeneration)
         this.lastSuccessfulReloadAt = new Date().toISOString()
-        await this.ownerLock.assertOwned(leaseToken)
+        await this.transactionBoundary.assertCurrent(transactionToken)
         await this.writer.ensureDirectories()
         await this.writer.writeLastGood(source, {
             documentGeneration: 1,
@@ -784,8 +791,8 @@ class ConfigService extends EventEmitter {
             return Promise.reject(error)
         }
         const execute = async () => {
-            const leaseToken = await this.ownerLock.assertOwned()
-            return fn(leaseToken)
+            const transactionToken = await this.transactionBoundary.assertCurrent()
+            return fn(transactionToken)
         }
         const next = this.transactionChain.then(execute, execute)
         this.transactionChain = next.catch(() => {})

@@ -1,6 +1,9 @@
 'use strict'
 
 const assert = require('assert')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const bot = require('../../../src/bot')
 const ServiceManager = require('../../../src/services/ServiceManager')
 const dashboardServer = require('../../../src/dashboard/server')
@@ -9,6 +12,32 @@ const subscriptionService = require('../../../src/services/subscriptionService')
 const qqProviderRuntime = require('../../../src/providers/qq/runtime')
 
 describe('application bootstrap startup gate', () => {
+    it('removes a writable bootstrap install input after successful migration', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-bootstrap-input-cleanup-'))
+        const inputPath = path.join(root, 'install-input.json')
+        fs.writeFileSync(inputPath, '{}\n', { mode: 0o600 })
+        try {
+            assert.deepStrictEqual(bot.__testHooks.cleanupBootstrapInstallInput(inputPath), {
+                removed: true,
+                retained: false
+            })
+            assert.strictEqual(fs.existsSync(inputPath), false)
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
+    it('keeps startup successful when a read-only bootstrap input cannot be removed', () => {
+        const result = bot.__testHooks.cleanupBootstrapInstallInput('/install/bootstrap-input.json', {
+            fsModule: {
+                unlinkSync() {
+                    throw Object.assign(new Error('read-only mount'), { code: 'EROFS' })
+                }
+            }
+        })
+        assert.deepStrictEqual(result, { removed: false, retained: true, code: 'EROFS' })
+    })
+
     it('allows automatic legacy migration without an operator fencing flag', async () => {
         let receivedOptions = null
         const error = Object.assign(new Error('stop after option capture'), { code: 'CONFIG_BOOTSTRAP_INVALID_INPUT' })

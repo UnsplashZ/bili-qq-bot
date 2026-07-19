@@ -6,7 +6,6 @@ const fs = require('fs')
 const path = require('path')
 const { atomicWriteFile } = require('../migrations/common/atomicFile')
 const { MigrationError } = require('../migrations/common/errors')
-const { withOfflineRuntimeOwner } = require('../config/configLock')
 const { requestConfigControl, defaultConfigControlSocketPath } = require('../config/configControl')
 const { resolveSchemaNode } = require('../config/schemaV1')
 const { stringifyConfigYaml, validateConfigObject } = require('../migrations/config/configDocument')
@@ -86,13 +85,6 @@ function summarizeConfig(config) {
         dashboardConfigured: Boolean(config.dashboard?.jwtSecret),
         groupCount: Object.keys(config.groupConfigs || {}).length
     }
-}
-
-function runtimeOwnerPathForConfig(configPath, explicitPath = null) {
-    if (explicitPath) return resolvePath(explicitPath)
-    const configDir = path.dirname(configPath)
-    const root = path.basename(configDir) === 'config' ? path.dirname(configDir) : configDir
-    return path.join(root, 'data/runtime/config-owner.lock')
 }
 
 function cliPathSegments(value) {
@@ -231,21 +223,19 @@ async function commandClearSecret(args, dependencies = {}) {
 
 function commandInit(args, dependencies = {}) {
     const configPath = resolvePath(args.output || requireOption(args, 'config'))
-    return withOfflineRuntimeOwner(runtimeOwnerPathForConfig(configPath, args['owner-lock']), () => {
-        if (fs.existsSync(configPath) && !args.force) throw new MigrationError('CONFIG_FILE_ALREADY_EXISTS')
-        const input = readProtectedJson(args.input, { required: false })
-        const provider = args.provider || input.provider || 'napcat'
-        if (!['napcat', 'official'].includes(provider)) throw new MigrationError('CONFIG_QQ_PROVIDER_INVALID')
-        const config = createDefaultV1Config({
-            ...input,
-            provider,
-            jwtSecret: input.jwtSecret || crypto.randomBytes(32).toString('hex')
-        })
-        const validator = dependencies.validator || loadConfigValidator()
-        validateConfigObject(config, { validator })
-        atomicWriteFile(configPath, stringifyConfigYaml(config, { validator }), { mode: 0o600 })
-        return { ok: true, action: 'init', config: summarizeConfig(config) }
+    if (fs.existsSync(configPath) && !args.force) throw new MigrationError('CONFIG_FILE_ALREADY_EXISTS')
+    const input = readProtectedJson(args.input, { required: false })
+    const provider = args.provider || input.provider || 'napcat'
+    if (!['napcat', 'official'].includes(provider)) throw new MigrationError('CONFIG_QQ_PROVIDER_INVALID')
+    const config = createDefaultV1Config({
+        ...input,
+        provider,
+        jwtSecret: input.jwtSecret || crypto.randomBytes(32).toString('hex')
     })
+    const validator = dependencies.validator || loadConfigValidator()
+    validateConfigObject(config, { validator })
+    atomicWriteFile(configPath, stringifyConfigYaml(config, { validator }), { mode: 0o600 })
+    return { ok: true, action: 'init', config: summarizeConfig(config) }
 }
 
 function commandValidate(args, dependencies = {}) {
@@ -283,7 +273,6 @@ async function commandMigrateLegacy(args, dependencies = {}) {
     const service = dependencies.bootstrap || new ApplicationMigrationBootstrap({
         configDir,
         dataDir,
-        runtimeOwnerPath: runtimeOwnerPathForConfig(outputPath, args['owner-lock']),
         migrators: dependencies.migrators
     })
     const result = await service.run({
@@ -452,6 +441,5 @@ module.exports = {
     commandDeploymentPlan,
     commandRecordDeploymentApplied,
     commandRenderCompose,
-    runtimeOwnerPathForConfig,
     HELP
 }

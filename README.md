@@ -142,14 +142,14 @@ wget -O setup.sh https://gh-proxy.org/https://raw.githubusercontent.com/Unsplash
 - **首次安装**：目录中没有可识别的 Compose + 配置组合时，脚本询问镜像、端口、Bot QQ、管理员、NapCat Token 和可选 Agent LLM；输入校验通过后生成 `docker-compose.yml`、`.env`、NapCat 配置与唯一的 `config/config.yaml`。
 - **已有安装更新**：当目录中存在标准 Compose 文件（`compose.yaml`、`compose.yml`、`docker-compose.yaml` 或 `docker-compose.yml`）以及 `config.yaml` 或 legacy 配置时，脚本不会重新询问或改写文件，只执行 Compose 校验、镜像拉取、容器重建和 Bot 健康检查。
 
-已有安装更新成功必须满足 `/api/ready` 返回 ready，确保配置迁移、Dashboard、Provider 和运行时子系统已经就绪；否则脚本返回失败并提示查看日志。首次安装只要求容器存活，然后继续等待 NapCat 登录提示，避免用户尚未扫码时误判安装失败。旧配置、schema 和业务数据 migration 仍由 Bot 启动时的 `ApplicationMigrationBootstrap` 自动完成，setup 不解释或修改 migration 状态。
+无论首次安装还是已有安装更新，脚本最终都要求 `/api/ready` 返回 `ready: true`，确保配置迁移、Dashboard、Provider 和运行时子系统已经就绪；否则返回失败并提示完成 NapCat 登录或查看日志。旧配置、schema 和业务数据 migration 仍由 Bot 启动时的 `ApplicationMigrationBootstrap` 自动完成，setup 不解释或修改 migration 状态。
 
 ```bash
 # 首次安装和后续更新使用同一条命令，并选择同一个安装目录
 sudo ./setup.sh
 ```
 
-> 更新路径不会自动覆盖现有 Compose。如果新版本明确要求新增 volume、端口或环境变量，需要先人工同步 Compose，再运行 setup。项目只支持同一套 `config/`、`data/` 在同一时间由一个 Bot 容器写入。
+> 更新路径不会自动覆盖现有 Compose。如果新版本明确要求新增 volume、端口或环境变量，需要先人工同步 Compose，再运行 setup。项目采用单实例部署边界：同一套 `config/`、`data/` 只运行一个 Bot 容器；程序不创建配置 owner lock，也不协调多个容器共享写入。
 
 
 ## WebUI 管理面板
@@ -232,11 +232,11 @@ Agent 是当前分支的新智能入口，目标是“群聊观察者 + 谨慎�
 
 ## 配置说明
 
-唯一配置真源是 `config/config.yaml`。主程序每次启动先运行 `ApplicationMigrationBootstrap`：已有合法 YAML 永远权威；没有 YAML 时才读取 `.env`、`config.json`、`.jwtSecret` 与 `.qqOfficialClientSecret`；随后执行 schema registry 和业务数据 registry，再移交 ConfigService owner。失败时 Dashboard、Provider、Python、browser 和订阅 timer 都不会启动。
+唯一配置真源是 `config/config.yaml`。主程序每次启动先运行 `ApplicationMigrationBootstrap`：已有合法 YAML 永远权威；没有 YAML 时才读取 `.env`、`config.json`、`.jwtSecret` 与 `.qqOfficialClientSecret`；随后执行 schema registry 和业务数据 registry，再初始化 ConfigService。失败时 Dashboard、Provider、Python、browser 和订阅 timer 都不会启动。
 
-直接运行 `node src/bot.js` 或使用手写 Compose 也走同一 bootstrap。离线诊断/显式迁移可使用 Config CLI 与 data migration CLI；它们调用相同 service，不是正常部署的第二套 migration owner。
+直接运行 `node src/bot.js` 或使用手写 Compose 也走同一 bootstrap。离线诊断/显式迁移可使用 Config CLI 与 data migration CLI；它们调用相同 service，不维护额外的配置锁。
 
-使用 Docker 时，只要继续挂载原来的 `/app/config` 和 `/app/data`，执行 `docker compose pull && docker compose up -d` 即可在新容器启动阶段自动迁移 legacy 配置与业务数据，不需要设置额外的 fencing 环境变量。项目支持的部署模型是一套挂载目录只运行一个 Bot 容器；不要让旧、新两个容器同时写入同一目录。
+使用 Docker 时，只要继续挂载原来的 `/app/config` 和 `/app/data`，执行 `docker compose pull && docker compose up -d` 即可在新容器启动阶段自动迁移 legacy 配置与业务数据，不需要设置额外的 fencing 环境变量，也不会因旧版本遗留的 `config-owner.lock` 目录阻止启动。项目支持的部署模型是一套挂载目录只运行一个 Bot 容器；并发共享写入不受支持，也不会由程序主动检测或互斥。
 
 ```bash
 node src/cli/config.js init --output config/config.yaml

@@ -98,13 +98,13 @@ class ReloadTransaction {
     }
 
     async _assertFinalAdmissionFence() {
-        if (typeof this.context.assertOwnerLease !== 'function') return
+        if (typeof this.context.assertTransactionCurrent !== 'function') return
         try {
-            await this.context.assertOwnerLease()
+            await this.context.assertTransactionCurrent()
         } catch (error) {
-            throw new ConfigReloadError('Reload transaction lost its owner before admission opened', {
+            throw new ConfigReloadError('Reload transaction token changed before admission opened', {
                 phase: 'finalAdmissionFence',
-                handlerId: 'config-owner',
+                handlerId: 'config-transaction',
                 cause: error
             })
         }

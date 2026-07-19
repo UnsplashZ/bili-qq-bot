@@ -29,10 +29,10 @@ Compose 文件按上述顺序选择并通过显式 `-f` 传给 Docker Compose，
 1. 检查 root 权限和 Docker；Docker 缺失时要求 `curl` 后执行安装流程。
 2. 创建 `config/`、`data/`、`logs/`、字体和 NapCat 挂载目录。
 3. 校验镜像引用、端口、QQ 号、WebSocket URL 和 Token。
-4. 优先复制脚本旁的 Compose 模板；远程下载时先写临时文件，成功后原子替换目标文件。
+4. 优先复制脚本旁的 Compose 模板；独立分发脚本则使用脚本内嵌、与当前 release 匹配的 Compose 模板，不从未来的 `main` 分支下载。
 5. 生成 `.env`、NapCat OneBot JSON 和 canonical YAML。
 6. 校验 Compose、拉取镜像、启动容器并等待 Bot health。
-7. NapCat 部署继续等待登录或 WebSocket 服务就绪；超时只提示用户查看二维码日志。
+7. NapCat 部署继续等待登录或 WebSocket 服务就绪，然后执行最终 `/api/ready` 检查；未 ready 时安装失败且不输出“部署完成”。
 
 Token 被限制为字母、数字及 `.`、`_`、`~`、`-`，避免把未经转义的内容写入 NapCat JSON。
 
@@ -50,7 +50,7 @@ docker compose -f <existing-compose> up -d
 
 - `unhealthy`、`exited`、`dead`、`removing` 立即失败；
 - `/api/ready` 持续非 ready 或超时返回失败；
-- 首次安装只等待容器 liveness，然后进入 NapCat 登录提示流程，不要求尚未扫码的 Provider ready。
+- 首次安装先等待容器 liveness，再等待 NapCat 登录，并且最终同样要求 Provider 和应用整体 ready。
 
 更新路径不会：
 
@@ -72,9 +72,10 @@ docker compose -f <existing-compose> up -d
 
 ## 6. 支持边界
 
-- 同一套 `config/` 和 `data/` 同一时间只允许一个 Bot 容器写入。
+- 产品只支持一套 `config/` 和 `data/` 对应一个 Bot 容器；程序不创建配置 owner lock，也不检测或协调多容器共享写入。
 - 更新路径故意保留现有 Compose；新版需要新增 volume、端口或环境变量时必须人工同步。
 - Compose 中 Bot 服务名保持为 `bili-qq-bot`，用于 health 定位。
+- Bot 的 `stop_grace_period` 为 420 秒，与应用最长约 400 秒的 shutdown deadline 对齐。
 - setup 是 NapCat 首次安装助手；已有 QQ Official Compose 可以进入通用容器更新路径。
 
 ## 7. 验证矩阵
@@ -88,5 +89,7 @@ docker compose -f <existing-compose> up -d
 - 已有安装环境没有 curl/wget；
 - Compose config、pull、up 和 health 分阶段失败；
 - 失败时文件保持不变且不误报完成；
+- 首次安装 health 成功但 readiness 失败时不误报完成；
+- 内嵌 Compose 与仓库模板的关键 volume 和 stop grace 保持一致；
 - 首次安装非法 QQ、端口、镜像、URL 和 Token 输入；
 - shell 语法、测试脚本语法和 `git diff --check`。

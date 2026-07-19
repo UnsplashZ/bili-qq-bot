@@ -5,7 +5,7 @@
 **目标：** 将配置 schema 升级、四类 legacy 配置迁移和业务数据 migration 的正常 owner 从 `setup.sh` 迁入主程序启动链；当前 `setup.sh` 已收缩为首次配置初始化和已有安装的容器更新助手。
 **基线提交：** `ba2121e`、`68ff17e`、`d4ae91c`、`202a1b5`、`f82f962`
 
-> **当前合同（2026-07-19）：** 主程序接管 migration 的实现仍有效。`setup.sh` 只保留首次配置初始化和已有安装的容器更新；不承担 migration、publication 或 rollback，但容器启动后会等待 Bot health，避免误报更新成功。本文后续复杂部署协调内容仅作为历史方案保留。
+> **当前合同（2026-07-19）：** 主程序接管 migration 的实现仍有效。`setup.sh` 只保留首次配置初始化和已有安装的容器更新；不承担 migration、publication 或 rollback，并在首次安装和更新后都等待最终 readiness。本文早期章节中的 bootstrap/config owner lock 设计已废止：产品明确只支持单 Bot 实例，不创建或检查文件锁；旧版本遗留锁目录会被忽略。本文后续复杂部署协调内容仅作为历史方案保留。
 
 ## 1. 背景与问题定义
 
@@ -645,4 +645,15 @@ setup 状态机完整执行受单次工具执行窗口限制，在连续 23 项�
 
 ### 16.2 后续 Docker 自动迁移策略调整
 
-根据项目实际部署模型，普通镜像替换采用“一套 config/data 挂载目录只运行一个 Bot 容器”的产品假设。主程序不再要求 `BILI_LEGACY_WRITER_FENCED=1` 才执行 legacy migration；`docker compose pull && docker compose up -d` 重建单个 Bot 容器即可自动迁移。bootstrap/config owner lock 仍阻止两个新版本实例并发，旧、新容器同时写同一目录明确不受支持。
+根据项目实际部署模型，普通镜像替换采用“一套 config/data 挂载目录只运行一个 Bot 容器”的产品假设。主程序不再要求 `BILI_LEGACY_WRITER_FENCED=1` 才执行 legacy migration；`docker compose pull && docker compose up -d` 重建单个 Bot 容器即可自动迁移。多个实例共享写同一目录明确不受支持，也不由程序主动检测或互斥。
+
+### 16.3 配置 owner lock 移除（2026-07-19）
+
+生产部署不考虑多个 Bot 容器共享一套 `config/`、`data/` 的场景。跨进程 owner lock 会把正常镜像替换、容器 PID namespace 差异和遗留目录转化为新的启动故障，因此已从 bootstrap、ConfigService 和离线 CLI 中全部移除：
+
+- 不再创建 `bootstrap-owner.lock` 或 `config-owner.lock`；
+- 不再因旧锁目录、PID、heartbeat 或 process identity 判断而拒绝启动；
+- bootstrap 完成后直接初始化 ConfigService，不执行 owner handoff；
+- ConfigService 仅保留单进程内的事务队列和事务令牌，用于维持异步 prepare/commit/rollback 顺序；
+- 配置落盘仍使用 0600、原子替换、generation/CAS、journal 和 last-good rollback；
+- 多容器共享写入明确不受支持，且不由程序检测、互斥或恢复。

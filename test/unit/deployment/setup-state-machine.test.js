@@ -5,6 +5,7 @@ const childProcess = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const YAML = require('yaml')
 
 const repoRoot = path.join(__dirname, '../../..')
 const setupScript = path.join(repoRoot, 'setup.sh')
@@ -109,6 +110,18 @@ describe('setup.sh lightweight deployment contract', () => {
         assert.match(source, /validate_ws_url/)
         assert.match(source, /mktemp/)
         assert.match(source, /mv -f "\$temp_file" "\$compose_file"/)
+    })
+
+    it('embeds the release-matched Compose template instead of downloading future main', () => {
+        assert.doesNotMatch(source, /refs\/heads\/main\/docker-compose\.yml/)
+        const match = source.match(/write_compose_template\(\) \{[\s\S]*?<<'EOF'\n([\s\S]*?)\nEOF\n}/)
+        assert.ok(match, 'embedded Compose template not found')
+        const embedded = YAML.parse(match[1])
+        const repository = YAML.parse(fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8'))
+        assert.strictEqual(embedded.services['bili-qq-bot'].stop_grace_period, repository.services['bili-qq-bot'].stop_grace_period)
+        assert.strictEqual(embedded.services['bili-qq-bot'].stop_grace_period, '420s')
+        assert.deepStrictEqual(embedded.services['bili-qq-bot'].volumes, repository.services['bili-qq-bot'].volumes)
+        assert.deepStrictEqual(embedded.services.napcat.volumes, repository.services.napcat.volumes)
     })
 
     it('updates only containers when an existing installation is detected', () => {
@@ -224,6 +237,56 @@ describe('setup.sh lightweight deployment contract', () => {
             fs.rmSync(tempRoot, { recursive: true, force: true })
         }
     }).timeout(5000)
+
+    it('does not report a fresh install complete until the application is ready', () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-setup-fresh-not-ready-'))
+        const installDir = path.join(tempRoot, 'install')
+        const fakeBin = path.join(tempRoot, 'bin')
+        const dockerLog = path.join(tempRoot, 'docker.log')
+        writeFakeDocker(fakeBin)
+
+        try {
+            const result = runSetup({
+                installDir,
+                fakeBin,
+                dockerLog,
+                inputs: ['', '', '123456', '', '', '654321', '', '', 'n'],
+                env: {
+                    BILI_TEST_HEALTH_STATE: 'healthy',
+                    BILI_TEST_READY_STATE: 'not-ready',
+                    BILI_SETUP_READY_TIMEOUT: '1',
+                    BILI_SETUP_POLL_INTERVAL: '0.05'
+                }
+            })
+            assert.notEqual(result.status, 0)
+            assert.match(result.stderr, /NapCat 或 Bot 未在规定时间内进入 ready 状态/)
+            assert.doesNotMatch(result.stdout, /部署完成/)
+        } finally {
+            fs.rmSync(tempRoot, { recursive: true, force: true })
+        }
+    }).timeout(5000)
+
+    it('reports a fresh install complete after health and readiness both pass', () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-setup-fresh-ready-'))
+        const installDir = path.join(tempRoot, 'install')
+        const fakeBin = path.join(tempRoot, 'bin')
+        const dockerLog = path.join(tempRoot, 'docker.log')
+        writeFakeDocker(fakeBin)
+
+        try {
+            const result = runSetup({
+                installDir,
+                fakeBin,
+                dockerLog,
+                inputs: ['', '', '123456', '', '', '654321', '', '', 'n']
+            })
+            assert.equal(result.status, 0, result.stderr || result.stdout)
+            assert.match(result.stdout, /部署完成/)
+            assert.match(fs.readFileSync(dockerLog, 'utf8'), /exec bot-container node -e .*api\/ready/)
+        } finally {
+            fs.rmSync(tempRoot, { recursive: true, force: true })
+        }
+    })
 
     it('rejects unsafe first-install inputs before writing NapCat JSON', () => {
         const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-setup-invalid-token-'))

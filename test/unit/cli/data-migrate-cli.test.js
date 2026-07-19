@@ -41,9 +41,9 @@ describe('data migration CLI', () => {
         }
     })
 
-    it('holds the bootstrap owner transaction across asynchronous apply and rollback', async () => {
-        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-data-cli-owner-'))
-        const lockPath = path.join(dataDir, 'application-migration/bootstrap-owner.lock')
+    it('applies and rolls back without creating bootstrap owner artifacts', async () => {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-data-cli-no-owner-'))
+        const legacyLockPath = path.join(dataDir, 'application-migration/bootstrap-owner.lock')
         let applyObserved = false
         let rollbackObserved = false
         const migrator = {
@@ -55,23 +55,23 @@ describe('data migration CLI', () => {
             async backup() { return { artifacts: [], sourceHashes: {} } },
             async migrate() {
                 await Promise.resolve()
-                applyObserved = fs.existsSync(path.join(lockPath, 'owner.json'))
+                applyObserved = fs.existsSync(path.join(legacyLockPath, 'owner.json'))
                 return { changed: false }
             },
             async validate() { return { valid: true } },
             async rollback() {
                 await Promise.resolve()
-                rollbackObserved = fs.existsSync(path.join(lockPath, 'owner.json'))
+                rollbackObserved = fs.existsSync(path.join(legacyLockPath, 'owner.json'))
                 return { changed: false }
             }
         }
         try {
             await run(['apply', '--data-dir', dataDir], { migrators: [migrator] })
-            assert.strictEqual(applyObserved, true)
-            assert.strictEqual(fs.existsSync(lockPath), false)
+            assert.strictEqual(applyObserved, false)
+            assert.strictEqual(fs.existsSync(legacyLockPath), false)
             await run(['rollback', '--data-dir', dataDir], { migrators: [migrator] })
-            assert.strictEqual(rollbackObserved, true)
-            assert.strictEqual(fs.existsSync(lockPath), false)
+            assert.strictEqual(rollbackObserved, false)
+            assert.strictEqual(fs.existsSync(legacyLockPath), false)
         } finally {
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
