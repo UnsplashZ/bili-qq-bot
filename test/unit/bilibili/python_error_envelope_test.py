@@ -247,18 +247,23 @@ class PythonErrorEnvelopeTest(unittest.IsolatedAsyncioTestCase):
                 return [
                     SimpleNamespace(
                         url="https://example.test/video.m4s",
+                        backup_url=["https://backup.example.test/video.m4s"],
                         video_quality=VideoQuality._720P,
                         video_codecs=None,
                     ),
                     SimpleNamespace(
                         url="https://example.test/audio.m4s",
+                        backup_url=["https://backup.example.test/audio.m4s"],
                         audio_quality=SimpleNamespace(value=30280),
                     ),
                 ]
 
-        async def fake_download_stream(url, output_path):
+        download_calls = []
+
+        async def fake_download_stream(urls, output_path, stream_type):
+            download_calls.append((stream_type, urls))
             with open(output_path, "wb") as f:
-                f.write(url.encode("utf-8"))
+                f.write(urls[0].encode("utf-8"))
 
         async def fake_ffmpeg(inputs, output_path):
             with open(output_path, "wb") as f:
@@ -289,6 +294,19 @@ class PythonErrorEnvelopeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["status"], "success")
             self.assertEqual(result["title"], "测试视频")
             self.assertTrue(os.path.exists(result["file_path"]))
+            self.assertEqual(
+                {stream_type: urls for stream_type, urls in download_calls},
+                {
+                    "video": [
+                        "https://example.test/video.m4s",
+                        "https://backup.example.test/video.m4s",
+                    ],
+                    "audio": [
+                        "https://example.test/audio.m4s",
+                        "https://backup.example.test/audio.m4s",
+                    ],
+                },
+            )
 
 
 if __name__ == "__main__":

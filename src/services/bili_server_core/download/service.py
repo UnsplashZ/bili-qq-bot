@@ -32,6 +32,16 @@ def _is_audio_stream(stream) -> bool:
     return _has_stream_url(stream) and hasattr(stream, "audio_quality")
 
 
+def _stream_candidate_urls(stream) -> list[str]:
+    urls = [getattr(stream, "url", None)]
+    backup_urls = getattr(stream, "backup_url", None)
+    if isinstance(backup_urls, str):
+        urls.append(backup_urls)
+    elif backup_urls:
+        urls.extend(backup_urls)
+    return urls
+
+
 def _quality_value(stream, attr: str) -> int:
     quality = getattr(stream, attr, None)
     value = getattr(quality, "value", None)
@@ -176,7 +186,9 @@ async def download_video_file(
         if len(streams) == 1:
             single_tmp = output_path + "_s.tmp"
             temporary_paths.append(single_tmp)
-            await download_stream_to_file(streams[0].url, single_tmp)
+            await download_stream_to_file(
+                _stream_candidate_urls(streams[0]), single_tmp, "single"
+            )
             try:
                 await ffmpeg_copy_streams([single_tmp], output_path)
             except Exception as e:
@@ -189,8 +201,12 @@ async def download_video_file(
             audio_tmp = output_path + "_a.tmp"
             temporary_paths.extend([video_tmp, audio_tmp])
             await asyncio.gather(
-                download_stream_to_file(streams[0].url, video_tmp),
-                download_stream_to_file(streams[1].url, audio_tmp),
+                download_stream_to_file(
+                    _stream_candidate_urls(streams[0]), video_tmp, "video"
+                ),
+                download_stream_to_file(
+                    _stream_candidate_urls(streams[1]), audio_tmp, "audio"
+                ),
             )
             await ffmpeg_copy_streams([video_tmp, audio_tmp], output_path)
         completed = True
