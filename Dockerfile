@@ -90,4 +90,4 @@ RUN mkdir -p logs temp config fonts data/downloads /app/.config/QQ/tmp/
 EXPOSE 3000
 
 # 启动入口
-CMD ["npm", "start"]
+CMD ["node", "src/bot.js"]

@@ -287,6 +287,20 @@ function assertNoActiveRuntimeOwner(lockPath, options = {}) {
         throw new ConfigConflictError('Runtime is active; offline configuration write refused')
     }
     if (observed.status === 'unknown') throw new ConfigConflictError('Runtime process identity is unknown; offline write refused')
+    if (options.reclaimStale === true) {
+        const parent = path.dirname(lockPath)
+        const stalePath = `${lockPath}.stale.${crypto.randomBytes(8).toString('hex')}`
+        try {
+            fs.renameSync(lockPath, stalePath)
+            fsyncDirectory(parent)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return true
+            throw new ConfigConflictError('Runtime owner changed during stale recovery')
+        }
+        fs.rmSync(stalePath, { recursive: true, force: true })
+        fsyncDirectory(parent)
+        return true
+    }
     throw new ConfigConflictError('Stale runtime owner must be recovered by ConfigService before offline write')
 }
 

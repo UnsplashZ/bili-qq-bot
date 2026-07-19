@@ -110,6 +110,47 @@ describe('ApplicationMigrationBootstrap', () => {
         }
     })
 
+    it('recovers a PID-reused stale runtime owner left by an interrupted container replacement', async () => {
+        const paths = fixture(); roots.push(paths.root)
+        const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
+        fs.mkdirSync(lockPath, { recursive: true, mode: 0o700 })
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), `${JSON.stringify({
+            pid: 19,
+            nonce: 'a'.repeat(32),
+            processStartIdentity: 'linux:old-container:19:1234',
+            acquiredAt: '2026-07-12T06:48:27.179Z'
+        })}\n`, { mode: 0o600 })
+
+        const result = await bootstrap(paths).run({
+            createIfMissing: true,
+            identityProvider: () => ({ status: 'alive', identity: 'linux:new-container:19:5678' })
+        })
+
+        assert.strictEqual(result.status, 'ready')
+        assert.strictEqual(fs.existsSync(lockPath), false)
+        assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), true)
+    })
+
+    it('refuses stale recovery when runtime owner identity cannot be determined', async () => {
+        const paths = fixture(); roots.push(paths.root)
+        const lockPath = path.join(paths.dataDir, 'runtime/config-owner.lock')
+        fs.mkdirSync(lockPath, { recursive: true, mode: 0o700 })
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), `${JSON.stringify({
+            pid: 19,
+            nonce: 'b'.repeat(32),
+            processStartIdentity: 'linux:unknown-container:19:1234',
+            acquiredAt: '2026-07-12T06:48:27.179Z'
+        })}\n`, { mode: 0o600 })
+
+        await assert.rejects(bootstrap(paths).run({
+            createIfMissing: true,
+            identityProvider: () => ({ status: 'unknown', identity: null })
+        }), (error) => error.code === 'CONFIG_BOOTSTRAP_OWNER_CONFLICT')
+
+        assert.strictEqual(fs.existsSync(path.join(lockPath, 'owner.json')), true)
+        assert.strictEqual(fs.existsSync(path.join(paths.configDir, 'config.yaml')), false)
+    })
+
     it('is idempotent and resumes after interruption following config durability', async () => {
         const paths = fixture(); roots.push(paths.root)
         const crashing = bootstrap(paths, { faultInjector(phase) { if (phase === 'config-ready') throw Object.assign(new Error('crash'), { code: 'SIMULATED_CRASH' }) } })

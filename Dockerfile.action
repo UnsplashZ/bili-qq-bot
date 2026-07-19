@@ -62,4 +62,4 @@ RUN mkdir -p logs temp config fonts data/downloads /app/.config/QQ/tmp/
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "src/bot.js"]

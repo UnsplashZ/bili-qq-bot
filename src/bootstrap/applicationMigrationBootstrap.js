@@ -78,7 +78,10 @@ class ApplicationMigrationBootstrap {
         }
         let schemaRestore = null
         try {
-            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, { identityProvider: options.identityProvider })
+            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, {
+                identityProvider: options.identityProvider,
+                reclaimStale: true
+            })
             const discovery = discoverConfigSource({ configDir: this.configDir, installInput: options.installInput, createIfMissing: options.createIfMissing })
             const previous = this.readManifest()
             const migrationId = previous?.migrationId || crypto.randomUUID()
@@ -254,7 +257,10 @@ class ApplicationMigrationBootstrap {
         await this.bootstrapLock.acquire()
         this.held = true
         try {
-            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, { identityProvider: options.identityProvider })
+            assertNoActiveRuntimeOwner(this.runtimeOwnerPath, {
+                identityProvider: options.identityProvider,
+                reclaimStale: true
+            })
             const result = await this.dataRegistry.apply()
             return {
                 status: 'ready',
