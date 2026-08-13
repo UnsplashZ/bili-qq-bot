@@ -113,7 +113,11 @@ export default function useBiliLogin({ show, setBiliGlobalStatus }) {
             }
 
             if (res.data && res.data.data && res.data.data.url) {
-                const qrDataUrl = await QRCode.toDataURL(res.data.data.url)
+                const qrDataUrl = res.data.data.image || await QRCode.toDataURL(res.data.data.url, {
+                    errorCorrectionLevel: 'M',
+                    margin: 4,
+                    width: 320
+                })
                 setQrCodeUrl(qrDataUrl)
                 setIsQrModalOpen(true)
 

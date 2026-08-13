@@ -14,6 +14,10 @@ NC='\033[0m'
 BOT_IMAGE_DEFAULT='unsplash/bili-qq-bot:latest'
 NAPCAT_IMAGE_DEFAULT='mlikiowa/napcat-docker:latest'
 COMPOSE_FILE=''
+SETUP_OPERATOR_UID=''
+SETUP_OPERATOR_GID=''
+SETUP_CONTAINER_UID=''
+SETUP_CONTAINER_GID=''
 
 info() {
     echo -e "${GREEN}$*${NC}"
@@ -75,6 +79,112 @@ validate_ws_token() {
 validate_ws_url() {
     local value="$1"
     [[ "$value" =~ ^wss?://[^[:space:]]+$ ]] || die "NapCat WebSocket 地址必须以 ws:// 或 wss:// 开头，且不能包含空白字符。"
+}
+
+resolve_setup_operator() {
+    SETUP_OPERATOR_UID=$(id -u)
+    SETUP_OPERATOR_GID=$(id -g)
+
+    if [ "$EUID" -ne 0 ] || [ -z "${SUDO_USER:-}" ]; then
+        return 0
+    fi
+    [[ "${SUDO_UID:-}" =~ ^[0-9]+$ ]] || die "无法识别 sudo 调用用户 UID。"
+    [[ "${SUDO_GID:-}" =~ ^[0-9]+$ ]] || die "无法识别 sudo 调用用户 GID。"
+
+    local resolved_uid resolved_gid
+    resolved_uid=$(id -u "$SUDO_USER" 2>/dev/null) || die "无法识别 sudo 调用用户 $SUDO_USER。"
+    resolved_gid=$(id -g "$SUDO_USER" 2>/dev/null) || die "无法识别 sudo 调用用户 $SUDO_USER。"
+    [ "$resolved_uid" = "$SUDO_UID" ] || die "sudo 调用用户 UID 校验失败。"
+    [ "$resolved_gid" = "$SUDO_GID" ] || die "sudo 调用用户 GID 校验失败。"
+
+    SETUP_OPERATOR_UID="$resolved_uid"
+    SETUP_OPERATOR_GID="$resolved_gid"
+}
+
+prepare_install_directories() {
+    local install_dir="$1"
+    local relative_path
+    local -a managed_directories=(
+        config
+        data
+        fonts/custom
+        napcat/config
+        napcat/qq
+        logs
+    )
+
+    mkdir -p "${managed_directories[@]/#/$install_dir/}"
+    for relative_path in "${managed_directories[@]}"; do
+        chown "$SETUP_OPERATOR_UID:$SETUP_OPERATOR_GID" "$install_dir/$relative_path"
+    done
+    chmod 700 "$install_dir/config"
+}
+
+set_setup_operator_ownership() {
+    chown "$SETUP_OPERATOR_UID:$SETUP_OPERATOR_GID" "$@"
+}
+
+read_numeric_ownership() {
+    local target_path="$1"
+    if stat -c '%u:%g' "$target_path" >/dev/null 2>&1; then
+        stat -c '%u:%g' "$target_path"
+    else
+        stat -f '%u:%g' "$target_path"
+    fi
+}
+
+prepare_container_bind_mounts() {
+    local install_dir="$1"
+    local bot_image="$2"
+    local probe_dir probe_file probe_name ownership relative_path
+    local -a managed_directories=(
+        config
+        data
+        fonts/custom
+        napcat/config
+        napcat/qq
+        logs
+    )
+
+    probe_dir=$(mktemp -d "$install_dir/.setup-bind-owner.XXXXXX")
+    probe_name="owner-$(random_token)"
+    probe_file="$probe_dir/$probe_name"
+    set_setup_operator_ownership "$probe_dir"
+    chmod 733 "$probe_dir"
+    if ! printf '%s' "$probe_name" | docker run --rm -i \
+        -v "$probe_dir:/setup-owner-probe" \
+        --entrypoint node \
+        "$bot_image" -e \
+        'const fs = require("fs"); const name = fs.readFileSync(0, "utf8"); if (!/^owner-[a-f0-9]{32}$/.test(name)) process.exit(2); fs.writeFileSync(`/setup-owner-probe/${name}`, "", { mode: 0o600, flag: "wx" })'; then
+        rmdir "$probe_dir" 2>/dev/null || true
+        die "无法确认 Docker 容器对安装目录的写入身份。"
+    fi
+
+    if [ -L "$probe_file" ] || [ ! -f "$probe_file" ]; then
+        rm -f "$probe_file"
+        rmdir "$probe_dir" 2>/dev/null || true
+        die "Docker 容器写入身份探测文件无效。"
+    fi
+    if ! ownership=$(read_numeric_ownership "$probe_file"); then
+        rm -f "$probe_file"
+        rmdir "$probe_dir" 2>/dev/null || true
+        die "无法读取 Docker 容器写入身份。"
+    fi
+    SETUP_CONTAINER_UID=${ownership%%:*}
+    SETUP_CONTAINER_GID=${ownership##*:}
+    rm -f "$probe_file"
+    rmdir "$probe_dir"
+    [[ "$SETUP_CONTAINER_UID" =~ ^[0-9]+$ ]] || die "Docker 容器写入 UID 无效。"
+    [[ "$SETUP_CONTAINER_GID" =~ ^[0-9]+$ ]] || die "Docker 容器写入 GID 无效。"
+
+    for relative_path in "${managed_directories[@]}"; do
+        chown "$SETUP_CONTAINER_UID:$SETUP_CONTAINER_GID" "$install_dir/$relative_path"
+    done
+    chmod 700 "$install_dir/config"
+}
+
+set_container_ownership() {
+    chown "$SETUP_CONTAINER_UID:$SETUP_CONTAINER_GID" "$@"
 }
 
 random_token() {
@@ -289,7 +399,15 @@ update_existing_containers() {
     echo "拉取部署镜像..."
     compose pull
 
-    info "重建并启动容器"
+    info "先启动 NapCat 并等待登录"
+    compose up -d napcat
+    warn "如尚未登录，请在 180 秒内完成 QQ 扫码；二维码可通过 docker logs -f napcat 查看。"
+    if ! wait_for_napcat_login 180; then
+        compose ps napcat || true
+        die "NapCat 未在规定时间内完成登录，请执行 docker logs -f napcat 查看二维码后重试。"
+    fi
+
+    info "重建并启动全部容器"
     compose up -d
     if ! wait_for_bot_state 1 "${BILI_SETUP_READY_TIMEOUT:-180}"; then
         compose ps || true
@@ -312,6 +430,7 @@ BILI_DASHBOARD_HOST_PORT=$dashboard_port
 BILI_NAPCAT_WEBUI_HOST_PORT=6099
 BILI_NAPCAT_WS_HOST_PORT=3001
 EOF
+    set_setup_operator_ownership "$env_file"
     chmod 600 "$env_file"
 }
 
@@ -347,6 +466,7 @@ write_napcat_config() {
   "parseMultMsg": false
 }
 EOF
+    set_container_ownership "$install_dir/napcat/config/onebot11_$bot_qq.json"
     chmod 600 "$install_dir/napcat/config/onebot11_$bot_qq.json"
 }
 
@@ -410,14 +530,37 @@ Promise.resolve(run([
 
 wait_for_napcat_login() {
     local timeout_seconds="${1:-180}"
+    local poll_seconds="${BILI_SETUP_NAPCAT_POLL_INTERVAL:-3}"
     local started
+    local qr_block last_qr_block=''
     started=$(date +%s)
     while [ $(( $(date +%s) - started )) -lt "$timeout_seconds" ]; do
-        if docker logs napcat 2>&1 | grep -Eq 'Login Success|登录成功|Server Started|WebSocket Server.*Started'; then
-            info "NapCat 已登录或服务已就绪。"
+        if docker exec napcat bash -lc 'exec 3<>/dev/tcp/127.0.0.1/3001' >/dev/null 2>&1; then
+            info "NapCat 已登录，WebSocket 服务已就绪。"
             return 0
         fi
-        sleep 3
+        qr_block=$(docker logs --tail 160 napcat 2>&1 | awk '
+            index($0, "请扫描下面的二维码") {
+                current = $0 ORS
+                capturing = 1
+                next
+            }
+            capturing {
+                current = current $0 ORS
+                if (index($0, "二维码已保存到")) {
+                    latest = current
+                    capturing = 0
+                }
+            }
+            END { printf "%s", latest }
+        ' || true)
+        if [ -n "$qr_block" ] && [ "$qr_block" != "$last_qr_block" ]; then
+            echo
+            info "NapCat 登录二维码（请使用手机 QQ 扫描）："
+            printf '%s\n' "$qr_block"
+            last_qr_block="$qr_block"
+        fi
+        sleep "$poll_seconds"
     done
     return 1
 }
@@ -439,6 +582,7 @@ main() {
     install_dir=$(cd "$install_dir" && pwd)
     script_dir=$(cd "$(dirname "$0")" && pwd)
     cd "$install_dir"
+    resolve_setup_operator
 
     local existing_compose=''
     if has_existing_config "$install_dir"; then
@@ -451,7 +595,7 @@ main() {
     fi
 
     info "[4/8] 创建目录"
-    mkdir -p config data fonts/custom napcat/config napcat/qq logs
+    prepare_install_directories "$install_dir"
 
     info "[5/8] 准备部署配置"
     local bot_image dashboard_port config_file overwrite_config
@@ -468,6 +612,7 @@ main() {
 
     echo "拉取部署镜像..."
     BILI_BOT_IMAGE="$bot_image" compose pull
+    prepare_container_bind_mounts "$install_dir" "$bot_image"
 
     overwrite_config='y'
     if [ -f "$config_file" ]; then
@@ -513,18 +658,23 @@ main() {
     info "[6/8] 校验 Compose"
     compose config -q
 
-    info "[7/8] 启动服务"
-    compose up -d
+    info "[7/8] 启动 NapCat"
+    compose up -d napcat
+
+    info "[8/8] 等待 NapCat 登录"
+    warn "请在 180 秒内完成 QQ 扫码登录；二维码可通过 docker logs -f napcat 查看。"
+    if ! wait_for_napcat_login 180; then
+        compose ps napcat || true
+        die "NapCat 未在规定时间内完成登录，请执行 docker logs -f napcat 查看二维码后重试。"
+    fi
+
+    info "启动 Bot 服务"
+    compose up -d bili-qq-bot
     if ! wait_for_bot_state 0 "${BILI_SETUP_LIVE_TIMEOUT:-180}"; then
         compose ps || true
         die "Bot 容器未在规定时间内进入健康状态，请检查 docker logs bili-qq-bot。"
     fi
     compose ps
-
-    info "[8/8] 等待 NapCat 登录"
-    if ! wait_for_napcat_login 180; then
-        warn "暂未检测到登录成功，请执行 docker logs -f napcat 查看二维码。"
-    fi
 
     info "等待 Bot 完成最终 readiness 检查"
     if ! wait_for_bot_state 1 "${BILI_SETUP_READY_TIMEOUT:-180}"; then

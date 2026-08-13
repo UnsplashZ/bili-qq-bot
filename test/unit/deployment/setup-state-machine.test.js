@@ -16,18 +16,47 @@ function writeFakeDocker(fakeBin) {
 printf '%s\n' "$*" >> "$DOCKER_LOG"
 if [ "$1" = "info" ]; then exit 0; fi
 if [ "$1" = "inspect" ]; then printf '%s\n' "\${BILI_TEST_HEALTH_STATE:-healthy}"; exit 0; fi
+if [ "$1" = "exec" ] && [ "$2" = "napcat" ]; then
+    if [ -n "\${BILI_TEST_NAPCAT_STATE_FILE:-}" ] && [ ! -f "$BILI_TEST_NAPCAT_STATE_FILE" ]; then
+        : > "$BILI_TEST_NAPCAT_STATE_FILE"
+        exit 1
+    fi
+    exit 0
+fi
 if [ "$1" = "exec" ]; then [ "\${BILI_TEST_READY_STATE:-ready}" = "ready" ]; exit $?; fi
-if [ "$1" = "logs" ]; then echo "Login Success"; exit 0; fi
+if [ "$1" = "logs" ]; then
+    if [ -n "\${BILI_TEST_NAPCAT_QR_FIXTURE:-}" ]; then
+        printf '%s\n' '请扫描下面的二维码，然后在手Q上授权登录：'
+        printf '%s\n' 'QR-FIXTURE-LINE'
+        printf '%s\n' '二维码解码URL: https://example.invalid/fixture'
+        printf '%s\n' '二维码已保存到 /app/napcat/cache/qrcode.png'
+    else
+        echo "Login Success"
+    fi
+    exit 0
+fi
 if [ "$1" = "run" ]; then
     previous=''
+    owner_probe_path=''
     for argument in "$@"; do
         if [ "$previous" = "-v" ]; then
-            host_path="\${argument%%:/install}"
-            mkdir -p "$host_path/config"
-            printf 'version: 1\n' > "$host_path/config/config.yaml"
+            case "$argument" in
+                *:/setup-owner-probe)
+                    owner_probe_path="\${argument%:/setup-owner-probe}"
+                    ;;
+                *:/install)
+                    host_path="\${argument%:/install}"
+                    mkdir -p "$host_path/config"
+                    printf 'version: 1\n' > "$host_path/config/config.yaml"
+                    ;;
+            esac
         fi
         previous="$argument"
     done
+    if [ -n "$owner_probe_path" ]; then
+        probe_name=$(cat)
+        : > "$owner_probe_path/$probe_name"
+    fi
     exit 0
 fi
 if [ "$1" = "compose" ] && [ "$2" = "version" ]; then exit 0; fi
@@ -154,7 +183,9 @@ describe('setup.sh lightweight deployment contract', () => {
             assert.match(dockerCalls, /^info$/m)
             assert.match(dockerCalls, /compose -f .*docker-compose\.yml config -q/)
             assert.match(dockerCalls, /compose -f .*docker-compose\.yml pull/)
-            assert.match(dockerCalls, /compose -f .*docker-compose\.yml up -d/)
+            assert.match(dockerCalls, /compose -f .*docker-compose\.yml up -d napcat/)
+            assert.match(dockerCalls, /exec napcat bash -lc exec 3<>\/dev\/tcp\/127\.0\.0\.1\/3001/)
+            assert.match(dockerCalls, /compose -f .*docker-compose\.yml up -d$/m)
             assert.match(dockerCalls, /inspect --format/)
         } finally {
             fs.rmSync(tempRoot, { recursive: true, force: true })
@@ -282,7 +313,89 @@ describe('setup.sh lightweight deployment contract', () => {
             })
             assert.equal(result.status, 0, result.stderr || result.stdout)
             assert.match(result.stdout, /部署完成/)
-            assert.match(fs.readFileSync(dockerLog, 'utf8'), /exec bot-container node -e .*api\/ready/)
+            const dockerCalls = fs.readFileSync(dockerLog, 'utf8')
+            const napcatStart = dockerCalls.indexOf('up -d napcat')
+            const napcatLoginCheck = dockerCalls.indexOf('exec napcat bash -lc')
+            const botStart = dockerCalls.indexOf('up -d bili-qq-bot')
+            assert.ok(napcatStart >= 0, dockerCalls)
+            assert.ok(napcatLoginCheck > napcatStart, dockerCalls)
+            assert.ok(botStart > napcatLoginCheck, dockerCalls)
+            assert.match(dockerCalls, /exec bot-container node -e .*api\/ready/)
+        } finally {
+            fs.rmSync(tempRoot, { recursive: true, force: true })
+        }
+    })
+
+    it('prints the NapCat QR block before starting the Bot', () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-setup-napcat-qr-'))
+        const installDir = path.join(tempRoot, 'install')
+        const fakeBin = path.join(tempRoot, 'bin')
+        const dockerLog = path.join(tempRoot, 'docker.log')
+        const napcatStateFile = path.join(tempRoot, 'napcat-ready')
+        writeFakeDocker(fakeBin)
+
+        try {
+            const result = runSetup({
+                installDir,
+                fakeBin,
+                dockerLog,
+                inputs: ['', '', '123456', '', '', '654321', '', '', 'n'],
+                env: {
+                    BILI_TEST_NAPCAT_STATE_FILE: napcatStateFile,
+                    BILI_TEST_NAPCAT_QR_FIXTURE: '1',
+                    BILI_SETUP_NAPCAT_POLL_INTERVAL: '0.01'
+                }
+            })
+
+            assert.equal(result.status, 0, result.stderr || result.stdout)
+            assert.match(result.stdout, /NapCat 登录二维码/)
+            assert.match(result.stdout, /QR-FIXTURE-LINE/)
+            assert.ok(result.stdout.indexOf('QR-FIXTURE-LINE') < result.stdout.indexOf('启动 Bot 服务'))
+        } finally {
+            fs.rmSync(tempRoot, { recursive: true, force: true })
+        }
+    })
+
+    it('repairs fresh-install bind mount ownership for the detected container identity', () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bili-setup-sudo-owner-'))
+        const installDir = path.join(tempRoot, 'install')
+        const fakeBin = path.join(tempRoot, 'bin')
+        const dockerLog = path.join(tempRoot, 'docker.log')
+        const currentUid = process.getuid()
+        const currentGid = process.getgid()
+        const currentUser = os.userInfo().username
+        fs.mkdirSync(path.join(installDir, 'config'), { recursive: true })
+        fs.chmodSync(path.join(installDir, 'config'), 0o755)
+        writeFakeDocker(fakeBin)
+
+        try {
+            const result = runSetup({
+                installDir,
+                fakeBin,
+                dockerLog,
+                inputs: ['', '', '123456', '', '', '654321', '', '', 'n'],
+                env: {
+                    SUDO_USER: currentUser,
+                    SUDO_UID: String(currentUid),
+                    SUDO_GID: String(currentGid)
+                }
+            })
+
+            assert.equal(result.status, 0, result.stderr || result.stdout)
+            const configStat = fs.statSync(path.join(installDir, 'config'))
+            const napcatConfigStat = fs.statSync(path.join(installDir, 'napcat/config/onebot11_123456.json'))
+            assert.equal(configStat.uid, currentUid)
+            assert.equal(configStat.gid, currentGid)
+            assert.equal(configStat.mode & 0o777, 0o700)
+            assert.equal(napcatConfigStat.uid, currentUid)
+            assert.equal(napcatConfigStat.gid, currentGid)
+            assert.equal(napcatConfigStat.mode & 0o777, 0o600)
+            assert.match(fs.readFileSync(dockerLog, 'utf8'), /:\/setup-owner-probe/)
+            assert.match(source, /set_setup_operator_ownership "\$probe_dir"\s+chmod 733 "\$probe_dir"/)
+            assert.deepStrictEqual(
+                fs.readdirSync(installDir).filter((name) => name.startsWith('.setup-bind-owner.')),
+                []
+            )
         } finally {
             fs.rmSync(tempRoot, { recursive: true, force: true })
         }

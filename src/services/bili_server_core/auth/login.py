@@ -1,4 +1,6 @@
+import base64
 import logging
+from urllib.parse import parse_qs, urlsplit
 
 import bilibili_api.login_v2 as login
 
@@ -14,10 +16,19 @@ async def get_login_url():
         auth_log(logger, "info", "login-qrcode-start")
         q = login.QrCodeLogin(login.QrCodeLoginChannel.WEB)
         await q.generate_qrcode()
+        qr_link = q._QrCodeLogin__qr_link
+        qr_key = q._QrCodeLogin__qr_key
+        embedded_key = parse_qs(urlsplit(qr_link).query).get("qrcode_key", [""])[0]
+        if not qr_key or embedded_key != qr_key:
+            raise ValueError("Bilibili login QR key mismatch")
+        picture = q.get_qrcode_picture()
+        if not picture or not picture.content:
+            raise ValueError("Bilibili login QR image is empty")
+        qr_image = "data:image/png;base64," + base64.b64encode(picture.content).decode("ascii")
         auth_log(logger, "info", "login-qrcode-ready")
         return {
             "status": "success",
-            "data": {"url": q._QrCodeLogin__qr_link, "key": q._QrCodeLogin__qr_key},
+            "data": {"url": qr_link, "key": qr_key, "image": qr_image},
         }
     except Exception as e:
         auth_log(logger, "error", "login-qrcode-failed", error=str(e))

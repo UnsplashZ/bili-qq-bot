@@ -184,7 +184,11 @@ class SettingsCommand {
                         // Store pending login
                         this.loginPending.set(key, true);
 
-                        const qrDataUrl = await QRCode.toDataURL(url);
+                        const qrDataUrl = res.data.image || await QRCode.toDataURL(url, {
+                            errorCorrectionLevel: 'M',
+                            margin: 4,
+                            width: 320
+                        });
                         const base64Image = qrDataUrl.replace(/^data:image\/png;base64,/, '');
                         const hint = parts[2] ? '\n提示：当前版本仅支持全局 Cookie 登录，已忽略群号参数。' : '';
                         this.sendGroupMessage(ws, groupId, [
